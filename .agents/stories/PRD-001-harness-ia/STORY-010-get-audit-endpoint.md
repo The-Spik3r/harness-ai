@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Admin Endpoints & Testing"
-status: todo
+status: done
 labels: [backend, api]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-010-get-audit-endpoint.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-010-get-audit-endpoint.report.md
+commit: abcfda3
 depends_on: [STORY-002, STORY-009]
 blocks: [STORY-012]
 skills: []
