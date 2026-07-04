@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - OpenRouter Integration"
-status: todo
+status: in-progress
 labels: [backend, api, integration]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
+plan: .agents/plans/PRD-001-harness-ia/STORY-007-openrouter-client.plan.md
 report: null
 commit: null
 depends_on: [STORY-003]
