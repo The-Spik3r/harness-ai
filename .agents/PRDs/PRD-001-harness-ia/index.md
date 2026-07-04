@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/14 stories done — 14%
+3/14 stories done — 21%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Project scaffolding & configuration loading | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-001-project-scaffolding.plan.md) | `d94c67a` |
 | STORY-002 | SQLite connection & audit_logs schema | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-002-sqlite-audit-schema.plan.md) | `069c3ac` |
-| STORY-003 | Pydantic request/response schemas | technical | ⬜ todo | small | — | — |
+| STORY-003 | Pydantic request/response schemas | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-003-request-response-schemas.plan.md) | `1b71812` |
 | STORY-004 | Duplicate detection service (24h exact-match) | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Suspicious pattern detection service | feature | ⬜ todo | small | — | — |
 | STORY-006 | Audit logging service | feature | ⬜ todo | medium | — | — |
