@@ -6,7 +6,7 @@
 
 ## Progress
 
-7/14 stories done — 50%
+8/14 stories done — 57%
 
 ## Stories
 
@@ -21,7 +21,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 | STORY-005 | Suspicious pattern detection service | feature | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-005-pattern-detection-service.plan.md) | `42724a4` |
 | STORY-006 | Audit logging service | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-006-audit-logging-service.plan.md) | `42b8dbd` |
 | STORY-007 | OpenRouter API client wrapper | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-007-openrouter-client.plan.md) | `6c80f25` |
-| STORY-008 | POST /query endpoint: full interception pipeline | feature | ⬜ todo | medium | — | — |
+| STORY-008 | POST /query endpoint: full interception pipeline | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-008-post-query-pipeline.plan.md) | `8da10c0` |
 | STORY-009 | Admin token authentication middleware | technical | ⬜ todo | small | — | — |
 | STORY-010 | GET /audit endpoint | feature | ⬜ todo | medium | — | — |
 | STORY-011 | GET /stats endpoint | feature | ⬜ todo | medium | — | — |

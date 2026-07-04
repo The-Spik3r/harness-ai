@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - OpenRouter Integration"
-status: todo
+status: done
 labels: [backend, api, security]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-008-post-query-pipeline.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-008-post-query-pipeline.report.md
+commit: 8da10c0
 depends_on: [STORY-004, STORY-005, STORY-006, STORY-007]
 blocks: [STORY-012, STORY-013]
 skills: []
