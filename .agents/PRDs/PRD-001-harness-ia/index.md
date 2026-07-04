@@ -2,19 +2,51 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-001-harness-ia` (base: `main`)
-**Status**: draft
+**Status**: active
+
+## Progress
+
+0/14 stories done — 0%
 
 ## Stories
 
-_No stories yet. Run `/create-stories .agents/PRDs/PRD-001-harness-ia/PRD.md` to generate._
-
 All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story branches.
 
-| ID | Title | Status | Plan | Commit |
-|----|-------|--------|------|--------|
+| ID | Title | Type | Status | Complexity | Plan | Commit |
+|----|-------|------|--------|------------|------|--------|
+| STORY-001 | Project scaffolding & configuration loading | technical | ⬜ todo | small | — | — |
+| STORY-002 | SQLite connection & audit_logs schema | technical | ⬜ todo | small | — | — |
+| STORY-003 | Pydantic request/response schemas | technical | ⬜ todo | small | — | — |
+| STORY-004 | Duplicate detection service (24h exact-match) | feature | ⬜ todo | medium | — | — |
+| STORY-005 | Suspicious pattern detection service | feature | ⬜ todo | small | — | — |
+| STORY-006 | Audit logging service | feature | ⬜ todo | medium | — | — |
+| STORY-007 | OpenRouter API client wrapper | feature | ⬜ todo | medium | — | — |
+| STORY-008 | POST /query endpoint: full interception pipeline | feature | ⬜ todo | medium | — | — |
+| STORY-009 | Admin token authentication middleware | technical | ⬜ todo | small | — | — |
+| STORY-010 | GET /audit endpoint | feature | ⬜ todo | medium | — | — |
+| STORY-011 | GET /stats endpoint | feature | ⬜ todo | medium | — | — |
+| STORY-012 | End-to-end integration test suite | technical | ⬜ todo | medium | — | — |
+| STORY-013 | Docker & docker-compose packaging | technical | ⬜ todo | medium | — | — |
+| STORY-014 | README & usage documentation | technical | ⬜ todo | small | — | — |
 
-## Legend
-- `todo` — not started
-- `in-progress` — plan exists, work underway
-- `done` — committed on epic branch
-- `blocked` — waiting on dependency
+## Status Icons
+- ⬜ todo
+- 🟡 in-progress
+- ✅ done
+- 🔴 blocked
+
+## Dependencies
+
+- STORY-002 blocked by STORY-001
+- STORY-003 blocked by STORY-001
+- STORY-004 blocked by STORY-002, STORY-003
+- STORY-005 blocked by STORY-003
+- STORY-006 blocked by STORY-002, STORY-003
+- STORY-007 blocked by STORY-003
+- STORY-008 blocked by STORY-004, STORY-005, STORY-006, STORY-007
+- STORY-009 blocked by STORY-001
+- STORY-010 blocked by STORY-002, STORY-009
+- STORY-011 blocked by STORY-002, STORY-009
+- STORY-012 blocked by STORY-008, STORY-010, STORY-011
+- STORY-013 blocked by STORY-012
+- STORY-014 blocked by STORY-013
