@@ -6,7 +6,7 @@
 
 ## Progress
 
-11/14 stories done — 79%
+12/14 stories done — 86%
 
 ## Stories
 
@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 | STORY-009 | Admin token authentication middleware | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-009-admin-auth-middleware.plan.md) | `ad50787` |
 | STORY-010 | GET /audit endpoint | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-010-get-audit-endpoint.plan.md) | `abcfda3` |
 | STORY-011 | GET /stats endpoint | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-011-get-stats-endpoint.plan.md) | `615ba4b` |
-| STORY-012 | End-to-end integration test suite | technical | ⬜ todo | medium | — | — |
+| STORY-012 | End-to-end integration test suite | technical | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-012-integration-test-suite.plan.md) | `44266dc` |
 | STORY-013 | Docker & docker-compose packaging | technical | ⬜ todo | medium | — | — |
 | STORY-014 | README & usage documentation | technical | ⬜ todo | small | — | — |
 
