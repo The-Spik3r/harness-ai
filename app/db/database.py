@@ -54,6 +54,20 @@ def insert_audit_log(entry: AuditLog) -> int:
         return cursor.lastrowid
 
 
+def find_duplicate_timestamp(prompt_hash: str, since: str) -> Optional[str]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT timestamp FROM audit_logs
+            WHERE prompt_hash = ? AND timestamp >= ?
+            ORDER BY timestamp ASC
+            LIMIT 1
+            """,
+            (prompt_hash, since),
+        ).fetchone()
+        return row["timestamp"] if row is not None else None
+
+
 def get_audit_log(audit_id: int) -> Optional[AuditLog]:
     with get_connection() as conn:
         row = conn.execute(
