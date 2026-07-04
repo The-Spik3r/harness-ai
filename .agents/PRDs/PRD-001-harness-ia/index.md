@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Project scaffolding & configuration loading | technical | ⬜ todo | small | — | — |
+| STORY-001 | Project scaffolding & configuration loading | technical | 🟡 in-progress | small | [plan](../../plans/PRD-001-harness-ia/STORY-001-project-scaffolding.plan.md) | — |
 | STORY-002 | SQLite connection & audit_logs schema | technical | ⬜ todo | small | — | — |
 | STORY-003 | Pydantic request/response schemas | technical | ⬜ todo | small | — | — |
 | STORY-004 | Duplicate detection service (24h exact-match) | feature | ⬜ todo | medium | — | — |

@@ -7,10 +7,10 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Setup"
-status: todo
+status: in-progress
 labels: [backend, infra]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
+plan: .agents/plans/PRD-001-harness-ia/STORY-001-project-scaffolding.plan.md
 report: null
 commit: null
 depends_on: []
