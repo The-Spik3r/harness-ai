@@ -12,7 +12,7 @@ labels: [backend, refactor]
 epic_branch: epic/PRD-002-reflex-chat-ui
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-001-shared-query-pipeline-extraction.plan.md
 report: .agents/reports/PRD-002-reflex-chat-ui/STORY-001-shared-query-pipeline-extraction.report.md
-commit: PENDING
+commit: 3e04c4e
 depends_on: []
 blocks: [STORY-006]
 skills: []

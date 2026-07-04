@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-002
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-001-shared-query-pipeline-extraction.plan.md
 epic_branch: epic/PRD-002-reflex-chat-ui
-commit: PENDING
+commit: 3e04c4e
 status: COMPLETE
 completed: 2026-07-04
 ---
@@ -12,7 +12,7 @@ completed: 2026-07-04
 
 **Plan**: `.agents/plans/PRD-002-reflex-chat-ui/completed/STORY-001-shared-query-pipeline-extraction.plan.md`
 **Epic Branch**: `epic/PRD-002-reflex-chat-ui`
-**Commit**: PENDING
+**Commit**: `3e04c4e`
 
 ## Summary
 
