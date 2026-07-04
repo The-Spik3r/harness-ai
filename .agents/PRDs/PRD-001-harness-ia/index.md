@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/14 stories done — 29%
+5/14 stories done — 36%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 | STORY-002 | SQLite connection & audit_logs schema | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-002-sqlite-audit-schema.plan.md) | `069c3ac` |
 | STORY-003 | Pydantic request/response schemas | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-003-request-response-schemas.plan.md) | `1b71812` |
 | STORY-004 | Duplicate detection service (24h exact-match) | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-004-duplicate-detection-service.plan.md) | `f4b431f` |
-| STORY-005 | Suspicious pattern detection service | feature | ⬜ todo | small | — | — |
+| STORY-005 | Suspicious pattern detection service | feature | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-005-pattern-detection-service.plan.md) | `42724a4` |
 | STORY-006 | Audit logging service | feature | ⬜ todo | medium | — | — |
 | STORY-007 | OpenRouter API client wrapper | feature | ⬜ todo | medium | — | — |
 | STORY-008 | POST /query endpoint: full interception pipeline | feature | ⬜ todo | medium | — | — |
