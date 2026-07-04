@@ -1,6 +1,17 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-app = FastAPI(title="Harness IA")
+from app.db.database import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Harness IA", lifespan=lifespan)
 
 # Routers are registered here by later stories:
 #   - app.routers.query   (POST /query)          -> STORY-008
