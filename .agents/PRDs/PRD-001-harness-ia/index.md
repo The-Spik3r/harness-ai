@@ -6,7 +6,7 @@
 
 ## Progress
 
-8/14 stories done — 57%
+9/14 stories done — 64%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 | STORY-006 | Audit logging service | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-006-audit-logging-service.plan.md) | `42b8dbd` |
 | STORY-007 | OpenRouter API client wrapper | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-007-openrouter-client.plan.md) | `6c80f25` |
 | STORY-008 | POST /query endpoint: full interception pipeline | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-008-post-query-pipeline.plan.md) | `8da10c0` |
-| STORY-009 | Admin token authentication middleware | technical | ⬜ todo | small | — | — |
+| STORY-009 | Admin token authentication middleware | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-009-admin-auth-middleware.plan.md) | `ad50787` |
 | STORY-010 | GET /audit endpoint | feature | ⬜ todo | medium | — | — |
 | STORY-011 | GET /stats endpoint | feature | ⬜ todo | medium | — | — |
 | STORY-012 | End-to-end integration test suite | technical | ⬜ todo | medium | — | — |

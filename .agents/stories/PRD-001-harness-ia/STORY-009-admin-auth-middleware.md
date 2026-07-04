@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Admin Endpoints & Testing"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-009-admin-auth-middleware.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-009-admin-auth-middleware.report.md
+commit: ad50787
 depends_on: [STORY-001]
 blocks: [STORY-010, STORY-011]
 skills: []
