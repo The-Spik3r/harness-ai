@@ -68,6 +68,25 @@ def find_duplicate_timestamp(prompt_hash: str, since: str) -> Optional[str]:
         return row["timestamp"] if row is not None else None
 
 
+def _row_to_audit_log(row: sqlite3.Row) -> AuditLog:
+    return AuditLog(
+        id=row["id"],
+        timestamp=row["timestamp"],
+        user_id=row["user_id"],
+        device=row["device"],
+        prompt_hash=row["prompt_hash"],
+        prompt_preview=row["prompt_preview"],
+        response_hash=row["response_hash"],
+        response_preview=row["response_preview"],
+        model_used=row["model_used"],
+        tokens_used=row["tokens_used"],
+        was_duplicate_blocked=bool(row["was_duplicate_blocked"]),
+        suspicious_pattern=row["suspicious_pattern"],
+        success=bool(row["success"]),
+        error_message=row["error_message"],
+    )
+
+
 def get_audit_log(audit_id: int) -> Optional[AuditLog]:
     with get_connection() as conn:
         row = conn.execute(
@@ -75,19 +94,19 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
         ).fetchone()
         if row is None:
             return None
-        return AuditLog(
-            id=row["id"],
-            timestamp=row["timestamp"],
-            user_id=row["user_id"],
-            device=row["device"],
-            prompt_hash=row["prompt_hash"],
-            prompt_preview=row["prompt_preview"],
-            response_hash=row["response_hash"],
-            response_preview=row["response_preview"],
-            model_used=row["model_used"],
-            tokens_used=row["tokens_used"],
-            was_duplicate_blocked=bool(row["was_duplicate_blocked"]),
-            suspicious_pattern=row["suspicious_pattern"],
-            success=bool(row["success"]),
-            error_message=row["error_message"],
-        )
+        return _row_to_audit_log(row)
+
+
+def count_audit_logs() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
+        return row["n"]
+
+
+def list_audit_logs(limit: int = 100) -> list[AuditLog]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_row_to_audit_log(row) for row in rows]

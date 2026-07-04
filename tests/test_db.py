@@ -8,7 +8,14 @@ import sqlite3
 import pytest
 
 from app.config import settings
-from app.db.database import get_audit_log, get_connection, init_db, insert_audit_log
+from app.db.database import (
+    count_audit_logs,
+    get_audit_log,
+    get_connection,
+    init_db,
+    insert_audit_log,
+    list_audit_logs,
+)
 from app.db.models import AuditLog
 
 
@@ -93,3 +100,73 @@ def test_schema_has_no_ip_or_location_column(temp_db):
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
+
+
+def test_count_audit_logs_empty_returns_zero(temp_db):
+    assert count_audit_logs() == 0
+
+
+def test_count_audit_logs_reflects_inserted_rows(temp_db):
+    for i in range(3):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 1}T10:00:00Z",
+                user_id="juan@empresa.com",
+                prompt_hash=f"hash{i}",
+            )
+        )
+
+    assert count_audit_logs() == 3
+
+
+def test_list_audit_logs_orders_newest_first(temp_db):
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="a", prompt_hash="h2")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-04T10:00:00Z", user_id="a", prompt_hash="h4")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="a", prompt_hash="h1")
+    )
+
+    entries = list_audit_logs()
+
+    assert [entry.timestamp for entry in entries] == [
+        "2026-07-04T10:00:00Z",
+        "2026-07-02T10:00:00Z",
+        "2026-07-01T10:00:00Z",
+    ]
+
+
+def test_list_audit_logs_respects_limit(temp_db):
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="a", prompt_hash="h1")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="a", prompt_hash="h2")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-03T10:00:00Z", user_id="a", prompt_hash="h3")
+    )
+
+    entries = list_audit_logs(limit=2)
+
+    assert len(entries) == 2
+    assert [entry.timestamp for entry in entries] == [
+        "2026-07-03T10:00:00Z",
+        "2026-07-02T10:00:00Z",
+    ]
+
+
+def test_list_audit_logs_fewer_than_limit_returns_all(temp_db):
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="a", prompt_hash="h1")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="a", prompt_hash="h2")
+    )
+
+    entries = list_audit_logs(limit=100)
+
+    assert len(entries) == 2
