@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Setup"
-status: todo
+status: done
 labels: [backend, db]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-002-sqlite-audit-schema.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-002-sqlite-audit-schema.report.md
+commit: 069c3ac
 depends_on: [STORY-001]
 blocks: [STORY-004, STORY-006, STORY-010, STORY-011]
 skills: []
@@ -28,10 +28,10 @@ As a compliance officer, I want a persistent `audit_logs` table with the exact f
 
 ## Acceptance Criteria
 
-- [ ] Given `DATABASE_URL` (e.g. `sqlite:///harness_ai.db`), when the app starts, then `db/database.py` creates the SQLite file and `audit_logs` table if they don't already exist.
-- [ ] Given the `audit_logs` schema, when inspected, then it has exactly these columns: `id` (PK, autoincrement), `timestamp` (UTC datetime), `user_id`, `device`, `prompt_hash`, `prompt_preview`, `response_hash`, `response_preview`, `model_used`, `tokens_used`, `was_duplicate_blocked`, `suspicious_pattern`, `success`, `error_message` — and no IP/location column of any kind.
-- [ ] Given a test DB session, when a row is inserted via the repository function, then it can be read back with all fields intact.
-- [ ] Given the app restarts against an existing DB file, then no schema is duplicated or errors thrown (idempotent creation).
+- [x] Given `DATABASE_URL` (e.g. `sqlite:///harness_ai.db`), when the app starts, then `db/database.py` creates the SQLite file and `audit_logs` table if they don't already exist.
+- [x] Given the `audit_logs` schema, when inspected, then it has exactly these columns: `id` (PK, autoincrement), `timestamp` (UTC datetime), `user_id`, `device`, `prompt_hash`, `prompt_preview`, `response_hash`, `response_preview`, `model_used`, `tokens_used`, `was_duplicate_blocked`, `suspicious_pattern`, `success`, `error_message` — and no IP/location column of any kind.
+- [x] Given a test DB session, when a row is inserted via the repository function, then it can be read back with all fields intact.
+- [x] Given the app restarts against an existing DB file, then no schema is duplicated or errors thrown (idempotent creation).
 
 ## Technical Notes
 

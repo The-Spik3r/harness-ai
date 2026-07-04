@@ -1,0 +1,14 @@
+services:
+  harness-ai:
+    build: .
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite:///data/harness_ai.db
+    volumes:
+      - harness_data:/app/data
+
+volumes:
+  harness_data:

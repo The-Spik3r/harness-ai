@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Setup"
-status: todo
+status: done
 labels: [backend, infra]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-001-project-scaffolding.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-001-project-scaffolding.report.md
+commit: d94c67a
 depends_on: []
 blocks: [STORY-002, STORY-003, STORY-009]
 skills: []
@@ -28,10 +28,10 @@ As an integrating developer, I want a bootable FastAPI project skeleton with env
 
 ## Acceptance Criteria
 
-- [ ] Given a fresh checkout, when I run `python app.py`, then a FastAPI app starts on `HOST`/`PORT` from env vars (defaulting per Section 9 of the PRD).
-- [ ] Given no `.env` file, when the app starts, then it fails fast with a clear error only if a required var (e.g. `OPENROUTER_API_KEY`) is missing — optional vars fall back to documented defaults.
-- [ ] Given the `config.py` settings object, when imported from any module, then all env vars from PRD Section 9 (`OPENROUTER_API_KEY`, `DATABASE_URL`, `PORT`, `HOST`, `ADMIN_TOKEN`, `LOG_LEVEL`) are exposed as typed attributes.
-- [ ] Given `requirements.txt`, when installed in a clean virtualenv, then the app starts with no missing-dependency errors.
+- [x] Given a fresh checkout, when I run `python app.py`, then a FastAPI app starts on `HOST`/`PORT` from env vars (defaulting per Section 9 of the PRD).
+- [x] Given no `.env` file, when the app starts, then it fails fast with a clear error only if a required var (e.g. `OPENROUTER_API_KEY`) is missing — optional vars fall back to documented defaults.
+- [x] Given the `config.py` settings object, when imported from any module, then all env vars from PRD Section 9 (`OPENROUTER_API_KEY`, `DATABASE_URL`, `PORT`, `HOST`, `ADMIN_TOKEN`, `LOG_LEVEL`) are exposed as typed attributes.
+- [x] Given `requirements.txt`, when installed in a clean virtualenv, then the app starts with no missing-dependency errors.
 
 ## Technical Notes
 

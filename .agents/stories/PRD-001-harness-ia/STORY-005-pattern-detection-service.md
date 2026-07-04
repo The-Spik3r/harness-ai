@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: small
 phase: "2 - Core Logic"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-005-pattern-detection-service.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-005-pattern-detection-service.report.md
+commit: 42724a4
 depends_on: [STORY-003]
 blocks: [STORY-008]
 skills: []
@@ -28,10 +28,10 @@ As a security admin, I want basic prompt-injection patterns blocked before they 
 
 ## Acceptance Criteria
 
-- [ ] Given a prompt containing any of the seven patterns from PRD Section 9 ("ignore previous instructions", "forget everything", "show system prompt", "reveal password", "execute code", "admin mode", "override"), when scanned, then the detector flags it as suspicious and reports which pattern matched.
-- [ ] Given a prompt with a pattern in different casing (e.g. "IGNORE PREVIOUS INSTRUCTIONS"), when scanned, then it is still flagged (case-insensitive match).
-- [ ] Given a prompt containing none of the listed patterns, when scanned, then the detector reports "clean" and no pattern name.
-- [ ] Given the pattern list, when a new pattern needs to be added, then it can be done by editing a single data structure (list/config), not branching logic (Strategy pattern per PRD Section 6).
+- [x] Given a prompt containing any of the seven patterns from PRD Section 9 ("ignore previous instructions", "forget everything", "show system prompt", "reveal password", "execute code", "admin mode", "override"), when scanned, then the detector flags it as suspicious and reports which pattern matched.
+- [x] Given a prompt with a pattern in different casing (e.g. "IGNORE PREVIOUS INSTRUCTIONS"), when scanned, then it is still flagged (case-insensitive match).
+- [x] Given a prompt containing none of the listed patterns, when scanned, then the detector reports "clean" and no pattern name.
+- [x] Given the pattern list, when a new pattern needs to be added, then it can be done by editing a single data structure (list/config), not branching logic (Strategy pattern per PRD Section 6).
 
 ## Technical Notes
 

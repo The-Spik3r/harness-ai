@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Core Logic"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-004-duplicate-detection-service.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-004-duplicate-detection-service.report.md
+commit: f4b431f
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-008]
 skills: []

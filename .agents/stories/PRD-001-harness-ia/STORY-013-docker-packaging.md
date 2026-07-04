@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: medium
 phase: "5 - Docker & Documentation"
-status: todo
+status: done
 labels: [docker, infra]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-013-docker-packaging.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-013-docker-packaging.report.md
+commit: b7b939f
 depends_on: [STORY-012]
 blocks: [STORY-014]
 skills: []

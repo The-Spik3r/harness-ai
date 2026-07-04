@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Core Logic"
-status: todo
+status: done
 labels: [backend, security, db]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-006-audit-logging-service.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-006-audit-logging-service.report.md
+commit: 42b8dbd
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-008]
 skills: []

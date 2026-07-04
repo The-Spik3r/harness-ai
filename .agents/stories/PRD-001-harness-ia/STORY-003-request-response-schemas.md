@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Setup"
-status: todo
+status: done
 labels: [backend, api]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-003-request-response-schemas.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-003-request-response-schemas.report.md
+commit: 1b71812
 depends_on: [STORY-001]
 blocks: [STORY-004, STORY-005, STORY-006, STORY-007]
 skills: []
