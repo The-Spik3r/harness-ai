@@ -18,9 +18,6 @@ app = FastAPI(title="Harness IA", lifespan=lifespan)
 app.include_router(query_router.router)
 app.include_router(admin_router.router)
 
-# Remaining routers registered by later stories:
-#   - app.routers.admin   GET /stats -> STORY-011
-
 
 @app.get("/health")
 def health() -> dict:

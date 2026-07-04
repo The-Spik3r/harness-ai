@@ -110,3 +110,64 @@ def list_audit_logs(limit: int = 100) -> list[AuditLog]:
             (limit,),
         ).fetchall()
         return [_row_to_audit_log(row) for row in rows]
+
+
+def count_blocked_duplicates() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_logs WHERE was_duplicate_blocked = 1"
+        ).fetchone()
+        return row["n"]
+
+
+def count_blocked_suspicious() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_logs WHERE suspicious_pattern IS NOT NULL"
+        ).fetchone()
+        return row["n"]
+
+
+def count_unique_users() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) AS n FROM audit_logs"
+        ).fetchone()
+        return row["n"]
+
+
+def count_successful_queries() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_logs WHERE success = 1"
+        ).fetchone()
+        return row["n"]
+
+
+def top_models(limit: int = 5) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT model_used FROM audit_logs
+            WHERE model_used IS NOT NULL
+            GROUP BY model_used
+            ORDER BY COUNT(*) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [row["model_used"] for row in rows]
+
+
+def top_users(limit: int = 5) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT user_id FROM audit_logs
+            GROUP BY user_id
+            ORDER BY COUNT(*) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [row["user_id"] for row in rows]

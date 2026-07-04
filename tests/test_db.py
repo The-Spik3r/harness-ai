@@ -10,11 +10,17 @@ import pytest
 from app.config import settings
 from app.db.database import (
     count_audit_logs,
+    count_blocked_duplicates,
+    count_blocked_suspicious,
+    count_successful_queries,
+    count_unique_users,
     get_audit_log,
     get_connection,
     init_db,
     insert_audit_log,
     list_audit_logs,
+    top_models,
+    top_users,
 )
 from app.db.models import AuditLog
 
@@ -170,3 +176,184 @@ def test_list_audit_logs_fewer_than_limit_returns_all(temp_db):
     entries = list_audit_logs(limit=100)
 
     assert len(entries) == 2
+
+
+def test_count_blocked_duplicates_counts_only_flagged_rows(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            was_duplicate_blocked=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            was_duplicate_blocked=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+            was_duplicate_blocked=False,
+        )
+    )
+
+    assert count_blocked_duplicates() == 2
+
+
+def test_count_blocked_suspicious_counts_only_flagged_rows(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            suspicious_pattern="override",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            suspicious_pattern="admin mode",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+            suspicious_pattern=None,
+        )
+    )
+
+    assert count_blocked_suspicious() == 2
+
+
+def test_count_unique_users_deduplicates(temp_db):
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="a", prompt_hash="h1")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="a", prompt_hash="h2")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-03T10:00:00Z", user_id="b", prompt_hash="h3")
+    )
+
+    assert count_unique_users() == 2
+
+
+def test_count_successful_queries_counts_only_success_true(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            success=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            success=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+            success=False,
+        )
+    )
+
+    assert count_successful_queries() == 2
+
+
+def test_top_models_ranked_by_count_desc(temp_db):
+    for i in range(3):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"gpt{i}",
+                model_used="gpt-4",
+            )
+        )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-04T10:00:00Z",
+            user_id="a",
+            prompt_hash="claude1",
+            model_used="claude-3-sonnet",
+        )
+    )
+
+    assert top_models() == ["gpt-4", "claude-3-sonnet"]
+
+
+def test_top_models_respects_limit(temp_db):
+    for i in range(3):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"m1-{i}",
+                model_used="model-1",
+            )
+        )
+    for i in range(2):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 4}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"m2-{i}",
+                model_used="model-2",
+            )
+        )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-06T10:00:00Z",
+            user_id="a",
+            prompt_hash="m3-0",
+            model_used="model-3",
+        )
+    )
+
+    result = top_models(limit=2)
+
+    assert result == ["model-1", "model-2"]
+
+
+def test_top_users_ranked_by_count_desc(temp_db):
+    for i in range(3):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"ha{i}",
+            )
+        )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-04T10:00:00Z", user_id="b", prompt_hash="hb1")
+    )
+
+    assert top_users() == ["a", "b"]
+
+
+def test_aggregates_on_empty_db_return_zero_or_empty(temp_db):
+    assert count_blocked_duplicates() == 0
+    assert count_blocked_suspicious() == 0
+    assert count_unique_users() == 0
+    assert count_successful_queries() == 0
+    assert top_models() == []
+    assert top_users() == []
