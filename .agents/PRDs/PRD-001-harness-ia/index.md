@@ -6,7 +6,7 @@
 
 ## Progress
 
-13/14 stories done — 93%
+14/14 stories done — 100%
 
 ## Stories
 
@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-001-harness-ia`. No per-story br
 | STORY-011 | GET /stats endpoint | feature | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-011-get-stats-endpoint.plan.md) | `615ba4b` |
 | STORY-012 | End-to-end integration test suite | technical | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-012-integration-test-suite.plan.md) | `44266dc` |
 | STORY-013 | Docker & docker-compose packaging | technical | ✅ done | medium | [plan](../../plans/PRD-001-harness-ia/completed/STORY-013-docker-packaging.plan.md) | `b7b939f` |
-| STORY-014 | README & usage documentation | technical | ⬜ todo | small | — | — |
+| STORY-014 | README & usage documentation | technical | ✅ done | small | [plan](../../plans/PRD-001-harness-ia/completed/STORY-014-readme-documentation.plan.md) | `8c59001` |
 
 ## Status Icons
 - ⬜ todo

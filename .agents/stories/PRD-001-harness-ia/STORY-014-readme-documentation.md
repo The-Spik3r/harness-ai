@@ -7,12 +7,12 @@ type: technical
 priority: low
 complexity: small
 phase: "5 - Docker & Documentation"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-001-harness-ia
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-001-harness-ia/completed/STORY-014-readme-documentation.plan.md
+report: .agents/reports/PRD-001-harness-ia/STORY-014-readme-documentation.report.md
+commit: 8c59001
 depends_on: [STORY-013]
 blocks: []
 skills: []
