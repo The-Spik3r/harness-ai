@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "5 - Docker packaging & docs"
-status: todo
+status: done
 labels: [devops, docker]
 epic_branch: epic/PRD-002-reflex-chat-ui
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-008-docker-single-port-packaging.plan.md
+report: .agents/reports/PRD-002-reflex-chat-ui/STORY-008-docker-single-port-packaging.report.md
+commit: PENDING
 depends_on: [STORY-007]
 blocks: [STORY-009]
 skills: []
 created: 2026-07-04
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 # STORY-008: Multi-stage Docker packaging for single-port image

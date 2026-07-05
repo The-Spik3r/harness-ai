@@ -6,7 +6,7 @@
 
 ## Progress
 
-7/9 stories done — 78%
+8/9 stories done — 89%
 
 ## Stories
 
@@ -21,7 +21,7 @@ All stories commit on the epic branch `epic/PRD-002-reflex-chat-ui`. No per-stor
 | STORY-005 | Session user_id entry field | feature | ✅ done | small | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-005-session-user-id-entry.plan.md) | `688ce98` |
 | STORY-006 | Wire ChatState.send() to the shared query pipeline | feature | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md) | `682ee14` |
 | STORY-007 | Chat pipeline unit test suite | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md) | `6d31cb3` |
-| STORY-008 | Multi-stage Docker packaging for single-port image | technical | ⬜ todo | medium | — | — |
+| STORY-008 | Multi-stage Docker packaging for single-port image | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-008-docker-single-port-packaging.plan.md) | PENDING |
 | STORY-009 | README chat UI quickstart documentation | technical | ⬜ todo | small | — | — |
 
 ## Status Icons
