@@ -4,7 +4,13 @@ __pycache__/
 *.pyc
 .git/
 .env
+**/.env
 *.db
 .pytest_cache/
 .agents/
 .claude/
+chat_ui/.web/
+chat_ui/.states/
+chat_ui/__pycache__/
+chat_ui/harness_ai.db
+chat_ui/reflex.log

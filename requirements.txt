@@ -6,3 +6,4 @@ httpx
 python-dotenv
 pytest
 pytest-asyncio
+reflex==0.9.6.post1
