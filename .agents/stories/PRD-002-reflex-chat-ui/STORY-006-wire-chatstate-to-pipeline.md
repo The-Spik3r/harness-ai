@@ -12,7 +12,7 @@ labels: [frontend, backend, integration]
 epic_branch: epic/PRD-002-reflex-chat-ui
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md
 report: .agents/reports/PRD-002-reflex-chat-ui/STORY-006-wire-chatstate-to-pipeline.report.md
-commit: PENDING
+commit: 682ee14
 depends_on: [STORY-001, STORY-005]
 blocks: [STORY-007]
 skills: []

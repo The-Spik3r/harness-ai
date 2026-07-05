@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-002
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md
 epic_branch: epic/PRD-002-reflex-chat-ui
-commit: PENDING
+commit: 682ee14
 status: COMPLETE
 completed: 2026-07-05
 ---
@@ -12,7 +12,7 @@ completed: 2026-07-05
 
 **Plan**: `.agents/plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md`
 **Epic Branch**: `epic/PRD-002-reflex-chat-ui`
-**Commit**: PENDING (see story frontmatter after commit)
+**Commit**: `682ee14`
 
 ## Summary
 
