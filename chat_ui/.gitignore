@@ -4,3 +4,5 @@
 *.db
 assets/external/
 __pycache__/
+*.log
+requirements.txt
