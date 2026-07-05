@@ -7,17 +7,17 @@ type: technical
 priority: low
 complexity: small
 phase: "5 - Docker packaging & docs"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-002-reflex-chat-ui
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-009-readme-chat-ui-docs.plan.md
+report: .agents/reports/PRD-002-reflex-chat-ui/STORY-009-readme-chat-ui-docs.report.md
+commit: PENDING
 depends_on: [STORY-008]
 blocks: []
 skills: []
 created: 2026-07-04
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 # STORY-009: README chat UI quickstart documentation

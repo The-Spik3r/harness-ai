@@ -5,6 +5,7 @@ Harness IA is a control interceptor that sits between your organization's users 
 ## Features
 
 - **`POST /query`** — single entry point that intercepts prompt in / response out, forwarding to OpenRouter only when the request passes both checks below.
+- **Chat UI** — a browser-based chat, served from the same port as the API, that sends every message through the exact same pipeline as `POST /query`.
 - **Duplicate blocking** — exact-match (word-for-word) detection of the same prompt within a rolling 24h window.
 - **Prompt-injection blocking** — case-insensitive substring match against a fixed pattern list (e.g. "ignore previous instructions").
 - **Full audit logging** — every request (success or blocked) writes one row to SQLite: user, device, hashed prompt/response with a 500-char preview, model, tokens, flags, timestamp. No IP or geolocation is ever captured.
@@ -40,6 +41,27 @@ curl http://localhost:8000/health
 ```
 
 The SQLite database persists across container restarts via a named volume, so audit history isn't lost on redeploy.
+
+## Chat UI
+
+Alongside the `curl`-based API below, the harness ships a browser chat — no separate service, no second port.
+
+Open it in a browser after either quickstart above:
+
+```
+http://localhost:8000/
+```
+
+The chat UI and the REST API share the exact same process, port, and query pipeline (duplicate check → pattern check → OpenRouter call → audit log): a prompt sent from the chat produces the identical audit row a `curl -X POST /query` call would.
+
+**Session identity** — the first time you open the chat, you're asked to enter a `user_id` in a plain text field ("Enter a user ID to start chatting"). This is not a login: no password, token, or OAuth — it's the same trust model as the `user_id` field already required by `POST /query`. It's asked once per browser session; subsequent messages reuse it automatically.
+
+**Message rendering** — your own messages appear right-aligned; a successful model response renders as a left-aligned assistant bubble. A blocked message (duplicate within 24h, or a suspicious pattern match) renders as a distinct centered bubble with the same `reason` text the REST API returns (e.g. `Blocked — Duplicate query within 24 hours (first sent at ...)`) — it is never silently dropped.
+
+**Known limitations (MVP)**:
+- No token-by-token streaming — the full response renders once available, same as `POST /query` today.
+- No persisted chat history — messages don't survive a page reload or a new browser session.
+- No login/auth beyond the `user_id` field — same trust model PRD-001 already uses for `POST /query`.
 
 ## Environment Variables
 
