@@ -12,7 +12,7 @@ labels: [docs]
 epic_branch: epic/PRD-002-reflex-chat-ui
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-009-readme-chat-ui-docs.plan.md
 report: .agents/reports/PRD-002-reflex-chat-ui/STORY-009-readme-chat-ui-docs.report.md
-commit: PENDING
+commit: 5591895
 depends_on: [STORY-008]
 blocks: []
 skills: []

@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-002
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-009-readme-chat-ui-docs.plan.md
 epic_branch: epic/PRD-002-reflex-chat-ui
-commit: PENDING
+commit: 5591895
 status: COMPLETE
 completed: 2026-07-05
 ---
@@ -12,7 +12,7 @@ completed: 2026-07-05
 
 **Plan**: `.agents/plans/PRD-002-reflex-chat-ui/completed/STORY-009-readme-chat-ui-docs.plan.md`
 **Epic Branch**: `epic/PRD-002-reflex-chat-ui`
-**Commit**: PENDING (see story frontmatter after commit)
+**Commit**: `5591895`
 
 ## Summary
 
