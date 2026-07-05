@@ -1,5 +1,3 @@
-"""Welcome to Reflex! This file outlines the steps to create a basic app."""
-
 import sys
 from pathlib import Path
 
@@ -9,10 +7,10 @@ if str(REPO_ROOT) not in sys.path:
 
 import reflex as rx
 
-from rxconfig import config
-
 from app.db.database import init_db
 from app.main import app as fastapi_app
+
+from chat_ui.components.chat import chat_input, message_list
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
 # new outer Starlette app whose own lifespan runs instead of fastapi_app's —
@@ -22,30 +20,13 @@ from app.main import app as fastapi_app
 init_db()
 
 
-class State(rx.State):
-    """The app state."""
-
-
 def index() -> rx.Component:
-    # Welcome Page (Index)
-    return rx.container(
-        rx.color_mode.button(position="top-right"),
-        rx.vstack(
-            rx.heading("Welcome to Reflex!", size="9"),
-            rx.text(
-                "Get started by editing ",
-                rx.code(f"{config.app_name}/{config.app_name}.py"),
-                size="5",
-            ),
-            rx.link(
-                rx.button("Check out our docs!"),
-                href="https://reflex.dev/docs/getting-started/introduction/",
-                is_external=True,
-            ),
-            spacing="5",
-            justify="center",
-            min_height="85vh",
-        ),
+    return rx.vstack(
+        message_list(),
+        chat_input(),
+        height="100vh",
+        width="100%",
+        spacing="0",
     )
 
 
