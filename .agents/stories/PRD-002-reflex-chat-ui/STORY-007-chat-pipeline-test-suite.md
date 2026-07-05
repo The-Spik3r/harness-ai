@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Wire chat to the shared pipeline"
-status: todo
+status: done
 labels: [testing]
 epic_branch: epic/PRD-002-reflex-chat-ui
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md
+report: .agents/reports/PRD-002-reflex-chat-ui/STORY-007-chat-pipeline-test-suite.report.md
+commit: PENDING
 depends_on: [STORY-006]
 blocks: [STORY-008]
 skills: []
 created: 2026-07-04
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 # STORY-007: Chat pipeline unit test suite
