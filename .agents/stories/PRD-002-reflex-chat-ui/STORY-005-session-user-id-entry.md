@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "4 - Wire chat to the shared pipeline"
-status: todo
+status: done
 labels: [frontend, reflex, ui]
 epic_branch: epic/PRD-002-reflex-chat-ui
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-005-session-user-id-entry.plan.md
+report: .agents/reports/PRD-002-reflex-chat-ui/STORY-005-session-user-id-entry.report.md
+commit: PENDING
 depends_on: [STORY-004]
 blocks: [STORY-006]
 skills: []
 created: 2026-07-04
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 # STORY-005: Session user_id entry field

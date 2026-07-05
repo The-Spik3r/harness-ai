@@ -50,6 +50,29 @@ def message_list() -> rx.Component:
     )
 
 
+def user_id_prompt() -> rx.Component:
+    """Full-page form collecting the session's user_id once, before the chat becomes usable."""
+    return rx.center(
+        rx.form(
+            rx.vstack(
+                rx.text("Enter a user ID to start chatting", size="4", weight="bold"),
+                rx.input(
+                    value=ChatState.user_id_input,
+                    on_change=ChatState.set_user_id_input,
+                    placeholder="user_id",
+                    width="100%",
+                ),
+                rx.button("Continue", type="submit"),
+                spacing="3",
+                width="20rem",
+            ),
+            on_submit=ChatState.submit_user_id,
+        ),
+        height="100vh",
+        width="100%",
+    )
+
+
 def chat_input() -> rx.Component:
     """Input bar with a text field and a send button, submitted via Enter or click."""
     return rx.form(

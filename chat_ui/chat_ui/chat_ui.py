@@ -10,7 +10,8 @@ import reflex as rx
 from app.db.database import init_db
 from app.main import app as fastapi_app
 
-from chat_ui.components.chat import chat_input, message_list
+from chat_ui.components.chat import chat_input, message_list, user_id_prompt
+from chat_ui.state import ChatState
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
 # new outer Starlette app whose own lifespan runs instead of fastapi_app's —
@@ -21,12 +22,16 @@ init_db()
 
 
 def index() -> rx.Component:
-    return rx.vstack(
-        message_list(),
-        chat_input(),
-        height="100vh",
-        width="100%",
-        spacing="0",
+    return rx.cond(
+        ChatState.user_id != "",
+        rx.vstack(
+            message_list(),
+            chat_input(),
+            height="100vh",
+            width="100%",
+            spacing="0",
+        ),
+        user_id_prompt(),
     )
 
 
