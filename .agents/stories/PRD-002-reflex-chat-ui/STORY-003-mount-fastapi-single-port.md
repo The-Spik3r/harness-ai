@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Reflex scaffolding & single-process mount"
-status: todo
+status: done
 labels: [backend, reflex, integration]
 epic_branch: epic/PRD-002-reflex-chat-ui
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-003-mount-fastapi-single-port.plan.md
+report: .agents/reports/PRD-002-reflex-chat-ui/STORY-003-mount-fastapi-single-port.report.md
+commit: 336427a
 depends_on: [STORY-002]
 blocks: [STORY-004]
 skills: []
 created: 2026-07-04
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 # STORY-003: Mount existing FastAPI app into Reflex (single-port process)
