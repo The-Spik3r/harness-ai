@@ -6,7 +6,7 @@
 
 ## Progress
 
-3/9 stories done — 33%
+4/9 stories done — 44%
 
 ## Stories
 
@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-002-reflex-chat-ui`. No per-stor
 | STORY-001 | Extract run_query(...) shared pipeline function | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-001-shared-query-pipeline-extraction.plan.md) | `3e04c4e` |
 | STORY-002 | Reflex project scaffolding & dependency setup | technical | ✅ done | small | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-002-reflex-project-scaffolding.plan.md) | `f669762` |
 | STORY-003 | Mount existing FastAPI app into Reflex (single-port process) | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-003-mount-fastapi-single-port.plan.md) | `336427a` |
-| STORY-004 | Claude-like chat UI components (static) | feature | ⬜ todo | medium | — | — |
+| STORY-004 | Claude-like chat UI components (static) | feature | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-004-chat-ui-components.plan.md) | `4cc0018` |
 | STORY-005 | Session user_id entry field | feature | ⬜ todo | small | — | — |
 | STORY-006 | Wire ChatState.send() to the shared query pipeline | feature | ⬜ todo | medium | — | — |
 | STORY-007 | Chat pipeline unit test suite | technical | ⬜ todo | medium | — | — |
