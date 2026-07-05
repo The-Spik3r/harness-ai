@@ -12,7 +12,7 @@ labels: [devops, docker]
 epic_branch: epic/PRD-002-reflex-chat-ui
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-008-docker-single-port-packaging.plan.md
 report: .agents/reports/PRD-002-reflex-chat-ui/STORY-008-docker-single-port-packaging.report.md
-commit: PENDING
+commit: 75e5ad6
 depends_on: [STORY-007]
 blocks: [STORY-009]
 skills: []

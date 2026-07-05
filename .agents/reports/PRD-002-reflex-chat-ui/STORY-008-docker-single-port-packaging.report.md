@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-002
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-008-docker-single-port-packaging.plan.md
 epic_branch: epic/PRD-002-reflex-chat-ui
-commit: PENDING
+commit: 75e5ad6
 status: COMPLETE
 completed: 2026-07-05
 ---
@@ -12,7 +12,7 @@ completed: 2026-07-05
 
 **Plan**: `.agents/plans/PRD-002-reflex-chat-ui/completed/STORY-008-docker-single-port-packaging.plan.md`
 **Epic Branch**: `epic/PRD-002-reflex-chat-ui`
-**Commit**: PENDING (see story frontmatter after commit)
+**Commit**: `75e5ad6`
 
 ## Summary
 
