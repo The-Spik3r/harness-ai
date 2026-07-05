@@ -20,7 +20,7 @@ All stories commit on the epic branch `epic/PRD-002-reflex-chat-ui`. No per-stor
 | STORY-004 | Claude-like chat UI components (static) | feature | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-004-chat-ui-components.plan.md) | `4cc0018` |
 | STORY-005 | Session user_id entry field | feature | ✅ done | small | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-005-session-user-id-entry.plan.md) | `688ce98` |
 | STORY-006 | Wire ChatState.send() to the shared query pipeline | feature | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md) | `682ee14` |
-| STORY-007 | Chat pipeline unit test suite | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md) | PENDING |
+| STORY-007 | Chat pipeline unit test suite | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md) | `6d31cb3` |
 | STORY-008 | Multi-stage Docker packaging for single-port image | technical | ⬜ todo | medium | — | — |
 | STORY-009 | README chat UI quickstart documentation | technical | ⬜ todo | small | — | — |
 

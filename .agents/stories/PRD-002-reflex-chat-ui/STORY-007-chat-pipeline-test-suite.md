@@ -12,7 +12,7 @@ labels: [testing]
 epic_branch: epic/PRD-002-reflex-chat-ui
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md
 report: .agents/reports/PRD-002-reflex-chat-ui/STORY-007-chat-pipeline-test-suite.report.md
-commit: PENDING
+commit: 6d31cb3
 depends_on: [STORY-006]
 blocks: [STORY-008]
 skills: []

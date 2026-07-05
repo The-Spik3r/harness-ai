@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-002
 plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md
 epic_branch: epic/PRD-002-reflex-chat-ui
-commit: PENDING
+commit: 6d31cb3
 status: COMPLETE
 completed: 2026-07-05
 ---
@@ -12,7 +12,7 @@ completed: 2026-07-05
 
 **Plan**: `.agents/plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md`
 **Epic Branch**: `epic/PRD-002-reflex-chat-ui`
-**Commit**: PENDING (see story frontmatter after commit)
+**Commit**: `6d31cb3`
 
 ## Summary
 
