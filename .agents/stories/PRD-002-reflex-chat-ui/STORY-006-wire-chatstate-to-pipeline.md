@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "4 - Wire chat to the shared pipeline"
-status: todo
+status: done
 labels: [frontend, backend, integration]
 epic_branch: epic/PRD-002-reflex-chat-ui
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md
+report: .agents/reports/PRD-002-reflex-chat-ui/STORY-006-wire-chatstate-to-pipeline.report.md
+commit: PENDING
 depends_on: [STORY-001, STORY-005]
 blocks: [STORY-007]
 skills: []
 created: 2026-07-04
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 # STORY-006: Wire ChatState.send() to the shared query pipeline

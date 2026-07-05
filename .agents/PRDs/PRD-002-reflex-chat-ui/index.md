@@ -6,7 +6,7 @@
 
 ## Progress
 
-5/9 stories done — 56%
+6/9 stories done — 67%
 
 ## Stories
 
@@ -19,7 +19,7 @@ All stories commit on the epic branch `epic/PRD-002-reflex-chat-ui`. No per-stor
 | STORY-003 | Mount existing FastAPI app into Reflex (single-port process) | technical | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-003-mount-fastapi-single-port.plan.md) | `336427a` |
 | STORY-004 | Claude-like chat UI components (static) | feature | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-004-chat-ui-components.plan.md) | `4cc0018` |
 | STORY-005 | Session user_id entry field | feature | ✅ done | small | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-005-session-user-id-entry.plan.md) | `688ce98` |
-| STORY-006 | Wire ChatState.send() to the shared query pipeline | feature | ⬜ todo | medium | — | — |
+| STORY-006 | Wire ChatState.send() to the shared query pipeline | feature | ✅ done | medium | [plan](../../plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md) | PENDING |
 | STORY-007 | Chat pipeline unit test suite | technical | ⬜ todo | medium | — | — |
 | STORY-008 | Multi-stage Docker packaging for single-port image | technical | ⬜ todo | medium | — | — |
 | STORY-009 | README chat UI quickstart documentation | technical | ⬜ todo | small | — | — |
