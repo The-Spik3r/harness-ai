@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Presidio Integration"
-status: in-progress
+status: done
 labels: [backend, pii, nlp]
 epic_branch: epic/PRD-003-pii-redaction
-plan: .agents/plans/PRD-003-pii-redaction/STORY-001-pii-redactor-service.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-001-pii-redactor-service.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-001-pii-redactor-service.report.md
+commit: 0495068
 depends_on: []
 blocks: [STORY-002, STORY-005]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-07-25
 ---
 
 # STORY-001: Presidio PII redactor service

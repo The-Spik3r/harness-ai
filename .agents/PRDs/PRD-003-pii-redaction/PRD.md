@@ -6,7 +6,7 @@ status: draft
 base_branch: main
 epic_branch: epic/PRD-003-pii-redaction
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-07-25
 ---
 
 ## 1. Executive Summary
