@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "2 - Pipeline Wiring"
-status: todo
+status: done
 labels: [backend, api, pii]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-007-query-response-pii-signal.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-007-query-response-pii-signal.report.md
+commit: 61e402c
 depends_on: [STORY-006]
 blocks: [STORY-010]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-08-01
 ---
 
 # STORY-007: POST /query response — pii_redacted signal field
