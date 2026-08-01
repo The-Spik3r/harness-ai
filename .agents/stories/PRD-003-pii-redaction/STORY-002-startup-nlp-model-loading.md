@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Presidio Integration"
-status: in-progress
+status: done
 labels: [backend, pii, performance]
 epic_branch: epic/PRD-003-pii-redaction
-plan: .agents/plans/PRD-003-pii-redaction/STORY-002-startup-nlp-model-loading.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-002-startup-nlp-model-loading.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-002-startup-nlp-model-loading.report.md
+commit: 358ddc6
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-011]
 skills: []
 created: 2026-07-24
-updated: 2026-07-26
+updated: 2026-07-31
 ---
 
 # STORY-002: Load Presidio NLP model once at FastAPI startup
