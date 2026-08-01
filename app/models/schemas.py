@@ -17,6 +17,8 @@ class QuerySuccessResponse(BaseModel):
     audit_id: int
     model_used: str
     tokens_used: int
+    pii_redacted: bool = False
+    pii_entities_masked: List[str] = []
 
 
 class QueryBlockedDuplicateResponse(BaseModel):

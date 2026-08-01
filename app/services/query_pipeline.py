@@ -97,6 +97,8 @@ def run_query(
         )
         raise
 
+    masked_entities = sorted(set(input_entities) | set(output_entities))
+
     audit_id = log_query(
         user_id=user_id,
         prompt=prompt,
@@ -107,7 +109,7 @@ def run_query(
         success=True,
         pii_detected_input=bool(input_entities),
         pii_detected_output=bool(output_entities),
-        pii_entities=sorted(set(input_entities) | set(output_entities)),
+        pii_entities=masked_entities,
     )
 
     return QuerySuccessResponse(
@@ -115,4 +117,6 @@ def run_query(
         audit_id=audit_id,
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
+        pii_redacted=bool(masked_entities),
+        pii_entities_masked=masked_entities,
     )

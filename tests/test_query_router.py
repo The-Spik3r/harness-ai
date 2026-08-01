@@ -93,6 +93,8 @@ def test_clean_prompt_success_returns_expected_shape_and_logs_row(temp_db, monke
         "audit_id": body["audit_id"],
         "model_used": "gpt-4",
         "tokens_used": 12,
+        "pii_redacted": False,
+        "pii_entities_masked": [],
     }
     assert _count_audit_rows() == 1
 
@@ -512,3 +514,111 @@ def test_output_redaction_failure_row_keeps_raw_response_and_model(temp_db, monk
     assert entry.tokens_used == 9
     assert entry.pii_detected_input is True
     assert entry.pii_entities == "EMAIL_ADDRESS"
+
+
+def test_pii_in_prompt_sets_redaction_signal(temp_db, monkeypatch):
+    monkeypatch.setattr("app.routers.query.call_openrouter", _capturing_openrouter([]))
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    body = response.json()
+
+    assert body["pii_redacted"] is True
+    assert body["pii_entities_masked"] == ["EMAIL_ADDRESS"]
+
+
+def test_pii_in_response_sets_redaction_signal(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+    body = response.json()
+
+    assert body["pii_redacted"] is True
+    assert body["pii_entities_masked"] == ["EMAIL_ADDRESS", "PERSON"]
+
+
+def test_signal_entities_merged_and_deduplicated_across_directions(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    body = response.json()
+
+    # prompt -> EMAIL_ADDRESS; response -> EMAIL_ADDRESS + PERSON; union is 2 types
+    assert body["pii_redacted"] is True
+    assert body["pii_entities_masked"] == ["EMAIL_ADDRESS", "PERSON"]
+
+
+def test_signal_matches_audit_row_entities(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    body = response.json()
+    entry = get_audit_log(body["audit_id"])
+
+    assert body["pii_entities_masked"] == entry.pii_entities.split(",")
+    assert body["pii_redacted"] is (entry.pii_detected_input or entry.pii_detected_output)
+
+
+def test_clean_query_reports_no_redaction(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_CLEAN_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+    body = response.json()
+
+    assert body["pii_redacted"] is False
+    assert body["pii_entities_masked"] == []
+
+
+def test_redaction_disabled_reports_no_redaction(temp_db, monkeypatch):
+    monkeypatch.setattr(settings, "PII_REDACTION_ENABLED", False)
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    body = response.json()
+
+    assert body["response"] == _PII_RESPONSE
+    assert body["pii_redacted"] is False
+    assert body["pii_entities_masked"] == []
+
+
+def test_existing_success_fields_unchanged_alongside_new_signal(temp_db, monkeypatch):
+    seen = []
+    monkeypatch.setattr("app.routers.query.call_openrouter", _capturing_openrouter(seen))
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    body = response.json()
+
+    assert seen == [_REDACTED_PROMPT]
+    assert body == {
+        "status": "SUCCESS",
+        "response": "drafted",
+        "audit_id": body["audit_id"],
+        "model_used": "gpt-4",
+        "tokens_used": 9,
+        "pii_redacted": True,
+        "pii_entities_masked": ["EMAIL_ADDRESS"],
+    }
+    assert isinstance(body["audit_id"], int)

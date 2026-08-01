@@ -42,6 +42,8 @@ def test_query_success_response_shape():
         "audit_id": 1,
         "model_used": "gpt-4",
         "tokens_used": 45,
+        "pii_redacted": False,
+        "pii_entities_masked": [],
     }
 
 
@@ -117,3 +119,47 @@ def test_stats_response_shape():
         "top_models": ["gpt-4", "claude-3-sonnet"],
         "top_users": ["juan@empresa.com", "maria@empresa.com"],
     }
+
+
+def test_query_success_response_with_pii_signal_shape():
+    response = QuerySuccessResponse(
+        response="Sure, I'll draft a reply to <EMAIL_ADDRESS>.",
+        audit_id=1,
+        model_used="gpt-4",
+        tokens_used=45,
+        pii_redacted=True,
+        pii_entities_masked=["EMAIL_ADDRESS"],
+    )
+    assert response.model_dump() == {
+        "status": "SUCCESS",
+        "response": "Sure, I'll draft a reply to <EMAIL_ADDRESS>.",
+        "audit_id": 1,
+        "model_used": "gpt-4",
+        "tokens_used": 45,
+        "pii_redacted": True,
+        "pii_entities_masked": ["EMAIL_ADDRESS"],
+    }
+
+
+def test_query_success_response_pii_defaults_are_not_shared_between_instances():
+    first = QuerySuccessResponse(
+        response="a", audit_id=1, model_used="gpt-4", tokens_used=1
+    )
+    second = QuerySuccessResponse(
+        response="b", audit_id=2, model_used="gpt-4", tokens_used=1
+    )
+    first.pii_entities_masked.append("PERSON")
+
+    assert second.pii_entities_masked == []
+
+
+def test_query_request_contract_is_unchanged():
+    assert sorted(QueryRequest.model_fields) == [
+        "device",
+        "model",
+        "openrouter_api_key",
+        "prompt",
+        "user_id",
+    ]
+    assert QueryRequest.model_fields["user_id"].is_required()
+    assert QueryRequest.model_fields["prompt"].is_required()
