@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "3 - Isolation Testing"
-status: todo
+status: done
 labels: [backend, testing, pii, security]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-008-dedup-pattern-isolation-tests.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-008-dedup-pattern-isolation-tests.report.md
+commit: 58ee0a6
 depends_on: [STORY-006]
 blocks: [STORY-010]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-08-01
 ---
 
 # STORY-008: Tests — redaction cannot affect dedup/pattern-check behavior
