@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline Wiring"
-status: todo
+status: done
 labels: [backend, pii, api]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-005-pipeline-input-redaction.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-005-pipeline-input-redaction.report.md
+commit: c69a656
 depends_on: [STORY-001, STORY-002]
 blocks: [STORY-006, STORY-008]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-07-31
 ---
 
 # STORY-005: Redact prompt before forwarding to OpenRouter

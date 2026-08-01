@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/12 stories done — 33%
+5/12 stories done — 42%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-003-pii-redaction`. No per-story
 | STORY-002 | Load Presidio NLP model once at FastAPI startup | technical | ✅ done | small | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-002-startup-nlp-model-loading.plan.md) | `358ddc6` |
 | STORY-003 | audit_logs schema: PII telemetry columns | technical | ✅ done | small | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-003-audit-log-pii-schema.plan.md) | `c8b1195` |
 | STORY-004 | Audit logger records PII telemetry (raw preview unchanged) | feature | ✅ done | small | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-004-audit-logger-pii-telemetry.plan.md) | `1347e53` |
-| STORY-005 | Redact prompt before forwarding to OpenRouter | feature | ⬜ todo | medium | — | — |
+| STORY-005 | Redact prompt before forwarding to OpenRouter | feature | ✅ done | medium | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-005-pipeline-input-redaction.plan.md) | `c69a656` |
 | STORY-006 | Redact model response before returning to caller | feature | ⬜ todo | medium | — | — |
 | STORY-007 | POST /query response: pii_redacted signal field | feature | ⬜ todo | small | — | — |
 | STORY-008 | Tests: redaction cannot affect dedup/pattern-check behavior | technical | ⬜ todo | medium | — | — |
