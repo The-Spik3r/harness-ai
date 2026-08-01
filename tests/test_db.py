@@ -58,6 +58,9 @@ def test_insert_and_read_round_trip(temp_db):
         suspicious_pattern="override",
         success=False,
         error_message="upstream timeout",
+        pii_detected_input=True,
+        pii_detected_output=True,
+        pii_entities="EMAIL_ADDRESS,PERSON",
     )
 
     new_id = insert_audit_log(entry)
@@ -78,6 +81,46 @@ def test_insert_and_read_round_trip(temp_db):
     assert fetched.suspicious_pattern == entry.suspicious_pattern
     assert fetched.success is False
     assert fetched.error_message == entry.error_message
+    assert fetched.pii_detected_input is True
+    assert fetched.pii_detected_output is True
+    assert fetched.pii_entities == "EMAIL_ADDRESS,PERSON"
+
+
+def test_pii_fields_default_when_not_supplied(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-31T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.pii_detected_input is False
+    assert fetched.pii_detected_output is False
+    assert fetched.pii_entities is None
+
+
+def test_pii_fields_round_trip_via_list_audit_logs(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-31T11:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            pii_detected_input=True,
+            pii_detected_output=False,
+            pii_entities="PHONE_NUMBER",
+        )
+    )
+
+    entries = list_audit_logs()
+
+    assert len(entries) == 1
+    assert entries[0].pii_detected_input is True
+    assert entries[0].pii_detected_output is False
+    assert entries[0].pii_entities == "PHONE_NUMBER"
 
 
 def test_get_audit_log_missing_id_returns_none(temp_db):
@@ -103,6 +146,9 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "suspicious_pattern",
         "success",
         "error_message",
+        "pii_detected_input",
+        "pii_detected_output",
+        "pii_entities",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)

@@ -32,8 +32,9 @@ def insert_audit_log(entry: AuditLog) -> int:
             INSERT INTO audit_logs (
                 timestamp, user_id, device, prompt_hash, prompt_preview,
                 response_hash, response_preview, model_used, tokens_used,
-                was_duplicate_blocked, suspicious_pattern, success, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                was_duplicate_blocked, suspicious_pattern, success, error_message,
+                pii_detected_input, pii_detected_output, pii_entities
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -49,6 +50,9 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.suspicious_pattern,
                 int(entry.success),
                 entry.error_message,
+                int(entry.pii_detected_input),
+                int(entry.pii_detected_output),
+                entry.pii_entities,
             ),
         )
         return cursor.lastrowid
@@ -84,6 +88,9 @@ def _row_to_audit_log(row: sqlite3.Row) -> AuditLog:
         suspicious_pattern=row["suspicious_pattern"],
         success=bool(row["success"]),
         error_message=row["error_message"],
+        pii_detected_input=bool(row["pii_detected_input"]),
+        pii_detected_output=bool(row["pii_detected_output"]),
+        pii_entities=row["pii_entities"],
     )
 
 
