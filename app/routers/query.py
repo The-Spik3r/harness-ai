@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from app.models.schemas import QueryRequest, QueryResponse
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.openrouter_client import OpenRouterError, call_openrouter
+from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 
 router = APIRouter()
@@ -23,6 +24,8 @@ def query(request: QueryRequest) -> QueryResponse:
             call_openrouter=call_openrouter,
         )
     except DuplicateCheckError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except PiiRedactorError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except OpenRouterError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

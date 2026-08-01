@@ -9,6 +9,7 @@ from app.services.audit_logger import log_query
 from app.services.duplicate_checker import check_duplicate
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
 from app.services.pattern_detector import detect_suspicious_pattern
+from app.services.pii_redactor import PiiRedactorError, redact
 
 QueryPipelineResult = Union[
     QuerySuccessResponse, QueryBlockedDuplicateResponse, QueryBlockedSuspiciousResponse
@@ -53,7 +54,21 @@ def run_query(
         )
 
     try:
-        openrouter_result = call_openrouter(prompt, model=model, api_key=openrouter_api_key)
+        redacted_prompt, input_entities = redact(prompt)
+    except PiiRedactorError as exc:
+        log_query(
+            user_id=user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=str(exc),
+        )
+        raise
+
+    try:
+        openrouter_result = call_openrouter(
+            redacted_prompt, model=model, api_key=openrouter_api_key
+        )
     except OpenRouterError as exc:
         log_query(
             user_id=user_id,
