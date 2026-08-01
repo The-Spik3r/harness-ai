@@ -5,11 +5,13 @@ from fastapi import FastAPI
 from app.db.database import init_db
 from app.routers import admin as admin_router
 from app.routers import query as query_router
+from app.services import pii_redactor
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    pii_redactor.load()
     yield
 
 

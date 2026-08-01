@@ -40,6 +40,12 @@ def _get_anonymizer() -> AnonymizerEngine:
     return _anonymizer
 
 
+def load() -> None:
+    if not settings.PII_REDACTION_ENABLED:
+        return
+    _get_analyzer()
+
+
 def redact(text: str) -> Tuple[str, List[str]]:
     if not settings.PII_REDACTION_ENABLED or not text:
         return text, []

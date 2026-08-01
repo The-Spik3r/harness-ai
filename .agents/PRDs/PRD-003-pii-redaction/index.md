@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-003-pii-redaction`. No per-story
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Presidio PII redactor service | feature | ✅ done | medium | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-001-pii-redactor-service.plan.md) | `0495068` |
-| STORY-002 | Load Presidio NLP model once at FastAPI startup | technical | ⬜ todo | small | — | — |
+| STORY-002 | Load Presidio NLP model once at FastAPI startup | technical | 🟡 in-progress | small | [plan](../../plans/PRD-003-pii-redaction/STORY-002-startup-nlp-model-loading.plan.md) | — |
 | STORY-003 | audit_logs schema: PII telemetry columns | technical | ⬜ todo | small | — | — |
 | STORY-004 | Audit logger records PII telemetry (raw preview unchanged) | feature | ⬜ todo | small | — | — |
 | STORY-005 | Redact prompt before forwarding to OpenRouter | feature | ⬜ todo | medium | — | — |

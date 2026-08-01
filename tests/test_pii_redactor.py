@@ -81,3 +81,19 @@ def test_pii_nlp_model_setting_is_used_to_build_engine(monkeypatch):
     redact("trigger a build")
 
     assert seen_models == ["en_core_web_sm"]
+
+
+def test_load_constructs_analyzer_singleton_when_enabled():
+    assert pii_redactor._analyzer is None
+
+    pii_redactor.load()
+
+    assert pii_redactor._analyzer is not None
+
+
+def test_load_is_noop_when_redaction_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "PII_REDACTION_ENABLED", False)
+
+    pii_redactor.load()
+
+    assert pii_redactor._analyzer is None
