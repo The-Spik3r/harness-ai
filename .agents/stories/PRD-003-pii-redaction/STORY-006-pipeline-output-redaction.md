@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline Wiring"
-status: todo
+status: done
 labels: [backend, pii, api]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-006-pipeline-output-redaction.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-006-pipeline-output-redaction.report.md
+commit: 87c7ea8
 depends_on: [STORY-005, STORY-004]
 blocks: [STORY-007, STORY-008]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-07-31
 ---
 
 # STORY-006: Redact model response before returning to caller
