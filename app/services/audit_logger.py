@@ -20,6 +20,9 @@ def log_query(
     suspicious_pattern: Optional[str] = None,
     success: bool = True,
     error_message: Optional[str] = None,
+    pii_detected_input: bool = False,
+    pii_detected_output: bool = False,
+    pii_entities: Optional[list[str]] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -35,5 +38,8 @@ def log_query(
         suspicious_pattern=suspicious_pattern,
         success=success,
         error_message=error_message,
+        pii_detected_input=pii_detected_input,
+        pii_detected_output=pii_detected_output,
+        pii_entities=",".join(pii_entities) if pii_entities else None,
     )
     return insert_audit_log(entry)
