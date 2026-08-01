@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "2 - Pipeline Wiring"
-status: todo
+status: done
 labels: [backend, pii, audit]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-004-audit-logger-pii-telemetry.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-004-audit-logger-pii-telemetry.report.md
+commit: 1347e53
 depends_on: [STORY-003]
 blocks: [STORY-006, STORY-009]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-07-31
 ---
 
 # STORY-004: Audit logger records PII telemetry (raw preview unchanged)
