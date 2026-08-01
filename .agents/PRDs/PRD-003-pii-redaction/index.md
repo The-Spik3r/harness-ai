@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/12 stories done — 17%
+3/12 stories done — 25%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-003-pii-redaction`. No per-story
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Presidio PII redactor service | feature | ✅ done | medium | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-001-pii-redactor-service.plan.md) | `0495068` |
 | STORY-002 | Load Presidio NLP model once at FastAPI startup | technical | ✅ done | small | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-002-startup-nlp-model-loading.plan.md) | `358ddc6` |
-| STORY-003 | audit_logs schema: PII telemetry columns | technical | ⬜ todo | small | — | — |
+| STORY-003 | audit_logs schema: PII telemetry columns | technical | ✅ done | small | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-003-audit-log-pii-schema.plan.md) | `c8b1195` |
 | STORY-004 | Audit logger records PII telemetry (raw preview unchanged) | feature | ⬜ todo | small | — | — |
 | STORY-005 | Redact prompt before forwarding to OpenRouter | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Redact model response before returning to caller | feature | ⬜ todo | medium | — | — |
