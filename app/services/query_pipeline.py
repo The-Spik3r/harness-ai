@@ -80,6 +80,23 @@ def run_query(
         )
         raise
 
+    try:
+        redacted_response, output_entities = redact(openrouter_result.response)
+    except PiiRedactorError as exc:
+        log_query(
+            user_id=user_id,
+            prompt=prompt,
+            device=device,
+            response=openrouter_result.response,
+            model_used=openrouter_result.model_used,
+            tokens_used=openrouter_result.tokens_used,
+            success=False,
+            error_message=str(exc),
+            pii_detected_input=bool(input_entities),
+            pii_entities=input_entities,
+        )
+        raise
+
     audit_id = log_query(
         user_id=user_id,
         prompt=prompt,
@@ -88,10 +105,13 @@ def run_query(
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
         success=True,
+        pii_detected_input=bool(input_entities),
+        pii_detected_output=bool(output_entities),
+        pii_entities=sorted(set(input_entities) | set(output_entities)),
     )
 
     return QuerySuccessResponse(
-        response=openrouter_result.response,
+        response=redacted_response,
         audit_id=audit_id,
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,

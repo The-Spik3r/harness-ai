@@ -330,3 +330,185 @@ def test_redactor_failure_audit_row_keeps_raw_prompt_and_error(temp_db, monkeypa
     assert entry.prompt_preview == _PII_PROMPT
     assert entry.prompt_hash == hash_prompt(_PII_PROMPT)
     assert entry.model_used is None
+
+
+_PII_RESPONSE = "Sure, I will draft a reply to juan@empresa.com for Maria Gomez."
+_REDACTED_RESPONSE = "Sure, I will draft a reply to <EMAIL_ADDRESS> for <PERSON>."
+_CLEAN_PROMPT = "what is the capital of the moon"
+_CLEAN_RESPONSE = "the capital of the moon is cheese city"
+
+
+def _openrouter_returning(text: str):
+    def _call(prompt, model="gpt-4", api_key=None):
+        return OpenRouterResult(response=text, model_used=model, tokens_used=9)
+
+    return _call
+
+
+def _boom_on_second_call():
+    real_redact = query_pipeline.redact
+    calls = []
+
+    def _redact(text):
+        calls.append(text)
+        if len(calls) == 1:
+            return real_redact(text)
+        raise PiiRedactorError("PII analysis failed: analyzer exploded on output")
+
+    return _redact
+
+
+def _latest_audit_entry():
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM audit_logs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return get_audit_log(row["id"])
+
+
+def test_pii_in_response_is_redacted_before_returning_to_caller(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["response"] == _REDACTED_RESPONSE
+    assert "juan@empresa.com" not in response.json()["response"]
+
+
+def test_audit_row_keeps_raw_response_when_pii_redacted(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+    entry = get_audit_log(response.json()["audit_id"])
+
+    assert entry.response_preview == _PII_RESPONSE
+    assert entry.response_hash == hash_prompt(_PII_RESPONSE)
+    assert "<EMAIL_ADDRESS>" not in entry.response_preview
+
+
+def test_clean_response_returned_unchanged_with_no_telemetry(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_CLEAN_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+    entry = get_audit_log(response.json()["audit_id"])
+
+    assert response.json()["response"] == _CLEAN_RESPONSE
+    assert entry.pii_detected_input is False
+    assert entry.pii_detected_output is False
+    assert entry.pii_entities is None
+
+
+def test_success_path_writes_exactly_one_row_with_output_telemetry(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    before = _count_audit_rows()
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+    entry = get_audit_log(response.json()["audit_id"])
+
+    assert response.status_code == 200
+    assert _count_audit_rows() == before + 1
+    assert entry.pii_detected_input is False
+    assert entry.pii_detected_output is True
+    assert entry.pii_entities == "EMAIL_ADDRESS,PERSON"
+
+
+def test_input_and_output_entities_merged_and_deduplicated(temp_db, monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    entry = get_audit_log(response.json()["audit_id"])
+
+    # prompt -> EMAIL_ADDRESS; response -> EMAIL_ADDRESS + PERSON; union is 2 types
+    assert entry.pii_detected_input is True
+    assert entry.pii_detected_output is True
+    assert entry.pii_entities == "EMAIL_ADDRESS,PERSON"
+
+
+def test_both_directions_redacted_in_one_request(temp_db, monkeypatch):
+    seen = []
+
+    def _call(prompt, model="gpt-4", api_key=None):
+        seen.append(prompt)
+        return OpenRouterResult(response=_PII_RESPONSE, model_used=model, tokens_used=9)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _call)
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT}
+    )
+    entry = get_audit_log(response.json()["audit_id"])
+
+    assert seen == [_REDACTED_PROMPT]
+    assert response.json()["response"] == _REDACTED_RESPONSE
+    assert entry.prompt_preview == _PII_PROMPT
+    assert entry.response_preview == _PII_RESPONSE
+
+
+def test_redaction_disabled_returns_raw_response(temp_db, monkeypatch):
+    monkeypatch.setattr(settings, "PII_REDACTION_ENABLED", False)
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["response"] == _PII_RESPONSE
+
+
+def test_output_redaction_failure_returns_500_and_logs_one_row(temp_db, monkeypatch):
+    monkeypatch.setattr(query_pipeline, "redact", _boom_on_second_call())
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    before = _count_audit_rows()
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": _CLEAN_PROMPT}
+    )
+
+    assert response.status_code == 500
+    assert _count_audit_rows() == before + 1
+
+
+def test_output_redaction_failure_row_keeps_raw_response_and_model(temp_db, monkeypatch):
+    monkeypatch.setattr(query_pipeline, "redact", _boom_on_second_call())
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter", _openrouter_returning(_PII_RESPONSE)
+    )
+
+    client.post("/query", json={"user_id": "juan@empresa.com", "prompt": _PII_PROMPT})
+    entry = _latest_audit_entry()
+
+    assert entry.success is False
+    assert entry.error_message == "PII analysis failed: analyzer exploded on output"
+    assert entry.response_preview == _PII_RESPONSE
+    assert entry.response_hash == hash_prompt(_PII_RESPONSE)
+    assert entry.prompt_preview == _PII_PROMPT
+    assert entry.model_used == "gpt-4"
+    assert entry.tokens_used == 9
+    assert entry.pii_detected_input is True
+    assert entry.pii_entities == "EMAIL_ADDRESS"
