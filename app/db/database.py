@@ -178,3 +178,29 @@ def top_users(limit: int = 5) -> list[str]:
             (limit,),
         ).fetchall()
         return [row["user_id"] for row in rows]
+
+
+def count_pii_detected_queries() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM audit_logs
+            WHERE pii_detected_input = 1 OR pii_detected_output = 1
+            """
+        ).fetchone()
+        return row["n"]
+
+
+def top_pii_entities(limit: int = 5) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT pii_entities FROM audit_logs WHERE pii_entities IS NOT NULL"
+        ).fetchall()
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        for entity in row["pii_entities"].split(","):
+            counts[entity] = counts.get(entity, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    return [entity for entity, _ in ranked[:limit]]

@@ -12,6 +12,7 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
     get_audit_log,
@@ -20,6 +21,7 @@ from app.db.database import (
     insert_audit_log,
     list_audit_logs,
     top_models,
+    top_pii_entities,
     top_users,
 )
 from app.db.models import AuditLog
@@ -401,5 +403,97 @@ def test_aggregates_on_empty_db_return_zero_or_empty(temp_db):
     assert count_blocked_suspicious() == 0
     assert count_unique_users() == 0
     assert count_successful_queries() == 0
+    assert count_pii_detected_queries() == 0
     assert top_models() == []
     assert top_users() == []
+    assert top_pii_entities() == []
+
+
+def test_count_pii_detected_queries_counts_input_or_output(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            pii_detected_input=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            pii_detected_output=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+        )
+    )
+
+    assert count_pii_detected_queries() == 2
+
+
+def test_top_pii_entities_ranked_by_frequency_desc(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            pii_entities="EMAIL_ADDRESS,PERSON",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            pii_entities="EMAIL_ADDRESS",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+            pii_entities="PHONE_NUMBER",
+        )
+    )
+
+    # EMAIL_ADDRESS: 2, PERSON: 1, PHONE_NUMBER: 1 -- no tie at the top
+    assert top_pii_entities()[0] == "EMAIL_ADDRESS"
+    assert set(top_pii_entities()) == {"EMAIL_ADDRESS", "PERSON", "PHONE_NUMBER"}
+
+
+def test_top_pii_entities_respects_limit(temp_db):
+    for i in range(3):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"e{i}",
+                pii_entities="EMAIL_ADDRESS",
+            )
+        )
+    for i in range(2):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 4}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"p{i}",
+                pii_entities="PERSON",
+            )
+        )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-06T10:00:00Z",
+            user_id="a",
+            prompt_hash="l1",
+            pii_entities="LOCATION",
+        )
+    )
+
+    assert top_pii_entities(limit=2) == ["EMAIL_ADDRESS", "PERSON"]

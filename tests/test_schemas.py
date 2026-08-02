@@ -95,6 +95,9 @@ def test_audit_response_shape():
                 "was_duplicate_blocked": False,
                 "suspicious_pattern_detected": False,
                 "device": "Chrome/Windows",
+                "pii_detected_input": False,
+                "pii_detected_output": False,
+                "pii_entities": [],
             }
         ],
     }
@@ -118,6 +121,8 @@ def test_stats_response_shape():
         "success_rate": "98.4%",
         "top_models": ["gpt-4", "claude-3-sonnet"],
         "top_users": ["juan@empresa.com", "maria@empresa.com"],
+        "pii_detected_queries": 0,
+        "top_pii_entities": [],
     }
 
 

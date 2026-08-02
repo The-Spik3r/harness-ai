@@ -47,6 +47,9 @@ class AuditQueryEntry(BaseModel):
     was_duplicate_blocked: bool
     suspicious_pattern_detected: bool
     device: Optional[str] = None
+    pii_detected_input: bool = False
+    pii_detected_output: bool = False
+    pii_entities: List[str] = []
 
 
 class AuditResponse(BaseModel):
@@ -62,3 +65,5 @@ class StatsResponse(BaseModel):
     success_rate: str
     top_models: List[str]
     top_users: List[str]
+    pii_detected_queries: int = 0
+    top_pii_entities: List[str] = []
