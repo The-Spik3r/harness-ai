@@ -50,10 +50,10 @@ Organizations adopting LLMs in production face three recurring, unmanaged risks:
 **Harness IA** sits between your application (or a human, via the built-in chat UI) and any model served through [OpenRouter](https://openrouter.ai). Every request passes through a fixed pipeline before it is allowed to leave your infrastructure:
 
 ```
-duplicate check (24h)  →  prompt-injection check  →  forward to OpenRouter  →  audit log
+duplicate check (24h)  →  prompt-injection check  →  PII redaction (prompt)  →  forward to OpenRouter  →  PII redaction (response)  →  audit log
 ```
 
-If either check fails, the request is rejected **before** it reaches the model provider, and the rejection is logged with the same rigor as a successful call.
+If either check fails, the request is rejected **before** it reaches the model provider, and the rejection is logged with the same rigor as a successful call. Redaction, by contrast, never rejects anything — it only masks.
 
 ---
 
@@ -77,14 +77,21 @@ If either check fails, the request is rejected **before** it reaches the model p
         │     (24h window)      │
         │  4. Pattern check     │
         │     (prompt injection)│
+        │  5. PII redaction     │
+        │     (outbound prompt) │
         └───────────┬───────────┘
-                     │ passes both checks
+                     │ checks passed, prompt masked
                      ▼
         ┌───────────────────────┐
         │   OpenRouter API      │
         │ (Claude, GPT, others) │
         └───────────┬───────────┘
                      │ response
+                     ▼
+        ┌───────────────────────┐
+        │   PII redaction       │
+        │   (model response)    │
+        └───────────┬───────────┘
                      ▼
         ┌───────────────────────┐
         │   Audit log write     │
@@ -95,7 +102,7 @@ If either check fails, the request is rejected **before** it reaches the model p
               Response to caller
 ```
 
-Blocked requests (duplicate or suspicious pattern) short-circuit at step 3 or 4 — the model provider is never called, and the block is still logged.
+Blocked requests (duplicate or suspicious pattern) short-circuit at step 3 or 4 — the model provider is never called, and the block is still logged. Redaction sits after both checks, so a blocked request is never analyzed for PII.
 
 ---
 
@@ -107,6 +114,7 @@ Blocked requests (duplicate or suspicious pattern) short-circuit at step 3 or 4 
 | **Chat UI** | A browser-based chat served from the same port and process as the API, running through the identical pipeline as `POST /query`. |
 | **Duplicate blocking** | Exact-match (word-for-word) detection of repeated prompts within a rolling 24-hour window. |
 | **Prompt-injection blocking** | Case-insensitive substring match against a maintained pattern list. |
+| **PII redaction** | [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt before it reaches OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a request, and the audit log keeps the raw text. English-only in this release. |
 | **Full audit logging** | Every request — success or blocked — writes one row to SQLite: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
 | **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
@@ -119,6 +127,8 @@ Blocked requests (duplicate or suspicious pattern) short-circuit at step 3 or 4 
 - Python 3.9+
 - Docker & Docker Compose (optional, for containerized deployment)
 - An [OpenRouter](https://openrouter.ai) API key
+- ~500 MB of disk for the English spaCy NLP model (`en_core_web_lg`) used by PII redaction
+- Network access at install/build time to download that model — or at first startup, if you skip the download step and let Presidio fetch it
 
 ---
 
@@ -126,10 +136,13 @@ Blocked requests (duplicate or suspicious pattern) short-circuit at step 3 or 4 
 
 ```bash
 pip install -r requirements.txt
+python -m spacy download en_core_web_lg   # English NLP model used by PII redaction (~425 MB)
 cp .env.example .env
 # edit .env: set OPENROUTER_API_KEY and ADMIN_TOKEN to real values
 python app.py
 ```
+
+The model is a separate download — `requirements.txt` installs Presidio and spaCy but not the model itself. If you skip this step, Presidio fetches the model automatically the first time the service starts: the first boot then stalls on a ~400 MB download and needs network access at runtime. To run without redaction entirely, set `PII_REDACTION_ENABLED=false` in `.env`.
 
 ```bash
 curl http://localhost:8000/health
@@ -151,6 +164,8 @@ curl http://localhost:8000/health
 
 The SQLite database persists across container restarts via a named volume — audit history is not lost on redeploy.
 
+The image bakes `en_core_web_lg` in at build time, so no model download happens at container start — without it, a fresh container would pull ~400 MB before serving its first request. This makes the image substantially larger: measured with `docker image inspect`, the pre-PII image was 131 MB and the current one is 628 MB (of which ~446 MB is the model layer), and the first build spends ~40 s downloading it. Accepted tradeoff — see PRD-003 Risk 5. (`docker images` reports larger figures for the same images on containerd-backed installs; the numbers above use `docker image inspect`.)
+
 ---
 
 ## Chat UI
@@ -163,7 +178,7 @@ Open it after either quickstart above:
 http://localhost:8000/
 ```
 
-The chat UI and the REST API share the exact same process, port, and query pipeline (duplicate check → pattern check → OpenRouter call → audit log): a prompt sent from the chat produces the identical audit row a `curl -X POST /query` call would.
+The chat UI and the REST API share the exact same process, port, and query pipeline (duplicate check → pattern check → PII redaction → OpenRouter call → audit log): a prompt sent from the chat produces the identical audit row a `curl -X POST /query` call would.
 
 **Session identity** — on first load, the chat asks for a `user_id` in a plain text field. This is not a login: no password, token, or OAuth — it is the same trust model already required by `POST /query`. It is requested once per browser session; subsequent messages reuse it automatically.
 
@@ -174,6 +189,7 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 - No token-by-token streaming — the full response renders once available, same as `POST /query` today.
 - No persisted chat history — messages do not survive a page reload or a new browser session.
 - No login/auth beyond the `user_id` field — same trust model already used by `POST /query`.
+- No visible indicator when PII is masked — redaction still applies to every chat message, but the UI does not yet surface *that* it happened (the REST API does, via `pii_redacted`).
 
 ---
 
@@ -187,6 +203,12 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 | `PORT` | No | `8000` | Port the FastAPI server listens on. |
 | `HOST` | No | `0.0.0.0` | Host/interface the server binds to. |
 | `LOG_LEVEL` | No | `INFO` | Log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `PII_REDACTION_ENABLED` | No | `true` | Master switch for PII redaction on prompts and responses. Set to `false` to skip all NLP work (and the model download requirement). |
+| `PII_SCORE_THRESHOLD` | No | `0.35` | Minimum Presidio confidence for an entity to be masked. Deliberately low — the project favors over-masking over missing real PII. |
+| `PII_ENTITIES` | No | `PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION` | Comma-separated list of Presidio entity types to detect and mask. |
+| `PII_NLP_MODEL` | No | `en_core_web_lg` | spaCy model backing Presidio's analyzer. This is the only model the Dockerfile and the Quickstart install; naming a different one (e.g. `en_core_web_trf`) makes spaCy try to download it at startup, which is slow and fails outright if the name is unresolvable or the package needs a C++ toolchain to build. |
+
+All four PII settings are read once at startup (`app/config.py`); changing them requires a restart.
 
 See [`.env.example`](.env.example) for a ready-to-copy template with inline descriptions.
 
@@ -199,18 +221,22 @@ See [`.env.example`](.env.example) for a ready-to-copy template with inline desc
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{"user_id": "juan@empresa.com", "prompt": "what is the weather today"}'
+  -d '{"user_id": "analyst-7", "prompt": "my name is Maria Gomez, my email is juan@empresa.com"}'
 ```
 
 ```json
 {
   "status": "SUCCESS",
-  "response": "La respuesta del modelo",
+  "response": "Sure — I will reply to <EMAIL_ADDRESS> for <PERSON>.",
   "audit_id": 1,
   "model_used": "gpt-4",
-  "tokens_used": 45
+  "tokens_used": 45,
+  "pii_redacted": true,
+  "pii_entities_masked": ["EMAIL_ADDRESS", "PERSON"]
 }
 ```
+
+OpenRouter received `my name is <PERSON>, my email is <EMAIL_ADDRESS>` — never the raw text. `pii_entities_masked` is the sorted union of entity types masked in the prompt and in the response; when nothing is detected, `pii_redacted` is `false` and the list is empty. Both fields are additive — clients that ignore unknown fields are unaffected, and the two `BLOCKED` shapes below are unchanged (redaction runs only after both checks pass).
 
 ### `POST /query` — blocked (duplicate)
 
@@ -255,11 +281,16 @@ curl http://localhost:8000/audit \
       "prompt_hash": "abc123def456",
       "was_duplicate_blocked": false,
       "suspicious_pattern_detected": false,
-      "device": "Chrome/Windows"
+      "device": "Chrome/Windows",
+      "pii_detected_input": true,
+      "pii_detected_output": false,
+      "pii_entities": ["EMAIL_ADDRESS", "PERSON"]
     }
   ]
 }
 ```
+
+`pii_entities` is the union of types masked in either direction. The audit trail deliberately stores the **raw, unmasked** prompt and response previews in the database — an auditor investigating an incident needs the actual value, not `<EMAIL_ADDRESS>` — but this endpoint exposes neither the raw previews nor the masked text, only the flags above.
 
 ### `GET /stats` (admin token required)
 
@@ -276,15 +307,21 @@ curl http://localhost:8000/stats \
   "unique_users": 8,
   "success_rate": "98.4%",
   "top_models": ["gpt-4", "claude-3-sonnet"],
-  "top_users": ["juan@empresa.com", "maria@empresa.com"]
+  "top_users": ["juan@empresa.com", "maria@empresa.com"],
+  "pii_detected_queries": 34,
+  "top_pii_entities": ["EMAIL_ADDRESS", "PERSON"]
 }
 ```
+
+`pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows.
 
 A request to `/audit` or `/stats` without a valid `ADMIN_TOKEN` bearer value returns `401 Unauthorized`.
 
 ---
 
 ## Running Tests
+
+The PII tests load the real `en_core_web_lg` model, so run the `spacy download` step from [Quickstart — Local](#quickstart--local) first — otherwise the first test run spends several minutes downloading it. The in-container run needs nothing extra (the image already has it).
 
 Locally:
 
@@ -311,6 +348,15 @@ Copy `.env.example` to `.env` and fill in a real key.
 **Docker container exits immediately**
 Check logs with `docker-compose logs harness-ai`.
 
+**First startup stalls while downloading several hundred MB**
+That is spaCy fetching `en_core_web_lg` because it was never installed — Presidio downloads a missing model on first use rather than failing. Run `python -m spacy download en_core_web_lg` up front (see [Quickstart — Local](#quickstart--local)) to keep it out of the startup path, or set `PII_REDACTION_ENABLED=false` to skip redaction entirely.
+
+**`[x] No compatible package found for '<model>'` and the process exits during startup**
+`PII_NLP_MODEL` names a model spaCy cannot resolve, so the automatic download fails and takes the process down with it. Fix the name, or install that model yourself. Because the model is loaded at startup, this kills the boot rather than the first request. Load failures that are not download failures surface instead as `PiiRedactorError: Failed to load Presidio NLP model '<model>'`.
+
+**Model responses contain `<PERSON>` or `<EMAIL_ADDRESS>` where you expected real text**
+That is PII redaction working as designed — the threshold (`PII_SCORE_THRESHOLD`, default `0.35`) deliberately favors over-masking. Raise it, or trim `PII_ENTITIES`, if a specific entity type is too aggressive for your use case.
+
 **`401 Unauthorized` on `/audit` or `/stats`**
 Confirm the `Authorization: Bearer <token>` header matches `ADMIN_TOKEN` in `.env` exactly.
 
@@ -323,7 +369,7 @@ Confirm the `Authorization: Bearer <token>` header matches `ADMIN_TOKEN` in `.en
 - [x] Full audit logging (SQLite)
 - [x] Chat UI
 - [ ] Semantic (not just exact-match) duplicate detection
-- [ ] PII redaction on input/output
+- [x] PII redaction on input/output
 - [ ] Role-based access control (RBAC)
 - [ ] Configurable, per-deployment pattern lists
 
