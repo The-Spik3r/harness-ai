@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "3 - Isolation Testing"
-status: todo
+status: done
 labels: [backend, testing, pii]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-010-pii-pipeline-integration-tests.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-010-pii-pipeline-integration-tests.report.md
+commit: 306b5cc
 depends_on: [STORY-007, STORY-008, STORY-009]
 blocks: [STORY-012]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-08-02
 ---
 
 # STORY-010: End-to-end PII redaction integration test suite
