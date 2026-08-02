@@ -9,6 +9,7 @@ from app.services.audit_logger import log_query
 from app.services.duplicate_checker import check_duplicate
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
 from app.services.pattern_detector import detect_suspicious_pattern
+from app.services.pii_redactor import PiiRedactorError, redact
 
 QueryPipelineResult = Union[
     QuerySuccessResponse, QueryBlockedDuplicateResponse, QueryBlockedSuspiciousResponse
@@ -53,7 +54,21 @@ def run_query(
         )
 
     try:
-        openrouter_result = call_openrouter(prompt, model=model, api_key=openrouter_api_key)
+        redacted_prompt, input_entities = redact(prompt)
+    except PiiRedactorError as exc:
+        log_query(
+            user_id=user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=str(exc),
+        )
+        raise
+
+    try:
+        openrouter_result = call_openrouter(
+            redacted_prompt, model=model, api_key=openrouter_api_key
+        )
     except OpenRouterError as exc:
         log_query(
             user_id=user_id,
@@ -65,6 +80,25 @@ def run_query(
         )
         raise
 
+    try:
+        redacted_response, output_entities = redact(openrouter_result.response)
+    except PiiRedactorError as exc:
+        log_query(
+            user_id=user_id,
+            prompt=prompt,
+            device=device,
+            response=openrouter_result.response,
+            model_used=openrouter_result.model_used,
+            tokens_used=openrouter_result.tokens_used,
+            success=False,
+            error_message=str(exc),
+            pii_detected_input=bool(input_entities),
+            pii_entities=input_entities,
+        )
+        raise
+
+    masked_entities = sorted(set(input_entities) | set(output_entities))
+
     audit_id = log_query(
         user_id=user_id,
         prompt=prompt,
@@ -73,11 +107,16 @@ def run_query(
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
         success=True,
+        pii_detected_input=bool(input_entities),
+        pii_detected_output=bool(output_entities),
+        pii_entities=masked_entities,
     )
 
     return QuerySuccessResponse(
-        response=openrouter_result.response,
+        response=redacted_response,
         audit_id=audit_id,
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
+        pii_redacted=bool(masked_entities),
+        pii_entities_masked=masked_entities,
     )

@@ -16,7 +16,10 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
     suspicious_pattern TEXT,
     success INTEGER NOT NULL DEFAULT 1,
-    error_message TEXT
+    error_message TEXT,
+    pii_detected_input INTEGER NOT NULL DEFAULT 0,
+    pii_detected_output INTEGER NOT NULL DEFAULT 0,
+    pii_entities TEXT
 )
 """
 
@@ -36,4 +39,7 @@ class AuditLog:
     suspicious_pattern: Optional[str] = None
     success: bool = True
     error_message: Optional[str] = None
+    pii_detected_input: bool = False
+    pii_detected_output: bool = False
+    pii_entities: Optional[str] = None
     id: Optional[int] = None

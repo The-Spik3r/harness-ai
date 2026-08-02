@@ -32,8 +32,9 @@ def insert_audit_log(entry: AuditLog) -> int:
             INSERT INTO audit_logs (
                 timestamp, user_id, device, prompt_hash, prompt_preview,
                 response_hash, response_preview, model_used, tokens_used,
-                was_duplicate_blocked, suspicious_pattern, success, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                was_duplicate_blocked, suspicious_pattern, success, error_message,
+                pii_detected_input, pii_detected_output, pii_entities
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -49,6 +50,9 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.suspicious_pattern,
                 int(entry.success),
                 entry.error_message,
+                int(entry.pii_detected_input),
+                int(entry.pii_detected_output),
+                entry.pii_entities,
             ),
         )
         return cursor.lastrowid
@@ -84,6 +88,9 @@ def _row_to_audit_log(row: sqlite3.Row) -> AuditLog:
         suspicious_pattern=row["suspicious_pattern"],
         success=bool(row["success"]),
         error_message=row["error_message"],
+        pii_detected_input=bool(row["pii_detected_input"]),
+        pii_detected_output=bool(row["pii_detected_output"]),
+        pii_entities=row["pii_entities"],
     )
 
 
@@ -171,3 +178,29 @@ def top_users(limit: int = 5) -> list[str]:
             (limit,),
         ).fetchall()
         return [row["user_id"] for row in rows]
+
+
+def count_pii_detected_queries() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM audit_logs
+            WHERE pii_detected_input = 1 OR pii_detected_output = 1
+            """
+        ).fetchone()
+        return row["n"]
+
+
+def top_pii_entities(limit: int = 5) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT pii_entities FROM audit_logs WHERE pii_entities IS NOT NULL"
+        ).fetchall()
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        for entity in row["pii_entities"].split(","):
+            counts[entity] = counts.get(entity, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    return [entity for entity, _ in ranked[:limit]]

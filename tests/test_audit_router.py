@@ -88,6 +88,9 @@ def test_valid_token_returns_expected_shape(temp_db):
             "was_duplicate_blocked",
             "suspicious_pattern_detected",
             "device",
+            "pii_detected_input",
+            "pii_detected_output",
+            "pii_entities",
         }
 
     newest, oldest = body["queries"]
@@ -115,6 +118,43 @@ def test_fewer_than_100_rows_returns_all_without_error(temp_db):
     body = response.json()
     assert body["total"] == 3
     assert len(body["queries"]) == 3
+
+
+def test_pii_telemetry_fields_reflect_audit_log_values(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-05T10:00:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="hash-pii",
+            pii_detected_input=True,
+            pii_detected_output=True,
+            pii_entities="EMAIL_ADDRESS,PERSON",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-06T10:00:00Z",
+            user_id="maria@empresa.com",
+            prompt_hash="hash-clean",
+        )
+    )
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    body = response.json()
+    by_hash = {q["prompt_hash"]: q for q in body["queries"]}
+
+    flagged = by_hash["hash-pii"]
+    assert flagged["pii_detected_input"] is True
+    assert flagged["pii_detected_output"] is True
+    assert flagged["pii_entities"] == ["EMAIL_ADDRESS", "PERSON"]
+
+    clean = by_hash["hash-clean"]
+    assert clean["pii_detected_input"] is False
+    assert clean["pii_detected_output"] is False
+    assert clean["pii_entities"] == []
 
 
 def test_response_never_includes_ip_or_raw_text(temp_db):

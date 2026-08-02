@@ -4,10 +4,12 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
     list_audit_logs,
     top_models,
+    top_pii_entities,
     top_users,
 )
 from app.middleware.auth import require_admin_token
@@ -33,6 +35,9 @@ def get_audit() -> AuditResponse:
             was_duplicate_blocked=log.was_duplicate_blocked,
             suspicious_pattern_detected=log.suspicious_pattern is not None,
             device=log.device,
+            pii_detected_input=log.pii_detected_input,
+            pii_detected_output=log.pii_detected_output,
+            pii_entities=log.pii_entities.split(",") if log.pii_entities else [],
         )
         for log in list_audit_logs(limit=100)
     ]
@@ -57,4 +62,6 @@ def get_stats() -> StatsResponse:
         success_rate=success_rate,
         top_models=top_models(),
         top_users=top_users(),
+        pii_detected_queries=count_pii_detected_queries(),
+        top_pii_entities=top_pii_entities(),
     )

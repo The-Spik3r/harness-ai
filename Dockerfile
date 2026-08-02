@@ -41,6 +41,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Presidio's analyzer needs an English spaCy model (PRD-003); it ships separately
+# from the `spacy` package in requirements.txt. Baked into the image at build time
+# so the container never downloads it at startup. ~425 MB — accepted tradeoff,
+# PRD-003 Risk 5. Kept before `COPY . .` so app-code edits don't re-download it.
+# The builder stage above deliberately skips this: `reflex export --frontend-only`
+# imports app.main but never constructs the analyzer (STORY-011 Task 1 verified).
+RUN python -m spacy download en_core_web_lg \
+    && rm -rf /root/.cache/pip
+
 COPY . .
 COPY --from=builder /srv /srv
 COPY Caddyfile /app/Caddyfile

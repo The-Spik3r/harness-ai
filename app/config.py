@@ -12,5 +12,14 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     LOG_LEVEL: str = "INFO"
 
+    PII_REDACTION_ENABLED: bool = True
+    PII_SCORE_THRESHOLD: float = 0.35
+    PII_ENTITIES: str = "PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION"
+    PII_NLP_MODEL: str = "en_core_web_lg"
+
+    @property
+    def pii_entities_list(self) -> list[str]:
+        return [item.strip() for item in self.PII_ENTITIES.split(",") if item.strip()]
+
 
 settings = Settings()

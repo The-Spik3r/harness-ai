@@ -107,6 +107,8 @@ def test_valid_token_returns_expected_shape_and_values(temp_db):
         "success_rate",
         "top_models",
         "top_users",
+        "pii_detected_queries",
+        "top_pii_entities",
     }
     assert body["total_queries"] == 4
     assert body["blocked_duplicates"] == 1
@@ -115,6 +117,8 @@ def test_valid_token_returns_expected_shape_and_values(temp_db):
     assert body["success_rate"] == "50.0%"
     assert body["top_models"] == ["gpt-4"]
     assert body["top_users"] == ["a", "b"]
+    assert body["pii_detected_queries"] == 0
+    assert body["top_pii_entities"] == []
 
 
 def test_zero_rows_returns_zeroed_stats_without_error(temp_db):
@@ -131,4 +135,43 @@ def test_zero_rows_returns_zeroed_stats_without_error(temp_db):
         "success_rate": "0.0%",
         "top_models": [],
         "top_users": [],
+        "pii_detected_queries": 0,
+        "top_pii_entities": [],
     }
+
+
+def test_pii_detected_queries_and_top_pii_entities_reflect_flagged_rows(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            pii_detected_input=True,
+            pii_entities="EMAIL_ADDRESS",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="b",
+            prompt_hash="h2",
+            pii_detected_output=True,
+            pii_entities="EMAIL_ADDRESS,PERSON",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="c",
+            prompt_hash="h3",
+        )
+    )
+
+    response = client.get(
+        "/stats", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    body = response.json()
+    assert body["pii_detected_queries"] == 2
+    assert body["top_pii_entities"][0] == "EMAIL_ADDRESS"
+    assert set(body["top_pii_entities"]) == {"EMAIL_ADDRESS", "PERSON"}

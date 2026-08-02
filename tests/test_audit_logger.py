@@ -126,3 +126,89 @@ def test_no_ip_or_location_field_in_logged_row(temp_db):
         if isinstance(value, str):
             assert "ip address" not in value.lower()
             assert "location" not in value.lower()
+
+
+def test_pii_telemetry_persisted_when_supplied(temp_db):
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="my email is juan@empresa.com",
+        response="sure, I'll reply to juan@empresa.com",
+        model_used="gpt-4",
+        tokens_used=45,
+        pii_detected_input=True,
+        pii_detected_output=True,
+        pii_entities=["EMAIL_ADDRESS", "PERSON"],
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched is not None
+    assert fetched.pii_detected_input is True
+    assert fetched.pii_detected_output is True
+    assert fetched.pii_entities == "EMAIL_ADDRESS,PERSON"
+
+
+def test_pii_telemetry_defaults_when_omitted(temp_db):
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        response="hi there",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.pii_detected_input is False
+    assert fetched.pii_detected_output is False
+    assert fetched.pii_entities is None
+
+
+def test_empty_entity_list_stored_as_none(temp_db):
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        pii_detected_input=False,
+        pii_detected_output=False,
+        pii_entities=[],
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.pii_entities is None
+
+
+def test_previews_and_hashes_stay_raw_when_pii_detected(temp_db):
+    prompt = "my email is juan@empresa.com"
+    response = "sure, I'll draft a reply to juan@empresa.com"
+
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt=prompt,
+        response=response,
+        model_used="gpt-4",
+        tokens_used=45,
+        pii_detected_input=True,
+        pii_detected_output=True,
+        pii_entities=["EMAIL_ADDRESS"],
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.prompt_preview == prompt
+    assert fetched.response_preview == response
+    assert fetched.prompt_hash == hash_prompt(prompt)
+    assert fetched.response_hash == hash_prompt(response)
+    assert "<EMAIL_ADDRESS>" not in fetched.prompt_preview
+    assert "<EMAIL_ADDRESS>" not in fetched.response_preview
+
+
+def test_entity_list_joined_in_caller_order_without_reordering(temp_db):
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        pii_detected_input=True,
+        pii_entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"],
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.pii_entities == "PERSON,EMAIL_ADDRESS,PHONE_NUMBER"

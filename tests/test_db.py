@@ -12,6 +12,7 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
     get_audit_log,
@@ -20,6 +21,7 @@ from app.db.database import (
     insert_audit_log,
     list_audit_logs,
     top_models,
+    top_pii_entities,
     top_users,
 )
 from app.db.models import AuditLog
@@ -58,6 +60,9 @@ def test_insert_and_read_round_trip(temp_db):
         suspicious_pattern="override",
         success=False,
         error_message="upstream timeout",
+        pii_detected_input=True,
+        pii_detected_output=True,
+        pii_entities="EMAIL_ADDRESS,PERSON",
     )
 
     new_id = insert_audit_log(entry)
@@ -78,6 +83,46 @@ def test_insert_and_read_round_trip(temp_db):
     assert fetched.suspicious_pattern == entry.suspicious_pattern
     assert fetched.success is False
     assert fetched.error_message == entry.error_message
+    assert fetched.pii_detected_input is True
+    assert fetched.pii_detected_output is True
+    assert fetched.pii_entities == "EMAIL_ADDRESS,PERSON"
+
+
+def test_pii_fields_default_when_not_supplied(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-31T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.pii_detected_input is False
+    assert fetched.pii_detected_output is False
+    assert fetched.pii_entities is None
+
+
+def test_pii_fields_round_trip_via_list_audit_logs(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-31T11:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            pii_detected_input=True,
+            pii_detected_output=False,
+            pii_entities="PHONE_NUMBER",
+        )
+    )
+
+    entries = list_audit_logs()
+
+    assert len(entries) == 1
+    assert entries[0].pii_detected_input is True
+    assert entries[0].pii_detected_output is False
+    assert entries[0].pii_entities == "PHONE_NUMBER"
 
 
 def test_get_audit_log_missing_id_returns_none(temp_db):
@@ -103,6 +148,9 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "suspicious_pattern",
         "success",
         "error_message",
+        "pii_detected_input",
+        "pii_detected_output",
+        "pii_entities",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -355,5 +403,97 @@ def test_aggregates_on_empty_db_return_zero_or_empty(temp_db):
     assert count_blocked_suspicious() == 0
     assert count_unique_users() == 0
     assert count_successful_queries() == 0
+    assert count_pii_detected_queries() == 0
     assert top_models() == []
     assert top_users() == []
+    assert top_pii_entities() == []
+
+
+def test_count_pii_detected_queries_counts_input_or_output(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            pii_detected_input=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            pii_detected_output=True,
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+        )
+    )
+
+    assert count_pii_detected_queries() == 2
+
+
+def test_top_pii_entities_ranked_by_frequency_desc(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="h1",
+            pii_entities="EMAIL_ADDRESS,PERSON",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="h2",
+            pii_entities="EMAIL_ADDRESS",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-03T10:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+            pii_entities="PHONE_NUMBER",
+        )
+    )
+
+    # EMAIL_ADDRESS: 2, PERSON: 1, PHONE_NUMBER: 1 -- no tie at the top
+    assert top_pii_entities()[0] == "EMAIL_ADDRESS"
+    assert set(top_pii_entities()) == {"EMAIL_ADDRESS", "PERSON", "PHONE_NUMBER"}
+
+
+def test_top_pii_entities_respects_limit(temp_db):
+    for i in range(3):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"e{i}",
+                pii_entities="EMAIL_ADDRESS",
+            )
+        )
+    for i in range(2):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{i + 4}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"p{i}",
+                pii_entities="PERSON",
+            )
+        )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-06T10:00:00Z",
+            user_id="a",
+            prompt_hash="l1",
+            pii_entities="LOCATION",
+        )
+    )
+
+    assert top_pii_entities(limit=2) == ["EMAIL_ADDRESS", "PERSON"]
