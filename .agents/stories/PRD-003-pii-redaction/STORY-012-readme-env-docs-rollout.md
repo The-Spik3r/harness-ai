@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Docs & Rollout"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-012-readme-env-docs-rollout.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-012-readme-env-docs-rollout.report.md
+commit: 2f9a9e3
 depends_on: [STORY-010, STORY-011]
 blocks: []
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-08-02
 ---
 
 # STORY-012: README, .env.example, and roadmap updates for PII redaction
