@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "3 - Isolation Testing"
-status: todo
+status: done
 labels: [backend, api, pii, admin]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-009-audit-stats-pii-endpoints.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-009-audit-stats-pii-endpoints.report.md
+commit: fc4804f
 depends_on: [STORY-004]
 blocks: [STORY-010]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-08-02
 ---
 
 # STORY-009: GET /audit and GET /stats — PII telemetry fields
