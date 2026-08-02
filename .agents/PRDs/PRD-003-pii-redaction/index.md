@@ -6,7 +6,7 @@
 
 ## Progress
 
-10/12 stories done — 83%
+11/12 stories done — 92%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-003-pii-redaction`. No per-story
 | STORY-008 | Tests: redaction cannot affect dedup/pattern-check behavior | technical | ✅ done | medium | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-008-dedup-pattern-isolation-tests.plan.md) | `58ee0a6` |
 | STORY-009 | GET /audit and GET /stats: PII telemetry fields | feature | ✅ done | medium | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-009-audit-stats-pii-endpoints.plan.md) | `fc4804f` |
 | STORY-010 | End-to-end PII redaction integration test suite | technical | ✅ done | medium | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-010-pii-pipeline-integration-tests.plan.md) | `306b5cc` |
-| STORY-011 | Docker image: install spaCy PII model | technical | ⬜ todo | small | — | — |
+| STORY-011 | Docker image: install spaCy PII model | technical | ✅ done | small | [plan](../../plans/PRD-003-pii-redaction/completed/STORY-011-docker-image-spacy-model.plan.md) | `2457952` |
 | STORY-012 | README, .env.example, and roadmap updates for PII redaction | technical | ⬜ todo | small | — | — |
 
 ## Status Icons

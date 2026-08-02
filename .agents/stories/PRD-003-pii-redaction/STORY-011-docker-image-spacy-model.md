@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "4 - Docs & Rollout"
-status: todo
+status: done
 labels: [devops, docker, pii]
 epic_branch: epic/PRD-003-pii-redaction
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-003-pii-redaction/completed/STORY-011-docker-image-spacy-model.plan.md
+report: .agents/reports/PRD-003-pii-redaction/STORY-011-docker-image-spacy-model.report.md
+commit: 2457952
 depends_on: [STORY-002]
 blocks: [STORY-012]
 skills: []
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-08-02
 ---
 
 # STORY-011: Docker image — install spaCy PII model
