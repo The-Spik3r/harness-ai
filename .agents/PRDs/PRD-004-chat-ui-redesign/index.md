@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/19 stories done — 0%
+1/19 stories done — 5%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-004-chat-ui-redesign`. No per-st
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Offload run_query(...) to a worker thread via asyncio.to_thread | bug | 🟡 in-progress | medium | [.agents/plans/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.plan.md) | — |
+| STORY-001 | Offload run_query(...) to a worker thread via asyncio.to_thread | bug | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-001-async-run-query-offload.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-001-async-run-query-offload.plan.md) | f7e482a | [.agents/reports/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.report.md) |
 | STORY-002 | Exhaustive except arms in send(): PiiRedactorError + catch-all | bug | ⬜ todo | small | — | — |
 | STORY-003 | pending state var with finally-reset and single in-flight send guard | technical | ⬜ todo | small | — | — |
 | STORY-004 | ChatMessage typed model replaces list[dict[str, str]] | technical | ⬜ todo | medium | — | — |

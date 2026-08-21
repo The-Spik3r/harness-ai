@@ -7,11 +7,16 @@ type: bug
 priority: high
 complexity: medium
 phase: "1 - Correctness foundation"
-status: todo
+status: done
 labels: [ui, reflex, state, async]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.plan.md
-status: in-progress
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-001-async-run-query-offload.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.report.md
+commit: f7e482a
+depends_on: []
+blocks: [STORY-002, STORY-003, STORY-017]
+skills: []
+created: 2026-08-21
 updated: 2026-08-21
 ---
 
