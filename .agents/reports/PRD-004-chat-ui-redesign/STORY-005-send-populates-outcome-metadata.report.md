@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-005-send-populates-outcome-metadata.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: PENDING
+commit: 1f7c642
 status: COMPLETE
 completed: 2026-08-21
 ---

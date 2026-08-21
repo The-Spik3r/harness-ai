@@ -12,7 +12,7 @@ labels: [ui, reflex, state, model]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-005-send-populates-outcome-metadata.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-005-send-populates-outcome-metadata.report.md
-commit: null
+commit: 1f7c642
 depends_on: [STORY-004]
 blocks: [STORY-006, STORY-009, STORY-010, STORY-011, STORY-018]
 skills: []
