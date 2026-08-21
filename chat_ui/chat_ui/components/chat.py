@@ -3,13 +3,13 @@ import reflex as rx
 from chat_ui.state import ChatState
 
 
-def message_bubble(message: dict) -> rx.Component:
-    """A single chat bubble: user (right, blue), system/blocked (centered, amber), assistant (left, gray)."""
+def message_bubble(message) -> rx.Component:
+    """A single chat bubble: user (right, blue), system/blocked/error (centered, amber), assistant (left, gray)."""
     return rx.cond(
-        message["role"] == "user",
+        message.kind == "user",
         rx.hstack(
             rx.box(
-                message["content"],
+                message.content,
                 background_color="#2563eb",
                 color="white",
                 padding="0.65rem 1rem",
@@ -21,23 +21,11 @@ def message_bubble(message: dict) -> rx.Component:
             width="100%",
         ),
         rx.cond(
-            message["role"] == "system",
-            rx.center(
-                rx.box(
-                    message["content"],
-                    background_color="#fef3c7",
-                    color="#92400e",
-                    padding="0.5rem 1rem",
-                    border_radius="0.75rem",
-                    max_width="80%",
-                    font_size="0.875rem",
-                ),
-                width="100%",
-            ),
+            message.kind == "assistant",
             rx.hstack(
                 rx.avatar(fallback="AI", size="2", color_scheme="gray"),
                 rx.box(
-                    message["content"],
+                    message.content,
                     background_color="#f3f4f6",
                     color="#111827",
                     padding="0.65rem 1rem",
@@ -45,6 +33,18 @@ def message_bubble(message: dict) -> rx.Component:
                     max_width="70%",
                 ),
                 justify="start",
+                width="100%",
+            ),
+            rx.center(
+                rx.box(
+                    message.content,
+                    background_color="#fef3c7",
+                    color="#92400e",
+                    padding="0.5rem 1rem",
+                    border_radius="0.75rem",
+                    max_width="80%",
+                    font_size="0.875rem",
+                ),
                 width="100%",
             ),
         ),

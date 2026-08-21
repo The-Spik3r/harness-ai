@@ -7,10 +7,10 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Typed message model"
-status: todo
+status: done
 labels: [ui, reflex, state, model]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.plan.md
 report: null
 commit: null
 depends_on: [STORY-002]

@@ -6,11 +6,12 @@ from app.services.duplicate_checker import DuplicateCheckError
 from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
+from .models import ChatMessage
 
-WELCOME_MESSAGE = {
-    "role": "assistant",
-    "content": "Hi! Type a message below and press send.",
-}
+WELCOME_MESSAGE = ChatMessage(
+    kind="assistant",
+    content="Hi! Type a message below and press send.",
+)
 
 
 class ChatState(rx.State):
@@ -25,7 +26,7 @@ class ChatState(rx.State):
     text run_query(...) returns.
     """
 
-    messages: list[dict[str, str]] = [WELCOME_MESSAGE]
+    messages: list[ChatMessage] = [WELCOME_MESSAGE]
     input_text: str = ""
     user_id: str = ""
     user_id_input: str = ""
@@ -57,7 +58,7 @@ class ChatState(rx.State):
             if self.pending:
                 return
             self.pending = True
-            self.messages.append({"role": "user", "content": text})
+            self.messages.append(ChatMessage(kind="user", content=text, prompt=text))
             self.input_text = ""
             user_id = self.user_id
 
@@ -72,24 +73,65 @@ class ChatState(rx.State):
                     openrouter_api_key=None,
                     call_openrouter=call_openrouter,
                 )
-            except (DuplicateCheckError, OpenRouterError, PiiRedactorError) as exc:
+            except OpenRouterError as exc:
                 async with self:
-                    self.messages.append({"role": "system", "content": f"Error: {exc}"})
+                    self.messages.append(
+                        ChatMessage(
+                            kind="upstream_error",
+                            content="upstream_error",
+                            prompt=text,
+                            detail=str(exc),
+                        )
+                    )
+                return
+            except (DuplicateCheckError, PiiRedactorError) as exc:
+                async with self:
+                    self.messages.append(
+                        ChatMessage(
+                            kind="internal_error",
+                            content="internal_error",
+                            prompt=text,
+                            detail=str(exc),
+                        )
+                    )
                 return
             except Exception as exc:
                 async with self:
-                    self.messages.append({"role": "system", "content": f"Error: {exc}"})
+                    self.messages.append(
+                        ChatMessage(
+                            kind="internal_error",
+                            content="internal_error",
+                            prompt=text,
+                            detail=str(exc),
+                        )
+                    )
                 return
 
             if isinstance(result, QuerySuccessResponse):
-                bubble = {"role": "assistant", "content": result.response}
+                bubble = ChatMessage(
+                    kind="assistant",
+                    content=result.response,
+                    prompt=text,
+                    model_used=result.model_used,
+                    tokens_used=result.tokens_used,
+                    audit_id=result.audit_id,
+                    pii_redacted=result.pii_redacted,
+                    pii_entities=result.pii_entities_masked,
+                )
             elif isinstance(result, QueryBlockedDuplicateResponse):
-                bubble = {
-                    "role": "system",
-                    "content": f"Blocked — {result.reason} (first sent at {result.first_query_at})",
-                }
+                bubble = ChatMessage(
+                    kind="duplicate",
+                    content=result.reason,
+                    prompt=text,
+                    first_query_at=result.first_query_at,
+                )
             else:
-                bubble = {"role": "system", "content": f"Blocked — {result.reason}"}
+                bubble = ChatMessage(
+                    kind="injection",
+                    content=result.reason,
+                    prompt=text,
+                    pattern=result.pattern,
+                )
 
             async with self:
                 self.messages.append(bubble)

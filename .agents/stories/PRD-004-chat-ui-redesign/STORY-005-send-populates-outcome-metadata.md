@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Typed message model"
-status: todo
+status: done
 labels: [ui, reflex, state, model]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-005-send-populates-outcome-metadata.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-005-send-populates-outcome-metadata.report.md
 commit: null
 depends_on: [STORY-004]
 blocks: [STORY-006, STORY-009, STORY-010, STORY-011, STORY-018]
