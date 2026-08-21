@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/19 stories done — 11%
+3/19 stories done — 16%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-004-chat-ui-redesign`. No per-st
 |----|-------|------|--------|------------|------|--------|--------|
 | STORY-001 | Offload run_query(...) to a worker thread via asyncio.to_thread | bug | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-001-async-run-query-offload.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-001-async-run-query-offload.plan.md) | f7e482a | [.agents/reports/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.report.md) |
 | STORY-002 | Exhaustive except arms in send(): PiiRedactorError + catch-all | bug | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-002-exhaustive-exception-handling.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-002-exhaustive-exception-handling.plan.md) | 59899ca | [.agents/reports/PRD-004-chat-ui-redesign/STORY-002-exhaustive-exception-handling.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-002-exhaustive-exception-handling.report.md) |
-| STORY-003 | pending state var with finally-reset and single in-flight send guard | technical | ⬜ todo | small | — | — |
+| STORY-003 | pending state var with finally-reset and single in-flight send guard | technical | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-003-pending-state-flag.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-003-pending-state-flag.plan.md) | 0e7bbfe | [.agents/reports/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.report.md) |
 | STORY-004 | ChatMessage typed model replaces list[dict[str, str]] | technical | ⬜ todo | medium | — | — |
 | STORY-005 | send() populates every metadata field from each pipeline outcome | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Migrate test_chat_state.py to structural bubble assertions | technical | ⬜ todo | medium | — | — |

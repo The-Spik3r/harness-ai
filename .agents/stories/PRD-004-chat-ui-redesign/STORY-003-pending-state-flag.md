@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Correctness foundation"
-status: todo
+status: done
 labels: [ui, reflex, state, async]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-003-pending-state-flag.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.report.md
+commit: 0e7bbfe
 depends_on: [STORY-001]
 blocks: [STORY-012]
 skills: []

@@ -29,6 +29,7 @@ class ChatState(rx.State):
     input_text: str = ""
     user_id: str = ""
     user_id_input: str = ""
+    pending: bool = False
 
     @rx.event
     def set_input_text(self, text: str):
@@ -53,38 +54,45 @@ class ChatState(rx.State):
             text = self.input_text.strip()
             if not text:
                 return
+            if self.pending:
+                return
+            self.pending = True
             self.messages.append({"role": "user", "content": text})
             self.input_text = ""
             user_id = self.user_id
 
         try:
-            result = await asyncio.to_thread(
-                run_query,
-                user_id=user_id,
-                prompt=text,
-                device=None,
-                model="gpt-4",
-                openrouter_api_key=None,
-                call_openrouter=call_openrouter,
-            )
-        except (DuplicateCheckError, OpenRouterError, PiiRedactorError) as exc:
-            async with self:
-                self.messages.append({"role": "system", "content": f"Error: {exc}"})
-            return
-        except Exception as exc:
-            async with self:
-                self.messages.append({"role": "system", "content": f"Error: {exc}"})
-            return
+            try:
+                result = await asyncio.to_thread(
+                    run_query,
+                    user_id=user_id,
+                    prompt=text,
+                    device=None,
+                    model="gpt-4",
+                    openrouter_api_key=None,
+                    call_openrouter=call_openrouter,
+                )
+            except (DuplicateCheckError, OpenRouterError, PiiRedactorError) as exc:
+                async with self:
+                    self.messages.append({"role": "system", "content": f"Error: {exc}"})
+                return
+            except Exception as exc:
+                async with self:
+                    self.messages.append({"role": "system", "content": f"Error: {exc}"})
+                return
 
-        if isinstance(result, QuerySuccessResponse):
-            bubble = {"role": "assistant", "content": result.response}
-        elif isinstance(result, QueryBlockedDuplicateResponse):
-            bubble = {
-                "role": "system",
-                "content": f"Blocked — {result.reason} (first sent at {result.first_query_at})",
-            }
-        else:
-            bubble = {"role": "system", "content": f"Blocked — {result.reason}"}
+            if isinstance(result, QuerySuccessResponse):
+                bubble = {"role": "assistant", "content": result.response}
+            elif isinstance(result, QueryBlockedDuplicateResponse):
+                bubble = {
+                    "role": "system",
+                    "content": f"Blocked — {result.reason} (first sent at {result.first_query_at})",
+                }
+            else:
+                bubble = {"role": "system", "content": f"Blocked — {result.reason}"}
 
-        async with self:
-            self.messages.append(bubble)
+            async with self:
+                self.messages.append(bubble)
+        finally:
+            async with self:
+                self.pending = False
