@@ -1,3 +1,4 @@
+import asyncio
 import reflex as rx
 
 from app.models.schemas import QueryBlockedDuplicateResponse, QuerySuccessResponse
@@ -56,7 +57,8 @@ class ChatState(rx.State):
             user_id = self.user_id
 
         try:
-            result = run_query(
+            result = await asyncio.to_thread(
+                run_query,
                 user_id=user_id,
                 prompt=text,
                 device=None,

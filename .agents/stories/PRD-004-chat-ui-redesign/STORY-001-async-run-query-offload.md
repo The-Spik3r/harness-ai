@@ -10,13 +10,8 @@ phase: "1 - Correctness foundation"
 status: todo
 labels: [ui, reflex, state, async]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
-commit: null
-depends_on: []
-blocks: [STORY-002, STORY-003, STORY-017]
-skills: []
-created: 2026-08-21
+plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.plan.md
+status: in-progress
 updated: 2026-08-21
 ---
 
