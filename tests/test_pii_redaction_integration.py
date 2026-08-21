@@ -255,7 +255,6 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
 
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
-    "tests/test_chat_state.py",
     "tests/test_duplicate_checker.py",
     "tests/test_integration.py",
     "tests/test_openrouter_client.py",

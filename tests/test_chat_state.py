@@ -19,6 +19,7 @@ from app.models.schemas import (
 )
 from app.services.duplicate_checker import hash_prompt
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
+from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 
 import chat_ui.chat_ui.state as chat_state_mod
@@ -207,6 +208,38 @@ async def test_chat_state_send_suspicious_blocked_appends_system_bubble(temp_db,
     assert state.messages[-1] == {
         "role": "system",
         "content": "Blocked — Suspicious pattern detected",
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_pii_redactor_error_appends_system_bubble(temp_db, monkeypatch):
+    def _raise_pii_error(*args, **kwargs):
+        raise PiiRedactorError("PII analysis failed: model error")
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _raise_pii_error)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1] == {
+        "role": "system",
+        "content": "Error: PII analysis failed: model error",
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_unexpected_exception_appends_system_bubble(temp_db, monkeypatch):
+    def _raise_unexpected(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _raise_unexpected)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1] == {
+        "role": "system",
+        "content": "Error: boom",
     }
 
 

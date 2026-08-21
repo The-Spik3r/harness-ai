@@ -4,6 +4,7 @@ import reflex as rx
 from app.models.schemas import QueryBlockedDuplicateResponse, QuerySuccessResponse
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.openrouter_client import OpenRouterError, call_openrouter
+from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 
 WELCOME_MESSAGE = {
@@ -66,7 +67,11 @@ class ChatState(rx.State):
                 openrouter_api_key=None,
                 call_openrouter=call_openrouter,
             )
-        except (DuplicateCheckError, OpenRouterError) as exc:
+        except (DuplicateCheckError, OpenRouterError, PiiRedactorError) as exc:
+            async with self:
+                self.messages.append({"role": "system", "content": f"Error: {exc}"})
+            return
+        except Exception as exc:
             async with self:
                 self.messages.append({"role": "system", "content": f"Error: {exc}"})
             return

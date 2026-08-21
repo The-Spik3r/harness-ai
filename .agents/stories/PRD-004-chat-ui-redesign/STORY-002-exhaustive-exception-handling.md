@@ -7,10 +7,10 @@ type: bug
 priority: high
 complexity: small
 phase: "1 - Correctness foundation"
-status: todo
+status: in-progress
 labels: [ui, reflex, state, errors]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-002-exhaustive-exception-handling.plan.md
 report: null
 commit: null
 depends_on: [STORY-001]
