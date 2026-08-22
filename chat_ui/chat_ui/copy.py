@@ -1,0 +1,40 @@
+"""Centralized user-facing copy and templates for chat_ui.
+
+Per PRD-004 Section 4 and STORY-007, all user-facing strings, labels,
+templates, and risk mitigations are centralized here.
+"""
+
+# Session / User ID Entry
+USER_ID_PROMPT_TITLE = "Enter a user ID to start chatting"
+USER_ID_PLACEHOLDER = "user_id"
+USER_ID_SUBMIT_LABEL = "Continue"
+
+# Composer & General UI
+COMPOSER_PLACEHOLDER = "Message..."
+
+# Welcome Message
+WELCOME_MESSAGE_CONTENT = "Hi! Type a message below and press send."
+
+# Outcome / Bubble Labels & Templates
+SUCCESS_ROLE_LABEL = "assistant"
+USER_ROLE_LABEL = "user"
+
+# PII Badge Template (Risk 5 mitigation: explicit that masking covers the whole exchange)
+PII_BADGE_TEMPLATE = "{count} PII types masked in this exchange: {entities}"
+PII_BADGE_SINGLE_TEMPLATE = "1 PII type masked in this exchange: {entities}"
+
+# Success Metadata Footer
+FOOTER_SEPARATOR = " · "
+FOOTER_TOKENS_LABEL = "tokens"
+FOOTER_AUDIT_PREFIX = "#"
+
+# Recovery Actions (Retry & Edit-and-Resend)
+RETRY_LABEL = "Retry"
+EDIT_AND_RESEND_LABEL = "Edit and resend"
+# Risk 4 mitigation: states text must change for resend to go through
+DUPLICATE_CHANGE_NOTICE = "Original text restored. Modify text to go through."
+
+# Error / Block Cards
+# Risk 7 mitigation: upstream error names OpenRouter explicitly
+UPSTREAM_ERROR_PREFIX = "OpenRouter upstream error"
+INTERNAL_ERROR_PREFIX = "Internal error"
