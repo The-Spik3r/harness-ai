@@ -6,7 +6,7 @@
 
 ## Progress
 
-5/19 stories done — 26%
+6/19 stories done — 32%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-004-chat-ui-redesign`. No per-st
 | STORY-006 | Migrate test_chat_state.py to structural bubble assertions | technical | ⬜ todo | medium | — | — |
 | STORY-007 | Centralize all user-facing copy in chat_ui/copy.py | technical | ⬜ todo | small | — | — |
 | STORY-008 | Six bubble renderers dispatched by rx.match on kind | feature | ⬜ todo | large | — | — |
-| STORY-009 | Informational PII badge on assistant bubbles | feature | 🟡 in-progress | small | [.agents/plans/PRD-004-chat-ui-redesign/STORY-009-pii-badge.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/STORY-009-pii-badge.plan.md) | — | — |
+| STORY-009 | Informational PII badge on assistant bubbles | feature | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md) | 1097700 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md) |
 | STORY-010 | Assistant bubble footer with model_used, tokens_used and audit_id | feature | ⬜ todo | small | — | — |
 | STORY-011 | Duplicate card: humanized relative time and 24h window release | feature | ⬜ todo | small | — | — |
 | STORY-012 | Typing indicator and disabled composer while a request is in flight | feature | ⬜ todo | small | — | — |

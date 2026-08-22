@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: PENDING
+commit: 1097700
 status: COMPLETE
 completed: 2026-08-21
 ---

@@ -12,7 +12,7 @@ labels: [ui, reflex, components, pii]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md
-commit: null
+commit: 1097700
 depends_on: [STORY-005, STORY-008]
 blocks: [STORY-019]
 skills: []
