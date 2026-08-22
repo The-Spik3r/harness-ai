@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: small
 phase: "3 - Bubble redesign & PII badge"
-status: todo
+status: done
 labels: [ui, reflex, components, pii]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md
 commit: null
 depends_on: [STORY-005, STORY-008]
 blocks: [STORY-019]
