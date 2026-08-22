@@ -12,7 +12,7 @@ labels: [ui, copy, i18n]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-007-copy-module.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-007-copy-module.report.md
-commit: PENDING
+commit: 2d89467
 depends_on: []
 blocks: [STORY-008, STORY-011, STORY-014]
 skills: []

@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-007-copy-module.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: PENDING
+commit: 2d89467
 status: COMPLETE
 completed: 2026-08-21
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-21
 
 **Plan**: `.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-007-copy-module.plan.md`
 **Epic Branch**: `epic/PRD-004-chat-ui-redesign`
-**Commit**: `PENDING`
+**Commit**: `2d89467`
 
 ## Summary
 
