@@ -1,5 +1,6 @@
 import reflex as rx
 from chat_ui.chat_ui import copy
+from datetime import datetime, timedelta, timezone
 
 
 def render_user(message) -> rx.Component:
@@ -20,7 +21,7 @@ def render_user(message) -> rx.Component:
 
 
 def render_assistant(message) -> rx.Component:
-    """Renders successful assistant message bubble (left-aligned, gray), with optional PII badge."""
+    """Renders successful assistant message bubble (left-aligned, gray), with optional PII badge and success metadata footer."""
     count = message.pii_entities.length()
     entities_str = message.pii_entities.join(", ")
     badge_text = rx.cond(
@@ -41,12 +42,34 @@ def render_assistant(message) -> rx.Component:
         ),
         rx.fragment(),
     )
+    
+    footer_text = rx.text(
+        message.model_used,
+        copy.FOOTER_SEPARATOR,
+        message.tokens_used,
+        " ",
+        copy.FOOTER_TOKENS_LABEL,
+        copy.FOOTER_SEPARATOR,
+        copy.FOOTER_AUDIT_PREFIX,
+        message.audit_id,
+        font_size="0.75rem",
+        color="#6b7280",
+        margin_top="0.5rem",
+    )
+    
+    footer = rx.cond(
+        message.model_used != "",
+        footer_text,
+        rx.fragment(),
+    )
+
     return rx.hstack(
         rx.avatar(fallback="AI", size="2", color_scheme="gray"),
         rx.box(
             rx.vstack(
                 message.content,
                 pii_badge,
+                footer,
                 align_items="start",
                 spacing="1",
             ),
@@ -61,17 +84,62 @@ def render_assistant(message) -> rx.Component:
     )
 
 
+def _format_duplicate_info(first_query_at: str) -> tuple[str, str]:
+    if not first_query_at:
+        return "Already submitted recently.", ""
+    try:
+        dt_str = first_query_at.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(dt_str)
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        seconds = int(diff.total_seconds())
+        if seconds < 0:
+            rel = "just now"
+        elif seconds < 60:
+            rel = f"{seconds} seconds ago"
+        elif seconds < 3600:
+            m = seconds // 60
+            rel = f"{m} minute{'s' if m != 1 else ''} ago"
+        elif seconds < 86400:
+            h = seconds // 3600
+            rel = f"{h} hour{'s' if h != 1 else ''} ago"
+        else:
+            d = seconds // 86400
+            rel = f"{d} day{'s' if d != 1 else ''} ago"
+
+        release_dt = dt + timedelta(hours=24)
+        release_str = release_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        main_text = copy.DUPLICATE_RELATIVE_TIME_TEMPLATE.format(relative=rel, absolute=first_query_at)
+        release_text = copy.DUPLICATE_WINDOW_RELEASE_TEMPLATE.format(release=release_str)
+        return main_text, release_text
+    except Exception:
+        return f"Already sent at {first_query_at}", ""
+
+
 def render_duplicate(message) -> rx.Component:
-    """Renders duplicate block card with benign-nudge styling."""
+    """Renders duplicate block card with humanized relative time, 24h window release, and Risk 4 change notice."""
+    main_info, release_info = _format_duplicate_info(message.first_query_at)
+    
     return rx.center(
         rx.box(
             rx.vstack(
                 rx.text(message.content, weight="medium"),
                 rx.cond(
                     message.first_query_at != "",
-                    rx.text(f"First sent at: {message.first_query_at}", font_size="0.75rem", color="#78350f"),
+                    rx.vstack(
+                        rx.text(main_info, font_size="0.75rem", color="#78350f"),
+                        rx.cond(
+                            release_info != "",
+                            rx.text(release_info, font_size="0.75rem", color="#78350f"),
+                            rx.fragment(),
+                        ),
+                        align_items="start",
+                        spacing="1",
+                    ),
                     rx.text("Already submitted recently.", font_size="0.75rem", color="#78350f"),
                 ),
+                rx.text(copy.DUPLICATE_CHANGE_NOTICE, font_size="0.75rem", color="#78350f", font_style="italic"),
                 align_items="start",
                 spacing="1",
             ),

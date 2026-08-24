@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "3 - Bubble redesign & PII badge"
-status: todo
+status: done
 labels: [ui, reflex, components]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-011-duplicate-relative-time.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-011-duplicate-relative-time.report.md
+commit: PENDING
 depends_on: [STORY-005, STORY-007, STORY-008]
 blocks: [STORY-018, STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # STORY-011: Duplicate card — humanized relative time and 24h window release
