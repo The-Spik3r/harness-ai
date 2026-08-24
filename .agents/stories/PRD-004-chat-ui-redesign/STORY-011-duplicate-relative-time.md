@@ -12,7 +12,7 @@ labels: [ui, reflex, components]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-011-duplicate-relative-time.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-011-duplicate-relative-time.report.md
-commit: PENDING
+commit: 7489579
 depends_on: [STORY-005, STORY-007, STORY-008]
 blocks: [STORY-018, STORY-019]
 skills: []
