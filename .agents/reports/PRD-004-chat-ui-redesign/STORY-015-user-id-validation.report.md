@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: PENDING
+commit: 950daa0
 status: COMPLETE
 completed: 2026-08-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-25
 
 **Plan**: `.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md`
 **Epic Branch**: `epic/PRD-004-chat-ui-redesign`
-**Commit**: PENDING
+**Commit**: `950daa0`
 
 ## Summary
 

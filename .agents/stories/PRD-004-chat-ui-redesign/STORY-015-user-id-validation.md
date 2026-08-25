@@ -12,7 +12,7 @@ labels: [ui, reflex, state, validation]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md
-commit: PENDING
+commit: 950daa0
 depends_on: [STORY-014]
 blocks: [STORY-019]
 skills: []
