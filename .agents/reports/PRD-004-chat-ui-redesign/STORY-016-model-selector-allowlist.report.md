@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: PENDING
+commit: b418c07
 status: COMPLETE
 completed: 2026-08-25
 ---

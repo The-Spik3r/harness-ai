@@ -12,7 +12,7 @@ labels: [ui, reflex, state, config]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md
-commit: null
+commit: b418c07
 depends_on: [STORY-014]
 blocks: [STORY-019]
 skills: []
