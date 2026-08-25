@@ -3,7 +3,7 @@ story: STORY-004
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-004-chat-message-model.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: pending
+commit: 51d22c1
 status: COMPLETE
 completed: 2026-08-21
 ---

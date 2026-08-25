@@ -10,9 +10,9 @@ phase: "2 - Typed message model"
 status: done
 labels: [ui, reflex, state, model]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-004-chat-message-model.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.report.md
+commit: 51d22c1
 depends_on: [STORY-002]
 blocks: [STORY-005, STORY-008]
 skills: []
