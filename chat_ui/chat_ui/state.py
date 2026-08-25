@@ -7,6 +7,7 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 from .models import ChatMessage
+from .copy import USER_ID_VALIDATION_ERROR
 
 class ChatState(rx.State):
     """Holds chat messages, the input box's text, and the session's user_id.
@@ -24,6 +25,7 @@ class ChatState(rx.State):
     input_text: str = ""
     user_id: str = ""
     user_id_input: str = ""
+    user_id_error: str = ""
     pending: bool = False
 
     @rx.var
@@ -42,13 +44,16 @@ class ChatState(rx.State):
     def submit_user_id(self):
         text = self.user_id_input.strip()
         if not text:
+            self.user_id_error = USER_ID_VALIDATION_ERROR
             return
+        self.user_id_error = ""
         self.user_id = text
 
     @rx.event
     def reset_user_id(self):
         self.user_id = ""
         self.user_id_input = ""
+        self.user_id_error = ""
 
     @rx.event(background=True)
     async def send(self):

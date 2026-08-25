@@ -8,6 +8,7 @@ templates, and risk mitigations are centralized here.
 USER_ID_PROMPT_TITLE = "Enter a user ID to start chatting"
 USER_ID_PLACEHOLDER = "user_id"
 USER_ID_SUBMIT_LABEL = "Continue"
+USER_ID_VALIDATION_ERROR = "Please enter a user ID to continue"
 
 # Shell Header & Navigation
 SHELL_HEADER_TITLE = "Harness AI"

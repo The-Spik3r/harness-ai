@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "4 - Shell, session, and recovery actions"
-status: todo
+status: done
 labels: [ui, reflex, state, validation]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md
+commit: PENDING
 depends_on: [STORY-014]
 blocks: [STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-25
 ---
 
 # STORY-015: Inline validation error on empty user_id submit

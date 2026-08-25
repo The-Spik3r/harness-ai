@@ -25,6 +25,7 @@ from app.services.query_pipeline import run_query
 
 import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
+from chat_ui.chat_ui.copy import USER_ID_VALIDATION_ERROR
 
 client = TestClient(app)
 
@@ -468,5 +469,42 @@ def test_chat_state_empty_and_reset_user_id():
     state.reset_user_id()
     assert state.user_id == ""
     assert state.user_id_input == ""
+
+
+def test_chat_state_submit_empty_or_whitespace_user_id_shows_error():
+    state = ChatState(_reflex_internal_init=True)
+    state.user_id_input = "   "
+    state.submit_user_id()
+    assert state.user_id == ""
+    assert state.user_id_error == USER_ID_VALIDATION_ERROR
+
+    state.user_id_input = ""
+    state.submit_user_id()
+    assert state.user_id == ""
+    assert state.user_id_error == USER_ID_VALIDATION_ERROR
+
+
+def test_chat_state_submit_valid_user_id_clears_error_and_sets_user():
+    state = ChatState(_reflex_internal_init=True)
+    state.user_id_input = "   "
+    state.submit_user_id()
+    assert state.user_id_error == USER_ID_VALIDATION_ERROR
+
+    state.user_id_input = "valid-user"
+    state.submit_user_id()
+    assert state.user_id == "valid-user"
+    assert state.user_id_error == ""
+
+
+def test_chat_state_reset_user_id_clears_error():
+    state = ChatState(_reflex_internal_init=True)
+    state.user_id_input = ""
+    state.submit_user_id()
+    assert state.user_id_error == USER_ID_VALIDATION_ERROR
+
+    state.reset_user_id()
+    assert state.user_id == ""
+    assert state.user_id_input == ""
+    assert state.user_id_error == ""
 
 

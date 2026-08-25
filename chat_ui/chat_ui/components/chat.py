@@ -1,64 +1,49 @@
 import reflex as rx
 
 from chat_ui.state import ChatState
+from chat_ui.copy import (
+    USER_ID_PROMPT_TITLE,
+    USER_ID_PLACEHOLDER,
+    USER_ID_SUBMIT_LABEL,
+)
+from chat_ui.components.bubbles import (
+    render_user,
+    render_assistant,
+    render_duplicate,
+    render_injection,
+    render_upstream_error,
+    render_internal_error,
+    render_fallback,
+    render_pending_indicator,
+)
 
 
 def message_bubble(message) -> rx.Component:
-    """A single chat bubble: user (right, blue), system/blocked/error (centered, amber), assistant (left, gray)."""
-    return rx.cond(
-        message.kind == "user",
-        rx.hstack(
-            rx.box(
-                message.content,
-                background_color="#2563eb",
-                color="white",
-                padding="0.65rem 1rem",
-                border_radius="1rem",
-                max_width="70%",
-            ),
-            rx.avatar(fallback="U", size="2", color_scheme="blue"),
-            justify="end",
-            width="100%",
-        ),
-        rx.cond(
-            message.kind == "assistant",
-            rx.hstack(
-                rx.avatar(fallback="AI", size="2", color_scheme="gray"),
-                rx.box(
-                    message.content,
-                    background_color="#f3f4f6",
-                    color="#111827",
-                    padding="0.65rem 1rem",
-                    border_radius="1rem",
-                    max_width="70%",
-                ),
-                justify="start",
-                width="100%",
-            ),
-            rx.center(
-                rx.box(
-                    message.content,
-                    background_color="#fef3c7",
-                    color="#92400e",
-                    padding="0.5rem 1rem",
-                    border_radius="0.75rem",
-                    max_width="80%",
-                    font_size="0.875rem",
-                ),
-                width="100%",
-            ),
-        ),
+    """Dispatches message rendering based on message.kind using rx.match."""
+    return rx.match(
+        message.kind,
+        ("user", render_user(message)),
+        ("assistant", render_assistant(message)),
+        ("duplicate", render_duplicate(message)),
+        ("injection", render_injection(message)),
+        ("upstream_error", render_upstream_error(message)),
+        ("internal_error", render_internal_error(message)),
+        render_fallback(message),
     )
 
 
 def message_list() -> rx.Component:
     """Scrollable column of chat bubbles, grows to fill available height."""
-    return rx.box(
+    return rx.auto_scroll(
         rx.foreach(ChatState.messages, message_bubble),
+        rx.cond(
+            ChatState.pending,
+            render_pending_indicator(),
+            rx.fragment(),
+        ),
         display="flex",
         flex_direction="column",
         gap="0.75rem",
-        overflow_y="auto",
         flex="1",
         width="100%",
         padding="1rem",
@@ -70,14 +55,19 @@ def user_id_prompt() -> rx.Component:
     return rx.center(
         rx.form(
             rx.vstack(
-                rx.text("Enter a user ID to start chatting", size="4", weight="bold"),
+                rx.text(USER_ID_PROMPT_TITLE, size="4", weight="bold"),
                 rx.input(
                     value=ChatState.user_id_input,
                     on_change=ChatState.set_user_id_input,
-                    placeholder="user_id",
+                    placeholder=USER_ID_PLACEHOLDER,
                     width="100%",
                 ),
-                rx.button("Continue", type="submit"),
+                rx.cond(
+                    ChatState.user_id_error != "",
+                    rx.text(ChatState.user_id_error, color="red", size="2"),
+                    rx.fragment(),
+                ),
+                rx.button(USER_ID_SUBMIT_LABEL, type="submit"),
                 spacing="3",
                 width="20rem",
             ),
@@ -96,11 +86,13 @@ def chat_input() -> rx.Component:
                 value=ChatState.input_text,
                 on_change=ChatState.set_input_text,
                 placeholder="Message...",
+                disabled=ChatState.pending,
                 width="100%",
             ),
             rx.icon_button(
                 rx.icon("send", size=18),
                 type="submit",
+                disabled=ChatState.pending,
             ),
             width="100%",
             padding="1rem",
