@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: null
+commit: 07f100e
 status: COMPLETE
 completed: 2026-08-24
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-24
 
 **Plan**: `.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md`
 **Epic Branch**: `epic/PRD-004-chat-ui-redesign`
-**Commit**: null
+**Commit**: `07f100e`
 
 ## Summary
 
