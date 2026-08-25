@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Shell, session, and recovery actions"
-status: todo
+status: in-progress
 labels: [ui, reflex, components, layout]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.plan.md
 report: null
 commit: null
 depends_on: [STORY-007, STORY-008]
 blocks: [STORY-015, STORY-016]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # STORY-014: Redesigned shell — header with session identity, and empty state

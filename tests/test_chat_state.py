@@ -18,7 +18,7 @@ from app.models.schemas import (
     QueryBlockedSuspiciousResponse,
     QuerySuccessResponse,
 )
-from app.services.duplicate_checker import hash_prompt
+from app.services.duplicate_checker import DuplicateCheckError, hash_prompt
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
@@ -235,6 +235,41 @@ async def test_chat_state_send_pii_redactor_error_appends_system_bubble(temp_db,
     assert state.messages[-1].content == "internal_error"
     assert state.messages[-1].detail == "PII analysis failed: model error"
     assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_openrouter_error_appends_upstream_error_bubble(temp_db, monkeypatch):
+    def _raise_openrouter_error(*args, **kwargs):
+        raise OpenRouterError("upstream timeout")
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _raise_openrouter_error)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1].kind == "upstream_error"
+    assert state.messages[-1].content == "upstream_error"
+    assert state.messages[-1].detail == "upstream timeout"
+    assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_duplicate_check_error_appends_internal_error_bubble(temp_db, monkeypatch):
+    def _raise_duplicate_check_error(*args, **kwargs):
+        raise DuplicateCheckError("db locked")
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _raise_duplicate_check_error)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1].kind == "internal_error"
+    assert state.messages[-1].content == "internal_error"
+    assert state.messages[-1].detail == "db locked"
+    assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
 
 
 @pytest.mark.asyncio
@@ -251,6 +286,7 @@ async def test_chat_state_send_unexpected_exception_appends_system_bubble(temp_d
     assert state.messages[-1].content == "internal_error"
     assert state.messages[-1].detail == "boom"
     assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
 
 
 @pytest.mark.asyncio
@@ -419,4 +455,18 @@ async def test_chat_state_concurrent_send_guard(temp_db, monkeypatch):
     user_messages = [m for m in state.messages if m.kind == "user"]
     assert len(user_messages) == 1
     assert user_messages[0].content == "first prompt"
+
+
+def test_chat_state_empty_and_reset_user_id():
+    state = ChatState(_reflex_internal_init=True)
+    assert not state.has_messages
+    assert len(state.messages) == 0
+
+    state.user_id = "test-user"
+    state.user_id_input = "test-user-input"
+    
+    state.reset_user_id()
+    assert state.user_id == ""
+    assert state.user_id_input == ""
+
 

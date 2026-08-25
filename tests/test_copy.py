@@ -16,6 +16,16 @@ from chat_ui.chat_ui.copy import (
     UPSTREAM_ERROR_PREFIX,
     DUPLICATE_RELATIVE_TIME_TEMPLATE,
     DUPLICATE_WINDOW_RELEASE_TEMPLATE,
+    SHELL_HEADER_TITLE,
+    SHELL_HEADER_BADGE,
+    SHELL_USER_LABEL,
+    SHELL_CHANGE_USER_LABEL,
+    SHELL_MODEL_SLOT_LABEL,
+    EMPTY_STATE_TITLE,
+    EMPTY_STATE_SUBTITLE,
+    EMPTY_STATE_PII_FEATURE,
+    EMPTY_STATE_SECURITY_FEATURE,
+    EMPTY_STATE_DEDUP_FEATURE,
 )
 from chat_ui.chat_ui.components.bubbles import _format_duplicate_info
 
@@ -27,6 +37,16 @@ def test_copy_constants_exist_and_not_empty():
     assert WELCOME_MESSAGE_CONTENT
     assert RETRY_LABEL == "Retry"
     assert EDIT_AND_RESEND_LABEL == "Edit and resend"
+    assert SHELL_HEADER_TITLE
+    assert SHELL_HEADER_BADGE
+    assert SHELL_USER_LABEL
+    assert SHELL_CHANGE_USER_LABEL
+    assert SHELL_MODEL_SLOT_LABEL
+    assert EMPTY_STATE_TITLE
+    assert EMPTY_STATE_SUBTITLE
+    assert EMPTY_STATE_PII_FEATURE
+    assert EMPTY_STATE_SECURITY_FEATURE
+    assert EMPTY_STATE_DEDUP_FEATURE
 
 
 def test_risk_5_pii_exchange_phrasing():

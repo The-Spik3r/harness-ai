@@ -8,12 +8,6 @@ from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 from .models import ChatMessage
 
-WELCOME_MESSAGE = ChatMessage(
-    kind="assistant",
-    content="Hi! Type a message below and press send.",
-)
-
-
 class ChatState(rx.State):
     """Holds chat messages, the input box's text, and the session's user_id.
 
@@ -26,11 +20,15 @@ class ChatState(rx.State):
     text run_query(...) returns.
     """
 
-    messages: list[ChatMessage] = [WELCOME_MESSAGE]
+    messages: list[ChatMessage] = []
     input_text: str = ""
     user_id: str = ""
     user_id_input: str = ""
     pending: bool = False
+
+    @rx.var
+    def has_messages(self) -> bool:
+        return len(self.messages) > 0
 
     @rx.event
     def set_input_text(self, text: str):
@@ -46,6 +44,11 @@ class ChatState(rx.State):
         if not text:
             return
         self.user_id = text
+
+    @rx.event
+    def reset_user_id(self):
+        self.user_id = ""
+        self.user_id_input = ""
 
     @rx.event(background=True)
     async def send(self):

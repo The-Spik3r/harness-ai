@@ -12,6 +12,7 @@ from app.main import app as fastapi_app
 from app.services import pii_redactor
 
 from chat_ui.components.chat import chat_input, message_list, user_id_prompt
+from chat_ui.components.shell import header, empty_state
 from chat_ui.state import ChatState
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
@@ -26,7 +27,12 @@ def index() -> rx.Component:
     return rx.cond(
         ChatState.user_id != "",
         rx.vstack(
-            message_list(),
+            header(),
+            rx.cond(
+                ChatState.has_messages,
+                message_list(),
+                empty_state(),
+            ),
             chat_input(),
             height="100vh",
             width="100%",

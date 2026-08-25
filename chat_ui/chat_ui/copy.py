@@ -9,8 +9,23 @@ USER_ID_PROMPT_TITLE = "Enter a user ID to start chatting"
 USER_ID_PLACEHOLDER = "user_id"
 USER_ID_SUBMIT_LABEL = "Continue"
 
+# Shell Header & Navigation
+SHELL_HEADER_TITLE = "Harness AI"
+SHELL_HEADER_BADGE = "Enterprise Guardrail"
+SHELL_USER_LABEL = "User"
+SHELL_CHANGE_USER_LABEL = "Change user"
+SHELL_MODEL_SLOT_LABEL = "Model: gpt-4"
+
+# Empty State
+EMPTY_STATE_TITLE = "Welcome to Harness AI"
+EMPTY_STATE_SUBTITLE = "Ask questions, generate content, or analyze data safely. All prompts pass through enterprise PII protection, duplicate checking, and security guardrails."
+EMPTY_STATE_PII_FEATURE = "PII Masking Active"
+EMPTY_STATE_SECURITY_FEATURE = "Prompt Injection Defense"
+EMPTY_STATE_DEDUP_FEATURE = "24h Query Deduplication"
+
 # Composer & General UI
 COMPOSER_PLACEHOLDER = "Message..."
+PENDING_INDICATOR_TEXT = "Model is thinking..."
 
 # Welcome Message
 WELCOME_MESSAGE_CONTENT = "Hi! Type a message below and press send."
