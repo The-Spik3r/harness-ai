@@ -508,3 +508,49 @@ def test_chat_state_reset_user_id_clears_error():
     assert state.user_id_error == ""
 
 
+def test_model_config_allowlist_and_default():
+    from chat_ui.chat_ui.config import MODEL_ALLOWLIST, DEFAULT_MODEL
+    assert isinstance(MODEL_ALLOWLIST, list)
+    assert len(MODEL_ALLOWLIST) > 0
+    assert DEFAULT_MODEL in MODEL_ALLOWLIST
+
+
+def test_chat_state_model_selection():
+    from chat_ui.chat_ui.config import DEFAULT_MODEL, MODEL_ALLOWLIST
+    state = ChatState(_reflex_internal_init=True)
+    assert state.selected_model == DEFAULT_MODEL
+
+    new_model = MODEL_ALLOWLIST[1] if len(MODEL_ALLOWLIST) > 1 else DEFAULT_MODEL
+    state.set_selected_model(new_model)
+    assert state.selected_model == new_model
+
+    # Resetting user ID should not change model selection (session-level UI choice, AC5)
+    state.user_id = "some-user"
+    state.reset_user_id()
+    assert state.selected_model == new_model
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_passes_selected_model(temp_db, monkeypatch):
+    captured_model = []
+
+    def _fake_run_query(user_id, prompt, device, model, openrouter_api_key, call_openrouter):
+        captured_model.append(model)
+        return QuerySuccessResponse(
+            response="ok",
+            audit_id=1,
+            model_used=model,
+            tokens_used=10,
+        )
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+
+    state = _make_state("juan@empresa.com")
+    state.selected_model = "claude-3-sonnet"
+    await _send(state, "hello model")
+
+    assert captured_model == ["claude-3-sonnet"]
+    assert state.messages[-1].model_used == "claude-3-sonnet"
+
+
+

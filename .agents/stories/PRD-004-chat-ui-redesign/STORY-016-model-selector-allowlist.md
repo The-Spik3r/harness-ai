@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Shell, session, and recovery actions"
-status: todo
+status: done
 labels: [ui, reflex, state, config]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md
 commit: null
 depends_on: [STORY-014]
 blocks: [STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-25
 ---
 
 # STORY-016: Model selector driven by a curated allowlist in config.py

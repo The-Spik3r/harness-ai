@@ -8,6 +8,7 @@ from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 from .models import ChatMessage
 from .copy import USER_ID_VALIDATION_ERROR
+from .config import DEFAULT_MODEL
 
 class ChatState(rx.State):
     """Holds chat messages, the input box's text, and the session's user_id.
@@ -27,6 +28,7 @@ class ChatState(rx.State):
     user_id_input: str = ""
     user_id_error: str = ""
     pending: bool = False
+    selected_model: str = DEFAULT_MODEL
 
     @rx.var
     def has_messages(self) -> bool:
@@ -39,6 +41,10 @@ class ChatState(rx.State):
     @rx.event
     def set_user_id_input(self, text: str):
         self.user_id_input = text
+
+    @rx.event
+    def set_selected_model(self, model: str):
+        self.selected_model = model
 
     @rx.event
     def submit_user_id(self):
@@ -69,6 +75,7 @@ class ChatState(rx.State):
             self.messages.append(ChatMessage(kind="user", content=text, prompt=text))
             self.input_text = ""
             user_id = self.user_id
+            model = self.selected_model
 
         try:
             try:
@@ -77,7 +84,7 @@ class ChatState(rx.State):
                     user_id=user_id,
                     prompt=text,
                     device=None,
-                    model="gpt-4",
+                    model=model,
                     openrouter_api_key=None,
                     call_openrouter=call_openrouter,
                 )

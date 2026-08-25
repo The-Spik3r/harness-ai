@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/19 stories done — 47%
+10/19 stories done — 53%
 
 ## Stories
 
@@ -29,7 +29,7 @@ All stories commit on the epic branch `epic/PRD-004-chat-ui-redesign`. No per-st
 | STORY-013 | Auto-scroll the message area to the newest message on append | enhancement | ⬜ todo | small | — | — |
 | STORY-014 | Redesigned shell: header with session identity, and empty state | feature | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md) | 07f100e | [.agents/reports/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.report.md) |
 | STORY-015 | Inline validation error on empty user_id submit | enhancement | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md) | 950daa0 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md) |
-| STORY-016 | Model selector driven by a curated allowlist in config.py | feature | ⬜ todo | medium | — | — |
+| STORY-016 | Model selector driven by a curated allowlist in config.py | feature | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md) |
 | STORY-017 | Populate device from the browser User-Agent on chat sends | feature | ⬜ todo | small | — | — |
 | STORY-018 | Retry on error cards and edit-and-resend on duplicate cards | feature | ⬜ todo | medium | — | — |
 | STORY-019 | Six-outcome walkthrough and full-suite regression verification | technical | ⬜ todo | medium | — | — |

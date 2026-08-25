@@ -1,11 +1,11 @@
 import reflex as rx
 
 from chat_ui.state import ChatState
+from chat_ui.config import MODEL_ALLOWLIST
 from chat_ui.copy import (
     SHELL_HEADER_TITLE,
     SHELL_HEADER_BADGE,
     SHELL_CHANGE_USER_LABEL,
-    SHELL_MODEL_SLOT_LABEL,
     EMPTY_STATE_TITLE,
     EMPTY_STATE_SUBTITLE,
     EMPTY_STATE_PII_FEATURE,
@@ -14,21 +14,21 @@ from chat_ui.copy import (
 )
 
 
-def model_selector_slot() -> rx.Component:
-    """Placeholder slot for model selector component (STORY-016)."""
-    return rx.box(
-        rx.badge(
-            SHELL_MODEL_SLOT_LABEL,
-            variant="outline",
-            color_scheme="gray",
-            size="1",
-        ),
-        id="model-selector-slot",
+def model_selector() -> rx.Component:
+    """Model selector dropdown driven by curated allowlist in config.py (STORY-016)."""
+    return rx.select(
+        MODEL_ALLOWLIST,
+        value=ChatState.selected_model,
+        on_change=ChatState.set_selected_model,
+        size="1",
+        variant="soft",
+        color_scheme="gray",
+        id="model-selector",
     )
 
 
 def header() -> rx.Component:
-    """Header providing harness identity, session user_id, change-user action, and model selector slot."""
+    """Header providing harness identity, session user_id, change-user action, and model selector."""
     return rx.hstack(
         rx.hstack(
             rx.icon("shield-check", size=22, color="#2563eb"),
@@ -43,7 +43,7 @@ def header() -> rx.Component:
             spacing="2",
         ),
         rx.hstack(
-            model_selector_slot(),
+            model_selector(),
             rx.hstack(
                 rx.avatar(fallback="U", size="1", color_scheme="blue"),
                 rx.text(
