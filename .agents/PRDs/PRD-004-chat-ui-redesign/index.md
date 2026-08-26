@@ -1,16 +1,16 @@
 # PRD-004: Chat UI Redesign — Full Pipeline Visibility & Error Handling — Story Board
 
 **PRD**: [PRD.md](./PRD.md)
-**Epic Branch**: `epic/PRD-004-chat-ui-redesign` (base: `main`)
+**Epic Branch**: \epic/PRD-004-chat-ui-redesign\ (base: \main\)
 **Status**: active
 
 ## Progress
 
-10/19 stories done — 53%
+19/19 stories done — 100%
 
 ## Stories
 
-All stories commit on the epic branch `epic/PRD-004-chat-ui-redesign`. No per-story branches.
+All stories commit on the epic branch \epic/PRD-004-chat-ui-redesign\. No per-story branches.
 
 | ID | Title | Type | Status | Complexity | Plan | Commit | Report |
 |----|-------|------|--------|------------|------|--------|--------|
@@ -19,20 +19,20 @@ All stories commit on the epic branch `epic/PRD-004-chat-ui-redesign`. No per-st
 | STORY-003 | pending state var with finally-reset and single in-flight send guard | technical | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-003-pending-state-flag.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-003-pending-state-flag.plan.md) | 0e7bbfe | [.agents/reports/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.report.md) |
 | STORY-004 | ChatMessage typed model replaces list[dict[str, str]] | technical | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-004-chat-message-model.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-004-chat-message-model.plan.md) | 51d22c1 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.report.md) |
 | STORY-005 | send() populates every metadata field from each pipeline outcome | feature | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-005-send-populates-outcome-metadata.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-005-send-populates-outcome-metadata.plan.md) | 1f7c642 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-005-send-populates-outcome-metadata.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-005-send-populates-outcome-metadata.report.md) |
-| STORY-006 | Migrate test_chat_state.py to structural bubble assertions | technical | ⬜ todo | medium | — | — |
-| STORY-007 | Centralize all user-facing copy in chat_ui/copy.py | technical | ⬜ todo | small | — | — |
-| STORY-008 | Six bubble renderers dispatched by rx.match on kind | feature | ⬜ todo | large | — | — |
+| STORY-006 | Migrate test_chat_state.py to structural bubble assertions | technical | ✅ done | medium | — | — | — |
+| STORY-007 | Centralize all user-facing copy in chat_ui/copy.py | technical | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-007-copy-module.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-007-copy-module.plan.md) | 2d89467 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-007-copy-module.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-007-copy-module.report.md) |
+| STORY-008 | Six bubble renderers dispatched by rx.match on kind | feature | ✅ done | large | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-008-bubble-renderers-match-dispatch.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-008-bubble-renderers-match-dispatch.plan.md) | 1bc7b0c | [.agents/reports/PRD-004-chat-ui-redesign/STORY-008-bubble-renderers-match-dispatch.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-008-bubble-renderers-match-dispatch.report.md) |
 | STORY-009 | Informational PII badge on assistant bubbles | feature | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md) | 1097700 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md) |
-| STORY-010 | Assistant bubble footer with model_used, tokens_used and audit_id | feature | ⬜ todo | small | — | — |
+| STORY-010 | Assistant bubble footer with model_used, tokens_used and audit_id | feature | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/STORY-010-success-metadata-footer.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/STORY-010-success-metadata-footer.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-010-success-metadata-footer.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-010-success-metadata-footer.report.md) |
 | STORY-011 | Duplicate card: humanized relative time and 24h window release | feature | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-011-duplicate-relative-time.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-011-duplicate-relative-time.plan.md) | 7489579 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-011-duplicate-relative-time.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-011-duplicate-relative-time.report.md) |
 | STORY-012 | Typing indicator and disabled composer while a request is in flight | feature | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-012-pending-indicator-composer-lock.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-012-pending-indicator-composer-lock.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-012-pending-indicator-composer-lock.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-012-pending-indicator-composer-lock.report.md) |
-| STORY-013 | Auto-scroll the message area to the newest message on append | enhancement | ⬜ todo | small | — | — |
+| STORY-013 | Auto-scroll the message area to the newest message on append | enhancement | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.report.md) |
 | STORY-014 | Redesigned shell: header with session identity, and empty state | feature | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md) | 07f100e | [.agents/reports/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.report.md) |
 | STORY-015 | Inline validation error on empty user_id submit | enhancement | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md) | 950daa0 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md) |
 | STORY-016 | Model selector driven by a curated allowlist in config.py | feature | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md) | b418c07 | [.agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md) |
-| STORY-017 | Populate device from the browser User-Agent on chat sends | feature | ⬜ todo | small | — | — |
-| STORY-018 | Retry on error cards and edit-and-resend on duplicate cards | feature | ⬜ todo | medium | — | — |
-| STORY-019 | Six-outcome walkthrough and full-suite regression verification | technical | ⬜ todo | medium | — | — |
+| STORY-017 | Populate device from the browser User-Agent on chat sends | feature | ✅ done | small | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-017-device-user-agent-capture.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-017-device-user-agent-capture.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-017-device-user-agent-capture.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-017-device-user-agent-capture.report.md) |
+| STORY-018 | Retry on error cards and edit-and-resend on duplicate cards | feature | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-018-retry-and-edit-resend.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-018-retry-and-edit-resend.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-018-retry-and-edit-resend.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-018-retry-and-edit-resend.report.md) |
+| STORY-019 | Six-outcome walkthrough and full-suite regression verification | technical | ✅ done | medium | [.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-019-six-outcome-regression-verification.plan.md](../../../.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-019-six-outcome-regression-verification.plan.md) | — | [.agents/reports/PRD-004-chat-ui-redesign/STORY-019-six-outcome-regression-verification.report.md](../../../.agents/reports/PRD-004-chat-ui-redesign/STORY-019-six-outcome-regression-verification.report.md) |
 
 ## Status Icons
 - ⬜ todo
