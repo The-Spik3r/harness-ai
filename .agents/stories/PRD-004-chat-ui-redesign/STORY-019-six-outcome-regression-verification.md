@@ -12,7 +12,7 @@ labels: [tests, ui, verification]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-019-six-outcome-regression-verification.plan.md
 report: .agents/reports/PRD-004-chat-ui-redesign/STORY-019-six-outcome-regression-verification.report.md
-commit: null
+commit: c724de8
 depends_on: [STORY-006, STORY-009, STORY-010, STORY-011, STORY-012, STORY-013, STORY-015, STORY-016, STORY-017, STORY-018]
 blocks: []
 skills: []

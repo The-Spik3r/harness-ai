@@ -3,7 +3,7 @@ story: STORY-019
 prd: PRD-004
 plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-019-six-outcome-regression-verification.plan.md
 epic_branch: epic/PRD-004-chat-ui-redesign
-commit: null
+commit: c724de8
 status: COMPLETE
 completed: 2026-08-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-25
 
 **Plan**: `.agents/plans/PRD-004-chat-ui-redesign/completed/STORY-019-six-outcome-regression-verification.plan.md`
 **Epic Branch**: `epic/PRD-004-chat-ui-redesign`
-**Commit**: pending
+**Commit**: `c724de8`
 
 ## Summary
 
