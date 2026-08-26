@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "4 - Shell, session, and recovery actions"
-status: todo
+status: done
 labels: [ui, reflex, state, components]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-018-retry-and-edit-resend.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-018-retry-and-edit-resend.report.md
 commit: null
 depends_on: [STORY-005, STORY-008, STORY-011]
 blocks: [STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-25
 ---
 
 # STORY-018: Retry on error cards and edit-and-resend on duplicate cards

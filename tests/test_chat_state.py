@@ -553,4 +553,97 @@ async def test_chat_state_send_passes_selected_model(temp_db, monkeypatch):
     assert state.messages[-1].model_used == "claude-3-sonnet"
 
 
+@pytest.mark.asyncio
+async def test_chat_state_send_populates_device_from_router_headers(temp_db, monkeypatch):
+    captured_device = []
+
+    def _fake_run_query(user_id, prompt, device, model, openrouter_api_key, call_openrouter):
+        captured_device.append(device)
+        return QuerySuccessResponse(
+            response="ok",
+            audit_id=1,
+            model_used=model,
+            tokens_used=10,
+        )
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+
+    state = _make_state("juan@empresa.com")
+    class MockHeaders:
+        raw_headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"}
+    class MockRouter:
+        headers = MockHeaders()
+    object.__setattr__(state, "router", MockRouter())
+
+    await _send(state, "hello device")
+
+    assert captured_device == ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"]
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_device_fallback_when_headers_missing(temp_db, monkeypatch):
+    captured_device = []
+
+    def _fake_run_query(user_id, prompt, device, model, openrouter_api_key, call_openrouter):
+        captured_device.append(device)
+        return QuerySuccessResponse(
+            response="ok",
+            audit_id=1,
+            model_used=model,
+            tokens_used=10,
+        )
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+
+    state = _make_state("juan@empresa.com")
+    object.__setattr__(state, "router", None)
+
+    await _send(state, "hello no router")
+
+    assert captured_device == [None]
+
+
+@pytest.mark.asyncio
+async def test_retry_message_resubmits_prompt(temp_db, monkeypatch):
+    def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
+        return OpenRouterResult(response="Retried success", model_used=model, tokens_used=5)
+
+    monkeypatch.setattr(chat_state_mod, "call_openrouter", _fake_call_openrouter)
+
+    state = _make_state()
+    handler = type(state).event_handlers["retry_message"]
+    await handler.fn(state, "original failed prompt")
+
+    assert state.messages[-2].content == "original failed prompt"
+    assert state.messages[-2].prompt == "original failed prompt"
+    assert state.messages[-1].content == "Retried success"
+
+
+@pytest.mark.asyncio
+async def test_edit_and_resend_repopulates_composer(temp_db):
+    state = _make_state()
+    state.input_text = ""
+    state.edit_and_resend("original duplicate prompt")
+
+    assert state.input_text == "original duplicate prompt"
+    assert len(state.messages) == 0
+
+
+@pytest.mark.asyncio
+async def test_recovery_actions_ignored_when_pending(temp_db):
+    state = _make_state()
+    state.pending = True
+    state.input_text = ""
+
+    handler = type(state).event_handlers["retry_message"]
+    await handler.fn(state, "retry prompt")
+    assert state.input_text == ""
+    assert len(state.messages) == 0
+
+    state.edit_and_resend("edit prompt")
+    assert state.input_text == ""
+
+
+
+
 

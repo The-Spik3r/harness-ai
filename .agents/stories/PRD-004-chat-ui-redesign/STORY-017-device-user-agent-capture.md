@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "4 - Shell, session, and recovery actions"
-status: todo
+status: done
 labels: [ui, reflex, state, audit]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-017-device-user-agent-capture.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-017-device-user-agent-capture.report.md
 commit: null
 depends_on: [STORY-001]
 blocks: [STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-25
 ---
 
 # STORY-017: Populate device from the browser User-Agent on chat sends

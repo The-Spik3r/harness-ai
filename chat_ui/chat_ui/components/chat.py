@@ -83,6 +83,7 @@ def chat_input() -> rx.Component:
     return rx.form(
         rx.hstack(
             rx.input(
+                id="chat_input",
                 value=ChatState.input_text,
                 on_change=ChatState.set_input_text,
                 placeholder="Message...",
