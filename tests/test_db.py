@@ -3,29 +3,38 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import re
 import sqlite3
+from datetime import datetime
 
 import pytest
 
 from app.config import settings
 from app.db import database
 from app.db.database import (
+    count_active_users,
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
     count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
+    deactivate_user,
+    find_user_by_token_hash,
     get_audit_log,
     get_connection,
+    get_user,
     init_db,
     insert_audit_log,
+    insert_user,
     list_audit_logs,
+    list_users,
+    set_user_token_hash,
     top_models,
     top_pii_entities,
     top_users,
 )
-from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog
+from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
 
 
 @pytest.fixture
@@ -665,3 +674,284 @@ def test_top_pii_entities_respects_limit(temp_db):
     )
 
     assert top_pii_entities(limit=2) == ["EMAIL_ADDRESS", "PERSON"]
+
+
+# --------------------------------------------------------------------------
+# PRD-005 STORY-002: users table + CRUD helpers
+# --------------------------------------------------------------------------
+
+
+def test_init_db_creates_users_table(temp_db):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+    assert row is not None
+
+
+def test_users_schema_matches_expected_columns(temp_db):
+    """Pins the identity schema, including the explicit NOT NULL on user_id.
+
+    Outside INTEGER PRIMARY KEY, SQLite lets a PRIMARY KEY column hold NULL --
+    and more than one row of them -- so dropping that NOT NULL would silently
+    allow nameless users in the table that answers "who is this".
+    """
+    with get_connection() as conn:
+        info = list(conn.execute("PRAGMA table_info(users)"))
+
+    columns = {row["name"]: row for row in info}
+    assert set(columns) == {
+        "user_id",
+        "role",
+        "token_hash",
+        "active",
+        "created_at",
+    }
+    for name, row in columns.items():
+        assert row["notnull"] == 1, f"{name} must be NOT NULL"
+    assert columns["active"]["dflt_value"] == "1"
+    assert columns["user_id"]["pk"] == 1
+    assert all(
+        columns[name]["pk"] == 0
+        for name in ("role", "token_hash", "active", "created_at")
+    )
+
+
+def test_init_db_creates_users_token_hash_index(temp_db):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='idx_users_token_hash'"
+        ).fetchone()
+    assert row is not None
+
+
+def test_init_db_is_idempotent_for_users_table(temp_db):
+    """init_db() runs on every Reflex hot reload (chat_ui/chat_ui/chat_ui.py:24),
+    so a re-issued CREATE must stay a no-op rather than raising."""
+    init_db()
+    init_db()
+    init_db()
+
+    insert_user(User(user_id="ana", role="user", token_hash="hash-ana"))
+
+    assert count_active_users() == 1
+    with get_connection() as conn:
+        index = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='idx_users_token_hash'"
+        ).fetchone()
+    assert index is not None
+
+
+def test_init_db_adds_users_table_to_pre_rbac_database(tmp_path, monkeypatch):
+    """A new *table* needs no ALTER-based migration: CREATE TABLE IF NOT EXISTS
+    reaches an existing database file, unlike a new column. This is why
+    _add_missing_columns stays audit_logs-specific."""
+    db_path = tmp_path / "pre_rbac.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+
+    _create_pre_pii_database(db_path)  # audit_logs only -- no users table
+
+    init_db()
+
+    with get_connection() as conn:
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert {"audit_logs", "users"} <= tables
+    assert count_active_users() == 0
+
+    # The legacy audit row is untouched by the new table.
+    assert count_audit_logs() == 1
+    assert get_audit_log(1).user_id == "juan@empresa.com"
+
+
+def test_find_user_by_token_hash_returns_active_user(temp_db):
+    insert_user(
+        User(
+            user_id="ana",
+            role="user",
+            token_hash="hash-ana",
+            created_at="2026-08-28T10:00:00Z",
+        )
+    )
+
+    found = find_user_by_token_hash("hash-ana")
+
+    assert found is not None
+    assert found.user_id == "ana"
+    assert found.role == "user"
+    assert found.active is True
+    assert found.created_at == "2026-08-28T10:00:00Z"
+
+
+def test_find_user_by_token_hash_ignores_deactivated_user(temp_db):
+    """Revocation must break credential resolution while leaving the row
+    readable administratively -- both halves of AC2 in one assertion set."""
+    insert_user(User(user_id="ana", role="user", token_hash="hash-ana"))
+    deactivate_user("ana")
+
+    assert find_user_by_token_hash("hash-ana") is None
+
+    still_there = get_user("ana")
+    assert still_there is not None
+    assert still_there.active is False
+
+
+def test_find_user_by_token_hash_unknown_returns_none(temp_db):
+    assert find_user_by_token_hash("nope") is None
+
+
+def test_find_user_by_token_hash_is_exact_not_prefix(temp_db):
+    """Guards against anyone turning the `=` into a LIKE: a prefix match would
+    let a truncated digest authenticate."""
+    insert_user(User(user_id="ana", role="user", token_hash="abc123"))
+
+    assert find_user_by_token_hash("abc") is None
+    assert find_user_by_token_hash("abc123") is not None
+
+
+def test_deactivate_user_retains_the_row(temp_db):
+    """Revocation is not deletion: audit_logs rows carry a bare user_id with no
+    foreign key, so deleting the user would orphan the audit trail."""
+    insert_user(
+        User(
+            user_id="ana",
+            role="user",
+            token_hash="hash-ana",
+            created_at="2026-08-28T10:00:00Z",
+        )
+    )
+
+    assert deactivate_user("ana") is True
+
+    revoked = get_user("ana")
+    assert revoked is not None
+    assert revoked.active is False
+    assert revoked.created_at == "2026-08-28T10:00:00Z"
+    assert revoked.role == "user"
+
+
+def test_deactivate_user_unknown_returns_false(temp_db):
+    assert deactivate_user("ghost") is False
+
+
+def test_deactivate_user_is_idempotent(temp_db):
+    """rowcount counts matched rows, not changed ones, so a second deactivation
+    still reports True. Documented so nobody "fixes" it into False later."""
+    insert_user(User(user_id="ana", role="user", token_hash="hash-ana"))
+
+    assert deactivate_user("ana") is True
+    assert deactivate_user("ana") is True
+    assert get_user("ana").active is False
+
+
+def test_count_active_users_empty_returns_zero(temp_db):
+    assert count_active_users() == 0
+
+
+def test_count_active_users_excludes_deactivated(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash="h-ana"))
+    insert_user(User(user_id="bob", role="auditor", token_hash="h-bob"))
+    insert_user(User(user_id="cleo", role="admin", token_hash="h-cleo"))
+
+    deactivate_user("bob")
+
+    assert count_active_users() == 2
+    assert len(list_users()) == 3  # the revoked row is retained
+
+
+def test_find_user_by_token_hash_uses_the_index(temp_db):
+    """AC5: the lookup is on the hot path of every authenticated request, so it
+    must not degrade to a table scan as the users table grows."""
+    insert_user(User(user_id="ana", role="user", token_hash="hash-ana"))
+
+    with get_connection() as conn:
+        plan = " ".join(
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN "
+                "SELECT * FROM users WHERE token_hash = ? AND active = 1",
+                ("hash-ana",),
+            )
+        )
+
+    assert "idx_users_token_hash" in plan, plan
+    assert "SCAN" not in plan.upper(), plan
+
+
+def test_insert_and_read_user_round_trip(temp_db):
+    entry = User(
+        user_id="ana@empresa.com",
+        role="auditor",
+        token_hash="a" * 64,
+        active=False,
+        created_at="2026-08-28T10:30:00Z",
+    )
+
+    returned = insert_user(entry)
+    fetched = get_user("ana@empresa.com")
+
+    assert returned == "ana@empresa.com"
+    assert fetched is not None
+    assert fetched.user_id == entry.user_id
+    assert fetched.role == entry.role
+    assert fetched.token_hash == entry.token_hash
+    assert fetched.active is False
+    assert fetched.created_at == entry.created_at
+
+
+def test_insert_user_defaults_created_at_to_utc_now(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash="hash-ana"))
+
+    created_at = get_user("ana").created_at
+
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", created_at)
+    # Same format as audit_logger.py, so both tables sort and compare alike.
+    assert datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_insert_user_rejects_duplicate_user_id(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash="h-1"))
+
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_user(User(user_id="ana", role="admin", token_hash="h-2"))
+
+
+def test_insert_user_rejects_duplicate_token_hash(temp_db):
+    """The index is UNIQUE on purpose: without it, two rows could share a
+    credential and the lookup would return an arbitrary winner."""
+    insert_user(User(user_id="ana", role="user", token_hash="shared-hash"))
+
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_user(User(user_id="bob", role="user", token_hash="shared-hash"))
+
+
+def test_get_user_missing_returns_none(temp_db):
+    assert get_user("ghost") is None
+
+
+def test_list_users_includes_deactivated(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash="h-ana"))
+    insert_user(User(user_id="bob", role="user", token_hash="h-bob"))
+
+    deactivate_user("bob")
+
+    assert len(list_users()) == 2
+
+
+def test_set_user_token_hash_rotates_the_credential(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash="old-hash"))
+
+    assert set_user_token_hash("ana", "new-hash") is True
+
+    assert find_user_by_token_hash("old-hash") is None
+    rotated = find_user_by_token_hash("new-hash")
+    assert rotated is not None
+    assert rotated.user_id == "ana"
+
+
+def test_set_user_token_hash_unknown_returns_false(temp_db):
+    assert set_user_token_hash("ghost", "hash") is False

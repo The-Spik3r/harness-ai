@@ -37,6 +37,31 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     "pii_entities": "TEXT",
 }
 
+# Identity store (PRD-005). Lives in the same SQLite file as audit_logs -- no
+# second service, no ORM, stdlib only.
+#
+# user_id declares NOT NULL explicitly: outside INTEGER PRIMARY KEY, SQLite lets
+# a PRIMARY KEY column hold NULL, and more than one row of them.
+#
+# token_hash holds a SHA-256 digest produced by app/services/identity.py
+# (STORY-003). Nothing in app/db/ ever sees the plaintext token.
+CREATE_USERS_TABLE = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY NOT NULL,
+    role TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+)
+"""
+
+# UNIQUE, not merely indexed: it serves the lookup path (no table scan) and makes
+# two users sharing a credential an IntegrityError at write time rather than an
+# arbitrary winner at read time.
+CREATE_USERS_TOKEN_HASH_INDEX = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_token_hash ON users(token_hash)"
+)
+
 
 @dataclass
 class AuditLog:
@@ -57,3 +82,12 @@ class AuditLog:
     pii_detected_output: bool = False
     pii_entities: Optional[str] = None
     id: Optional[int] = None
+
+
+@dataclass
+class User:
+    user_id: str
+    role: str
+    token_hash: str
+    active: bool = True
+    created_at: Optional[str] = None  # insert_user() stamps it when omitted

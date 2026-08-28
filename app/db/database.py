@@ -1,10 +1,19 @@
 import sqlite3
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.config import settings
-from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, CREATE_AUDIT_LOGS_TABLE, AuditLog
+from app.db.models import (
+    AUDIT_LOGS_ADDED_COLUMNS,
+    CREATE_AUDIT_LOGS_TABLE,
+    CREATE_USERS_TABLE,
+    CREATE_USERS_TOKEN_HASH_INDEX,
+    AuditLog,
+    User,
+)
 
 _SQLITE_PREFIX = "sqlite:///"
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def _db_path() -> str:
@@ -24,6 +33,8 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
         _add_missing_columns(conn)
+        conn.execute(CREATE_USERS_TABLE)
+        conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
 
 
 def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -216,3 +227,102 @@ def top_pii_entities(limit: int = 5) -> list[str]:
 
     ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
     return [entity for entity, _ in ranked[:limit]]
+
+
+def _row_to_user(row: sqlite3.Row) -> User:
+    return User(
+        user_id=row["user_id"],
+        role=row["role"],
+        token_hash=row["token_hash"],
+        active=bool(row["active"]),
+        created_at=row["created_at"],
+    )
+
+
+def get_user(user_id: str) -> Optional[User]:
+    """Returns the user regardless of active state -- administrative reads
+    (CLI list/deactivate) must be able to see a revoked row."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_user(row)
+
+
+def find_user_by_token_hash(token_hash: str) -> Optional[User]:
+    """Active users only. A revoked credential is indistinguishable from an
+    unknown one by design -- PRD-005 Section 9 maps both to 401, and separating
+    them would be a credential-enumeration oracle."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE token_hash = ? AND active = 1",
+            (token_hash,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_user(row)
+
+
+def list_users(limit: int = 100) -> list[User]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_row_to_user(row) for row in rows]
+
+
+def count_active_users() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE active = 1"
+        ).fetchone()
+        return row["n"]
+
+
+def insert_user(entry: User) -> str:
+    """Raises sqlite3.IntegrityError on a duplicate user_id or token_hash --
+    deliberately not caught here; app/db/ has no error handling anywhere and the
+    caller needs to tell those two cases apart."""
+    created_at = entry.created_at or datetime.now(timezone.utc).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (user_id, role, token_hash, active, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                entry.user_id,
+                entry.role,
+                entry.token_hash,
+                int(entry.active),
+                created_at,
+            ),
+        )
+    return entry.user_id
+
+
+def deactivate_user(user_id: str) -> bool:
+    """Revocation is not deletion: audit_logs rows carry a bare user_id with no
+    foreign key, so removing the row would orphan the audit trail. Returns False
+    when no such user exists, so the CLI can report a typo."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET active = 0 WHERE user_id = ?", (user_id,)
+        )
+        return cursor.rowcount == 1
+
+
+def set_user_token_hash(user_id: str, token_hash: str) -> bool:
+    """Credential rotation (STORY-004 `issue-token`). The old hash stops
+    resolving the moment this returns."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET token_hash = ? WHERE user_id = ?",
+            (token_hash, user_id),
+        )
+        return cursor.rowcount == 1
