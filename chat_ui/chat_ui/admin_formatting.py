@@ -59,6 +59,13 @@ SHARE_UNDEFINED = "—"
 DEVICE_TRUNCATE_LENGTH = 32
 DEVICE_ELLIPSIS = "…"
 
+# The refresh stamp's format. Seconds included deliberately: two refreshes a
+# minute apart must produce two visibly different stamps, or the control reads
+# as broken. UTC to match the audit table's own timestamps, which
+# `app/services/audit_logger.py` writes in UTC — a local-time stamp beside UTC
+# row times would be two clocks on one screen.
+REFRESHED_AT_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
+
 
 def derive_verdict(log: AuditLog) -> str:
     """The row's outcome, in PRD-006 Section 6's precedence.
@@ -138,6 +145,18 @@ def _format_timestamps(raw: Optional[str], now: datetime) -> tuple[str, str]:
         return humanize_compact(seconds), raw
     except Exception:
         return VALUE_ABSENT, raw
+
+
+def format_refreshed_at(now: Optional[datetime] = None) -> str:
+    """The moment of the read, as the stamp the console shows beside refresh.
+
+    Here rather than in `admin_state.py` for the reason at the top of this
+    module: it is a rendered string, and components receive Vars, so it is
+    computed once in Python when the read completes. STORY-017 renders it.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    return now.strftime(REFRESHED_AT_FORMAT)
 
 
 def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
