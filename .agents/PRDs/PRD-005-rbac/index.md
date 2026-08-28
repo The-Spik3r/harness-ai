@@ -6,7 +6,7 @@
 
 ## Progress
 
-6/18 stories done — 33%
+7/18 stories done — 39%
 
 ## Stories
 
@@ -20,7 +20,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-004 | Bootstrap CLI — scripts/manage_users.py | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-004-manage-users-cli.plan.md) | `10e63fc` |
 | STORY-005 | RBAC configuration settings and env vars | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-005-rbac-configuration-settings.plan.md) | `c2aca34` |
 | STORY-006 | authz service — permission constants, default role matrix, deny-by-default authorize() | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-006-authz-permission-matrix.plan.md) | `5d5281a` |
-| STORY-007 | Role matrix loaded from RBAC_ROLES_FILE at startup | feature | ⬜ todo | small | — | — |
+| STORY-007 | Role matrix loaded from RBAC_ROLES_FILE at startup | feature | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-007-roles-file-override.plan.md) | `9769412` |
 | STORY-008 | QueryBlockedForbiddenResponse joins the QueryResponse union | technical | ⬜ todo | small | — | — |
 | STORY-009 | audit_logs gains role and denied_permission columns | technical | ⬜ todo | small | — | — |
 | STORY-010 | run_query() requires an Identity and authorizes as step 0 | feature | ⬜ todo | medium | — | — |
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001 through STORY-006 are done. STORY-007, STORY-008, STORY-009, STORY-012, and STORY-016 are unblocked and can start now.
+STORY-001 through STORY-007 are done. STORY-008, STORY-009, STORY-012, and STORY-016 are unblocked and can start now.

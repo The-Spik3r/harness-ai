@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: small
 phase: "Phase 2 — Authorization core"
-status: todo
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-007-roles-file-override.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-007-roles-file-override.report.md
+commit: 9769412
 depends_on: [STORY-006]
 blocks: []
 skills: []
