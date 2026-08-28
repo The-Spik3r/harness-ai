@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "3 - Bubble redesign & PII badge"
-status: todo
+status: done
 labels: [ui, reflex, components]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.report.md
 commit: null
 depends_on: [STORY-008]
 blocks: [STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # STORY-013: Auto-scroll the message area to the newest message on append
@@ -28,10 +28,10 @@ As an end user, I want the conversation to scroll to the newest message automati
 
 ## Acceptance Criteria
 
-- [ ] Given a message list taller than the viewport, when any message is appended, then the newest message is scrolled into view without manual scrolling.
-- [ ] Given all six message kinds, when each is appended, then the scroll happens for every one — a blocked or error card scrolls into view exactly as an assistant reply does.
-- [ ] Given the pending indicator is visible ([[STORY-012]]), when it appears, then it too is scrolled into view, so "the model is thinking" is never hidden below the fold.
-- [ ] Given the message area, when the change lands, then the bare `overflow_y="auto"` with no scroll-into-view at [chat.py:56-65](../../../chat_ui/chat_ui/components/chat.py) is replaced by a real scroll behavior.
+- [x] Given a message list taller than the viewport, when any message is appended, then the newest message is scrolled into view without manual scrolling.
+- [x] Given all six message kinds, when each is appended, then the scroll happens for every one — a blocked or error card scrolls into view exactly as an assistant reply does.
+- [x] Given the pending indicator is visible ([[STORY-012]]), when it appears, then it too is scrolled into view, so "the model is thinking" is never hidden below the fold.
+- [x] Given the message area, when the change lands, then the bare `overflow_y="auto"` with no scroll-into-view at [chat.py:56-65](../../../chat_ui/chat_ui/components/chat.py) is replaced by a real scroll behavior.
 
 ## Technical Notes
 

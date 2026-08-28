@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "3 - Bubble redesign & PII badge"
-status: todo
+status: done
 labels: [ui, reflex, components, async]
 epic_branch: epic/PRD-004-chat-ui-redesign
-plan: null
-report: null
+plan: .agents/plans/PRD-004-chat-ui-redesign/completed/STORY-012-pending-indicator-composer-lock.plan.md
+report: .agents/reports/PRD-004-chat-ui-redesign/STORY-012-pending-indicator-composer-lock.report.md
 commit: null
 depends_on: [STORY-003, STORY-008]
 blocks: [STORY-019]
 skills: []
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # STORY-012: Typing indicator and disabled composer while a request is in flight
@@ -28,10 +28,10 @@ As an end user, I want visible feedback while the model is thinking, so that a 3
 
 ## Acceptance Criteria
 
-- [ ] Given `ChatState.pending` is `True`, when the message area renders, then a typing/loading indicator is visible at the end of the list.
-- [ ] Given `ChatState.pending` is `True`, when the composer renders, then both the text input and the send button are disabled.
-- [ ] Given a request that ends in any of the six outcomes, when its bubble is appended, then the indicator disappears and the composer re-enables — including on every error path, since `pending` resets in a `finally` block ([[STORY-003]], Risk 3).
-- [ ] Given the indicator, when a slow `run_query(...)` is in flight, then it animates — which is only possible because the call is off the event loop ([[STORY-001]], PRD Section 7).
+- [x] Given `ChatState.pending` is `True`, when the message area renders, then a typing/loading indicator is visible at the end of the list.
+- [x] Given `ChatState.pending` is `True`, when the composer renders, then both the text input and the send button are disabled.
+- [x] Given a request that ends in any of the six outcomes, when its bubble is appended, then the indicator disappears and the composer re-enables — including on every error path, since `pending` resets in a `finally` block ([[STORY-003]], Risk 3).
+- [x] Given the indicator, when a slow `run_query(...)` is in flight, then it animates — which is only possible because the call is off the event loop ([[STORY-001]], PRD Section 7).
 
 ## Technical Notes
 

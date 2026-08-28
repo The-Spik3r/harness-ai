@@ -1,5 +1,6 @@
 import reflex as rx
-from .. import copy
+from chat_ui.chat_ui import copy
+from datetime import datetime, timedelta, timezone
 
 
 def render_user(message) -> rx.Component:
@@ -116,6 +117,14 @@ def render_duplicate(message) -> rx.Component:
                     rx.fragment(),
                 ),
                 rx.text(copy.DUPLICATE_CHANGE_NOTICE, font_size="0.75rem", color="#78350f", font_style="italic"),
+                rx.button(
+                    copy.EDIT_AND_RESEND_LABEL,
+                    on_click=ChatState.edit_and_resend(message.prompt),
+                    size="1",
+                    variant="soft",
+                    color_scheme="yellow",
+                    margin_top="0.25rem",
+                ),
                 align_items="start",
                 spacing="1",
             ),
@@ -169,6 +178,14 @@ def render_upstream_error(message) -> rx.Component:
             rx.vstack(
                 rx.text(message.content, weight="medium"),
                 error_text,
+                rx.button(
+                    copy.RETRY_LABEL,
+                    on_click=ChatState.retry_message(message.prompt),
+                    size="1",
+                    variant="soft",
+                    color_scheme="orange",
+                    margin_top="0.25rem",
+                ),
                 align_items="start",
                 spacing="1",
             ),
@@ -196,6 +213,14 @@ def render_internal_error(message) -> rx.Component:
             rx.vstack(
                 rx.text(message.content, weight="medium"),
                 error_text,
+                rx.button(
+                    copy.RETRY_LABEL,
+                    on_click=ChatState.retry_message(message.prompt),
+                    size="1",
+                    variant="soft",
+                    color_scheme="ruby",
+                    margin_top="0.25rem",
+                ),
                 align_items="start",
                 spacing="1",
             ),
@@ -223,26 +248,5 @@ def render_fallback(message) -> rx.Component:
             max_width="80%",
             font_size="0.875rem",
         ),
-        width="100%",
-    )
-
-
-def render_pending_indicator() -> rx.Component:
-    """Renders the typing indicator shown while a request is in flight."""
-    return rx.hstack(
-        rx.avatar(fallback="AI", size="2", color_scheme="gray"),
-        rx.box(
-            rx.text(
-                copy.PENDING_INDICATOR_TEXT,
-                font_size="0.875rem",
-                color="#6b7280",
-                font_style="italic",
-            ),
-            background_color="#f3f4f6",
-            padding="0.65rem 1rem",
-            border_radius="1rem",
-            max_width="70%",
-        ),
-        justify="start",
         width="100%",
     )

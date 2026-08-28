@@ -7,7 +7,7 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Typed message model"
-status: todo
+status: done
 labels: [tests, ui, state]
 epic_branch: epic/PRD-004-chat-ui-redesign
 plan: null
@@ -28,11 +28,11 @@ As an integrating developer, I want the chat tests to assert on structured messa
 
 ## Acceptance Criteria
 
-- [ ] Given the bubble assertions at `tests/test_chat_state.py:181-210`, when migrated, then they assert on structured fields (`kind == "duplicate"`, `first_query_at == timestamp`, `pattern == "override"`) instead of formatted strings such as `f"Blocked — Duplicate query within 24 hours (first sent at {timestamp})"`.
-- [ ] Given each of `QuerySuccessResponse`, `QueryBlockedDuplicateResponse` and `QueryBlockedSuspiciousResponse`, when its test runs, then every field of that response is asserted to have landed on the appended message (PRD Section 12 Phase 2 validation).
-- [ ] Given the audit-parity tests at `tests/test_chat_state.py:240-306`, when the suite runs, then they pass **unmodified** — they assert on database rows, not bubbles, and are the proof that pipeline behavior is unchanged (Risk 1).
-- [ ] Given the four exception paths, when their tests run, then each asserts `kind`, `detail` and `pending is False` — no path asserts merely "a message exists".
-- [ ] Given the full repo suite (PRD-001/002/003), when it runs, then it passes and `tests/test_chat_state.py` is the only test file changed.
+- [x] Given the bubble assertions at `tests/test_chat_state.py:181-210`, when migrated, then they assert on structured fields (`kind == "duplicate"`, `first_query_at == timestamp`, `pattern == "override"`) instead of formatted strings such as `f"Blocked — Duplicate query within 24 hours (first sent at {timestamp})"`.
+- [x] Given each of `QuerySuccessResponse`, `QueryBlockedDuplicateResponse` and `QueryBlockedSuspiciousResponse`, when its test runs, then every field of that response is asserted to have landed on the appended message (PRD Section 12 Phase 2 validation).
+- [x] Given the audit-parity tests at `tests/test_chat_state.py:240-306`, when the suite runs, then they pass **unmodified** — they assert on database rows, not bubbles, and are the proof that pipeline behavior is unchanged (Risk 1).
+- [x] Given the four exception paths, when their tests run, then each asserts `kind`, `detail` and `pending is False` — no path asserts merely "a message exists".
+- [x] Given the full repo suite (PRD-001/002/003), when it runs, then it passes and `tests/test_chat_state.py` is the only test file changed.
 
 ## Technical Notes
 

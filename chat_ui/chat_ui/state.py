@@ -62,12 +62,18 @@ class ChatState(rx.State):
         self.user_id_input = ""
         self.user_id_error = ""
 
-    @rx.event(background=True)
-    async def send(self):
+    @rx.event
+    def edit_and_resend(self, prompt: str):
+        if self.pending:
+            return
+        self.input_text = prompt
+        return rx.set_focus("chat_input")
+
+    async def _do_send(self, text: str):
         async with self:
             if not self.user_id.strip():
                 return
-            text = self.input_text.strip()
+            text = text.strip()
             if not text:
                 return
             if self.pending:
@@ -77,6 +83,12 @@ class ChatState(rx.State):
             self.input_text = ""
             user_id = self.user_id
             model = self.selected_model
+            device = None
+            try:
+                if self.router and self.router.headers and self.router.headers.raw_headers:
+                    device = self.router.headers.raw_headers.get("user-agent")
+            except Exception:
+                device = None
 
         try:
             try:
@@ -84,7 +96,7 @@ class ChatState(rx.State):
                     run_query,
                     user_id=user_id,
                     prompt=text,
-                    device=None,
+                    device=device,
                     model=model,
                     openrouter_api_key=None,
                     call_openrouter=call_openrouter,
@@ -159,3 +171,12 @@ class ChatState(rx.State):
         finally:
             async with self:
                 self.pending = False
+
+    @rx.event(background=True)
+    async def retry_message(self, prompt: str):
+        await self._do_send(prompt)
+
+    @rx.event(background=True)
+    async def send(self):
+        text = self.input_text
+        await self._do_send(text)
