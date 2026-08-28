@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: pending
+commit: 577a285
 status: COMPLETE
 completed: 2026-08-28
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-28
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: see story frontmatter (`commit:`) — filled by the follow-up chore commit
+**Commit**: `577a285`
 
 ## Summary
 

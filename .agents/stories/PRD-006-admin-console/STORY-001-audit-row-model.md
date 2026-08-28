@@ -12,7 +12,7 @@ labels: [ui, reflex, model, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-001-audit-row-model.report.md
-commit: null
+commit: 577a285
 depends_on: []
 blocks: [STORY-002, STORY-004, STORY-011]
 skills: [reflex-docs]

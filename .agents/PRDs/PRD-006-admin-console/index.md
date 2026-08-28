@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | AuditRow and SummaryFigure models — a projection with no preview fields | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md) | — |
+| STORY-001 | AuditRow and SummaryFigure models — a projection with no preview fields | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md) | `577a285` |
 | STORY-002 | admin_formatting.py: verdict derivation, relative time, device and shares | technical | ⬜ todo | medium | — | — |
 | STORY-003 | AdminState token gate: compare_digest, one generic error, sign-out clears state | feature | ⬜ todo | medium | — | — |
 | STORY-004 | AdminState.load(): all ten read functions via asyncio.to_thread, with a catch-all fault arm | feature | ⬜ todo | medium | — | — |
