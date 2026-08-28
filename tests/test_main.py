@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+import app.services.authz as authz
 import app.services.pii_redactor as pii_redactor
 
 client = TestClient(app)
@@ -57,3 +58,18 @@ def test_lifespan_skips_analyzer_when_redaction_disabled(_small_model_and_reset,
         assert pii_redactor._analyzer is None
         response = test_client.get("/health")
         assert response.status_code == 200
+
+
+def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch):
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text('{"user": ["query:submit"]}')
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+    original = authz.ROLE_PERMISSIONS
+
+    try:
+        with TestClient(app) as test_client:
+            assert authz.ROLE_PERMISSIONS == {"user": {"query:submit"}}
+            response = test_client.get("/health")
+            assert response.status_code == 200
+    finally:
+        authz.ROLE_PERMISSIONS = original

@@ -9,7 +9,7 @@ import reflex as rx
 
 from app.db.database import init_db
 from app.main import app as fastapi_app
-from app.services import pii_redactor
+from app.services import authz, pii_redactor
 
 from chat_ui import theme
 from chat_ui.components.chat import chat_input, message_list
@@ -60,3 +60,7 @@ app.add_page(index)
 # Dockerfile's builder stage still never touches the spaCy model. load() is
 # zero-arg, sync and PII_REDACTION_ENABLED-aware, so Reflex runs it as-is.
 app.register_lifespan_task(pii_redactor.load)
+# Same bypass, same reason (STORY-007): without this, the chat UI would
+# enforce the built-in role matrix while the API enforces RBAC_ROLES_FILE's
+# override -- two different permission matrices for the same deployment.
+app.register_lifespan_task(authz.load)

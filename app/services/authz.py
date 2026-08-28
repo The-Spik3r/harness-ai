@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from app.config import settings
 from app.services.identity import Identity
 
@@ -8,6 +11,14 @@ PERMISSION_QUERY_BYOK = "query:byok"
 PERMISSION_AUDIT_READ_ALL = "audit:read:all"
 PERMISSION_AUDIT_READ_OWN = "audit:read:own"
 PERMISSION_STATS_READ = "stats:read"
+
+_KNOWN_PERMISSIONS = {
+    PERMISSION_QUERY_SUBMIT,
+    PERMISSION_QUERY_BYOK,
+    PERMISSION_AUDIT_READ_ALL,
+    PERMISSION_AUDIT_READ_OWN,
+    PERMISSION_STATS_READ,
+}
 
 # Role -> permission matrix (PRD-005 Section 7). A policy table, not
 # conditionals -- a role absent here, or a permission absent from a role's
@@ -40,6 +51,45 @@ class PermissionDenied(Exception):
     def __init__(self, permission: str) -> None:
         self.permission = permission
         super().__init__(f"Permission denied: {permission}")
+
+
+class AuthzConfigError(Exception):
+    """Raised by load() when RBAC_ROLES_FILE is set but unreadable,
+    malformed, or grants an unrecognized permission. Startup fails rather
+    than silently falling back to the built-in matrix (STORY-007)."""
+
+
+def load() -> None:
+    """Loads the role matrix from RBAC_ROLES_FILE if set, replacing
+    ROLE_PERMISSIONS wholesale -- no merge, so an omitted permission denies
+    (STORY-007). Empty RBAC_ROLES_FILE is a no-op: the built-in matrix stands
+    and no file is read. Called once at startup (app/main.py's lifespan,
+    chat_ui.py's register_lifespan_task); never call this per request."""
+    global ROLE_PERMISSIONS
+
+    path_str = settings.RBAC_ROLES_FILE
+    if not path_str:
+        return
+
+    try:
+        raw = Path(path_str).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AuthzConfigError(f"Failed to read RBAC_ROLES_FILE '{path_str}': {exc}") from exc
+
+    try:
+        parsed = json.loads(raw)
+        matrix = {role: set(permissions) for role, permissions in parsed.items()}
+    except (json.JSONDecodeError, AttributeError, TypeError) as exc:
+        raise AuthzConfigError(f"Failed to parse RBAC_ROLES_FILE '{path_str}': {exc}") from exc
+
+    granted = {permission for permissions in matrix.values() for permission in permissions}
+    unknown = sorted(granted - _KNOWN_PERMISSIONS)
+    if unknown:
+        raise AuthzConfigError(
+            f"RBAC_ROLES_FILE '{path_str}' grants unrecognized permission(s): {', '.join(unknown)}"
+        )
+
+    ROLE_PERMISSIONS = matrix
 
 
 def authorize(identity: Identity, permission: str) -> None:
