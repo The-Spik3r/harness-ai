@@ -47,10 +47,24 @@ def index() -> rx.Component:
     )
 
 
+# Radix resolves its own colour tokens from the theme's appearance, and Reflex
+# defaults to following the OS. On a machine set to dark mode every Radix
+# control (both inputs, the model selector) painted dark-mode gray-12 — near
+# white — on top of this deliberately light design, leaving typed text
+# invisible. The design is committed to one palette, so the appearance is
+# pinned to match it rather than left to the visitor's OS.
 app = rx.App(
     api_transformer=fastapi_app,
     stylesheets=[theme.FONTS_HREF],
     style={"background_color": theme.PAPER, "font_family": theme.FONT_BODY},
+    theme=rx.theme(
+        appearance="light",
+        has_background=False,
+        accent_color="gray",
+        gray_color="slate",
+        radius="small",
+        scaling="100%",
+    ),
 )
 app.add_page(index)
 

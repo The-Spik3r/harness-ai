@@ -29,11 +29,15 @@ SPINE = "#C3CBD3"
 # requires that no two semantically different outcomes share a treatment, so
 # each ink maps to exactly one branch of run_query(...).
 INK_CLEAR = "#1B5E4B"  # assistant — cleared inspection
-INK_HELD = "#8A6A12"  # duplicate — held, not rejected
+INK_HELD = "#7C5E11"  # duplicate — held, not rejected
 INK_DENIED = "#9B2226"  # injection — denied and logged
 INK_UPSTREAM = "#34567F"  # OpenRouter failed — an outside party
 INK_FAULT = "#5D4A8C"  # the harness itself failed
 INK_SELF = "#14181C"  # your own words — plain ink, no verdict
+
+# Every ink above clears WCAG AA (4.5:1) for small text against both PAPER and
+# its own tint; the ochre was darkened from #8A6A12, which sat at 4.38 on
+# PAPER. tests/test_contrast.py holds the line.
 
 # Tint used behind a stamped panel. Kept at a whisper so the rail, not the
 # fill, does the signalling.
@@ -125,6 +129,45 @@ body {{
 @media (prefers-reduced-motion: reduce) {{
   .hx-entry, .hx-pulse {{ animation: none; }}
   * {{ transition-duration: 0.01ms !important; }}
+}}
+
+/* Radix paints the real <input> inside its TextField wrapper, so inline props
+   on the wrapper never reach the text the user types. State both colours
+   outright rather than inheriting a token that depends on the appearance. */
+#chat_input, #user_id_input {{
+  color: {INK} !important;
+  background: transparent;
+}}
+#chat_input::placeholder, #user_id_input::placeholder {{
+  color: {MUTE} !important;
+  opacity: 1;  /* Firefox dims placeholders by default */
+}}
+
+/* Radix's TextFieldRoot brings its own surface fill, inset border and focus
+   ring. Inside the composer frame that is three layers of chrome for one
+   field, so strip the wrapper bare and let the frame carry all of it. */
+.hx-field, .hx-field:focus-within {{
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+}}
+#chat_input:focus, #chat_input:focus-visible {{
+  outline: none !important;
+  box-shadow: none !important;
+}}
+.hx-composer:focus-within {{
+  border-color: {INK};
+  box-shadow: 0 0 0 1px {INK};
+}}
+
+/* The session gate's field is standalone, so there it keeps a real frame. */
+.hx-field-boxed {{
+  background: {CARD} !important;
+  box-shadow: inset 0 0 0 1px {RULE} !important;
+}}
+.hx-field-boxed:focus-within {{
+  box-shadow: inset 0 0 0 1px {INK} !important;
 }}
 
 /* The Radix select trigger resolves its own colour token and lands on a
