@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/20 stories done — 10%
+3/20 stories done — 15%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | AuditRow and SummaryFigure models — a projection with no preview fields | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md) | `577a285` |
 | STORY-002 | admin_formatting.py: verdict derivation, relative time, device and shares | technical | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-002-verdict-derivation-formatting.plan.md) | `0fe6c69` |
-| STORY-003 | AdminState token gate: compare_digest, one generic error, sign-out clears state | feature | ⬜ todo | medium | — | — |
+| STORY-003 | AdminState token gate: compare_digest, one generic error, sign-out clears state | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-003-admin-token-gate.plan.md) | `048a873` |
 | STORY-004 | AdminState.load(): all ten read functions via asyncio.to_thread, with a catch-all fault arm | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Client-side filter and sort as computed vars over the loaded rows | feature | ⬜ todo | medium | — | — |
 | STORY-006 | tests/test_admin_state.py: gate, sign-out, failed read, four verdicts, no leak | technical | ⬜ todo | medium | — | — |

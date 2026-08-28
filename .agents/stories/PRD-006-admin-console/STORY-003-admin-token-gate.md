@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Access and data"
-status: todo
+status: done
 labels: [ui, reflex, state, security, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-003-admin-token-gate.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-003-admin-token-gate.report.md
+commit: 048a873
 depends_on: []
 blocks: [STORY-004, STORY-006, STORY-009]
 skills: [reflex-docs]
