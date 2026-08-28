@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "Phase 1 — Identity foundation"
-status: todo
+status: done
 labels: [backend, database]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-002-users-table-schema.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-002-users-table-schema.report.md
+commit: 903dee8
 depends_on: [STORY-001]
 blocks: [STORY-003, STORY-016]
 skills: []
