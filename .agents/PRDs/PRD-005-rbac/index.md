@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/18 stories done — 50%
+10/18 stories done — 56%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-007 | Role matrix loaded from RBAC_ROLES_FILE at startup | feature | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-007-roles-file-override.plan.md) | `9769412` |
 | STORY-008 | QueryBlockedForbiddenResponse joins the QueryResponse union | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-008-forbidden-response-schema.plan.md) | `6e9e773` |
 | STORY-009 | audit_logs gains role and denied_permission columns | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-009-audit-rbac-columns.plan.md) | `320d2d2` |
-| STORY-010 | run_query() requires an Identity and authorizes as step 0 | feature | ⬜ todo | medium | — | — |
+| STORY-010 | run_query() requires an Identity and authorizes as step 0 | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-010-pipeline-identity-authorization.plan.md) | `b222be8` |
 | STORY-011 | Server-side model allowlist and BYOK as a privilege | feature | ⬜ todo | medium | — | — |
 | STORY-012 | require_identity and require_permission FastAPI dependencies | technical | ⬜ todo | medium | — | — |
 | STORY-013 | POST /query bearer authentication and status-code mapping | feature | ⬜ todo | medium | — | — |
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001 through STORY-009 are done. STORY-012 and STORY-016 are unblocked and can start now.
+STORY-001 through STORY-010 are done. STORY-011 (blocked by STORY-010, STORY-005) is now unblocked, alongside STORY-012 and STORY-016.
