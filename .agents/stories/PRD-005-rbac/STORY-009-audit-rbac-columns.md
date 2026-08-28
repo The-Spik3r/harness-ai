@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "Phase 3 — Pipeline and ingress wiring"
-status: todo
+status: done
 labels: [backend, database]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-009-audit-rbac-columns.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-009-audit-rbac-columns.report.md
+commit: 320d2d2
 depends_on: [STORY-001]
 blocks: [STORY-010, STORY-015]
 skills: []
