@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "Phase 1 — Identity foundation"
-status: in-progress
+status: done
 labels: [backend, database]
 epic_branch: epic/PRD-005-rbac
-plan: .agents/plans/PRD-005-rbac/STORY-001-additive-audit-log-migration.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-001-additive-audit-log-migration.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-001-additive-audit-log-migration.report.md
+commit: 936cff8
 depends_on: []
 blocks: [STORY-002, STORY-009]
 skills: []

@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/18 stories done — 0% (1 in progress)
+1/18 stories done — 6%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Additive schema-migration mechanism for audit_logs | technical | 🟡 in-progress | small | [plan](../../plans/PRD-005-rbac/STORY-001-additive-audit-log-migration.plan.md) | — |
+| STORY-001 | Additive schema-migration mechanism for audit_logs | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-001-additive-audit-log-migration.plan.md) | `936cff8` |
 | STORY-002 | users table schema and CRUD helpers | technical | ⬜ todo | small | — | — |
 | STORY-003 | Identity resolution — token hashing, Identity value object, ADMIN_TOKEN break-glass | feature | ⬜ todo | medium | — | — |
 | STORY-004 | Bootstrap CLI — scripts/manage_users.py | technical | ⬜ todo | small | — | — |
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001, STORY-005, and STORY-008 have no blockers and can start immediately.
+STORY-001 is done. STORY-002, STORY-005, STORY-008, and STORY-009 are unblocked and can start now.
