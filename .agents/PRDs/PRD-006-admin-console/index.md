@@ -1,0 +1,72 @@
+# PRD-006: Admin Console — Audit Register & Summary — Story Board
+
+**PRD**: [PRD.md](./PRD.md)
+**Epic Branch**: `epic/PRD-006-admin-console` (base: `main`)
+**Status**: active
+
+## Progress
+
+1/20 stories done — 5%
+
+## Stories
+
+All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story branches.
+
+| ID | Title | Type | Status | Complexity | Plan | Commit |
+|----|-------|------|--------|------------|------|--------|
+| STORY-001 | AuditRow and SummaryFigure models — a projection with no preview fields | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md) | — |
+| STORY-002 | admin_formatting.py: verdict derivation, relative time, device and shares | technical | ⬜ todo | medium | — | — |
+| STORY-003 | AdminState token gate: compare_digest, one generic error, sign-out clears state | feature | ⬜ todo | medium | — | — |
+| STORY-004 | AdminState.load(): all ten read functions via asyncio.to_thread, with a catch-all fault arm | feature | ⬜ todo | medium | — | — |
+| STORY-005 | Client-side filter and sort as computed vars over the loaded rows | feature | ⬜ todo | medium | — | — |
+| STORY-006 | tests/test_admin_state.py: gate, sign-out, failed read, four verdicts, no leak | technical | ⬜ todo | medium | — | — |
+| STORY-007 | theme.py register tokens: row height, stamp-margin width, hover ground, micro type step | technical | ⬜ todo | small | — | — |
+| STORY-008 | admin_copy.py: every admin-facing string in one module | technical | ⬜ todo | small | — | — |
+| STORY-009 | admin_shell.py: token gate form, masthead, and the two-view switch | feature | ⬜ todo | medium | — | — |
+| STORY-010 | Register /admin, /admin/audit and /admin/stats without touching a reserved route | technical | ⬜ todo | small | — | — |
+| STORY-011 | register.py: the audit table, the verdict column and the stamp margin | feature | ⬜ todo | large | — | — |
+| STORY-012 | Row detail disclosure: error_message, prompt_hash, PII entities, full User-Agent, pattern | feature | ⬜ todo | medium | — | — |
+| STORY-013 | Verdict multi-select, free-text filter and sort controls on the register | feature | ⬜ todo | medium | — | — |
+| STORY-014 | Three distinct register states: nothing recorded, nothing matching, rows shown | feature | ⬜ todo | small | — | — |
+| STORY-015 | summary.py: nine StatsResponse figures as a ruled tally sheet with stated scopes | feature | ⬜ todo | large | — | — |
+| STORY-016 | Copy test pinning the completion label so it cannot regress to "success rate" | technical | ⬜ todo | small | — | — |
+| STORY-017 | Manual refresh with a last-refreshed stamp, and a fault panel with retry on both pages | feature | ⬜ todo | medium | — | — |
+| STORY-018 | Render invariant tests: no previews in output, no tint or stray colour on the console | technical | ⬜ todo | medium | — | — |
+| STORY-019 | Quality floor pass: keyboard, focus, narrow viewport — and a design self-critique | enhancement | ⬜ todo | medium | — | — |
+| STORY-020 | Full-suite regression and the proof that nothing under app/ changed | technical | ⬜ todo | small | — | — |
+
+## Status Icons
+- ⬜ todo
+- 🟡 in-progress
+- ✅ done
+- 🔴 blocked
+
+## Phases
+
+| Phase | Stories |
+|-------|---------|
+| 1 — Access and data | STORY-001 … STORY-006 |
+| 2 — The register | STORY-007 … STORY-014 |
+| 3 — The summary | STORY-015, STORY-016 |
+| 4 — Hardening | STORY-017 … STORY-020 |
+
+## Dependencies
+
+- STORY-002 blocked by STORY-001
+- STORY-004 blocked by STORY-001, STORY-002, STORY-003
+- STORY-005 blocked by STORY-004
+- STORY-006 blocked by STORY-002, STORY-003, STORY-004, STORY-005
+- STORY-009 blocked by STORY-003, STORY-007, STORY-008
+- STORY-010 blocked by STORY-009
+- STORY-011 blocked by STORY-001, STORY-002, STORY-004, STORY-007, STORY-008, STORY-009, STORY-010
+- STORY-012 blocked by STORY-008, STORY-011
+- STORY-013 blocked by STORY-005, STORY-008, STORY-011
+- STORY-014 blocked by STORY-005, STORY-008, STORY-011, STORY-013
+- STORY-015 blocked by STORY-002, STORY-004, STORY-007, STORY-008, STORY-009, STORY-010
+- STORY-016 blocked by STORY-008, STORY-015
+- STORY-017 blocked by STORY-004, STORY-008, STORY-011, STORY-015
+- STORY-018 blocked by STORY-007, STORY-011, STORY-012, STORY-015
+- STORY-019 blocked by STORY-017
+- STORY-020 blocked by STORY-006, STORY-016, STORY-017, STORY-018, STORY-019
+
+STORY-001, STORY-003, STORY-007 and STORY-008 have no blockers and can start in parallel.
