@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Access and data"
-status: todo
+status: done
 labels: [ui, reflex, state, async, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-004-threaded-database-read.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-004-threaded-database-read.report.md
+commit: e8c331e
 depends_on: [STORY-001, STORY-002, STORY-003]
 blocks: [STORY-005, STORY-006, STORY-011, STORY-015, STORY-017]
 skills: [reflex-docs]
