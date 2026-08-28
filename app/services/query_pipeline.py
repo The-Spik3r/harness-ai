@@ -2,33 +2,55 @@ from typing import Callable, Optional, Union
 
 from app.models.schemas import (
     QueryBlockedDuplicateResponse,
+    QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
     QuerySuccessResponse,
 )
 from app.services.audit_logger import log_query
+from app.services.authz import PERMISSION_QUERY_SUBMIT, PermissionDenied, authorize
 from app.services.duplicate_checker import check_duplicate
+from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
 from app.services.pattern_detector import detect_suspicious_pattern
 from app.services.pii_redactor import PiiRedactorError, redact
 
 QueryPipelineResult = Union[
-    QuerySuccessResponse, QueryBlockedDuplicateResponse, QueryBlockedSuspiciousResponse
+    QuerySuccessResponse,
+    QueryBlockedDuplicateResponse,
+    QueryBlockedSuspiciousResponse,
+    QueryBlockedForbiddenResponse,
 ]
 
 
 def run_query(
-    user_id: str,
+    identity: Identity,
     prompt: str,
     device: Optional[str],
     model: str,
     openrouter_api_key: Optional[str],
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
 ) -> QueryPipelineResult:
+    try:
+        authorize(identity, PERMISSION_QUERY_SUBMIT)
+    except PermissionDenied as exc:
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            success=True,
+            role=identity.role,
+            denied_permission=exc.permission,
+        )
+        return QueryBlockedForbiddenResponse(
+            reason="Missing required permission",
+            required_permission=exc.permission,
+        )
+
     duplicate_result = check_duplicate(prompt)
 
     if duplicate_result.is_duplicate:
         log_query(
-            user_id=user_id,
+            user_id=identity.user_id,
             prompt=prompt,
             device=device,
             was_duplicate_blocked=True,
@@ -42,7 +64,7 @@ def run_query(
     pattern_result = detect_suspicious_pattern(prompt)
     if pattern_result.is_suspicious:
         log_query(
-            user_id=user_id,
+            user_id=identity.user_id,
             prompt=prompt,
             device=device,
             suspicious_pattern=pattern_result.pattern,
@@ -57,7 +79,7 @@ def run_query(
         redacted_prompt, input_entities = redact(prompt)
     except PiiRedactorError as exc:
         log_query(
-            user_id=user_id,
+            user_id=identity.user_id,
             prompt=prompt,
             device=device,
             success=False,
@@ -71,7 +93,7 @@ def run_query(
         )
     except OpenRouterError as exc:
         log_query(
-            user_id=user_id,
+            user_id=identity.user_id,
             prompt=prompt,
             device=device,
             model_used=model,
@@ -84,7 +106,7 @@ def run_query(
         redacted_response, output_entities = redact(openrouter_result.response)
     except PiiRedactorError as exc:
         log_query(
-            user_id=user_id,
+            user_id=identity.user_id,
             prompt=prompt,
             device=device,
             response=openrouter_result.response,
@@ -100,7 +122,7 @@ def run_query(
     masked_entities = sorted(set(input_entities) | set(output_entities))
 
     audit_id = log_query(
-        user_id=user_id,
+        user_id=identity.user_id,
         prompt=prompt,
         device=device,
         response=openrouter_result.response,

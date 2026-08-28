@@ -23,6 +23,7 @@ from app.services.duplicate_checker import (
     check_duplicate,
     hash_prompt,
 )
+from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterResult
 from app.services.pattern_detector import SUSPICIOUS_PATTERNS
 from app.services.pii_redactor import redact
@@ -283,7 +284,7 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
         return OpenRouterResult(response=raw_response, model_used=model, tokens_used=9)
 
     result = run_query(
-        user_id="juan@empresa.com",
+        identity=Identity(user_id="juan@empresa.com", role="user"),
         prompt=_PROMPT_A,
         device=None,
         model="gpt-4",
