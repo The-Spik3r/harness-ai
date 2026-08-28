@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from app.config import settings
+from app.db import database
 from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
@@ -24,7 +25,7 @@ from app.db.database import (
     top_pii_entities,
     top_users,
 )
-from app.db.models import AuditLog
+from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog
 
 
 @pytest.fixture
@@ -45,16 +46,83 @@ def test_init_db_creates_table(temp_db):
     assert row is not None
 
 
-def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
-    """A database created before PRD-003 gains the PII columns and keeps its rows.
+def test_added_columns_declaring_not_null_also_declare_a_default():
+    """SQLite rejects ALTER TABLE ... ADD COLUMN NOT NULL without a DEFAULT.
 
-    CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so without the
-    additive migration an upgraded deployment fails every insert with
-    "table audit_logs has no column named pii_detected_input".
+    A violation only surfaces against a database that predates the column, so it
+    passes every fresh-database test and breaks on exactly the deployments the
+    migration exists to serve.
     """
-    db_path = tmp_path / "legacy.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+    for name, ddl in AUDIT_LOGS_ADDED_COLUMNS.items():
+        declaration = ddl.upper()
+        if "NOT NULL" in declaration:
+            assert "DEFAULT" in declaration, (
+                f"{name}: NOT NULL requires a DEFAULT -- "
+                f"SQLite rejects ADD COLUMN NOT NULL without one"
+            )
+            assert "DEFAULT NULL" not in declaration, (
+                f"{name}: DEFAULT NULL does not satisfy NOT NULL"
+            )
 
+
+def test_add_missing_columns_applies_any_declared_column(tmp_path, monkeypatch):
+    """The mechanism is proven independently of whichever columns the mapping
+    happens to hold today, so this stays meaningful after STORY-009 adds more."""
+    db_path = tmp_path / "synthetic.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+    init_db()
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-08-28T10:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="abc123",
+        )
+    )
+
+    # setitem, not setattr: app/db/database.py binds this dict by name at import,
+    # so both modules share one object and only in-place mutation is visible.
+    monkeypatch.setitem(
+        AUDIT_LOGS_ADDED_COLUMNS, "synthetic_flag", "INTEGER NOT NULL DEFAULT 7"
+    )
+
+    init_db()
+
+    with get_connection() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")}
+        row = conn.execute(
+            "SELECT synthetic_flag FROM audit_logs WHERE id = 1"
+        ).fetchone()
+
+    assert "synthetic_flag" in columns
+    assert row["synthetic_flag"] == 7  # the pre-existing row took the declared default
+    assert count_audit_logs() == 1  # and nothing was lost
+
+
+def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
+    """A no-op run must not re-issue ALTER: init_db() runs on every Reflex hot
+    reload, and a redundant ADD COLUMN is fatal, not merely wasteful."""
+    statements: list[str] = []
+    real_get_connection = database.get_connection
+
+    def traced() -> sqlite3.Connection:
+        conn = real_get_connection()
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(database, "get_connection", traced)
+
+    init_db()  # temp_db already migrated this database to the current schema
+
+    assert statements, "trace callback captured nothing -- the patch did not take"
+    assert not any("ALTER" in sql.upper() for sql in statements), statements
+
+
+def _create_pre_pii_database(db_path) -> None:
+    """Builds the 14-column audit_logs table exactly as it shipped before PRD-003.
+
+    Uses raw sqlite3.connect rather than get_connection() so the fixture is the
+    genuine pre-migration shape, unaffected by whatever init_db() does today.
+    """
     legacy = sqlite3.connect(db_path)
     legacy.execute(
         """
@@ -83,6 +151,19 @@ def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
     legacy.commit()
     legacy.close()
 
+
+def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
+    """A database created before PRD-003 gains the PII columns and keeps its rows.
+
+    CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so without the
+    additive migration an upgraded deployment fails every insert with
+    "table audit_logs has no column named pii_detected_input".
+    """
+    db_path = tmp_path / "legacy.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+
+    _create_pre_pii_database(db_path)
+
     init_db()
 
     with get_connection() as conn:
@@ -107,6 +188,29 @@ def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
         )
     )
     assert count_audit_logs() == 2
+
+
+def test_init_db_migration_is_idempotent_across_repeated_calls(tmp_path, monkeypatch):
+    """Reflex calls init_db() on every hot reload; a second ADD COLUMN for an
+    existing column raises sqlite3.OperationalError: duplicate column name."""
+    db_path = tmp_path / "legacy.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+    _create_pre_pii_database(db_path)
+
+    init_db()
+    init_db()
+    init_db()
+
+    with get_connection() as conn:
+        columns = [
+            row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")
+        ]
+
+    assert {"pii_detected_input", "pii_detected_output", "pii_entities"} <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "juan@empresa.com"
 
 
 def test_insert_and_read_round_trip(temp_db):

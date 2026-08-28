@@ -23,11 +23,14 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 )
 """
 
-# Columns added after the initial schema shipped (PRD-003 PII telemetry).
-# CREATE TABLE IF NOT EXISTS is a no-op against a database created before they
-# existed, so init_db() ALTERs in whichever of these an old file is missing.
-# Every entry needs a non-NULL default: SQLite rejects ADD COLUMN NOT NULL
-# without one.
+# Columns added after the initial schema shipped (PRD-003 PII telemetry; PRD-005
+# RBAC adds to this in STORY-009). CREATE TABLE IF NOT EXISTS is a no-op against
+# a database created before they existed, so init_db() ALTERs in whichever of
+# these an old file is missing.
+# Additive only: no drops, renames, or type changes.
+# Every NOT NULL entry needs a non-NULL DEFAULT -- SQLite rejects ADD COLUMN
+# NOT NULL without one. Enforced by
+# tests/test_db.py::test_added_columns_declaring_not_null_also_declare_a_default.
 AUDIT_LOGS_ADDED_COLUMNS = {
     "pii_detected_input": "INTEGER NOT NULL DEFAULT 0",
     "pii_detected_output": "INTEGER NOT NULL DEFAULT 0",
