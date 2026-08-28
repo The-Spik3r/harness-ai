@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "Phase 2 — Authorization core"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-006-authz-permission-matrix.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-006-authz-permission-matrix.report.md
+commit: 5d5281a
 depends_on: [STORY-003, STORY-005]
 blocks: [STORY-007, STORY-010, STORY-012]
 skills: []
