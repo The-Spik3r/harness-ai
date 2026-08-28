@@ -212,3 +212,32 @@ def test_entity_list_joined_in_caller_order_without_reordering(temp_db):
     fetched = get_audit_log(audit_id)
 
     assert fetched.pii_entities == "PERSON,EMAIL_ADDRESS,PHONE_NUMBER"
+
+
+def test_role_and_denied_permission_persisted_when_supplied(temp_db):
+    audit_id = log_query(
+        user_id="ana@empresa.com",
+        prompt="give me the admin key",
+        success=True,
+        role="user",
+        denied_permission="query:byok",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched is not None
+    assert fetched.role == "user"
+    assert fetched.denied_permission == "query:byok"
+
+
+def test_role_and_denied_permission_default_to_none_when_omitted(temp_db):
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        response="hi there",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.role is None
+    assert fetched.denied_permission is None

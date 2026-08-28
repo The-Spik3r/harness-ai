@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     error_message TEXT,
     pii_detected_input INTEGER NOT NULL DEFAULT 0,
     pii_detected_output INTEGER NOT NULL DEFAULT 0,
-    pii_entities TEXT
+    pii_entities TEXT,
+    role TEXT,
+    denied_permission TEXT
 )
 """
 
@@ -35,6 +37,8 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     "pii_detected_input": "INTEGER NOT NULL DEFAULT 0",
     "pii_detected_output": "INTEGER NOT NULL DEFAULT 0",
     "pii_entities": "TEXT",
+    "role": "TEXT",
+    "denied_permission": "TEXT",
 }
 
 # Identity store (PRD-005). Lives in the same SQLite file as audit_logs -- no
@@ -81,6 +85,8 @@ class AuditLog:
     pii_detected_input: bool = False
     pii_detected_output: bool = False
     pii_entities: Optional[str] = None
+    role: Optional[str] = None
+    denied_permission: Optional[str] = None
     id: Optional[int] = None
 
 

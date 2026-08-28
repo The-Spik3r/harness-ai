@@ -199,6 +199,77 @@ def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
     assert count_audit_logs() == 2
 
 
+def _create_pre_rbac_database(db_path) -> None:
+    """Builds the 17-column audit_logs table exactly as it ships on `main`
+    today -- i.e. after PRD-003's PII columns, before this story's role /
+    denied_permission columns. This is the correct "pre-RBAC" baseline;
+    _create_pre_pii_database fixtures an older, pre-PII shape instead.
+    """
+    legacy = sqlite3.connect(db_path)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT
+        )
+        """
+    )
+    legacy.execute(
+        "INSERT INTO audit_logs (timestamp, user_id, prompt_hash) VALUES (?, ?, ?)",
+        ("2026-08-20T09:00:00Z", "ana@empresa.com", "xyz789"),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def test_init_db_migrates_pre_rbac_database(tmp_path, monkeypatch):
+    """A database created before PRD-005 gains role/denied_permission and
+    keeps its rows, with NULL in both new fields (AC2).
+    """
+    db_path = tmp_path / "pre_rbac_audit.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+
+    _create_pre_rbac_database(db_path)
+
+    init_db()
+
+    with get_connection() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")}
+    assert {"role", "denied_permission"} <= columns
+
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "ana@empresa.com"
+    assert preserved.role is None
+    assert preserved.denied_permission is None
+
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-08-20T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="def000",
+            role="user",
+            denied_permission="query:byok",
+        )
+    )
+    assert count_audit_logs() == 2
+
+
 def test_init_db_migration_is_idempotent_across_repeated_calls(tmp_path, monkeypatch):
     """Reflex calls init_db() on every hot reload; a second ADD COLUMN for an
     existing column raises sqlite3.OperationalError: duplicate column name."""
@@ -302,6 +373,46 @@ def test_pii_fields_round_trip_via_list_audit_logs(temp_db):
     assert entries[0].pii_entities == "PHONE_NUMBER"
 
 
+def test_role_and_denied_permission_default_to_none(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-08-28T12:00:00Z",
+            user_id="a",
+            prompt_hash="h3",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.role is None
+    assert fetched.denied_permission is None
+
+
+def test_role_and_denied_permission_round_trip(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-08-28T12:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h4",
+            success=True,
+            role="user",
+            denied_permission="query:byok",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.role == "user"
+    assert fetched.denied_permission == "query:byok"
+
+    # And via list_audit_logs, the other read path (AuditQueryEntry's future source).
+    entries = list_audit_logs()
+    assert entries[0].role == "user"
+    assert entries[0].denied_permission == "query:byok"
+
+
 def test_get_audit_log_missing_id_returns_none(temp_db):
     assert get_audit_log(999) is None
 
@@ -328,6 +439,8 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",
+        "role",
+        "denied_permission",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
