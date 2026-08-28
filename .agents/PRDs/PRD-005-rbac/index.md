@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/18 stories done — 11%
+3/18 stories done — 17%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Additive schema-migration mechanism for audit_logs | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-001-additive-audit-log-migration.plan.md) | `936cff8` |
 | STORY-002 | users table schema and CRUD helpers | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-002-users-table-schema.plan.md) | `903dee8` |
-| STORY-003 | Identity resolution — token hashing, Identity value object, ADMIN_TOKEN break-glass | feature | ⬜ todo | medium | — | — |
+| STORY-003 | Identity resolution — token hashing, Identity value object, ADMIN_TOKEN break-glass | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-003-identity-resolution.plan.md) | `cadaebd` |
 | STORY-004 | Bootstrap CLI — scripts/manage_users.py | technical | ⬜ todo | small | — | — |
 | STORY-005 | RBAC configuration settings and env vars | technical | ⬜ todo | small | — | — |
 | STORY-006 | authz service — permission constants, default role matrix, deny-by-default authorize() | feature | ⬜ todo | medium | — | — |
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001 and STORY-002 are done. STORY-003, STORY-005, STORY-008, and STORY-009 are unblocked and can start now.
+STORY-001, STORY-002, and STORY-003 are done. STORY-004 (blocked only by STORY-003), STORY-005, STORY-008, and STORY-009 are unblocked and can start now.

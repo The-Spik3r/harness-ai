@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "Phase 1 — Identity foundation"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-003-identity-resolution.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-003-identity-resolution.report.md
+commit: cadaebd
 depends_on: [STORY-002]
 blocks: [STORY-004, STORY-006, STORY-012]
 skills: []
