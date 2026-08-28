@@ -1,6 +1,6 @@
 import reflex as rx
-from chat_ui.chat_ui import copy
-from chat_ui.chat_ui.state import ChatState
+from chat_ui import copy
+from chat_ui.state import ChatState
 from datetime import datetime, timedelta, timezone
 
 
