@@ -207,6 +207,12 @@ async def test_chat_state_send_duplicate_blocked_appends_system_bubble(temp_db, 
     assert state.messages[-1].content == "Duplicate query within 24 hours"
     assert state.messages[-1].first_query_at == timestamp
     assert state.messages[-1].prompt == "hello world"
+    # Humanized copy must be precomputed in the backend: render-time datetime
+    # math on a Var raises VarTypeError and breaks the frontend export.
+    assert state.messages[-1].duplicate_relative_info == (
+        f"Already sent 2 hours ago ({timestamp})"
+    )
+    assert state.messages[-1].duplicate_release_info.startswith("24h window releases at")
 
 
 @pytest.mark.asyncio

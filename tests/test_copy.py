@@ -27,7 +27,7 @@ from chat_ui.chat_ui.copy import (
     EMPTY_STATE_SECURITY_FEATURE,
     EMPTY_STATE_DEDUP_FEATURE,
 )
-from chat_ui.chat_ui.components.bubbles import _format_duplicate_info
+from chat_ui.chat_ui.formatting import format_duplicate_info
 
 
 def test_copy_constants_exist_and_not_empty():
@@ -77,7 +77,7 @@ def test_duplicate_formatting_relative_and_window():
     """AC1 & AC2: Valid timestamp yields relative time, absolute timestamp, and 24h window release."""
     assert DUPLICATE_RELATIVE_TIME_TEMPLATE
     assert DUPLICATE_WINDOW_RELEASE_TEMPLATE
-    main, release = _format_duplicate_info("2026-08-21T10:30:00Z")
+    main, release = format_duplicate_info("2026-08-21T10:30:00Z")
     assert "Already sent" in main
     assert "2026-08-21T10:30:00Z" in main
     assert "24h window releases at" in release
@@ -86,10 +86,10 @@ def test_duplicate_formatting_relative_and_window():
 
 def test_duplicate_formatting_empty_and_unparseable_fallback():
     """AC3: Empty or unparseable first_query_at renders fallback without crash ('No silent drops')."""
-    main_empty, release_empty = _format_duplicate_info("")
+    main_empty, release_empty = format_duplicate_info("")
     assert main_empty == "Already submitted recently."
     assert release_empty == ""
 
-    main_bad, release_bad = _format_duplicate_info("not-a-timestamp")
+    main_bad, release_bad = format_duplicate_info("not-a-timestamp")
     assert "Already sent at not-a-timestamp" in main_bad
     assert release_bad == ""

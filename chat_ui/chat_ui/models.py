@@ -14,4 +14,8 @@ class ChatMessage(pydantic.BaseModel):
     pii_entities: list[str] = []
     pattern: str = ""
     first_query_at: str = ""
+    # Humanized duplicate copy, precomputed in the backend: component
+    # functions only ever see Vars, so datetime math cannot run at render.
+    duplicate_relative_info: str = ""
+    duplicate_release_info: str = ""
     detail: str = ""

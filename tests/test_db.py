@@ -45,6 +45,70 @@ def test_init_db_creates_table(temp_db):
     assert row is not None
 
 
+def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
+    """A database created before PRD-003 gains the PII columns and keeps its rows.
+
+    CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so without the
+    additive migration an upgraded deployment fails every insert with
+    "table audit_logs has no column named pii_detected_input".
+    """
+    db_path = tmp_path / "legacy.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+
+    legacy = sqlite3.connect(db_path)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT
+        )
+        """
+    )
+    legacy.execute(
+        "INSERT INTO audit_logs (timestamp, user_id, prompt_hash) VALUES (?, ?, ?)",
+        ("2026-07-04T10:30:00Z", "juan@empresa.com", "abc123"),
+    )
+    legacy.commit()
+    legacy.close()
+
+    init_db()
+
+    with get_connection() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")}
+    assert {"pii_detected_input", "pii_detected_output", "pii_entities"} <= columns
+
+    # The pre-existing row survives and takes the column defaults.
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "juan@empresa.com"
+    assert preserved.pii_detected_input is False
+    assert preserved.pii_entities is None
+
+    # And inserts now work against the upgraded table.
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-04T11:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="def456",
+            pii_detected_input=True,
+            pii_entities="PERSON",
+        )
+    )
+    assert count_audit_logs() == 2
+
+
 def test_insert_and_read_round_trip(temp_db):
     entry = AuditLog(
         timestamp="2026-07-04T10:30:00Z",

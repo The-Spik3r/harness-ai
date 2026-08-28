@@ -1,6 +1,7 @@
 import reflex as rx
 from chat_ui import copy
 from chat_ui.state import ChatState
+from chat_ui.chat_ui import copy
 from datetime import datetime, timedelta, timezone
 
 
@@ -85,60 +86,37 @@ def render_assistant(message) -> rx.Component:
     )
 
 
-def _format_duplicate_info(first_query_at: str) -> tuple[str, str]:
-    if not first_query_at:
-        return "Already submitted recently.", ""
-    try:
-        dt_str = first_query_at.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(dt_str)
-        now = datetime.now(timezone.utc)
-        diff = now - dt
-        seconds = int(diff.total_seconds())
-        if seconds < 0:
-            rel = "just now"
-        elif seconds < 60:
-            rel = f"{seconds} seconds ago"
-        elif seconds < 3600:
-            m = seconds // 60
-            rel = f"{m} minute{'s' if m != 1 else ''} ago"
-        elif seconds < 86400:
-            h = seconds // 3600
-            rel = f"{h} hour{'s' if h != 1 else ''} ago"
-        else:
-            d = seconds // 86400
-            rel = f"{d} day{'s' if d != 1 else ''} ago"
-
-        release_dt = dt + timedelta(hours=24)
-        release_str = release_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        main_text = copy.DUPLICATE_RELATIVE_TIME_TEMPLATE.format(relative=rel, absolute=first_query_at)
-        release_text = copy.DUPLICATE_WINDOW_RELEASE_TEMPLATE.format(release=release_str)
-        return main_text, release_text
-    except Exception:
-        return f"Already sent at {first_query_at}", ""
-
-
 def render_duplicate(message) -> rx.Component:
-    """Renders duplicate block card with humanized relative time, 24h window release, and Risk 4 change notice."""
-    main_info, release_info = _format_duplicate_info(message.first_query_at)
-    
+    """Renders duplicate block card with humanized relative time, 24h window release, and Risk 4 change notice.
+
+    The relative-time and window-release lines are precomputed in the backend
+    (see formatting.format_duplicate_info) because `message` is a Var here.
+    """
     return rx.center(
         rx.box(
             rx.vstack(
                 rx.text(message.content, weight="medium"),
                 rx.cond(
-                    message.first_query_at != "",
-                    rx.vstack(
-                        rx.text(main_info, font_size="0.75rem", color="#78350f"),
-                        rx.cond(
-                            release_info != "",
-                            rx.text(release_info, font_size="0.75rem", color="#78350f"),
-                            rx.fragment(),
-                        ),
-                        align_items="start",
-                        spacing="1",
+                    message.duplicate_relative_info != "",
+                    rx.text(
+                        message.duplicate_relative_info,
+                        font_size="0.75rem",
+                        color="#78350f",
                     ),
-                    rx.text("Already submitted recently.", font_size="0.75rem", color="#78350f"),
+                    rx.text(
+                        copy.DUPLICATE_FALLBACK_TEXT,
+                        font_size="0.75rem",
+                        color="#78350f",
+                    ),
+                ),
+                rx.cond(
+                    message.duplicate_release_info != "",
+                    rx.text(
+                        message.duplicate_release_info,
+                        font_size="0.75rem",
+                        color="#78350f",
+                    ),
+                    rx.fragment(),
                 ),
                 rx.text(copy.DUPLICATE_CHANGE_NOTICE, font_size="0.75rem", color="#78350f", font_style="italic"),
                 rx.button(
@@ -272,25 +250,5 @@ def render_fallback(message) -> rx.Component:
             max_width="80%",
             font_size="0.875rem",
         ),
-        width="100%",
-    )
-
-
-def render_pending_indicator() -> rx.Component:
-    """Renders a typing/loading indicator when a request is in flight."""
-    return rx.hstack(
-        rx.avatar(fallback="AI", size="2", color_scheme="gray"),
-        rx.box(
-            rx.hstack(
-                rx.spinner(size="2"),
-                rx.text(copy.PENDING_INDICATOR_TEXT, font_size="0.875rem", color="#4b5563"),
-                spacing="2",
-                align="center",
-            ),
-            background_color="#f3f4f6",
-            padding="0.65rem 1rem",
-            border_radius="1rem",
-        ),
-        justify="start",
         width="100%",
     )

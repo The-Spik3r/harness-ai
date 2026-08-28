@@ -2,7 +2,7 @@ import sqlite3
 from typing import Optional
 
 from app.config import settings
-from app.db.models import CREATE_AUDIT_LOGS_TABLE, AuditLog
+from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, CREATE_AUDIT_LOGS_TABLE, AuditLog
 
 _SQLITE_PREFIX = "sqlite:///"
 
@@ -23,6 +23,18 @@ def get_connection() -> sqlite3.Connection:
 def init_db() -> None:
     with get_connection() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
+        _add_missing_columns(conn)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """Brings a pre-existing audit_logs table up to the current schema.
+
+    Additive only: existing rows keep their data and take the column default.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")}
+    for name, ddl in AUDIT_LOGS_ADDED_COLUMNS.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}")
 
 
 def insert_audit_log(entry: AuditLog) -> int:

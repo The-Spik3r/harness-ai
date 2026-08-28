@@ -8,6 +8,7 @@ from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 from .models import ChatMessage
 from .copy import USER_ID_VALIDATION_ERROR
+from .formatting import format_duplicate_info
 from .config import DEFAULT_MODEL
 
 class ChatState(rx.State):
@@ -146,11 +147,16 @@ class ChatState(rx.State):
                     pii_entities=result.pii_entities_masked,
                 )
             elif isinstance(result, QueryBlockedDuplicateResponse):
+                relative_info, release_info = format_duplicate_info(
+                    result.first_query_at
+                )
                 bubble = ChatMessage(
                     kind="duplicate",
                     content=result.reason,
                     prompt=text,
                     first_query_at=result.first_query_at,
+                    duplicate_relative_info=relative_info,
+                    duplicate_release_info=release_info,
                 )
             else:
                 bubble = ChatMessage(
