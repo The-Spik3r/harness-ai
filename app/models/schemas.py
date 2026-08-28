@@ -33,8 +33,17 @@ class QueryBlockedSuspiciousResponse(BaseModel):
     pattern: str
 
 
+class QueryBlockedForbiddenResponse(BaseModel):
+    status: Literal["BLOCKED"] = "BLOCKED"
+    reason: str
+    required_permission: str
+
+
 QueryResponse = Union[
-    QuerySuccessResponse, QueryBlockedDuplicateResponse, QueryBlockedSuspiciousResponse
+    QuerySuccessResponse,
+    QueryBlockedDuplicateResponse,
+    QueryBlockedSuspiciousResponse,
+    QueryBlockedForbiddenResponse,
 ]
 
 

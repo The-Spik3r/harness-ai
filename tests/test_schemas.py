@@ -5,6 +5,7 @@ from app.models.schemas import (
     AuditQueryEntry,
     AuditResponse,
     QueryBlockedDuplicateResponse,
+    QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
     QueryRequest,
     QuerySuccessResponse,
@@ -68,6 +69,18 @@ def test_query_blocked_suspicious_response_shape():
         "status": "BLOCKED",
         "reason": "Suspicious pattern detected",
         "pattern": "prompt_injection",
+    }
+
+
+def test_query_blocked_forbidden_response_shape():
+    response = QueryBlockedForbiddenResponse(
+        reason="Model not permitted for this role",
+        required_permission="query:model:anthropic/claude-3.5-sonnet",
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Model not permitted for this role",
+        "required_permission": "query:model:anthropic/claude-3.5-sonnet",
     }
 
 
