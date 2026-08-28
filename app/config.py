@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     LOG_LEVEL: str = "INFO"
 
+    # RBAC (PRD-005). RBAC_DEFAULT_ROLE is needed here for scripts/manage_users.py
+    # (STORY-004); RBAC_ENABLED, RBAC_ROLES_FILE, and MODEL_ALLOWLIST are added by
+    # STORY-005 on top of this field.
+    RBAC_DEFAULT_ROLE: str = "user"
+
     PII_REDACTION_ENABLED: bool = True
     PII_SCORE_THRESHOLD: float = 0.35
     PII_ENTITIES: str = "PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION"
