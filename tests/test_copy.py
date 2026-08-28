@@ -84,6 +84,29 @@ def test_duplicate_formatting_relative_and_window():
     assert "2026-08-22T10:30:00Z" in release
 
 
+@pytest.mark.parametrize(
+    "seconds,expected",
+    [
+        (-5, "just now"),
+        (0, "just now"),
+        (1, "1 second ago"),
+        (2, "2 seconds ago"),
+        (60, "1 minute ago"),
+        (120, "2 minutes ago"),
+        (3600, "1 hour ago"),
+        (7200, "2 hours ago"),
+        (86400, "1 day ago"),
+        (172800, "2 days ago"),
+    ],
+)
+def test_relative_time_reads_naturally_at_every_boundary(seconds, expected):
+    """A duplicate card is the first thing many users see; "1 seconds ago"
+    undermines it. Every unit boundary is pinned, singular and plural."""
+    from chat_ui.chat_ui.formatting import _humanize
+
+    assert _humanize(seconds) == expected
+
+
 def test_duplicate_formatting_empty_and_unparseable_fallback():
     """AC3: Empty or unparseable first_query_at renders fallback without crash ('No silent drops')."""
     main_empty, release_empty = format_duplicate_info("")

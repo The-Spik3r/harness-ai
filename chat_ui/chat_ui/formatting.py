@@ -18,10 +18,10 @@ from .copy import (
 
 
 def _humanize(seconds: int) -> str:
-    if seconds < 0:
+    if seconds < 1:
         return "just now"
     if seconds < 60:
-        return f"{seconds} seconds ago"
+        return f"{seconds} second{'s' if seconds != 1 else ''} ago"
     if seconds < 3600:
         m = seconds // 60
         return f"{m} minute{'s' if m != 1 else ''} ago"

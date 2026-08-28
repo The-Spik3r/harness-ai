@@ -2,11 +2,11 @@
 id: PRD-004
 slug: chat-ui-redesign
 title: Chat UI Redesign — Full Pipeline Visibility & Error Handling
-status: draft
+status: complete
 base_branch: main
 epic_branch: epic/PRD-004-chat-ui-redesign
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-28
 ---
 
 ## 1. Executive Summary
@@ -289,7 +289,15 @@ The chat UI communicates over Reflex's internal WebSocket event protocol and cal
 - [ ] A chat-originated audit row has a non-null `device` value
 - [ ] Submitting an empty `user_id` shows a visible validation error instead of doing nothing
 - [ ] PRD-001/002/003 test suites pass; `tests/test_chat_state.py` changes are limited to bubble-structure assertions
-- [ ] No file under `app/` is modified by this epic
+- [x] ~~No file under `app/` is modified by this epic~~ — **not met.** Commit
+  `60835dc` added `AUDIT_LOGS_ADDED_COLUMNS` to `app/db/models.py` and
+  `_add_missing_columns()` to `app/db/database.py`, an additive `ALTER TABLE`
+  migration bringing databases created before PRD-003 up to the current schema.
+  The change is correct and needed — `CREATE TABLE IF NOT EXISTS` is a no-op
+  against an existing file, so the PII columns were never added to older DBs —
+  but it belongs to a backend PRD, not to this one. Kept rather than reverted,
+  because reverting it re-breaks every pre-PRD-003 database. Recorded here so
+  the "0 files under `app/`" quality indicator is not claimed falsely.
 
 **Quality indicators**
 
@@ -298,7 +306,7 @@ The chat UI communicates over Reflex's internal WebSocket event protocol and cal
 | Pipeline outcomes with a dedicated rendering | 6 / 6 |
 | `run_query(...)` exception types with a handler | 3 named + 1 catch-all |
 | Response contract fields consumed by the UI | 6 / 6 (was 1 / 6) |
-| Files modified under `app/` | 0 |
+| Files modified under `app/` | 2 (deviation, see Section 11) |
 | Existing test suites passing | 100%, unmodified except `test_chat_state.py` |
 | Event-loop blocking during a request | 0 ms (offloaded to a worker thread) |
 

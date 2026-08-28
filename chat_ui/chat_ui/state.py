@@ -12,15 +12,15 @@ from .formatting import format_duplicate_info
 from .config import DEFAULT_MODEL
 
 class ChatState(rx.State):
-    """Holds chat messages, the input box's text, and the session's user_id.
+    """Session state for the chat surface: the transcript, the composer, and
+    who is sending.
 
-    user_id is collected once per session via submit_user_id() (STORY-005).
-    send() is a thin wrapper around the shared run_query(...) pipeline
-    (STORY-001, PRD-002 Risk 4): it appends the user's message, calls
-    run_query(...) in-process (a background event, since the OpenRouter
-    call blocks), then appends the resulting bubble — success,
-    duplicate-blocked, or suspicious-blocked — using the exact reason
-    text run_query(...) returns.
+    send() is the only consumer of run_query(...) and handles every branch it
+    can produce — three response types, three named exceptions, and a catch-all
+    — appending exactly one typed ChatMessage for each. That exhaustiveness is
+    what makes PRD-004's "no silent drops" structural rather than aspirational.
+    The call itself runs on a worker thread, so a 30-second OpenRouter round
+    trip never blocks the Reflex event loop.
     """
 
     messages: list[ChatMessage] = []
@@ -58,9 +58,14 @@ class ChatState(rx.State):
 
     @rx.event
     def reset_user_id(self):
+        """Ends the session. The transcript goes with it: the header names who
+        is sending, so leaving one user's prompts on screen under another's ID
+        would misattribute them in a surface people read as a record."""
         self.user_id = ""
         self.user_id_input = ""
         self.user_id_error = ""
+        self.messages = []
+        self.input_text = ""
 
     @rx.event
     def edit_and_resend(self, prompt: str):
@@ -70,6 +75,9 @@ class ChatState(rx.State):
         return rx.set_focus("chat_input")
 
     async def _do_send(self, text: str):
+        # Claim the in-flight slot first and on its own, so everything that can
+        # raise afterwards is inside the try/finally that clears `pending`
+        # (PRD-004 Risk 3: a stuck flag locks the composer permanently).
         async with self:
             if not self.user_id.strip():
                 return
@@ -79,18 +87,26 @@ class ChatState(rx.State):
             if self.pending:
                 return
             self.pending = True
-            self.messages.append(ChatMessage(kind="user", content=text, prompt=text))
-            self.input_text = ""
-            user_id = self.user_id
-            model = self.selected_model
-            device = None
-            try:
-                if self.router and self.router.headers and self.router.headers.raw_headers:
-                    device = self.router.headers.raw_headers.get("user-agent")
-            except Exception:
-                device = None
 
         try:
+            async with self:
+                self.messages.append(
+                    ChatMessage(kind="user", content=text, prompt=text)
+                )
+                self.input_text = ""
+                user_id = self.user_id
+                model = self.selected_model
+                device = None
+                try:
+                    if (
+                        self.router
+                        and self.router.headers
+                        and self.router.headers.raw_headers
+                    ):
+                        device = self.router.headers.raw_headers.get("user-agent")
+                except Exception:
+                    device = None
+
             try:
                 result = await asyncio.to_thread(
                     run_query,
@@ -178,5 +194,8 @@ class ChatState(rx.State):
 
     @rx.event(background=True)
     async def send(self):
-        text = self.input_text
+        # Read through the lock: a background event has no exclusive access to
+        # state outside an `async with self` block.
+        async with self:
+            text = self.input_text
         await self._do_send(text)

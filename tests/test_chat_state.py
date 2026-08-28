@@ -26,6 +26,7 @@ from app.services.query_pipeline import run_query
 import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
 from chat_ui.chat_ui.copy import USER_ID_VALIDATION_ERROR
+from chat_ui.chat_ui.models import ChatMessage
 
 client = TestClient(app)
 
@@ -653,3 +654,19 @@ async def test_recovery_actions_ignored_when_pending(temp_db):
 
 
 
+
+
+def test_reset_user_id_clears_the_transcript():
+    """Switching user ends the session. The header names who is sending, so a
+    transcript surviving the switch would show one user's prompts under
+    another's ID in a surface people read as a record."""
+    state = ChatState(_reflex_internal_init=True)
+    state.user_id = "alice"
+    state.messages = [ChatMessage(kind="user", content="hola", prompt="hola")]
+    state.input_text = "half-typed"
+
+    state.reset_user_id()
+
+    assert state.user_id == ""
+    assert state.messages == []
+    assert state.input_text == ""

@@ -11,8 +11,9 @@ from app.db.database import init_db
 from app.main import app as fastapi_app
 from app.services import pii_redactor
 
-from chat_ui.components.chat import chat_input, message_list, user_id_prompt
-from chat_ui.components.shell import header, empty_state
+from chat_ui import theme
+from chat_ui.components.chat import chat_input, message_list
+from chat_ui.components.shell import empty_state, header, user_id_gate
 from chat_ui.state import ChatState
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
@@ -24,25 +25,33 @@ init_db()
 
 
 def index() -> rx.Component:
-    return rx.cond(
-        ChatState.user_id != "",
-        rx.vstack(
-            header(),
-            rx.cond(
-                ChatState.has_messages,
-                message_list(),
-                empty_state(),
+    return rx.fragment(
+        rx.el.style(theme.GLOBAL_CSS),
+        rx.cond(
+            ChatState.user_id != "",
+            rx.vstack(
+                header(),
+                rx.cond(
+                    ChatState.has_messages,
+                    message_list(),
+                    empty_state(),
+                ),
+                chat_input(),
+                height="100vh",
+                width="100%",
+                spacing="0",
+                background_color=theme.PAPER,
             ),
-            chat_input(),
-            height="100vh",
-            width="100%",
-            spacing="0",
+            user_id_gate(),
         ),
-        user_id_prompt(),
     )
 
 
-app = rx.App(api_transformer=fastapi_app)
+app = rx.App(
+    api_transformer=fastapi_app,
+    stylesheets=[theme.FONTS_HREF],
+    style={"background_color": theme.PAPER, "font_family": theme.FONT_BODY},
+)
 app.add_page(index)
 
 # Same api_transformer lifespan bypass as init_db() above: app.main's lifespan —
