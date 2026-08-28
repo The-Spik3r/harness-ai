@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/18 stories done — 22%
+5/18 stories done — 28%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-002 | users table schema and CRUD helpers | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-002-users-table-schema.plan.md) | `903dee8` |
 | STORY-003 | Identity resolution — token hashing, Identity value object, ADMIN_TOKEN break-glass | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-003-identity-resolution.plan.md) | `cadaebd` |
 | STORY-004 | Bootstrap CLI — scripts/manage_users.py | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-004-manage-users-cli.plan.md) | `10e63fc` |
-| STORY-005 | RBAC configuration settings and env vars | technical | ⬜ todo | small | — | — |
+| STORY-005 | RBAC configuration settings and env vars | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-005-rbac-configuration-settings.plan.md) | `c2aca34` |
 | STORY-006 | authz service — permission constants, default role matrix, deny-by-default authorize() | feature | ⬜ todo | medium | — | — |
 | STORY-007 | Role matrix loaded from RBAC_ROLES_FILE at startup | feature | ⬜ todo | small | — | — |
 | STORY-008 | QueryBlockedForbiddenResponse joins the QueryResponse union | technical | ⬜ todo | small | — | — |
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001, STORY-002, STORY-003, and STORY-004 are done. STORY-005, STORY-008, and STORY-009 are unblocked and can start now.
+STORY-001 through STORY-005 are done. STORY-006, STORY-008, STORY-009, and STORY-016 are unblocked and can start now.

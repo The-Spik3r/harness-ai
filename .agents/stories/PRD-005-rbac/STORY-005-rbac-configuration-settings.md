@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "Phase 2 — Authorization core"
-status: todo
+status: done
 labels: [backend, config]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-005-rbac-configuration-settings.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-005-rbac-configuration-settings.report.md
+commit: c2aca34
 depends_on: []
 blocks: [STORY-006, STORY-011, STORY-016]
 skills: []
