@@ -17,19 +17,41 @@ from .copy import (
 )
 
 
+# One threshold table, two spellings. The chat's duplicate card reads
+# "2 minutes ago"; the admin register's time column is a monospace cell and
+# reads "2m ago" (PRD-006 Section 6.1). They must never drift into two
+# different ideas of when an hour becomes a day, so both renderings read the
+# same buckets: (upper bound in seconds, divisor, long unit, short unit).
+_BUCKETS = (
+    (60, 1, "second", "s"),
+    (3600, 60, "minute", "m"),
+    (86400, 3600, "hour", "h"),
+)
+_DAY_BUCKET = (86400, "day", "d")
+
+
+def _bucket(seconds: int) -> tuple[int, str, str]:
+    """Returns (count, long unit, short unit) for a positive elapsed span."""
+    for limit, divisor, long_unit, short_unit in _BUCKETS:
+        if seconds < limit:
+            return seconds // divisor, long_unit, short_unit
+    divisor, long_unit, short_unit = _DAY_BUCKET
+    return seconds // divisor, long_unit, short_unit
+
+
 def _humanize(seconds: int) -> str:
     if seconds < 1:
         return "just now"
-    if seconds < 60:
-        return f"{seconds} second{'s' if seconds != 1 else ''} ago"
-    if seconds < 3600:
-        m = seconds // 60
-        return f"{m} minute{'s' if m != 1 else ''} ago"
-    if seconds < 86400:
-        h = seconds // 3600
-        return f"{h} hour{'s' if h != 1 else ''} ago"
-    d = seconds // 86400
-    return f"{d} day{'s' if d != 1 else ''} ago"
+    count, long_unit, _ = _bucket(seconds)
+    return f"{count} {long_unit}{'s' if count != 1 else ''} ago"
+
+
+def humanize_compact(seconds: int) -> str:
+    """The same spans as `_humanize`, spelled for a fixed-width column: "2m ago"."""
+    if seconds < 1:
+        return "just now"
+    count, _, short_unit = _bucket(seconds)
+    return f"{count}{short_unit} ago"
 
 
 def format_duplicate_info(first_query_at: str) -> tuple[str, str]:
