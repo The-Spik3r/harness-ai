@@ -51,6 +51,8 @@ EDIT_AND_RESEND_LABEL = "Edit and resend"
 DUPLICATE_CHANGE_NOTICE = "Original text restored. Modify text to go through."
 DUPLICATE_RELATIVE_TIME_TEMPLATE = "Already sent {relative} ({absolute})"
 DUPLICATE_WINDOW_RELEASE_TEMPLATE = "24h window releases at {release}"
+DUPLICATE_FALLBACK_TEXT = "Already submitted recently."
+DUPLICATE_UNPARSEABLE_TEMPLATE = "Already sent at {absolute}"
 
 # Error / Block Cards
 # Risk 7 mitigation: upstream error names OpenRouter explicitly

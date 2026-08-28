@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 )
 """
 
+# Columns added after the initial schema shipped (PRD-003 PII telemetry).
+# CREATE TABLE IF NOT EXISTS is a no-op against a database created before they
+# existed, so init_db() ALTERs in whichever of these an old file is missing.
+# Every entry needs a non-NULL default: SQLite rejects ADD COLUMN NOT NULL
+# without one.
+AUDIT_LOGS_ADDED_COLUMNS = {
+    "pii_detected_input": "INTEGER NOT NULL DEFAULT 0",
+    "pii_detected_output": "INTEGER NOT NULL DEFAULT 0",
+    "pii_entities": "TEXT",
+}
+
 
 @dataclass
 class AuditLog:
