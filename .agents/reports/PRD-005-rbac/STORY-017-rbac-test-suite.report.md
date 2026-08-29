@@ -3,7 +3,7 @@ story: STORY-017
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-017-rbac-test-suite.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: 0056d30
 status: COMPLETE
 completed: 2026-08-29
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-29
 
 **Plan**: `.agents/plans/PRD-005-rbac/completed/STORY-017-rbac-test-suite.plan.md`
 **Epic Branch**: `epic/PRD-005-rbac`
-**Commit**: `PENDING`
+**Commit**: `0056d30`
 
 ## Summary
 

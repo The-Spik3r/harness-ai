@@ -12,7 +12,7 @@ labels: [testing, security]
 epic_branch: epic/PRD-005-rbac
 plan: .agents/plans/PRD-005-rbac/completed/STORY-017-rbac-test-suite.plan.md
 report: .agents/reports/PRD-005-rbac/STORY-017-rbac-test-suite.report.md
-commit: PENDING
+commit: 0056d30
 depends_on: [STORY-013, STORY-014, STORY-015]
 blocks: [STORY-018]
 skills: []
