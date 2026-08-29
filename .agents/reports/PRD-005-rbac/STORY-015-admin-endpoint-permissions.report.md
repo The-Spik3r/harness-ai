@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-015-admin-endpoint-permissions.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: 6e0d3ca
 status: COMPLETE
 completed: 2026-08-28
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-28
 
 **Plan**: `.agents/plans/PRD-005-rbac/completed/STORY-015-admin-endpoint-permissions.plan.md`
 **Epic Branch**: `epic/PRD-005-rbac`
-**Commit**: `PENDING`
+**Commit**: `6e0d3ca`
 
 ## Summary
 
