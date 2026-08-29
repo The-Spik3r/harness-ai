@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "Phase 4 — Endpoint permissions, docs, rollout"
-status: todo
+status: done
 labels: [testing, security]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-017-rbac-test-suite.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-017-rbac-test-suite.report.md
+commit: PENDING
 depends_on: [STORY-013, STORY-014, STORY-015]
 blocks: [STORY-018]
 skills: []
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # STORY-017: RBAC test suite — full matrix coverage and ingress parity

@@ -26,6 +26,7 @@ from app.models.schemas import (
     QueryBlockedSuspiciousResponse,
     QuerySuccessResponse,
 )
+from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError, hash_prompt
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
@@ -778,3 +779,100 @@ def test_logout_clears_the_transcript():
     assert state.user_id == ""
     assert state.messages == []
     assert state.input_text == ""
+
+
+# ---------------------------------------------------------------------------
+# Cross-ingress denial parity (STORY-017) -- the regression guard for PRD
+# Risk 1. test_chat_and_api_audit_rows_share_schema_and_fields above is the
+# grant-path precedent these mirror for the deny path.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_model_allowlist_denial_identical_through_chat_and_api(temp_db, monkeypatch):
+    """The model-allowlist check inside run_query() is a permission both
+    ingresses reach through literally the same code path with no earlier
+    gate on either side -- the strongest available proof that the chat UI
+    cannot bypass authorization the router enforces (PRD Risk 1)."""
+    model = "not-a-real-model"
+    monkeypatch.setattr(chat_state_mod, "call_openrouter", _fail_if_called)
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+
+    state = _make_state()
+    state.selected_model = model
+    await _send(state, "chat prompt outside allowlist")
+    chat_bubble = state.messages[-1]
+    chat_row_id = _last_audit_id()
+
+    response = client.post(
+        "/query",
+        headers={"Authorization": f"Bearer {_AUTH_TOKEN}"},
+        json={"prompt": "api prompt outside allowlist", "model": model},
+    )
+    api_row_id = _last_audit_id()
+
+    required_permission = f"query:model:{model}"
+    assert chat_bubble.kind == "forbidden"
+    assert chat_bubble.required_permission == required_permission
+
+    assert response.status_code == 200
+    api_body = response.json()
+    assert api_body["status"] == "BLOCKED"
+    assert api_body["required_permission"] == required_permission
+
+    assert chat_row_id != api_row_id
+    assert _count_audit_rows() == 2
+    for entry in (get_audit_log(chat_row_id), get_audit_log(api_row_id)):
+        assert entry.role == "user"
+        assert entry.denied_permission == required_permission
+
+
+@pytest.mark.asyncio
+async def test_query_submit_denial_decision_parity_across_ingresses_with_documented_audit_asymmetry(
+    temp_db, monkeypatch
+):
+    """PRD Section 9 draws a deliberate line between a missing *endpoint*
+    permission (401/403, transport-level) and a *content* policy refusal
+    (200 + BLOCKED, audited like any other pipeline block). STORY-013 wired
+    POST /query's query:submit check as Depends(require_permission(...)) on
+    the router itself (app/routers/query.py:18), so an HTTP query:submit
+    denial never reaches run_query()'s own step-0 authorize() call and
+    writes no audit row (tests/test_query_router.py::
+    test_identity_lacking_query_submit_returns_403_naming_permission already
+    proves this in isolation). The chat ingress has no router layer at all
+    -- ChatState._do_send() calls run_query() directly, so its only
+    enforcement of query:submit is that same step-0 check, which DOES log a
+    row. Both ingresses reach the identical *decision* -- refused, OpenRouter
+    never called -- only the audit-row count legitimately differs, by the
+    router's own pre-existing design. This test asserts that documented
+    asymmetry rather than papering over it.
+    """
+    insert_user(
+        User(user_id="reviewer", role="auditor", token_hash=hash_token("auditor-chat-token"))
+    )
+    monkeypatch.setattr(chat_state_mod, "call_openrouter", _fail_if_called)
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+
+    state = _make_state(user_id="reviewer", token="auditor-chat-token")
+    await _send(state, "auditor tries to query via chat")
+    bubble = state.messages[-1]
+
+    assert bubble.kind == "forbidden"
+    assert bubble.required_permission == PERMISSION_QUERY_SUBMIT
+    assert _count_audit_rows() == 1
+    chat_entry = get_audit_log(_last_audit_id())
+    assert chat_entry.role == "auditor"
+    assert chat_entry.denied_permission == PERMISSION_QUERY_SUBMIT
+
+    response = client.post(
+        "/query",
+        headers={"Authorization": "Bearer auditor-chat-token"},
+        json={"prompt": "auditor tries to query via api"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": f"Permission denied: {PERMISSION_QUERY_SUBMIT}"}
+    # Documented asymmetry: the router's require_permission dependency stops
+    # this request before run_query() ever runs, so no second audit row is
+    # written -- the count stays at 1, not 2.
+    assert _count_audit_rows() == 1
