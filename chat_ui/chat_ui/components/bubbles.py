@@ -99,13 +99,13 @@ def _action(label: str, on_click, ink: str) -> rx.Component:
         font_weight="600",
         color=ink,
         background_color=theme.CARD,
-        border=f"1px solid {ink}33",
+        border=f"1px solid {ink}",
         border_radius=theme.RADIUS,
         padding="0.3rem 0.7rem",
         margin_top="0.7rem",
         display="inline-block",
         transition="background-color 120ms ease, border-color 120ms ease",
-        _hover={"background_color": f"{ink}12", "border_color": f"{ink}66"},
+        _hover={"background_color": f"{ink}14"},
     )
 
 
@@ -229,7 +229,7 @@ def render_duplicate(message) -> rx.Component:
             ),
             rx.cond(
                 message.duplicate_release_info != "",
-                _evidence(message.duplicate_release_info, color=ink, opacity="0.8"),
+                _evidence(message.duplicate_release_info, color=ink),
                 rx.fragment(),
             ),
             rx.box(
