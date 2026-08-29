@@ -132,18 +132,34 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
         return _row_to_audit_log(row)
 
 
-def count_audit_logs() -> int:
+def count_audit_logs(user_id: Optional[str] = None) -> int:
     with get_connection() as conn:
-        row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM audit_logs WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
         return row["n"]
 
 
-def list_audit_logs(limit: int = 100) -> list[AuditLog]:
+def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[AuditLog]:
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                """
+                SELECT * FROM audit_logs
+                WHERE user_id = ?
+                ORDER BY timestamp DESC LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [_row_to_audit_log(row) for row in rows]
 
 

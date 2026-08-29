@@ -190,12 +190,14 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
 
     assert sorted(entry) == [
         "audit_id",
+        "denied_permission",
         "device",
         "model",
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",
         "prompt_hash",
+        "role",
         "suspicious_pattern_detected",
         "timestamp",
         "user_id",

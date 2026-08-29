@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "Phase 4 — Endpoint permissions, docs, rollout"
-status: todo
+status: done
 labels: [backend, api]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-015-admin-endpoint-permissions.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-015-admin-endpoint-permissions.report.md
+commit: PENDING
 depends_on: [STORY-012, STORY-009]
 blocks: [STORY-017]
 skills: []

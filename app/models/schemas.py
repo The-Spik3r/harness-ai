@@ -63,6 +63,8 @@ class AuditQueryEntry(BaseModel):
     pii_detected_input: bool = False
     pii_detected_output: bool = False
     pii_entities: List[str] = []
+    role: Optional[str] = None
+    denied_permission: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

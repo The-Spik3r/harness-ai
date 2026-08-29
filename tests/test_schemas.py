@@ -111,6 +111,8 @@ def test_audit_response_shape():
                 "pii_detected_input": False,
                 "pii_detected_output": False,
                 "pii_entities": [],
+                "role": None,
+                "denied_permission": None,
             }
         ],
     }
