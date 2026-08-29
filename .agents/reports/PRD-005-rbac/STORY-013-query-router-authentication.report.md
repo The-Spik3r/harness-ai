@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-013-query-router-authentication.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: 7f84803
 status: COMPLETE
 completed: 2026-08-28
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-28
 
 **Plan**: `.agents/plans/PRD-005-rbac/completed/STORY-013-query-router-authentication.plan.md`
 **Epic Branch**: `epic/PRD-005-rbac`
-**Commit**: PENDING
+**Commit**: `7f84803`
 
 ## Summary
 
