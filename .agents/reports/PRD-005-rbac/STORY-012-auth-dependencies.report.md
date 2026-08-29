@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-012-auth-dependencies.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: 0d0b800
 status: COMPLETE
 completed: 2026-08-28
 ---
