@@ -12,7 +12,7 @@ labels: [backend, ops]
 epic_branch: epic/PRD-005-rbac
 plan: .agents/plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md
 report: .agents/reports/PRD-005-rbac/STORY-016-startup-bootstrap-guard.report.md
-commit: PENDING
+commit: 0580a98
 depends_on: [STORY-002, STORY-004, STORY-005]
 blocks: [STORY-018]
 skills: []

@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: 0580a98
 status: COMPLETE
 completed: 2026-08-29
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-29
 
 **Plan**: `.agents/plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md`
 **Epic Branch**: `epic/PRD-005-rbac`
-**Commit**: `PENDING`
+**Commit**: `0580a98`
 
 ## Summary
 

@@ -29,7 +29,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-013 | POST /query bearer authentication and status-code mapping | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-013-query-router-authentication.plan.md) | `7f84803` |
 | STORY-014 | Chat UI login replaces the free-text user_id prompt | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-014-chat-ui-login.plan.md) | `a38f38b` |
 | STORY-015 | /audit scoping and /stats gating by permission | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-015-admin-endpoint-permissions.plan.md) | `6e0d3ca` |
-| STORY-016 | Fail-fast startup guard when RBAC is enabled with no seeded users | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md) | `PENDING` |
+| STORY-016 | Fail-fast startup guard when RBAC is enabled with no seeded users | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md) | `0580a98` |
 | STORY-017 | RBAC test suite — full matrix coverage and ingress parity | technical | ⬜ todo | medium | — | — |
 | STORY-018 | README, .env.example, and roadmap updates for RBAC | technical | ⬜ todo | small | — | — |
 
