@@ -85,8 +85,8 @@ def header() -> rx.Component:
                     color=theme.INK,
                 ),
                 rx.el.button(
-                    copy.SHELL_CHANGE_USER_LABEL,
-                    on_click=ChatState.reset_user_id,
+                    copy.SHELL_LOGOUT_LABEL,
+                    on_click=ChatState.logout,
                     type="button",
                     cursor="pointer",
                     background="none",
@@ -190,8 +190,12 @@ def empty_state() -> rx.Component:
     )
 
 
-def user_id_gate() -> rx.Component:
-    """Full-page form collecting the session's user_id before the chat opens."""
+def login_gate() -> rx.Component:
+    """Full-page form collecting the session's access token before the chat
+    opens. type="password" keeps the credential off-screen while typed -- the
+    risk PRD-005 Risk 5 calls out is a role trusted from the client, not the
+    token being visible in the input, but there is no reason to show it
+    either."""
     return rx.center(
         rx.box(
             rx.box(
@@ -203,7 +207,7 @@ def user_id_gate() -> rx.Component:
                 color=theme.INK,
             ),
             rx.box(
-                copy.USER_ID_PROMPT_TITLE,
+                copy.LOGIN_PROMPT_TITLE,
                 font_family=theme.FONT_DISPLAY,
                 font_size="1.5rem",
                 font_weight="600",
@@ -212,7 +216,7 @@ def user_id_gate() -> rx.Component:
                 margin_top="1.75rem",
             ),
             rx.box(
-                copy.USER_ID_PROMPT_BODY,
+                copy.LOGIN_PROMPT_BODY,
                 font_family=theme.FONT_BODY,
                 font_size=theme.TEXT_BODY,
                 line_height="1.6",
@@ -221,9 +225,10 @@ def user_id_gate() -> rx.Component:
             ),
             rx.form(
                 rx.input(
-                    value=ChatState.user_id_input,
-                    on_change=ChatState.set_user_id_input,
-                    placeholder=copy.USER_ID_PLACEHOLDER,
+                    value=ChatState.token_input,
+                    on_change=ChatState.set_token_input,
+                    placeholder=copy.LOGIN_TOKEN_PLACEHOLDER,
+                    type="password",
                     auto_focus=True,
                     width="100%",
                     font_family=theme.FONT_DATA,
@@ -235,9 +240,9 @@ def user_id_gate() -> rx.Component:
                     margin_top="1.5rem",
                 ),
                 rx.cond(
-                    ChatState.user_id_error != "",
+                    ChatState.login_error != "",
                     rx.box(
-                        ChatState.user_id_error,
+                        ChatState.login_error,
                         font_family=theme.FONT_DATA,
                         font_size=theme.TEXT_DATA,
                         color=theme.INK_DENIED,
@@ -247,7 +252,7 @@ def user_id_gate() -> rx.Component:
                 ),
                 rx.box(
                     rx.el.button(
-                        copy.USER_ID_SUBMIT_LABEL,
+                        copy.LOGIN_SUBMIT_LABEL,
                         type="submit",
                         cursor="pointer",
                         width="100%",
@@ -264,7 +269,7 @@ def user_id_gate() -> rx.Component:
                     ),
                     margin_top="1rem",
                 ),
-                on_submit=ChatState.submit_user_id,
+                on_submit=ChatState.login,
                 width="100%",
             ),
             width="100%",

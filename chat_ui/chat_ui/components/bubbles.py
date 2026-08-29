@@ -278,6 +278,36 @@ def render_injection(message) -> rx.Component:
     )
 
 
+def render_forbidden(message) -> rx.Component:
+    """Denied by policy, not detected as an attack -- no retry action, since
+    resending the same prompt hits the same permission check again."""
+    ink, tint = theme.INK_FORBIDDEN, theme.TINT_FORBIDDEN
+    return _entry(
+        _rail(ink),
+        _tag(copy.TAG_FORBIDDEN, ink),
+        _panel(
+            ink,
+            tint,
+            _prose(message.content),
+            rx.cond(
+                message.required_permission != "",
+                _evidence(
+                    f"{copy.FORBIDDEN_PERMISSION_LABEL}: ",
+                    rx.el.span(
+                        message.required_permission,
+                        background_color=f"{ink}1A",
+                        padding="0.05rem 0.3rem",
+                        border_radius="2px",
+                    ),
+                    color=ink,
+                    margin_top="0.5rem",
+                ),
+                rx.fragment(),
+            ),
+        ),
+    )
+
+
 def _failure(message, ink: str, tint: str, tag: str, headline: str) -> rx.Component:
     """Shared shape for the two failure kinds: what failed, the raw detail, and
     a way to send the same prompt again."""

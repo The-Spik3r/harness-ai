@@ -31,6 +31,7 @@ SPINE = "#C3CBD3"
 INK_CLEAR = "#1B5E4B"  # assistant — cleared inspection
 INK_HELD = "#8A6A12"  # duplicate — held, not rejected
 INK_DENIED = "#9B2226"  # injection — denied and logged
+INK_FORBIDDEN = "#B5541D"  # forbidden by policy -- distinct from injection's INK_DENIED
 INK_UPSTREAM = "#34567F"  # OpenRouter failed — an outside party
 INK_FAULT = "#5D4A8C"  # the harness itself failed
 INK_SELF = "#14181C"  # your own words — plain ink, no verdict
@@ -40,6 +41,7 @@ INK_SELF = "#14181C"  # your own words — plain ink, no verdict
 TINT_CLEAR = "#F1F6F4"
 TINT_HELD = "#FAF6EA"
 TINT_DENIED = "#FBF1F1"
+TINT_FORBIDDEN = "#FCF1E8"
 TINT_UPSTREAM = "#F1F4F9"
 TINT_FAULT = "#F5F3F9"
 

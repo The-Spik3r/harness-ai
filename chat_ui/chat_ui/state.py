@@ -1,13 +1,23 @@
 import asyncio
 import reflex as rx
 
-from app.models.schemas import QueryBlockedDuplicateResponse, QuerySuccessResponse
+from app.models.schemas import (
+    QueryBlockedDuplicateResponse,
+    QueryBlockedForbiddenResponse,
+    QueryBlockedSuspiciousResponse,
+    QuerySuccessResponse,
+)
 from app.services.duplicate_checker import DuplicateCheckError
+from app.services.identity import resolve
 from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 from .models import ChatMessage
-from .copy import USER_ID_VALIDATION_ERROR
+from .copy import (
+    LOGIN_INVALID_TOKEN_ERROR,
+    LOGIN_TOKEN_REQUIRED_ERROR,
+    SESSION_INVALIDATED_ERROR,
+)
 from .formatting import format_duplicate_info
 from .config import DEFAULT_MODEL
 
@@ -16,20 +26,31 @@ class ChatState(rx.State):
     who is sending.
 
     send() is the only consumer of run_query(...) and handles every branch it
-    can produce — three response types, three named exceptions, and a catch-all
-    — appending exactly one typed ChatMessage for each. That exhaustiveness is
-    what makes PRD-004's "no silent drops" structural rather than aspirational.
-    The call itself runs on a worker thread, so a 30-second OpenRouter round
-    trip never blocks the Reflex event loop.
+    can produce -- four response types, three named exceptions, and a
+    catch-all -- appending exactly one typed ChatMessage for each. That
+    exhaustiveness is what makes PRD-004's "no silent drops" structural
+    rather than aspirational. The call itself runs on a worker thread, so a
+    30-second OpenRouter round trip never blocks the Reflex event loop.
+
+    PRD-005 Risk 5: a role read from a Reflex state var is cosmetic, not a
+    security boundary -- state vars are serialized to the client and mutable
+    by client-originated events. So this class holds no role at all, and its
+    only credential is `_token`, a backend-only var (leading underscore):
+    Reflex never syncs it to the frontend and no client event can set it.
+    login() is the only place that writes it or `user_id`; every send()
+    re-derives the Identity -- and so the role -- from `_token` via
+    resolve(), fresh, on every call.
     """
 
     messages: list[ChatMessage] = []
     input_text: str = ""
     user_id: str = ""
-    user_id_input: str = ""
-    user_id_error: str = ""
+    token_input: str = ""
+    login_error: str = ""
     pending: bool = False
     selected_model: str = DEFAULT_MODEL
+
+    _token: str = ""
 
     @rx.var
     def has_messages(self) -> bool:
@@ -40,30 +61,39 @@ class ChatState(rx.State):
         self.input_text = text
 
     @rx.event
-    def set_user_id_input(self, text: str):
-        self.user_id_input = text
+    def set_token_input(self, text: str):
+        self.token_input = text
 
     @rx.event
     def set_selected_model(self, model: str):
         self.selected_model = model
 
     @rx.event
-    def submit_user_id(self):
-        text = self.user_id_input.strip()
-        if not text:
-            self.user_id_error = USER_ID_VALIDATION_ERROR
+    def login(self):
+        token = self.token_input.strip()
+        if not token:
+            self.login_error = LOGIN_TOKEN_REQUIRED_ERROR
             return
-        self.user_id_error = ""
-        self.user_id = text
+
+        identity = resolve(token)
+        if identity is None:
+            self.login_error = LOGIN_INVALID_TOKEN_ERROR
+            return
+
+        self.login_error = ""
+        self.token_input = ""
+        self._token = token
+        self.user_id = identity.user_id
 
     @rx.event
-    def reset_user_id(self):
+    def logout(self):
         """Ends the session. The transcript goes with it: the header names who
         is sending, so leaving one user's prompts on screen under another's ID
         would misattribute them in a surface people read as a record."""
+        self._token = ""
         self.user_id = ""
-        self.user_id_input = ""
-        self.user_id_error = ""
+        self.token_input = ""
+        self.login_error = ""
         self.messages = []
         self.input_text = ""
 
@@ -87,6 +117,23 @@ class ChatState(rx.State):
             if self.pending:
                 return
             self.pending = True
+            token = self._token
+
+        # PRD-005 Risk 5: re-resolved fresh on every call, never cached --
+        # there is no role field anywhere on this class to read one from.
+        identity = resolve(token)
+        if identity is None:
+            async with self:
+                self.messages.append(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=SESSION_INVALIDATED_ERROR,
+                    )
+                )
+                self.pending = False
+            return
 
         try:
             async with self:
@@ -94,7 +141,6 @@ class ChatState(rx.State):
                     ChatMessage(kind="user", content=text, prompt=text)
                 )
                 self.input_text = ""
-                user_id = self.user_id
                 model = self.selected_model
                 device = None
                 try:
@@ -110,7 +156,7 @@ class ChatState(rx.State):
             try:
                 result = await asyncio.to_thread(
                     run_query,
-                    user_id=user_id,
+                    identity=identity,
                     prompt=text,
                     device=device,
                     model=model,
@@ -174,12 +220,29 @@ class ChatState(rx.State):
                     duplicate_relative_info=relative_info,
                     duplicate_release_info=release_info,
                 )
-            else:
+            elif isinstance(result, QueryBlockedSuspiciousResponse):
                 bubble = ChatMessage(
                     kind="injection",
                     content=result.reason,
                     prompt=text,
                     pattern=result.pattern,
+                )
+            elif isinstance(result, QueryBlockedForbiddenResponse):
+                bubble = ChatMessage(
+                    kind="forbidden",
+                    content=result.reason,
+                    prompt=text,
+                    required_permission=result.required_permission,
+                )
+            else:
+                # Unreachable for the current QueryResponse union -- kept so a
+                # fifth member added later without updating this chain surfaces
+                # as a visible bubble instead of an unhandled exception.
+                bubble = ChatMessage(
+                    kind="internal_error",
+                    content="internal_error",
+                    prompt=text,
+                    detail=f"Unhandled response type: {type(result).__name__}",
                 )
 
             async with self:

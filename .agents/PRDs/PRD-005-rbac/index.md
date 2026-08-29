@@ -6,7 +6,7 @@
 
 ## Progress
 
-13/18 stories done — 72%
+14/18 stories done — 78%
 
 ## Stories
 
@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-011 | Server-side model allowlist and BYOK as a privilege | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-011-model-allowlist-and-byok.plan.md) | `df72f13` |
 | STORY-012 | require_identity and require_permission FastAPI dependencies | technical | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-012-auth-dependencies.plan.md) | `0d0b800` |
 | STORY-013 | POST /query bearer authentication and status-code mapping | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-013-query-router-authentication.plan.md) | `7f84803` |
-| STORY-014 | Chat UI login replaces the free-text user_id prompt | feature | ⬜ todo | medium | — | — |
+| STORY-014 | Chat UI login replaces the free-text user_id prompt | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-014-chat-ui-login.plan.md) | `PENDING` |
 | STORY-015 | /audit scoping and /stats gating by permission | feature | ⬜ todo | medium | — | — |
 | STORY-016 | Fail-fast startup guard when RBAC is enabled with no seeded users | technical | ⬜ todo | small | — | — |
 | STORY-017 | RBAC test suite — full matrix coverage and ingress parity | technical | ⬜ todo | medium | — | — |
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001 through STORY-013 are done. STORY-014, STORY-015, and STORY-016 are unblocked and ready to plan. STORY-017 remains blocked on STORY-014 and STORY-015.
+STORY-001 through STORY-014 are done. STORY-015 and STORY-016 are unblocked and ready to plan. STORY-017 is now unblocked by STORY-014 but remains blocked on STORY-015.

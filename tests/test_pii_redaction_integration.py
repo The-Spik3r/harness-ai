@@ -316,11 +316,29 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #     it's now the AC4 "proceeds using the credential's user_id" case, replaced by
 #     test_body_user_id_absent_proceeds_with_credential_user_id and
 #     test_missing_authorization_header_returns_401_and_no_audit_row.
+#
+# STORY-014 (PRD-005 Section 6/9, Risk 5) replaces the free-text user_id prompt with a
+# real token login: ChatState.submit_user_id()/reset_user_id() become login()/logout().
+# Each superseded test was replaced by a same-file test asserting the new,
+# token-based behavior:
+#   - test_chat_state_submit_empty_or_whitespace_user_id_shows_error ->
+#     test_chat_state_login_empty_token_shows_error
+#   - test_chat_state_submit_valid_user_id_clears_error_and_sets_user ->
+#     test_chat_state_login_valid_token_sets_user_id_and_clears_error
+#   - test_chat_state_reset_user_id_clears_error -> folded into
+#     test_chat_state_logout_clears_session_and_credential
+#   - test_reset_user_id_clears_the_transcript -> test_logout_clears_the_transcript
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_schemas.py": {"test_query_request_missing_user_id_raises"},
     "tests/test_query_router.py": {
         "test_missing_user_id_returns_422",
         "test_empty_user_id_returns_400_before_any_side_effect",
+    },
+    "tests/test_chat_state.py": {
+        "test_chat_state_submit_empty_or_whitespace_user_id_shows_error",
+        "test_chat_state_submit_valid_user_id_clears_error_and_sets_user",
+        "test_chat_state_reset_user_id_clears_error",
+        "test_reset_user_id_clears_the_transcript",
     },
 }
 

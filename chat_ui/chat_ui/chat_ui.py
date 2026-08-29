@@ -13,7 +13,7 @@ from app.services import authz, pii_redactor
 
 from chat_ui import theme
 from chat_ui.components.chat import chat_input, message_list
-from chat_ui.components.shell import empty_state, header, user_id_gate
+from chat_ui.components.shell import empty_state, header, login_gate
 from chat_ui.state import ChatState
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
@@ -42,7 +42,7 @@ def index() -> rx.Component:
                 spacing="0",
                 background_color=theme.PAPER,
             ),
-            user_id_gate(),
+            login_gate(),
         ),
     )
 
