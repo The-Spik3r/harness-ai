@@ -275,12 +275,19 @@ def get_user(user_id: str) -> Optional[User]:
 def find_user_by_token_hash(token_hash: str) -> Optional[User]:
     """Active users only. A revoked credential is indistinguishable from an
     unknown one by design -- PRD-005 Section 9 maps both to 401, and separating
-    them would be a credential-enumeration oracle."""
+    them would be a credential-enumeration oracle.
+
+    A `users` table that hasn't been created yet (init_db() never ran against
+    this connection) is folded into the same "no match" outcome rather than
+    raised -- callers resolving a credential need a closed door, not a 500."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM users WHERE token_hash = ? AND active = 1",
-            (token_hash,),
-        ).fetchone()
+        try:
+            row = conn.execute(
+                "SELECT * FROM users WHERE token_hash = ? AND active = 1",
+                (token_hash,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
         if row is None:
             return None
         return _row_to_user(row)
