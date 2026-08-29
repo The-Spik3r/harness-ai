@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-014-chat-ui-login.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: a38f38b
 status: COMPLETE
 completed: 2026-08-29
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-29
 
 **Plan**: `.agents/plans/PRD-005-rbac/completed/STORY-014-chat-ui-login.plan.md`
 **Epic Branch**: `epic/PRD-005-rbac`
-**Commit**: `PENDING` (filled in after commit)
+**Commit**: `a38f38b`
 
 ## Summary
 

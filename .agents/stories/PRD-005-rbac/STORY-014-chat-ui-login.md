@@ -12,7 +12,7 @@ labels: [frontend, security]
 epic_branch: epic/PRD-005-rbac
 plan: .agents/plans/PRD-005-rbac/completed/STORY-014-chat-ui-login.plan.md
 report: .agents/reports/PRD-005-rbac/STORY-014-chat-ui-login.report.md
-commit: PENDING
+commit: a38f38b
 depends_on: [STORY-010, STORY-008]
 blocks: [STORY-017]
 skills: []
