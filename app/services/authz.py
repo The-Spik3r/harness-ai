@@ -43,6 +43,10 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
 }
 
+# Roles whose model allowlist is "*" (PRD-005 Section 7). Every other role
+# is checked against settings.model_allowlist_list.
+MODEL_ALLOWLIST_WILDCARD_ROLES = {"admin"}
+
 
 class PermissionDenied(Exception):
     """Raised by authorize() on any denial. Carries the permission name so
@@ -103,3 +107,21 @@ def authorize(identity: Identity, permission: str) -> None:
     role_permissions = ROLE_PERMISSIONS.get(identity.role)
     if role_permissions is None or permission not in role_permissions:
         raise PermissionDenied(permission)
+
+
+def authorize_model(identity: Identity, model: str) -> None:
+    """Deny-by-default model check (PRD-005 Section 7). Raises
+    PermissionDenied(f"query:model:{model}") unless the identity's role has
+    an unrestricted allowlist or the model is in settings.model_allowlist_list.
+    RBAC_ENABLED=false bypasses this check too, same escape hatch as
+    authorize()."""
+    if not settings.RBAC_ENABLED:
+        return
+
+    if identity.role in MODEL_ALLOWLIST_WILDCARD_ROLES:
+        return
+
+    if model in settings.model_allowlist_list:
+        return
+
+    raise PermissionDenied(f"query:model:{model}")

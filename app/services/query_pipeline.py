@@ -7,7 +7,13 @@ from app.models.schemas import (
     QuerySuccessResponse,
 )
 from app.services.audit_logger import log_query
-from app.services.authz import PERMISSION_QUERY_SUBMIT, PermissionDenied, authorize
+from app.services.authz import (
+    PERMISSION_QUERY_BYOK,
+    PERMISSION_QUERY_SUBMIT,
+    PermissionDenied,
+    authorize,
+    authorize_model,
+)
 from app.services.duplicate_checker import check_duplicate
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
@@ -22,6 +28,20 @@ QueryPipelineResult = Union[
 ]
 
 
+def _deny(
+    identity: Identity, prompt: str, device: Optional[str], exc: PermissionDenied, reason: str
+) -> QueryBlockedForbiddenResponse:
+    log_query(
+        user_id=identity.user_id,
+        prompt=prompt,
+        device=device,
+        success=True,
+        role=identity.role,
+        denied_permission=exc.permission,
+    )
+    return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
+
+
 def run_query(
     identity: Identity,
     prompt: str,
@@ -33,18 +53,18 @@ def run_query(
     try:
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
-        log_query(
-            user_id=identity.user_id,
-            prompt=prompt,
-            device=device,
-            success=True,
-            role=identity.role,
-            denied_permission=exc.permission,
-        )
-        return QueryBlockedForbiddenResponse(
-            reason="Missing required permission",
-            required_permission=exc.permission,
-        )
+        return _deny(identity, prompt, device, exc, "Missing required permission")
+
+    try:
+        authorize_model(identity, model)
+    except PermissionDenied as exc:
+        return _deny(identity, prompt, device, exc, "Model not permitted for this role")
+
+    if openrouter_api_key is not None:
+        try:
+            authorize(identity, PERMISSION_QUERY_BYOK)
+        except PermissionDenied as exc:
+            return _deny(identity, prompt, device, exc, "Missing required permission")
 
     duplicate_result = check_duplicate(prompt)
 

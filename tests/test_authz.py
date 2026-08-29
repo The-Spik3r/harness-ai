@@ -12,6 +12,7 @@ import app.services.authz as authz
 from app.config import settings
 from app.services.authz import (
     AuthzConfigError,
+    MODEL_ALLOWLIST_WILDCARD_ROLES,
     PERMISSION_AUDIT_READ_ALL,
     PERMISSION_AUDIT_READ_OWN,
     PERMISSION_QUERY_BYOK,
@@ -20,6 +21,7 @@ from app.services.authz import (
     PermissionDenied,
     ROLE_PERMISSIONS,
     authorize,
+    authorize_model,
     load,
 )
 from app.services.identity import Identity
@@ -212,3 +214,36 @@ def test_authorize_does_not_read_file_per_call(tmp_path, monkeypatch, _reset_rol
         authorize(Identity(user_id="u", role="user"), PERMISSION_QUERY_SUBMIT)
 
     assert read_calls == []
+
+
+# --- STORY-011: authorize_model() ---
+
+
+def test_admin_model_wildcard_allows_any_model():
+    identity = Identity(user_id="root", role="admin")
+    assert "admin" in MODEL_ALLOWLIST_WILDCARD_ROLES
+
+    assert authorize_model(identity, "some-totally-unlisted-model") is None
+
+
+def test_user_role_allows_models_in_allowlist():
+    identity = Identity(user_id="u", role="user")
+
+    for model in settings.model_allowlist_list:
+        assert authorize_model(identity, model) is None
+
+
+def test_user_role_denies_model_outside_allowlist():
+    identity = Identity(user_id="u", role="user")
+
+    with pytest.raises(PermissionDenied) as exc_info:
+        authorize_model(identity, "not-a-real-model")
+
+    assert exc_info.value.permission == "query:model:not-a-real-model"
+
+
+def test_rbac_disabled_bypasses_model_check(monkeypatch):
+    monkeypatch.setattr(settings, "RBAC_ENABLED", False)
+    identity = Identity(user_id="u", role="user")
+
+    assert authorize_model(identity, "not-a-real-model") is None

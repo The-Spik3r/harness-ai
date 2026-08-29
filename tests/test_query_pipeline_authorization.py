@@ -8,7 +8,7 @@ import pytest
 from app.config import settings
 from app.db.database import get_audit_log, get_connection, init_db
 from app.models.schemas import QueryBlockedForbiddenResponse, QuerySuccessResponse
-from app.services.authz import PERMISSION_QUERY_SUBMIT
+from app.services.authz import PERMISSION_QUERY_BYOK, PERMISSION_QUERY_SUBMIT
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterResult
 from app.services.query_pipeline import run_query
@@ -139,3 +139,117 @@ def test_run_query_without_identity_raises_type_error(temp_db):
             openrouter_api_key=None,
             call_openrouter=_fail_if_called,
         )
+
+
+# ---------------------------------------------------------------------------
+# STORY-011 AC1/AC2: model outside the role's allowlist is blocked before
+# check_duplicate()/call_openrouter(); the wildcard role is unaffected.
+# ---------------------------------------------------------------------------
+
+
+def test_model_outside_allowlist_blocked_before_openrouter(temp_db):
+    identity = Identity(user_id="ana", role="user")
+
+    result = run_query(
+        identity=identity,
+        prompt="hello world",
+        device=None,
+        model="not-a-real-model",
+        openrouter_api_key=None,
+        call_openrouter=_fail_if_called,
+    )
+
+    assert isinstance(result, QueryBlockedForbiddenResponse)
+    assert result.required_permission == "query:model:not-a-real-model"
+
+
+def test_admin_wildcard_model_reaches_openrouter(temp_db):
+    identity = Identity(user_id="root", role="admin")
+
+    result = run_query(
+        identity=identity,
+        prompt="hello world",
+        device=None,
+        model="not-a-real-model",
+        openrouter_api_key=None,
+        call_openrouter=_fake_call_openrouter,
+    )
+
+    assert isinstance(result, QuerySuccessResponse)
+
+
+def test_model_denial_writes_audit_row_with_role_and_permission(temp_db):
+    identity = Identity(user_id="ana", role="user")
+
+    run_query(
+        identity=identity,
+        prompt="hello world",
+        device=None,
+        model="not-a-real-model",
+        openrouter_api_key=None,
+        call_openrouter=_fail_if_called,
+    )
+
+    entry = get_audit_log(_last_audit_id())
+    assert entry.role == "user"
+    assert entry.denied_permission == "query:model:not-a-real-model"
+
+
+# ---------------------------------------------------------------------------
+# STORY-011 AC3/AC4: a caller-supplied openrouter_api_key requires
+# query:byok; without it the request is refused before call_openrouter().
+# ---------------------------------------------------------------------------
+
+
+def test_byok_without_permission_blocked_before_openrouter(temp_db):
+    identity = Identity(user_id="ana", role="user")  # lacks query:byok
+
+    result = run_query(
+        identity=identity,
+        prompt="hello world",
+        device=None,
+        model="gpt-4",
+        openrouter_api_key="sk-caller-supplied",
+        call_openrouter=_fail_if_called,
+    )
+
+    assert isinstance(result, QueryBlockedForbiddenResponse)
+    assert result.required_permission == PERMISSION_QUERY_BYOK
+
+
+def test_byok_with_permission_uses_supplied_key(temp_db):
+    identity = Identity(user_id="root", role="admin")  # holds query:byok
+    seen_api_keys = []
+
+    def _recording_call_openrouter(prompt, model="gpt-4", api_key=None):
+        seen_api_keys.append(api_key)
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    result = run_query(
+        identity=identity,
+        prompt="hello world",
+        device=None,
+        model="gpt-4",
+        openrouter_api_key="sk-caller-supplied",
+        call_openrouter=_recording_call_openrouter,
+    )
+
+    assert isinstance(result, QuerySuccessResponse)
+    assert seen_api_keys == ["sk-caller-supplied"]
+
+
+def test_byok_denial_writes_audit_row_with_role_and_permission(temp_db):
+    identity = Identity(user_id="ana", role="user")
+
+    run_query(
+        identity=identity,
+        prompt="hello world",
+        device=None,
+        model="gpt-4",
+        openrouter_api_key="sk-caller-supplied",
+        call_openrouter=_fail_if_called,
+    )
+
+    entry = get_audit_log(_last_audit_id())
+    assert entry.role == "user"
+    assert entry.denied_permission == PERMISSION_QUERY_BYOK
