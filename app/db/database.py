@@ -1,10 +1,19 @@
 import sqlite3
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.config import settings
-from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, CREATE_AUDIT_LOGS_TABLE, AuditLog
+from app.db.models import (
+    AUDIT_LOGS_ADDED_COLUMNS,
+    CREATE_AUDIT_LOGS_TABLE,
+    CREATE_USERS_TABLE,
+    CREATE_USERS_TOKEN_HASH_INDEX,
+    AuditLog,
+    User,
+)
 
 _SQLITE_PREFIX = "sqlite:///"
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def _db_path() -> str:
@@ -24,6 +33,8 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
         _add_missing_columns(conn)
+        conn.execute(CREATE_USERS_TABLE)
+        conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
 
 
 def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -45,8 +56,9 @@ def insert_audit_log(entry: AuditLog) -> int:
                 timestamp, user_id, device, prompt_hash, prompt_preview,
                 response_hash, response_preview, model_used, tokens_used,
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
-                pii_detected_input, pii_detected_output, pii_entities
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pii_detected_input, pii_detected_output, pii_entities,
+                role, denied_permission
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -65,6 +77,8 @@ def insert_audit_log(entry: AuditLog) -> int:
                 int(entry.pii_detected_input),
                 int(entry.pii_detected_output),
                 entry.pii_entities,
+                entry.role,
+                entry.denied_permission,
             ),
         )
         return cursor.lastrowid
@@ -103,6 +117,8 @@ def _row_to_audit_log(row: sqlite3.Row) -> AuditLog:
         pii_detected_input=bool(row["pii_detected_input"]),
         pii_detected_output=bool(row["pii_detected_output"]),
         pii_entities=row["pii_entities"],
+        role=row["role"],
+        denied_permission=row["denied_permission"],
     )
 
 
@@ -116,18 +132,34 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
         return _row_to_audit_log(row)
 
 
-def count_audit_logs() -> int:
+def count_audit_logs(user_id: Optional[str] = None) -> int:
     with get_connection() as conn:
-        row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM audit_logs WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
         return row["n"]
 
 
-def list_audit_logs(limit: int = 100) -> list[AuditLog]:
+def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[AuditLog]:
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                """
+                SELECT * FROM audit_logs
+                WHERE user_id = ?
+                ORDER BY timestamp DESC LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [_row_to_audit_log(row) for row in rows]
 
 
@@ -216,3 +248,109 @@ def top_pii_entities(limit: int = 5) -> list[str]:
 
     ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
     return [entity for entity, _ in ranked[:limit]]
+
+
+def _row_to_user(row: sqlite3.Row) -> User:
+    return User(
+        user_id=row["user_id"],
+        role=row["role"],
+        token_hash=row["token_hash"],
+        active=bool(row["active"]),
+        created_at=row["created_at"],
+    )
+
+
+def get_user(user_id: str) -> Optional[User]:
+    """Returns the user regardless of active state -- administrative reads
+    (CLI list/deactivate) must be able to see a revoked row."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_user(row)
+
+
+def find_user_by_token_hash(token_hash: str) -> Optional[User]:
+    """Active users only. A revoked credential is indistinguishable from an
+    unknown one by design -- PRD-005 Section 9 maps both to 401, and separating
+    them would be a credential-enumeration oracle.
+
+    A `users` table that hasn't been created yet (init_db() never ran against
+    this connection) is folded into the same "no match" outcome rather than
+    raised -- callers resolving a credential need a closed door, not a 500."""
+    with get_connection() as conn:
+        try:
+            row = conn.execute(
+                "SELECT * FROM users WHERE token_hash = ? AND active = 1",
+                (token_hash,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        if row is None:
+            return None
+        return _row_to_user(row)
+
+
+def list_users(limit: int = 100) -> list[User]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_row_to_user(row) for row in rows]
+
+
+def count_active_users() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE active = 1"
+        ).fetchone()
+        return row["n"]
+
+
+def insert_user(entry: User) -> str:
+    """Raises sqlite3.IntegrityError on a duplicate user_id or token_hash --
+    deliberately not caught here; app/db/ has no error handling anywhere and the
+    caller needs to tell those two cases apart."""
+    created_at = entry.created_at or datetime.now(timezone.utc).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (user_id, role, token_hash, active, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                entry.user_id,
+                entry.role,
+                entry.token_hash,
+                int(entry.active),
+                created_at,
+            ),
+        )
+    return entry.user_id
+
+
+def deactivate_user(user_id: str) -> bool:
+    """Revocation is not deletion: audit_logs rows carry a bare user_id with no
+    foreign key, so removing the row would orphan the audit trail. Returns False
+    when no such user exists, so the CLI can report a typo."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET active = 0 WHERE user_id = ?", (user_id,)
+        )
+        return cursor.rowcount == 1
+
+
+def set_user_token_hash(user_id: str, token_hash: str) -> bool:
+    """Credential rotation (STORY-004 `issue-token`). The old hash stops
+    resolving the moment this returns."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET token_hash = ? WHERE user_id = ?",
+            (token_hash, user_id),
+        )
+        return cursor.rowcount == 1

@@ -7,9 +7,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import init_db, insert_audit_log
-from app.db.models import AuditLog
+from app.db.database import init_db, insert_audit_log, insert_user
+from app.db.models import AuditLog, User
 from app.main import app
+from app.services.authz import PERMISSION_STATS_READ
+from app.services.identity import hash_token
 
 client = TestClient(app)
 
@@ -175,3 +177,44 @@ def test_pii_detected_queries_and_top_pii_entities_reflect_flagged_rows(temp_db)
     assert body["pii_detected_queries"] == 2
     assert body["top_pii_entities"][0] == "EMAIL_ADDRESS"
     assert set(body["top_pii_entities"]) == {"EMAIL_ADDRESS", "PERSON"}
+
+
+def test_identity_lacking_stats_read_returns_403_naming_permission(temp_db):
+    insert_user(
+        User(user_id="ana", role="user", token_hash=hash_token("ana-token"))
+    )
+
+    response = client.get(
+        "/stats", headers={"Authorization": "Bearer ana-token"}
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": f"Permission denied: {PERMISSION_STATS_READ}"}
+
+
+def test_auditor_role_reads_stats_with_unchanged_shape(temp_db):
+    insert_user(
+        User(user_id="reviewer", role="auditor", token_hash=hash_token("auditor-token"))
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="a", prompt_hash="h1")
+    )
+
+    response = client.get(
+        "/stats", headers={"Authorization": "Bearer auditor-token"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body.keys()) == {
+        "total_queries",
+        "blocked_duplicates",
+        "blocked_suspicious",
+        "unique_users",
+        "success_rate",
+        "top_models",
+        "top_users",
+        "pii_detected_queries",
+        "top_pii_entities",
+    }
+    assert body["total_queries"] == 1

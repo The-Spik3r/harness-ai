@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.db.database import (
     count_audit_logs,
@@ -12,23 +12,41 @@ from app.db.database import (
     top_pii_entities,
     top_users,
 )
-from app.middleware.auth import require_admin_token
+from app.middleware.auth import require_identity, require_permission
 from app.models.schemas import AuditQueryEntry, AuditResponse, StatsResponse
+from app.services.authz import (
+    PERMISSION_AUDIT_READ_ALL,
+    PERMISSION_AUDIT_READ_OWN,
+    PERMISSION_STATS_READ,
+    PermissionDenied,
+    authorize,
+)
+from app.services.identity import Identity
 
 router = APIRouter()
 
 
-@router.get(
-    "/audit",
-    response_model=AuditResponse,
-    dependencies=[Depends(require_admin_token)],
-)
-def get_audit() -> AuditResponse:
-    total = count_audit_logs()
+@router.get("/audit", response_model=AuditResponse)
+def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
+    try:
+        authorize(identity, PERMISSION_AUDIT_READ_ALL)
+        scope_user_id = None
+    except PermissionDenied:
+        try:
+            authorize(identity, PERMISSION_AUDIT_READ_OWN)
+        except PermissionDenied as exc:
+            raise HTTPException(
+                status_code=403, detail=f"Permission denied: {exc.permission}"
+            ) from exc
+        scope_user_id = identity.user_id
+
+    total = count_audit_logs(user_id=scope_user_id)
     queries = [
         AuditQueryEntry(
             audit_id=log.id,
             user_id=log.user_id,
+            role=log.role,
+            denied_permission=log.denied_permission,
             timestamp=log.timestamp,
             model=log.model_used,
             prompt_hash=log.prompt_hash,
@@ -39,7 +57,7 @@ def get_audit() -> AuditResponse:
             pii_detected_output=log.pii_detected_output,
             pii_entities=log.pii_entities.split(",") if log.pii_entities else [],
         )
-        for log in list_audit_logs(limit=100)
+        for log in list_audit_logs(limit=100, user_id=scope_user_id)
     ]
     return AuditResponse(total=total, queries=queries)
 
@@ -47,7 +65,7 @@ def get_audit() -> AuditResponse:
 @router.get(
     "/stats",
     response_model=StatsResponse,
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
 )
 def get_stats() -> StatsResponse:
     total = count_audit_logs()

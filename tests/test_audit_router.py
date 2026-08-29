@@ -7,9 +7,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import init_db, insert_audit_log
-from app.db.models import AuditLog
+from app.db.database import init_db, insert_audit_log, insert_user
+from app.db.models import AuditLog, User
 from app.main import app
+from app.services.identity import hash_token
 
 client = TestClient(app)
 
@@ -91,6 +92,8 @@ def test_valid_token_returns_expected_shape(temp_db):
             "pii_detected_input",
             "pii_detected_output",
             "pii_entities",
+            "role",
+            "denied_permission",
         }
 
     newest, oldest = body["queries"]
@@ -184,3 +187,84 @@ def test_response_never_includes_ip_or_raw_text(temp_db):
         assert "prompt_preview" not in entry
         assert "response_preview" not in entry
         assert "response_hash" not in entry
+
+
+def test_auditor_role_sees_every_row(temp_db):
+    insert_user(
+        User(user_id="reviewer", role="auditor", token_hash=hash_token("auditor-token"))
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="a", prompt_hash="h1")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="b", prompt_hash="h2")
+    )
+
+    response = client.get(
+        "/audit", headers={"Authorization": "Bearer auditor-token"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert {q["user_id"] for q in body["queries"]} == {"a", "b"}
+
+
+def test_user_role_sees_only_own_rows_and_scoped_total(temp_db):
+    insert_user(
+        User(user_id="ana", role="user", token_hash=hash_token("ana-token"))
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-01T10:00:00Z", user_id="ana", prompt_hash="h1")
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="someone-else", prompt_hash="h2")
+    )
+
+    response = client.get(
+        "/audit", headers={"Authorization": "Bearer ana-token"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert len(body["queries"]) == 1
+    assert body["queries"][0]["user_id"] == "ana"
+
+
+def test_identity_lacking_both_audit_permissions_returns_403(temp_db):
+    insert_user(
+        User(user_id="outsider", role="guest", token_hash=hash_token("guest-token"))
+    )
+
+    response = client.get(
+        "/audit", headers={"Authorization": "Bearer guest-token"}
+    )
+
+    assert response.status_code == 403
+
+
+def test_audit_entry_carries_role_and_denied_permission(temp_db):
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="ana",
+            prompt_hash="h1",
+            role="user",
+            denied_permission="query:byok",
+        )
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="ana", prompt_hash="h2")
+    )
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    body = response.json()
+    by_hash = {q["prompt_hash"]: q for q in body["queries"]}
+    assert by_hash["h1"]["role"] == "user"
+    assert by_hash["h1"]["denied_permission"] == "query:byok"
+    assert by_hash["h2"]["role"] is None
+    assert by_hash["h2"]["denied_permission"] is None

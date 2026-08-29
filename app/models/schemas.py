@@ -4,7 +4,11 @@ from pydantic import BaseModel
 
 
 class QueryRequest(BaseModel):
-    user_id: str
+    # Deprecated (PRD-005 Section 10): accepted for backward compatibility
+    # only. Never trusted as identity -- the audited user id always comes
+    # from the authenticated credential. A value that doesn't match the
+    # credential is refused with 403 rather than silently overridden.
+    user_id: Optional[str] = None
     prompt: str
     device: Optional[str] = None
     model: str = "gpt-4"
@@ -33,8 +37,17 @@ class QueryBlockedSuspiciousResponse(BaseModel):
     pattern: str
 
 
+class QueryBlockedForbiddenResponse(BaseModel):
+    status: Literal["BLOCKED"] = "BLOCKED"
+    reason: str
+    required_permission: str
+
+
 QueryResponse = Union[
-    QuerySuccessResponse, QueryBlockedDuplicateResponse, QueryBlockedSuspiciousResponse
+    QuerySuccessResponse,
+    QueryBlockedDuplicateResponse,
+    QueryBlockedSuspiciousResponse,
+    QueryBlockedForbiddenResponse,
 ]
 
 
@@ -50,6 +63,8 @@ class AuditQueryEntry(BaseModel):
     pii_detected_input: bool = False
     pii_detected_output: bool = False
     pii_entities: List[str] = []
+    role: Optional[str] = None
+    denied_permission: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

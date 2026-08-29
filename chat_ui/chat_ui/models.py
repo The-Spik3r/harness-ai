@@ -13,6 +13,7 @@ class ChatMessage(pydantic.BaseModel):
     pii_redacted: bool = False
     pii_entities: list[str] = []
     pattern: str = ""
+    required_permission: str = ""
     first_query_at: str = ""
     # Humanized duplicate copy, precomputed in the backend: component
     # functions only ever see Vars, so datetime math cannot run at render.
