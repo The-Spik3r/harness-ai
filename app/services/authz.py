@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from app.config import settings
+from app.db.database import count_active_users
 from app.services.identity import Identity
 
 # Permission constants (PRD-005 Section 7). No caller uses a string literal
@@ -94,6 +95,32 @@ def load() -> None:
         )
 
     ROLE_PERMISSIONS = matrix
+
+
+class RbacNotBootstrappedError(Exception):
+    """Raised by check_bootstrap() when RBAC_ENABLED=true and no active
+    user exists. ADMIN_TOKEN alone does not satisfy this -- identity.resolve()
+    synthesizes an admin identity from it without ever reading the users
+    table, so break-glass is not a substitute for bootstrap (PRD-005 Risk 2,
+    STORY-016)."""
+
+
+def check_bootstrap() -> None:
+    """Fail-fast startup guard (STORY-016). If RBAC_ENABLED and no active
+    user is seeded, every request would resolve to a 401 with no
+    explanation -- or, if only ADMIN_TOKEN is configured, the service would
+    appear to work for exactly one break-glass credential and nobody else.
+    Called once at startup (app/main.py's lifespan, chat_ui.py's
+    register_lifespan_task) after init_db() has run."""
+    if not settings.RBAC_ENABLED:
+        return
+    if count_active_users() > 0:
+        return
+    raise RbacNotBootstrappedError(
+        "RBAC_ENABLED=true but no active users exist. Bootstrap one with: "
+        "python scripts/manage_users.py create-user --user-id <id> "
+        "--role <admin|auditor|user>"
+    )
 
 
 def authorize(identity: Identity, permission: str) -> None:

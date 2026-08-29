@@ -13,6 +13,7 @@ async def lifespan(app: FastAPI):
     init_db()
     pii_redactor.load()
     authz.load()
+    authz.check_bootstrap()
     yield
 
 

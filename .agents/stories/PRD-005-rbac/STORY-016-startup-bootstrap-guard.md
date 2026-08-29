@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "Phase 4 — Endpoint permissions, docs, rollout"
-status: todo
+status: done
 labels: [backend, ops]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-016-startup-bootstrap-guard.report.md
+commit: PENDING
 depends_on: [STORY-002, STORY-004, STORY-005]
 blocks: [STORY-018]
 skills: []
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # STORY-016: Fail-fast startup guard when RBAC is enabled with no seeded users

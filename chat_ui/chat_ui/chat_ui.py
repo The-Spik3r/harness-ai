@@ -64,3 +64,8 @@ app.register_lifespan_task(pii_redactor.load)
 # enforce the built-in role matrix while the API enforces RBAC_ROLES_FILE's
 # override -- two different permission matrices for the same deployment.
 app.register_lifespan_task(authz.load)
+# Same bypass again (STORY-016): app.main's fail-fast bootstrap guard would
+# otherwise never run for this ingress, so RBAC_ENABLED=true with zero
+# seeded users would boot the chat UI straight into a silent 401 wall
+# instead of refusing to start.
+app.register_lifespan_task(authz.check_bootstrap)
