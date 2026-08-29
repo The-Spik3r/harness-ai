@@ -6,7 +6,7 @@ status: draft
 base_branch: main
 epic_branch: epic/PRD-005-rbac
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 ## 1. Executive Summary

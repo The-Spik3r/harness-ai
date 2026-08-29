@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "Phase 4 — Endpoint permissions, docs, rollout"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-005-rbac
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-005-rbac/completed/STORY-018-rbac-documentation.plan.md
+report: .agents/reports/PRD-005-rbac/STORY-018-rbac-documentation.report.md
+commit: 540fced
 depends_on: [STORY-016, STORY-017]
 blocks: []
 skills: []
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # STORY-018: README, .env.example, and roadmap updates for RBAC

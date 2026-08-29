@@ -6,7 +6,7 @@
 
 ## Progress
 
-17/18 stories done — 94%
+18/18 stories done — 100%
 
 ## Stories
 
@@ -31,7 +31,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-015 | /audit scoping and /stats gating by permission | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-015-admin-endpoint-permissions.plan.md) | `6e0d3ca` |
 | STORY-016 | Fail-fast startup guard when RBAC is enabled with no seeded users | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md) | `0580a98` |
 | STORY-017 | RBAC test suite — full matrix coverage and ingress parity | technical | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-017-rbac-test-suite.plan.md) | `0056d30` |
-| STORY-018 | README, .env.example, and roadmap updates for RBAC | technical | ⬜ todo | small | — | — |
+| STORY-018 | README, .env.example, and roadmap updates for RBAC | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-018-rbac-documentation.plan.md) | `540fced` |
 
 ## Status Icons
 - ⬜ todo
@@ -57,4 +57,4 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 - STORY-017 blocked by STORY-013, STORY-014, STORY-015
 - STORY-018 blocked by STORY-016, STORY-017
 
-STORY-001 through STORY-017 are done. STORY-018 is unblocked and ready to plan.
+All 18 stories are done. PRD-005 is ready to merge into `main`.
