@@ -13,7 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import get_audit_log, get_connection, init_db
+from app.db.database import get_audit_log, get_connection, init_db, insert_user
+from app.db.models import User
 from app.main import app
 import app.services.audit_logger as audit_logger
 import app.services.duplicate_checker as duplicate_checker
@@ -23,11 +24,16 @@ from app.services.duplicate_checker import (
     check_duplicate,
     hash_prompt,
 )
-from app.services.identity import Identity
+from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterResult
 from app.services.pattern_detector import SUSPICIOUS_PATTERNS
 from app.services.pii_redactor import redact
 from app.services.query_pipeline import run_query
+
+_JUAN_TOKEN = "juan-token"
+_MARIA_TOKEN = "maria-token"
+_JUAN_HEADERS = {"Authorization": f"Bearer {_JUAN_TOKEN}"}
+_MARIA_HEADERS = {"Authorization": f"Bearer {_MARIA_TOKEN}"}
 
 client = TestClient(app)
 
@@ -46,6 +52,12 @@ def temp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
     init_db()
+    insert_user(
+        User(user_id="juan@empresa.com", role="user", token_hash=hash_token(_JUAN_TOKEN))
+    )
+    insert_user(
+        User(user_id="maria@empresa.com", role="user", token_hash=hash_token(_MARIA_TOKEN))
+    )
     return db_path
 
 
@@ -91,8 +103,16 @@ def test_distinct_pii_prompts_are_never_duplicates_of_each_other(temp_db, monkey
     seen = []
     monkeypatch.setattr("app.routers.query.call_openrouter", _capturing_openrouter(seen))
 
-    first = client.post("/query", json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A})
-    second = client.post("/query", json={"user_id": "maria@empresa.com", "prompt": _PROMPT_B})
+    first = client.post(
+        "/query",
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
+        headers=_JUAN_HEADERS,
+    )
+    second = client.post(
+        "/query",
+        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_B},
+        headers=_MARIA_HEADERS,
+    )
 
     assert first.json()["status"] == "SUCCESS"
     assert second.json()["status"] == "SUCCESS"
@@ -104,11 +124,19 @@ def test_distinct_pii_prompts_are_never_duplicates_of_each_other(temp_db, monkey
 def test_identical_pii_prompt_is_still_blocked_as_duplicate(temp_db, monkeypatch):
     """Control for the test above: dedup is not simply broken in the presence of PII."""
     monkeypatch.setattr("app.routers.query.call_openrouter", _capturing_openrouter([]))
-    first = client.post("/query", json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A})
+    first = client.post(
+        "/query",
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
+        headers=_JUAN_HEADERS,
+    )
     assert first.json()["status"] == "SUCCESS"
 
     monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
-    second = client.post("/query", json={"user_id": "maria@empresa.com", "prompt": _PROMPT_A})
+    second = client.post(
+        "/query",
+        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_A},
+        headers=_MARIA_HEADERS,
+    )
 
     body = second.json()
     assert body["status"] == "BLOCKED"
@@ -118,8 +146,16 @@ def test_identical_pii_prompt_is_still_blocked_as_duplicate(temp_db, monkeypatch
 def test_audit_prompt_hashes_are_over_raw_text_not_redacted(temp_db, monkeypatch):
     monkeypatch.setattr("app.routers.query.call_openrouter", _capturing_openrouter([]))
 
-    first = client.post("/query", json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A})
-    second = client.post("/query", json={"user_id": "maria@empresa.com", "prompt": _PROMPT_B})
+    first = client.post(
+        "/query",
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
+        headers=_JUAN_HEADERS,
+    )
+    second = client.post(
+        "/query",
+        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_B},
+        headers=_MARIA_HEADERS,
+    )
 
     entry_a = get_audit_log(first.json()["audit_id"])
     entry_b = get_audit_log(second.json()["audit_id"])
@@ -212,6 +248,7 @@ def test_suspicious_pattern_with_pii_blocked_before_redaction(temp_db, monkeypat
             "user_id": "juan@empresa.com",
             "prompt": f"please {pattern} and contact me at a@x.com",
         },
+        headers=_JUAN_HEADERS,
     )
 
     body = response.json()
@@ -247,7 +284,11 @@ def test_pipeline_runs_both_checks_before_any_redaction(temp_db, monkeypatch):
         "app.routers.query.call_openrouter", _capturing_openrouter([], response=_PROMPT_B)
     )
 
-    response = client.post("/query", json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A})
+    response = client.post(
+        "/query",
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
+        headers=_JUAN_HEADERS,
+    )
 
     assert response.status_code == 200
     assert [name for name, _ in calls] == [

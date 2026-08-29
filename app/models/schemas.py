@@ -4,7 +4,11 @@ from pydantic import BaseModel
 
 
 class QueryRequest(BaseModel):
-    user_id: str
+    # Deprecated (PRD-005 Section 10): accepted for backward compatibility
+    # only. Never trusted as identity -- the audited user id always comes
+    # from the authenticated credential. A value that doesn't match the
+    # credential is refused with 403 rather than silently overridden.
+    user_id: Optional[str] = None
     prompt: str
     device: Optional[str] = None
     model: str = "gpt-4"
