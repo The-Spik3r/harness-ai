@@ -12,7 +12,7 @@ labels: [backend, security]
 epic_branch: epic/PRD-005-rbac
 plan: .agents/plans/PRD-005-rbac/completed/STORY-011-model-allowlist-and-byok.plan.md
 report: .agents/reports/PRD-005-rbac/STORY-011-model-allowlist-and-byok.report.md
-commit: PENDING
+commit: df72f13
 depends_on: [STORY-010, STORY-005]
 blocks: [STORY-013]
 skills: []

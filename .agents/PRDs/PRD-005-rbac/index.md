@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-005-rbac`. No per-story branches
 | STORY-008 | QueryBlockedForbiddenResponse joins the QueryResponse union | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-008-forbidden-response-schema.plan.md) | `6e9e773` |
 | STORY-009 | audit_logs gains role and denied_permission columns | technical | ✅ done | small | [plan](../../plans/PRD-005-rbac/completed/STORY-009-audit-rbac-columns.plan.md) | `320d2d2` |
 | STORY-010 | run_query() requires an Identity and authorizes as step 0 | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-010-pipeline-identity-authorization.plan.md) | `b222be8` |
-| STORY-011 | Server-side model allowlist and BYOK as a privilege | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-011-model-allowlist-and-byok.plan.md) | `PENDING` |
+| STORY-011 | Server-side model allowlist and BYOK as a privilege | feature | ✅ done | medium | [plan](../../plans/PRD-005-rbac/completed/STORY-011-model-allowlist-and-byok.plan.md) | `df72f13` |
 | STORY-012 | require_identity and require_permission FastAPI dependencies | technical | ⬜ todo | medium | — | — |
 | STORY-013 | POST /query bearer authentication and status-code mapping | feature | ⬜ todo | medium | — | — |
 | STORY-014 | Chat UI login replaces the free-text user_id prompt | feature | ⬜ todo | medium | — | — |

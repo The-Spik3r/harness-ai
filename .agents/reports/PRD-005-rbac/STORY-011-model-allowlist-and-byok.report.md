@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-005
 plan: .agents/plans/PRD-005-rbac/completed/STORY-011-model-allowlist-and-byok.plan.md
 epic_branch: epic/PRD-005-rbac
-commit: PENDING
+commit: df72f13
 status: COMPLETE
 completed: 2026-08-28
 ---
