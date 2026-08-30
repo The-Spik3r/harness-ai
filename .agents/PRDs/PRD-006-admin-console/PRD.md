@@ -6,7 +6,7 @@ status: draft
 base_branch: main
 epic_branch: epic/PRD-006-admin-console
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 ## 1. Executive Summary

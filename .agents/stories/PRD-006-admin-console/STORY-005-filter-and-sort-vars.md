@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Access and data"
-status: todo
+status: done
 labels: [ui, reflex, state, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-005-filter-and-sort-vars.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-005-filter-and-sort-vars.report.md
+commit: 631bbff
 depends_on: [STORY-004]
 blocks: [STORY-006, STORY-013, STORY-014]
 skills: [reflex-docs]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # STORY-005: Client-side filter and sort as computed vars over the loaded rows
