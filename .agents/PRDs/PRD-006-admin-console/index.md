@@ -6,7 +6,7 @@
 
 ## Progress
 
-5/20 stories done — 25%
+6/20 stories done — 30%
 
 ## Stories
 
@@ -19,7 +19,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 | STORY-003 | AdminState token gate: compare_digest, one generic error, sign-out clears state | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-003-admin-token-gate.plan.md) | `048a873` |
 | STORY-004 | AdminState.load(): all ten read functions via asyncio.to_thread, with a catch-all fault arm | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-004-threaded-database-read.plan.md) | `e8c331e` |
 | STORY-005 | Client-side filter and sort as computed vars over the loaded rows | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-005-filter-and-sort-vars.plan.md) | `631bbff` |
-| STORY-006 | tests/test_admin_state.py: gate, sign-out, failed read, four verdicts, no leak | technical | ⬜ todo | medium | — | — |
+| STORY-006 | tests/test_admin_state.py: gate, sign-out, failed read, four verdicts, no leak | technical | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-006-admin-state-tests.plan.md) | `3d6474e` |
 | STORY-007 | theme.py register tokens: row height, stamp-margin width, hover ground, micro type step | technical | ⬜ todo | small | — | — |
 | STORY-008 | admin_copy.py: every admin-facing string in one module | technical | ⬜ todo | small | — | — |
 | STORY-009 | admin_shell.py: token gate form, masthead, and the two-view switch | feature | ⬜ todo | medium | — | — |

@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "1 - Access and data"
-status: todo
+status: done
 labels: [tests, state, security, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-006-admin-state-tests.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-006-admin-state-tests.report.md
+commit: 3d6474e
 depends_on: [STORY-002, STORY-003, STORY-004, STORY-005]
 blocks: [STORY-020]
 skills: []
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # STORY-006: tests/test_admin_state.py: gate, sign-out, failed read, four verdicts, no leak
