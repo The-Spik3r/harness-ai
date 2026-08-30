@@ -49,7 +49,7 @@ from app.db.database import (
     top_users as read_top_users,
 )
 
-from .admin_formatting import format_refreshed_at, to_audit_row
+from .admin_formatting import VERDICTS, format_refreshed_at, to_audit_row
 from .admin_models import AuditRow
 
 # One message for an empty token, a wrong-length token and a wrong token of the
@@ -64,6 +64,39 @@ GATE_REFUSED_MESSAGE = "Access refused. That token was not accepted."
 # listing query. Named so the register can state the cap it renders against the
 # true total (Risk 4) rather than re-typing 100.
 REGISTER_ROW_LIMIT = 100
+
+# The three orderings the register offers (PRD-006 Section 6.1's controls, built
+# in STORY-013). Values, not copy — they are the `sort_key` the controls write
+# and the keys `_SORT_RANKS` dispatches on, so they are constants here rather
+# than string literals in a component.
+SORT_TIMESTAMP = "timestamp"
+SORT_USER = "user"
+SORT_VERDICT = "verdict"
+SORT_KEYS = (SORT_TIMESTAMP, SORT_USER, SORT_VERDICT)
+
+# Each key's rank function takes (position in the loaded list, row) and returns
+# a sort key. The position is the first argument for one reason:
+# `list_audit_logs` already returns ORDER BY timestamp DESC
+# (app/db/database.py:128), so a row's index *is* its recency rank, and it is
+# available on every row — unlike `timestamp_absolute`, which `_format_timestamps`
+# sets to the absent mark when the column is NULL or unparseable
+# (admin_formatting.py). Sorting on that string would sink every unparseable row
+# to one end of the register on a filter the admin did not ask for. Sorting on
+# the index reproduces the database's own ordering exactly, including its ties.
+#
+# The verdict rank is the NEGATED index into VERDICTS, so the natural order runs
+# fault -> denied -> held -> cleared: the exceptions the register exists to
+# surface come first, which is the same statement the stamp margin makes
+# (PRD-006 Section 6.1, "Signature"). An unrecognised verdict — including
+# AuditRow's "" default — ranks 1 and sorts last, rather than raising ValueError
+# out of `.index()` into a page render.
+_SORT_RANKS = {
+    SORT_TIMESTAMP: lambda index, row: index,
+    SORT_USER: lambda index, row: row.user_id.casefold(),
+    SORT_VERDICT: lambda index, row: (
+        -VERDICTS.index(row.verdict) if row.verdict in VERDICTS else 1
+    ),
+}
 
 # The fault message. Names the read that failed and states that nothing on
 # screen changed — a stale register is not a wrong one, and that is the fact the
@@ -108,6 +141,91 @@ _READS: tuple[tuple[str, str, object, dict], ...] = (
 )
 
 
+def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
+    """Whether one row survives both filters.
+
+    Two properties are requirements rather than choices:
+
+    An **empty** verdict selection passes every row. "No verdict filter" and "no
+    rows" are opposite statements, and reading the empty list as the second is
+    the bug that makes an untouched register render blank (PRD-006 Section 4's
+    three states, and STORY-014's whole distinction).
+
+    The free text matches `audit_id` **as a string**. It is an int on AuditRow,
+    and the register's join back to the chat is a user quoting "#127" out of the
+    success footer (PRD-004 STORY-010) — so the coercion happens here, in
+    Python, not in a component against a Var.
+    """
+    if verdicts and row.verdict not in verdicts:
+        return False
+    if not needle:
+        return True
+    return any(
+        needle in field
+        for field in (
+            row.user_id.casefold(),
+            row.model_used.casefold(),
+            str(row.audit_id),
+        )
+    )
+
+
+def filter_rows(
+    rows: list[AuditRow], verdicts: list[str], search: str
+) -> list[AuditRow]:
+    """The rows passing the verdict selection AND the free text.
+
+    The two filters compose as AND, never OR: an admin who has selected *denied*
+    and typed a user is asking for that user's denied rows, and an OR would
+    widen the register at the exact moment they are narrowing it (PRD-006
+    Section 5, story 4 — "denied plus a.torres narrows 100 rows to 2").
+
+    The needle is case-folded and stripped **once** here rather than per row: the
+    comparison is case-insensitive, and a hundred rows times three fields is
+    three hundred `.casefold()` calls that would otherwise be four hundred.
+    """
+    needle = search.strip().casefold()
+    if not verdicts and not needle:
+        # The common case, and it returns a copy rather than `rows` itself: the
+        # caller sorts this list, and sorting the state's own list in place
+        # would mutate `rows` from inside a computed var.
+        return list(rows)
+    return [row for row in rows if _matches(row, verdicts, needle)]
+
+
+def sort_rows(
+    rows: list[AuditRow], sort_key: str, descending: bool
+) -> list[AuditRow]:
+    """The rows in the requested order; the loaded order when none is set.
+
+    `sorted` rather than `list.sort`, because the argument may be the state's own
+    row list and a computed var must not mutate what it reads.
+
+    An empty or unrecognised `sort_key` falls back to SORT_TIMESTAMP, whose rank
+    is the position in `rows` — so the default is the order `list_audit_logs`
+    returned, newest first, and `sort_key == ""` and `sort_key == "timestamp"`
+    are the same register. That equivalence is what lets `sort_key` default to
+    the empty string, which is what `sign_out()`'s reset() requires of every
+    declared var.
+
+    The sort is stable and there is no explicit tiebreak, deliberately: rows
+    arrive in timestamp order, so two rows with the same user or the same verdict
+    keep their relative recency inside the group for free.
+    """
+    rank = _SORT_RANKS.get(sort_key, _SORT_RANKS[SORT_TIMESTAMP])
+    # enumerate first, sort the (index, row) pairs on the rank, drop the index.
+    # The index has to reach the key function, and `sorted(rows, ...)` cannot
+    # supply it.
+    return [
+        row
+        for _, row in sorted(
+            enumerate(rows),
+            key=lambda pair: rank(pair[0], pair[1]),
+            reverse=descending,
+        )
+    ]
+
+
 class AdminState(rx.State):
     """The console's session: who is through the gate, and what has been read.
 
@@ -142,9 +260,112 @@ class AdminState(rx.State):
     loading: bool = False
     error: str = ""
 
+    # --- Filter and sort --------------------------------------------------
+    # Plain state vars, all four. PRD-006 Section 6: "the visible rows are an
+    # rx.var over the loaded rows plus the filter state, so filtering never
+    # re-reads the database" — these are that filter state, and `visible_rows`
+    # below is that var. STORY-013 builds the controls that write them.
+    #
+    # Every default here is falsy, and that is a requirement rather than a
+    # coincidence: sign_out() is reset(), and tests/test_admin_state.py's
+    # test_sign_out_clears_every_declared_var asserts every declared var restores
+    # to a falsy default, so a filter left standing after a sign-out is caught.
+    # It is also why the register's "timestamp, newest first" default is carried
+    # by sort_key == "" (which sort_rows reads as the loaded order) rather than
+    # by a truthy default.
+    selected_verdicts: list[str] = []
+    search: str = ""
+    sort_key: str = ""
+    sort_descending: bool = False
+
+    @rx.var
+    def visible_rows(self) -> list[AuditRow]:
+        """The rows the register renders: `rows` narrowed, then ordered.
+
+        Two properties are load bearing.
+
+        **No database read.** This is a synchronous getter over data already in
+        state; it calls nothing from `app.db.database` and awaits nothing, so
+        PRD-006 Section 6's "filtering never re-reads the database" is true by
+        construction rather than by discipline. An async getter would be the
+        shape a database-backed filter takes — Reflex supports one
+        (AsyncComputedVar) and it is deliberately not used here.
+
+        **All five dependencies are read off `self` in this body.** Reflex's
+        auto-dependency tracker disassembles this function and records the
+        attributes it loads from `self` (ComputedVar._deps); a module-level
+        helper handed plain lists is invisible to it. Moving any of these five
+        loads down into `filter_rows`/`sort_rows` would leave a var that silently
+        stops updating — and the tracker's failure mode is a console.warn and an
+        empty dependency set, not an exception. Keep the loads here; keep the
+        logic there.
+        """
+        return sort_rows(
+            filter_rows(self.rows, self.selected_verdicts, self.search),
+            self.sort_key,
+            self.sort_descending,
+        )
+
+    @rx.var
+    def filters_active(self) -> bool:
+        """Whether anything is narrowing the register right now.
+
+        Sort is excluded: reordering the register does not remove a row, so an
+        "active filter" that a clear action would undo is the verdict selection
+        and the text, and only those. STORY-014's no-matches state is exactly
+        `filters_active and not visible_rows`, and STORY-013's clear control
+        shows against this.
+        """
+        return bool(self.selected_verdicts) or bool(self.search.strip())
+
     @rx.event
     def set_token_input(self, text: str):
         self.token_input = text
+
+    @rx.event
+    def set_search(self, text: str):
+        self.search = text
+
+    @rx.event
+    def toggle_verdict(self, verdict: str):
+        """Adds or removes one verdict from the selection.
+
+        Reassigns the list rather than mutating it in place: Reflex marks a var
+        dirty on assignment, and an in-place `.append()` on a list var can leave
+        `visible_rows` serving its cached value.
+        """
+        if verdict in self.selected_verdicts:
+            self.selected_verdicts = [
+                v for v in self.selected_verdicts if v != verdict
+            ]
+        else:
+            self.selected_verdicts = [*self.selected_verdicts, verdict]
+
+    @rx.event
+    def sort_by(self, key: str):
+        """Chooses an ordering, or reverses the one already chosen.
+
+        Named `sort_by` rather than `set_sort_key` on purpose: the latter is the
+        name Reflex would give the plain setter for `sort_key`, and this handler
+        does more than set it — a reader who called it expecting a setter would
+        not expect the direction to flip.
+        """
+        if key == self.sort_key:
+            self.sort_descending = not self.sort_descending
+            return
+        self.sort_key = key
+        # A newly chosen column starts in its natural order — newest first for
+        # timestamp, A-Z for user, exceptions first for verdict.
+        self.sort_descending = False
+
+    @rx.event
+    def clear_filters(self):
+        """Restores the full window. Clears the filters only — not the sort, and
+        never the rows: STORY-014's no-matches state offers this action, and an
+        admin clearing a filter is not asking for a reload.
+        """
+        self.selected_verdicts = []
+        self.search = ""
 
     def _refuse(self):
         """The only place `gate_error` is set to a message.

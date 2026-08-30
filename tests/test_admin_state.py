@@ -14,8 +14,14 @@ as it was, and that `loading` is cleared on the failure path too. A `grep` for
 `asyncio.to_thread` proves none of these; the tests below drive the handler and
 observe the thread each read actually ran on.
 
+STORY-005 added the filter and sort half, whose invisible properties are that
+`visible_rows` reads no database at all, that an empty verdict selection means
+"no verdict filter" rather than "no rows", and that Reflex tracks all five of
+the var's dependencies — its tracker fails by returning *none* of them, which
+yields a filter that quietly stops updating.
+
 STORY-006 extends this file further: the four verdicts against constructed
-`AuditLog`s and STORY-005's filter vars land here once those exist.
+`AuditLog`s land here once that story runs.
 """
 
 import asyncio
@@ -629,3 +635,381 @@ async def test_an_unauthenticated_load_calls_none_of_the_ten(monkeypatch):
     assert state.loading is False
     assert state.error == ""
     assert state.last_refreshed == ""
+
+
+# ---------------------------------------------------------------------------
+# STORY-005: the filter and sort vars over the loaded rows
+#
+# Three of this story's properties are invisible in a diff and would fail
+# silently if they regressed. That `visible_rows` performs no database read — a
+# var that grew an await would still look correct in review. That an empty
+# verdict selection means "no verdict filter" rather than "no rows" — the
+# inverted reading empties the register on page load and reads as "nothing
+# recorded", the exact misreading PRD-006 Section 4 forbids. And that Reflex
+# actually tracks all five dependencies — its tracker's failure mode is a
+# console.warn and an EMPTY dependency set, which yields a filter that computes
+# once and then never updates again.
+#
+# STORY-006 extends this block with the four verdicts against constructed
+# AuditLogs and the no-leak assertions.
+# ---------------------------------------------------------------------------
+
+# The ten reads under the names they carry in `admin_state`'s own namespace —
+# the three rankings are imported aliased, so this is not `_READ_RETURNS`' key
+# set. Used to prove a negative: that none of them is reachable from the var.
+_READ_ATTRIBUTES = (
+    "list_audit_logs",
+    "count_audit_logs",
+    "count_blocked_duplicates",
+    "count_blocked_suspicious",
+    "count_unique_users",
+    "count_successful_queries",
+    "count_pii_detected_queries",
+    "read_top_models",
+    "read_top_users",
+    "read_top_pii_entities",
+)
+
+
+def _call(state: AdminState, handler: str, *args):
+    return type(state).event_handlers[handler].fn(state, *args)
+
+
+# Newest first — the order `list_audit_logs` returns. All four verdicts present,
+# and `a.torres` appears in three casings so the case-fold is exercised.
+_FILTER_ROWS = [
+    AuditRow(audit_id=130, user_id="m.silva", verdict="cleared", model_used="gpt-4"),
+    AuditRow(audit_id=129, user_id="a.torres", verdict="fault", model_used="claude-3"),
+    AuditRow(audit_id=128, user_id="j.rios", verdict="held", model_used="gpt-4"),
+    AuditRow(audit_id=127, user_id="a.torres", verdict="denied", model_used="GPT-4"),
+    AuditRow(audit_id=126, user_id="A.Torres", verdict="cleared", model_used="gpt-4"),
+]
+
+
+def _loaded(configured_token) -> AdminState:
+    state = _state()
+    _authenticate(state, configured_token)
+    state.rows = list(_FILTER_ROWS)
+    return state
+
+
+def _visible(state: AdminState) -> list[int]:
+    return [row.audit_id for row in state.visible_rows]
+
+
+def test_the_filter_and_sort_state_is_four_plain_vars(configured_token):
+    """AC 1. Plain base vars, not computed ones — the controls write them."""
+    state = _loaded(configured_token)
+
+    for name in ("selected_verdicts", "search", "sort_key", "sort_descending"):
+        assert name in AdminState.base_vars, name
+    assert state.selected_verdicts == []
+    assert state.search == ""
+    assert state.sort_key == ""
+    assert state.sort_descending is False
+
+
+def test_visible_rows_is_a_computed_var_over_the_rows_and_the_filter_state():
+    """AC 2, first half. A base var here would mean the register renders a
+    snapshot that some handler has to remember to refresh."""
+    assert "visible_rows" in AdminState.computed_vars
+    assert "visible_rows" not in AdminState.base_vars
+
+
+def test_visible_rows_tracks_all_five_of_its_dependencies():
+    """The silent failure this story is most exposed to.
+
+    `ComputedVar._deps` catches every exception out of Reflex's dependency
+    tracker, warns, and returns NO dependencies — leaving a var that computes
+    correctly once and then never updates. Nothing in a diff shows it, and the
+    filter simply appears not to work. The tracker only sees attributes loaded
+    from `self` in the getter's own body, so this test is what pins the rule
+    that `visible_rows` reads its five vars itself rather than letting
+    `filter_rows` / `sort_rows` reach for them.
+    """
+    tracked = AdminState.computed_vars["visible_rows"]._deps(objclass=AdminState)[
+        AdminState.get_full_name()
+    ]
+
+    for name in ("rows", "selected_verdicts", "search", "sort_key", "sort_descending"):
+        assert name in tracked, (name, tracked)
+
+
+def test_evaluating_visible_rows_performs_no_database_read(
+    configured_token, monkeypatch
+):
+    """AC 2, second half — PRD-006 Section 6: "filtering never re-reads the
+    database".
+
+    Every one of the ten reads is replaced with a raising stub, then the var is
+    evaluated across the filter and sort space. Reading the source proves
+    nothing here; entering the var with no reachable read does.
+    """
+
+    def boom(*args, **kwargs):
+        raise AssertionError("visible_rows performed a database read")
+
+    for name in _READ_ATTRIBUTES:
+        monkeypatch.setattr(_admin_state_module, name, boom)
+    monkeypatch.setattr(
+        _admin_state_module,
+        "_READS",
+        tuple(
+            (field, label, boom, kwargs)
+            for field, label, _fn, kwargs in _ORIGINAL_READS
+        ),
+    )
+
+    state = _loaded(configured_token)
+    for verdicts in ([], ["denied"], ["cleared", "fault"]):
+        for text in ("", "127", "a.torres", "zzz"):
+            for key in ("", "timestamp", "user", "verdict", "unrecognised"):
+                for descending in (False, True):
+                    state.selected_verdicts = verdicts
+                    state.search = text
+                    state.sort_key = key
+                    state.sort_descending = descending
+                    assert isinstance(state.visible_rows, list)
+                    assert isinstance(state.filters_active, bool)
+
+
+def test_an_empty_verdict_selection_passes_every_row(configured_token):
+    """AC 6. `row.verdict not in []` is True for every row, so a predicate
+    missing the `if verdicts and` guard empties the register the moment the page
+    loads — and an empty register reads as "nothing recorded" (STORY-014)."""
+    state = _loaded(configured_token)
+
+    assert state.selected_verdicts == []
+    assert len(state.visible_rows) == len(_FILTER_ROWS)
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("127", [127]),
+        ("a.torres", [129, 127, 126]),
+        ("A.TORRES", [129, 127, 126]),
+        ("claude-3", [129]),
+        ("GPT-4", [130, 128, 127, 126]),
+        ("  127  ", [127]),
+        ("zzz", []),
+    ],
+)
+def test_free_text_matches_user_model_and_id_case_insensitively(
+    configured_token, text, expected
+):
+    """AC 3. `127` isolating audit #127 is PRD Section 5 story 5 — the loop that
+    closes on PRD-004's chat success footer, where the user read the id."""
+    state = _loaded(configured_token)
+    state.search = text
+
+    assert _visible(state) == expected
+
+
+def test_the_two_filters_compose_as_and(configured_token):
+    """AC 4. An OR would widen the register at the exact moment the admin is
+    narrowing it."""
+    state = _loaded(configured_token)
+
+    state.selected_verdicts = ["denied"]
+    denied_only = _visible(state)
+    state.selected_verdicts = []
+    state.search = "a.torres"
+    text_only = _visible(state)
+    state.selected_verdicts = ["denied"]
+    both = _visible(state)
+
+    assert denied_only == [127]
+    assert text_only == [129, 127, 126]
+    assert both == [127]
+    assert len(both) <= len(denied_only)
+    assert len(both) < len(text_only)
+
+
+def test_the_default_order_is_the_order_list_audit_logs_returned(configured_token):
+    """AC 5's default. `sort_key` defaults to "" — not to "timestamp" — because
+    sign_out()'s reset() requires a falsy default on every declared var. The two
+    must therefore render the identical register."""
+    state = _loaded(configured_token)
+
+    assert _visible(state) == [130, 129, 128, 127, 126]
+
+    state.sort_key = "timestamp"
+    assert _visible(state) == [130, 129, 128, 127, 126]
+
+
+def test_each_sort_key_changes_the_ordering(configured_token):
+    """AC 5. User sorts A-Z case-insensitively; verdict leads with the
+    exceptions the register exists to surface, not alphabetically."""
+    state = _loaded(configured_token)
+    default = _visible(state)
+
+    state.sort_key = "user"
+    assert _visible(state) == [129, 127, 126, 128, 130]
+    assert _visible(state) != default
+
+    state.sort_key = "verdict"
+    assert [row.verdict for row in state.visible_rows] == [
+        "fault",
+        "denied",
+        "held",
+        "cleared",
+        "cleared",
+    ]
+    assert _visible(state) != default
+
+
+def test_sort_descending_reverses_the_chosen_order(configured_token):
+    state = _loaded(configured_token)
+    ascending = _visible(state)
+
+    state.sort_descending = True
+
+    assert _visible(state) == list(reversed(ascending))
+
+
+def test_an_unrecognised_sort_key_or_verdict_degrades_instead_of_raising(
+    configured_token,
+):
+    """No ordering may raise into a page render. An AuditRow's verdict defaults
+    to "" — an unpopulated row must sort, not explode."""
+    state = _loaded(configured_token)
+    state.rows = [*_FILTER_ROWS, AuditRow(audit_id=125, user_id="x", verdict="")]
+
+    state.sort_key = "nonsense"
+    assert _visible(state) == [130, 129, 128, 127, 126, 125]
+
+    state.sort_key = "verdict"
+    assert _visible(state)[-1] == 125
+
+
+def test_visible_rows_does_not_reorder_or_alter_the_loaded_rows(configured_token):
+    """A computed var that sorted `rows` in place would rewrite the source of
+    truth as a side effect of rendering."""
+    state = _loaded(configured_token)
+    before = [row.audit_id for row in state.rows]
+
+    state.sort_key = "user"
+    state.sort_descending = True
+    state.search = "torres"
+    assert state.visible_rows
+
+    assert [row.audit_id for row in state.rows] == before
+
+
+def test_the_pure_helpers_return_new_lists():
+    """The same guarantee where object identity survives — Reflex re-wraps every
+    element of a list var in a fresh MutableProxy on each read, so identity is
+    only meaningful off the state."""
+    rows = list(_FILTER_ROWS)
+    identities = [id(row) for row in rows]
+
+    assert _admin_state_module.filter_rows(rows, [], "") is not rows
+    assert _admin_state_module.filter_rows(rows, ["denied"], "torres") is not rows
+    assert _admin_state_module.sort_rows(rows, "user", True) is not rows
+
+    assert [row.audit_id for row in rows] == [r.audit_id for r in _FILTER_ROWS]
+    assert [id(row) for row in rows] == identities
+
+
+def test_filters_active_reports_the_filters_and_ignores_the_sort(configured_token):
+    """STORY-014's no-matches state is `filters_active and not visible_rows`, so
+    a sort counting as an active filter would offer to "clear" an ordering."""
+    state = _loaded(configured_token)
+    assert state.filters_active is False
+
+    state.sort_key = "user"
+    state.sort_descending = True
+    assert state.filters_active is False
+
+    state.search = "   "
+    assert state.filters_active is False
+
+    state.search = "a.torres"
+    assert state.filters_active is True
+
+    state.search = ""
+    state.selected_verdicts = ["denied"]
+    assert state.filters_active is True
+
+
+def test_toggle_verdict_adds_removes_and_reassigns(configured_token):
+    """Reassignment rather than an in-place append: Reflex marks a var dirty on
+    assignment, and a mutated list can leave `visible_rows` on its cached
+    value."""
+    state = _loaded(configured_token)
+
+    _call(state, "toggle_verdict", "denied")
+    assert state.selected_verdicts == ["denied"]
+
+    _call(state, "toggle_verdict", "fault")
+    assert state.selected_verdicts == ["denied", "fault"]
+    assert _visible(state) == [129, 127]
+
+    _call(state, "toggle_verdict", "denied")
+    assert state.selected_verdicts == ["fault"]
+    assert _visible(state) == [129]
+
+
+def test_sort_by_selects_a_key_then_flips_direction_on_repeat(configured_token):
+    state = _loaded(configured_token)
+
+    _call(state, "sort_by", "user")
+    assert state.sort_key == "user"
+    assert state.sort_descending is False
+
+    _call(state, "sort_by", "user")
+    assert state.sort_descending is True
+
+    _call(state, "sort_by", "verdict")
+    assert state.sort_key == "verdict"
+    assert state.sort_descending is False
+
+
+def test_clear_filters_restores_the_window_without_touching_sort_or_rows(
+    configured_token,
+):
+    """An admin clearing a filter is not asking for a reload."""
+    state = _loaded(configured_token)
+    state.selected_verdicts = ["denied"]
+    state.search = "a.torres"
+    state.sort_key = "user"
+
+    _call(state, "clear_filters")
+
+    assert state.selected_verdicts == []
+    assert state.search == ""
+    assert state.sort_key == "user"
+    assert len(state.rows) == len(_FILTER_ROWS)
+    assert state.filters_active is False
+
+
+def test_sign_out_clears_the_filter_and_sort_state_too(configured_token):
+    """AC 7. A filter surviving a sign-out is the standing disclosure PRD-006
+    Section 9 is about — the next person at the machine sees a register already
+    narrowed to a named user."""
+    state = _loaded(configured_token)
+    state.selected_verdicts = ["denied"]
+    state.search = "a.torres"
+    state.sort_key = "user"
+    state.sort_descending = True
+
+    _sign_out(state)
+
+    assert state.selected_verdicts == []
+    assert state.search == ""
+    assert state.sort_key == ""
+    assert state.sort_descending is False
+    assert state.rows == []
+
+
+def test_the_verdict_vocabulary_is_imported_not_redeclared():
+    """PRD-006 Section 6 fixes the four strings in admin_formatting.py so two
+    rows with identical fields can never render differently. A second copy here
+    is how that drifts."""
+    from chat_ui.chat_ui import admin_formatting
+
+    assert _admin_state_module.VERDICTS is admin_formatting.VERDICTS
+    source = Path(_admin_state_module.__file__).read_text(encoding="utf-8")
+    for verdict in admin_formatting.VERDICTS:
+        assert '"' + verdict + '"' not in source, verdict
