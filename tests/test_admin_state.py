@@ -20,14 +20,24 @@ STORY-005 added the filter and sort half, whose invisible properties are that
 the var's dependencies — its tracker fails by returning *none* of them, which
 yields a filter that quietly stops updating.
 
-STORY-006 extends this file further: the four verdicts against constructed
-`AuditLog`s land here once that story runs.
+STORY-006 finished the file, and its three additions are invisible in a diff
+for the same reason the others are. The four verdicts are asserted against
+constructed `AuditLog`s carried through the console's *own* path — the
+projection and `load()` — so a register that stopped deriving a verdict fails
+here rather than rendering every row as the empty default, and the fifth case
+pins PRD-006 Risk 3: a failure that recorded a model is still **fault**. The
+no-leak claim is asserted field by field on a fully seeded row, because a
+preview smuggled into a differently named field passes every structural check.
+And the two filters are applied to rows that genuinely came from a read, with
+the recorded call list asserted unchanged across the filtering — which is what
+"filtering never re-reads the database" actually claims.
 """
 
 import asyncio
 import os
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
@@ -44,6 +54,13 @@ import reflex as rx
 from app.config import settings
 from app.db.models import AuditLog
 import chat_ui.chat_ui.admin_state as _admin_state_module
+from chat_ui.chat_ui.admin_formatting import (
+    VERDICT_CLEARED,
+    VERDICT_DENIED,
+    VERDICT_FAULT,
+    VERDICT_HELD,
+    to_audit_row,
+)
 from chat_ui.chat_ui.admin_models import AuditRow
 from chat_ui.chat_ui.admin_state import GATE_REFUSED_MESSAGE, AdminState
 
@@ -367,10 +384,14 @@ class _Reads:
     check can show that — only the ident recorded inside the call can.
     """
 
-    def __init__(self, monkeypatch, failing=None, on_call=None):
+    def __init__(self, monkeypatch, failing=None, on_call=None, *, logs=None):
         self._monkeypatch = monkeypatch
         self.failing = failing
         self.on_call = on_call
+        # Keyword-only, defaulting to `_logs()` — STORY-006 needs `load()` to
+        # return its own five constructed rows, and every earlier call site
+        # passes nothing and takes the identical path.
+        self.logs = logs
         self.calls = []
         self.threads = []
         self.kwargs = {}
@@ -379,7 +400,7 @@ class _Reads:
         import chat_ui.chat_ui.admin_state as admin_state_mod
 
         returns = dict(_READ_RETURNS)
-        returns["list_audit_logs"] = _logs()
+        returns["list_audit_logs"] = _logs() if self.logs is None else list(self.logs)
         # Built from the pristine table, never from `admin_state_mod._READS`: a
         # test that installs twice (fail, then recover) would otherwise wrap its
         # own stubs and lose the real function names the returns are keyed by.
@@ -624,14 +645,21 @@ async def test_a_second_concurrent_load_is_refused_by_the_loading_guard(
 
 @pytest.mark.asyncio
 async def test_an_unauthenticated_load_calls_none_of_the_ten(monkeypatch):
-    """AC 6, strengthened past STORY-003's version: not merely "rows stay empty"
-    but "no read function was entered at all"."""
+    """STORY-004 AC 6, strengthened past STORY-003's version: not merely "rows
+    stay empty" but "no read function was entered at all".
+
+    Also STORY-006 AC 5 — the `/admin/stats`-reached-without-a-session case, and
+    PRD-006 Risk 1's load-bearing half. Both of that AC's halves are stated here
+    together: the register is empty *because* nothing was read, not because a
+    read returned nothing.
+    """
     state = _state()
     reads = _Reads(monkeypatch).install()
 
     await _load(state)
 
     assert reads.calls == []
+    assert state.rows == []
     assert state.loading is False
     assert state.error == ""
     assert state.last_refreshed == ""
@@ -650,8 +678,9 @@ async def test_an_unauthenticated_load_calls_none_of_the_ten(monkeypatch):
 # console.warn and an EMPTY dependency set, which yields a filter that computes
 # once and then never updates again.
 #
-# STORY-006 extends this block with the four verdicts against constructed
-# AuditLogs and the no-leak assertions.
+# STORY-006's block, at the foot of this file, closes the pair these tests
+# leave open: the rows filtered here are built by hand, and the no-read claim is
+# proved against raising stubs, so neither states the two together.
 # ---------------------------------------------------------------------------
 
 # The ten reads under the names they carry in `admin_state`'s own namespace —
@@ -1013,3 +1042,226 @@ def test_the_verdict_vocabulary_is_imported_not_redeclared():
     source = Path(_admin_state_module.__file__).read_text(encoding="utf-8")
     for verdict in admin_formatting.VERDICTS:
         assert '"' + verdict + '"' not in source, verdict
+
+
+# ---------------------------------------------------------------------------
+# STORY-006: the verdicts, the projection and the filters, from the state's side
+#
+# `tests/test_admin_formatting.py` already asserts `derive_verdict`'s four arms
+# as a unit. These three blocks assert the same properties on the *console's own
+# path* — through `to_audit_row`, through `load()`, into `AdminState.rows` and
+# out through `visible_rows` — because that is the path a regression breaks
+# while the formatting tests stay green: `load()` swapping its row constructor,
+# or a preview arriving on a field the projection was supposed to drop.
+# ---------------------------------------------------------------------------
+
+# One clock for every projection below, so a relative time can never make a test
+# depend on when it ran.
+_NOW = datetime(2026, 8, 28, 15, 0, 0, tzinfo=timezone.utc)
+
+# One log per verdict, newest first, and a fifth that is the Risk 3 regression
+# guard. `a.torres` carries two of the three faults so a verdict filter and a
+# text filter have something to narrow *together* (AC 7).
+_VERDICT_LOGS = [
+    AuditLog(
+        id=205,
+        timestamp="2026-08-28T14:50:00+00:00",
+        user_id="a.torres",
+        prompt_hash="h205",
+        was_duplicate_blocked=True,
+    ),
+    AuditLog(
+        id=204,
+        timestamp="2026-08-28T14:40:00+00:00",
+        user_id="b.singh",
+        prompt_hash="h204",
+        suspicious_pattern="ignore_instructions",
+    ),
+    AuditLog(
+        id=203,
+        timestamp="2026-08-28T14:30:00+00:00",
+        user_id="a.torres",
+        prompt_hash="h203",
+        success=False,
+        error_message="upstream timed out",
+    ),
+    AuditLog(
+        id=202,
+        timestamp="2026-08-28T14:20:00+00:00",
+        user_id="c.diaz",
+        prompt_hash="h202",
+        model_used="gpt-4",
+        tokens_used=180,
+    ),
+    # The Risk 3 case: a failure that DID record a model. The output-side
+    # PiiRedactorError arm (app/services/query_pipeline.py:91-93) writes
+    # model_used together with success=False, so splitting **fault** on that
+    # field would misclassify this row as something else entirely.
+    AuditLog(
+        id=201,
+        timestamp="2026-08-28T14:10:00+00:00",
+        user_id="a.torres",
+        prompt_hash="h201",
+        model_used="gpt-4",
+        tokens_used=42,
+        success=False,
+        error_message="output redaction failed",
+    ),
+]
+
+# Imported constants, never re-typed literals: the vocabulary is fixed in
+# admin_formatting.py precisely so a second copy cannot drift from it.
+_EXPECTED_VERDICTS = [
+    VERDICT_HELD,
+    VERDICT_DENIED,
+    VERDICT_FAULT,
+    VERDICT_CLEARED,
+    VERDICT_FAULT,
+]
+
+
+@pytest.mark.parametrize(
+    "log,expected",
+    list(zip(_VERDICT_LOGS, _EXPECTED_VERDICTS)),
+    ids=[
+        "duplicate-blocked",
+        "suspicious-pattern",
+        "failed",
+        "plain",
+        "failed-with-model",
+    ],
+)
+def test_each_constructed_log_reaches_the_row_with_its_verdict(log, expected):
+    """AC 4, at the projection the console actually uses."""
+    assert to_audit_row(log, _NOW).verdict == expected
+
+
+@pytest.mark.asyncio
+async def test_the_loaded_register_carries_the_four_verdicts_in_order(
+    configured_token, monkeypatch
+):
+    """AC 4, end to end: the same five logs read through `load()`.
+
+    Asserted against the loaded rows rather than against `derive_verdict`, so a
+    `load()` that stopped projecting through `to_audit_row` — and therefore
+    stopped deriving a verdict at all — fails here rather than shipping a
+    register whose every row reads as AuditRow's empty default.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    _Reads(monkeypatch, logs=_VERDICT_LOGS).install()
+
+    await _load(state)
+
+    assert [row.verdict for row in state.rows] == _EXPECTED_VERDICTS
+    assert [row.audit_id for row in state.rows] == [205, 204, 203, 202, 201]
+
+
+def test_a_failed_row_that_recorded_a_model_is_still_fault():
+    """PRD-006 Risk 3, as a regression guard rather than a comment.
+
+    Both rows failed; one recorded a model and one did not. They must carry the
+    same verdict — the distinction between an upstream failure and an internal
+    one lives in `error_message` on disclosure, not in a fifth verdict.
+    """
+    without_model = to_audit_row(_VERDICT_LOGS[2], _NOW)
+    with_model = to_audit_row(_VERDICT_LOGS[4], _NOW)
+
+    assert with_model.model_used == "gpt-4"
+    assert without_model.verdict == with_model.verdict == VERDICT_FAULT
+
+
+# --- The projection drops both previews (AC 6, Risk 2) ---------------------
+
+_SENTINELS = ("SENTINEL PROMPT TEXT", "SENTINEL RESPONSE TEXT")
+
+
+def _seeded_log() -> AuditLog:
+    """Every displayed column populated, and both previews with it.
+
+    Fully populated deliberately: a no-leak test that walks the row's values
+    proves nothing if most of those values are empty defaults.
+    """
+    return AuditLog(
+        id=3181,
+        timestamp="2026-08-28T14:00:00+00:00",
+        user_id="a.torres",
+        device="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        prompt_hash="9f2c1b",
+        prompt_preview=_SENTINELS[0],
+        response_hash="4d8a7e",
+        response_preview=_SENTINELS[1],
+        model_used="gpt-4",
+        tokens_used=512,
+        was_duplicate_blocked=False,
+        suspicious_pattern="ignore_instructions",
+        success=False,
+        error_message="output redaction failed",
+        pii_detected_input=True,
+        pii_detected_output=True,
+        pii_entities="EMAIL_ADDRESS,PHONE_NUMBER",
+    )
+
+
+def test_a_row_built_from_a_seeded_log_carries_neither_preview():
+    """AC 6. PRD-006 Risk 2: reading `AuditLog` in-process brings both preview
+    columns into the process, one binding away from the screen.
+
+    Asserted three ways, because each catches a different regression: the
+    attribute is absent (a field added back), the *declared field* is absent (a
+    field added back in a form that leaves `hasattr` ambiguous), and neither
+    sentinel appears in any field VALUE (a preview smuggled into a differently
+    named field — which the two structural checks would both pass).
+    """
+    row = to_audit_row(_seeded_log(), _NOW)
+
+    assert not hasattr(row, "prompt_preview")
+    assert not hasattr(row, "response_preview")
+    # Class-level: pydantic 2.13 deprecates `model_fields` on the instance.
+    assert "prompt_preview" not in type(row).model_fields
+    assert "response_preview" not in type(row).model_fields
+
+    dumped = row.model_dump()
+    # The projection has to have produced something to walk, or the loop below
+    # is vacuous and would pass against an empty row.
+    assert dumped and dumped["audit_id"] == 3181
+    for name, value in dumped.items():
+        parts = value if isinstance(value, list) else [value]
+        for part in parts:
+            for sentinel in _SENTINELS:
+                assert sentinel not in str(part), (name, part)
+
+
+# --- Filtering narrows the loaded rows without a second read (AC 7) --------
+
+
+@pytest.mark.asyncio
+async def test_filtering_the_loaded_register_narrows_it_without_a_second_read(
+    configured_token, monkeypatch
+):
+    """AC 7, as one claim rather than two.
+
+    `test_the_two_filters_compose_as_and` asserts the narrowing against rows
+    built by hand, and `test_evaluating_visible_rows_performs_no_database_read`
+    asserts the negative against raising stubs. Neither states what PRD-006
+    Section 6 actually promises: rows that *did* come from a read, narrowed,
+    with the database not touched a second time.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    reads = _Reads(monkeypatch, logs=_VERDICT_LOGS).install()
+
+    await _load(state)
+
+    assert len(reads.calls) == 10
+    calls_after_load = list(reads.calls)
+
+    state.selected_verdicts = [VERDICT_FAULT]
+    state.search = "a.torres"
+
+    # The two faults belonging to a.torres — not b.singh's denied row, not
+    # a.torres' held row. AND, never OR.
+    assert _visible(state) == [203, 201]
+    # Compared as a list, not a length: a read appended while another vanished
+    # would leave the count intact.
+    assert reads.calls == calls_after_load
