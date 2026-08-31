@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - The summary"
-status: todo
+status: done
 labels: [ui, reflex, component, design, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-015-summary-tally-sheet.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-015-summary-tally-sheet.report.md
 commit: null
 depends_on: [STORY-002, STORY-004, STORY-007, STORY-008, STORY-009, STORY-010]
 blocks: [STORY-016, STORY-018]
 skills: [frontend-design, reflex-docs]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-015: summary.py: nine StatsResponse figures as a ruled tally sheet with stated scopes

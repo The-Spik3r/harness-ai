@@ -51,13 +51,25 @@ from app.db.database import (
 
 from .admin_copy import (
     EMPTY_MATCHES_TEMPLATE,
+    FIGURE_BLOCKED_DUPLICATES_LABEL,
+    FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_COMPLETION_LABEL,
+    FIGURE_PII_QUERIES_LABEL,
+    FIGURE_TOP_MODELS_LABEL,
+    FIGURE_TOP_PII_LABEL,
+    FIGURE_TOP_USERS_LABEL,
+    FIGURE_TOTAL_LABEL,
+    FIGURE_UNIQUE_USERS_LABEL,
     FILTER_DESCRIPTION_JOIN,
     FILTER_DESCRIPTION_SEARCH_TEMPLATE,
     FILTER_DESCRIPTION_VERDICT_JOIN,
     FILTER_DESCRIPTION_VERDICT_TEMPLATE,
     GATE_REFUSED_MESSAGE,
+    RANKED_CUT_TEMPLATE,
     REGISTER_FILTERED_TEMPLATE,
     REGISTER_SCOPE_TEMPLATE,
+    SHARE_TEMPLATE,
+    SUMMARY_SCOPE_ALL_TIME,
     VERDICT_CLEARED_LABEL,
     VERDICT_DENIED_LABEL,
     VERDICT_FAULT_LABEL,
@@ -78,6 +90,7 @@ from .admin_copy import (
     FAULT_MESSAGE_TEMPLATE as LOAD_FAILED_MESSAGE,
 )
 from .admin_formatting import (
+    SHARE_UNDEFINED,
     VERDICT_CLEARED,
     VERDICT_DENIED,
     VERDICT_FAULT,
@@ -85,15 +98,24 @@ from .admin_formatting import (
     VERDICTS,
     format_count,
     format_refreshed_at,
+    format_share,
     to_audit_row,
 )
-from .admin_models import AuditRow
+from .admin_models import AuditRow, SummaryFigure
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
 # pagination past 100 rows out of scope, and `list_audit_logs` is the only
 # listing query. Named so the register can state the cap it renders against the
 # true total (Risk 4) rather than re-typing 100.
 REGISTER_ROW_LIMIT = 100
+
+# The cut on every ranked read, and the {n} the summary states on the surface
+# (admin_copy.RANKED_CUT_TEMPLATE, "top {n}"). Passed explicitly below rather
+# than left to each read function's own default, so the "top 5" an admin reads
+# and the `LIMIT ?` in app/db/database.py are the same 5 — admin_copy's comment
+# on that template requires that "the copy does not carry a second, unowned 5",
+# and a default is exactly the second owner it warns about.
+RANKED_LIMIT = 5
 
 # The three orderings the register offers (PRD-006 Section 6.1's controls, built
 # in STORY-013). Values, not copy — they are the `sort_key` the controls write
@@ -124,6 +146,27 @@ REGISTER_STATES = (
     REGISTER_STATE_EMPTY,
     REGISTER_STATE_NO_MATCHES,
     REGISTER_STATE_ROWS,
+)
+
+# The summary's render states (STORY-015), in the order `summary_state` resolves
+# them. Keys, not copy — they are the `rx.match` arms — so they live here beside
+# the register's four rather than in admin_copy.py.
+#
+# Three where the register has four: the sheet has no filter, so it has no
+# no-matches state. Its emptiness is a table with nothing in it, full stop.
+#
+# SUMMARY_STATE_FAULT carries the register's own "read_failed" value, because a
+# failed read means the same thing on both surfaces and an admin reading the two
+# `rx.match` arms should not have to check whether they agree. It is declared as
+# its own name anyway: the day the two surfaces want different behaviour, that is
+# one edit here rather than a shared constant to untangle across two components.
+SUMMARY_STATE_FAULT = "read_failed"
+SUMMARY_STATE_EMPTY = "nothing_recorded"
+SUMMARY_STATE_FIGURES = "figures"
+SUMMARY_STATES = (
+    SUMMARY_STATE_FAULT,
+    SUMMARY_STATE_EMPTY,
+    SUMMARY_STATE_FIGURES,
 )
 
 # One label per verdict key, for the sentence that names the filter which
@@ -204,10 +247,69 @@ _READS: tuple[tuple[str, str, object, dict], ...] = (
         count_pii_detected_queries,
         {},
     ),
-    ("top_models", READ_LABEL_TOP_MODELS, read_top_models, {}),
-    ("top_users", READ_LABEL_TOP_USERS, read_top_users, {}),
-    ("top_pii_entities", READ_LABEL_TOP_PII, read_top_pii_entities, {}),
+    ("top_models", READ_LABEL_TOP_MODELS, read_top_models, {"limit": RANKED_LIMIT}),
+    ("top_users", READ_LABEL_TOP_USERS, read_top_users, {"limit": RANKED_LIMIT}),
+    (
+        "top_pii_entities",
+        READ_LABEL_TOP_PII,
+        read_top_pii_entities,
+        {"limit": RANKED_LIMIT},
+    ),
 )
+
+
+def _share_line(count: int, total: int) -> str:
+    """The share of the whole table one count represents, as the words around it.
+
+    `format_share` does the arithmetic and refuses it on a total of 0, returning
+    SHARE_UNDEFINED rather than dividing (admin_formatting.py). This adds only
+    the sentence — and returns the placeholder **bare** when that is what came
+    back: "— of all queries" claims a ratio exists and is merely unknown, where
+    the mark alone says there is nothing to take a share of. That is AC 8, and
+    it is also the reason the branch lives here in Python: a component receives
+    a Var and cannot run it.
+    """
+    share = format_share(count, total)
+    if share == SHARE_UNDEFINED:
+        return share
+    return SHARE_TEMPLATE.format(share=share)
+
+
+def _ranked_figure(label: str, items: list[str]) -> SummaryFigure:
+    """One ranked list — top models, top users, top PII entity types.
+
+    The **value** is the cut, not a count: PRD-006 Section 4 requires the "top 5"
+    be stated on the surface, and the ranked reads return names only
+    (`app/db/database.py:166-218` select the value, not its tally), so there is
+    no honest number to put here. `{n}` comes from RANKED_LIMIT, the same
+    constant `_READS` passes to the query.
+
+    The scope is the same all-time statement every other figure carries: a
+    ranking over the whole table is still a claim about the whole table.
+    """
+    return SummaryFigure(
+        label=label,
+        value=RANKED_CUT_TEMPLATE.format(n=RANKED_LIMIT),
+        scope=SUMMARY_SCOPE_ALL_TIME,
+        items=items,
+    )
+
+
+def _count_figure(label: str, count: int, share: str = "") -> SummaryFigure:
+    """One counted figure: the number, thousands-separated, and its scope.
+
+    Every figure on the sheet carries SUMMARY_SCOPE_ALL_TIME, and it is applied
+    here rather than at each call site so a tenth figure cannot arrive without
+    one. PRD-006 Risk 4 makes that a requirement, not a nicety: an all-time
+    total sitting beside the register's hundred-row window "invites a wrong
+    reading", and the scope on the figure is the whole mitigation.
+    """
+    return SummaryFigure(
+        label=label,
+        value=format_count(count),
+        scope=SUMMARY_SCOPE_ALL_TIME,
+        share=share,
+    )
 
 
 def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
@@ -545,6 +647,143 @@ class AdminState(rx.State):
             shown=format_count(len(self.visible_rows)),
             loaded=format_count(len(self.rows)),
         )
+
+    # --- The summary sheet (STORY-015) ------------------------------------
+    # Five vars, not one, and that is the sheet's structure rather than an
+    # arbitrary split. PRD-006 Section 6.1 fixes it: the counts, with
+    # `blocked_duplicates` and `blocked_suspicious` **indented beneath**
+    # `total_queries` "because they are a subset of it and indentation is the
+    # honest structural statement of that relationship"; then the who/what facts
+    # "because they answer a different kind of question than the counts do"; then
+    # PII telemetry closing the sheet. The blocked pair is its own list because
+    # the component renders it through one `rx.foreach` at one indent — two
+    # hand-placed rows could drift apart from each other, and the indent is the
+    # claim.
+    #
+    # Figures are built here rather than in `components/summary.py` for the
+    # reason `admin_formatting.py`'s docstring states generally: `format_count`'s
+    # thousands separator and `format_share`'s zero-total branch are Python, and
+    # component functions receive Vars. The component reads fields; it does not
+    # compute.
+    #
+    # Every `self.` load happens inside each var's own body, per the
+    # auto-dependency rule `visible_rows` records above. The helpers receive
+    # plain ints and lists, never `self`, so they stay invisible to the tracker
+    # and harmless.
+
+    @rx.var
+    def total_figure(self) -> SummaryFigure:
+        """`total_queries` — the figure the two blocked counts are a subset of."""
+        return _count_figure(FIGURE_TOTAL_LABEL, self.total_recorded)
+
+    @rx.var
+    def blocked_figures(self) -> list[SummaryFigure]:
+        """The two blocked counts, each as a count *and* as a share of the total.
+
+        Both halves are required (AC 2): `412` alone does not say whether that is
+        most of the traffic or a rounding error, and `13.0%` alone hides how many
+        rows an investigation would have to read. Duplicates before patterns,
+        matching `_READS` and `StatsResponse`'s own field order.
+        """
+        return [
+            _count_figure(
+                FIGURE_BLOCKED_DUPLICATES_LABEL,
+                self.blocked_duplicates,
+                _share_line(self.blocked_duplicates, self.total_recorded),
+            ),
+            _count_figure(
+                FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+                self.blocked_suspicious,
+                _share_line(self.blocked_suspicious, self.total_recorded),
+            ),
+        ]
+
+    @rx.var
+    def completion_figure(self) -> SummaryFigure:
+        """`StatsResponse.success_rate`, rendered under a label that is true.
+
+        This is the ninth field, and the only one on the console with a
+        correctness requirement. `app/routers/admin.py:57` computes `success_rate`
+        as `count_successful_queries() / count_audit_logs()`, and
+        `count_successful_queries()` counts `success = 1` — which includes every
+        duplicate-blocked and every pattern-blocked row, because
+        `query_pipeline.py` logs both as `success=True`. So the share below *is*
+        `success_rate`, at `format_share`'s deliberately identical rounding, and
+        the count beside it is that ratio's numerator.
+
+        **The label is what this story fixes, not the computation.** `app/` is
+        out of scope for PRD-006 and a truthful `count_answered_queries()` is
+        deferred to its Section 13; `FIGURE_COMPLETION_LABEL` states what the
+        number counts and `FIGURE_COMPLETION_NOTE` — rendered beneath it — says
+        why it is not an answer rate.
+        """
+        return _count_figure(
+            FIGURE_COMPLETION_LABEL,
+            self.successful_queries,
+            _share_line(self.successful_queries, self.total_recorded),
+        )
+
+    @rx.var
+    def who_figures(self) -> list[SummaryFigure]:
+        """Who was on the harness and what they reached: the sheet's second block.
+
+        The lists are copied with `list(...)` rather than handed over: these are
+        state vars, and a figure holding the state's own list would let a render
+        path mutate it.
+        """
+        return [
+            _count_figure(FIGURE_UNIQUE_USERS_LABEL, self.unique_users),
+            _ranked_figure(FIGURE_TOP_MODELS_LABEL, list(self.top_models)),
+            _ranked_figure(FIGURE_TOP_USERS_LABEL, list(self.top_users)),
+        ]
+
+    @rx.var
+    def pii_figures(self) -> list[SummaryFigure]:
+        """PRD-003's telemetry, rendered in a UI for the first time.
+
+        The share is not required by AC 2, which names only the blocked counts,
+        but PRD-006 Section 5's sixth story states the sentence it wants —
+        "412 of 3,180 queries contained PII" — and that is a count against the
+        total, which is a share.
+        """
+        return [
+            _count_figure(
+                FIGURE_PII_QUERIES_LABEL,
+                self.pii_detected_queries,
+                _share_line(self.pii_detected_queries, self.total_recorded),
+            ),
+            _ranked_figure(FIGURE_TOP_PII_LABEL, list(self.top_pii_entities)),
+        ]
+
+    @rx.var
+    def summary_state(self) -> str:
+        """Which of the three states the sheet is showing — decided once, here.
+
+        **The order is the requirement**, the same one `register_state` carries.
+        A *first* read that raises leaves every count at 0 with `error` set, and
+        rendering that as "Nothing to summarize" would present a failure as a
+        fact about the record — which PRD-006 Section 4 forbids ("a failed read
+        renders a fault panel naming what failed — never a silently empty
+        table"). Testing `error` first is what keeps that case out of the empty
+        arm.
+
+        The fault arm renders **the sheet**, not a panel: STORY-017 hangs its
+        fault panel above it, and `FAULT_MESSAGE_TEMPLATE` promises "Nothing on
+        screen has changed", so previously loaded figures must stay standing
+        underneath it.
+
+        `total_recorded` is the emptiness test rather than `rows`: the sheet
+        counts the whole table where the register lists a window of it, and a
+        table with any row in it has a non-zero total.
+
+        Both dependencies are read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records above.
+        """
+        if self.error:
+            return SUMMARY_STATE_FAULT
+        if not self.total_recorded:
+            return SUMMARY_STATE_EMPTY
+        return SUMMARY_STATE_FIGURES
 
     @rx.event
     def set_token_input(self, text: str):

@@ -55,30 +55,48 @@ from app.config import settings
 from app.db.models import AuditLog
 import chat_ui.chat_ui.admin_state as _admin_state_module
 from chat_ui.chat_ui.admin_formatting import (
+    SHARE_UNDEFINED,
     VERDICT_CLEARED,
     VERDICT_DENIED,
     VERDICT_FAULT,
     VERDICT_HELD,
     VERDICTS,
     format_count,
+    format_share,
     to_audit_row,
 )
 from chat_ui.chat_ui.admin_copy import (
     EMPTY_MATCHES_TEMPLATE,
+    FIGURE_BLOCKED_DUPLICATES_LABEL,
+    FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_COMPLETION_LABEL,
+    FIGURE_PII_QUERIES_LABEL,
+    FIGURE_TOP_MODELS_LABEL,
+    FIGURE_TOP_PII_LABEL,
+    FIGURE_TOP_USERS_LABEL,
+    FIGURE_TOTAL_LABEL,
+    FIGURE_UNIQUE_USERS_LABEL,
     FILTER_DESCRIPTION_JOIN,
     FILTER_DESCRIPTION_SEARCH_TEMPLATE,
     FILTER_DESCRIPTION_VERDICT_JOIN,
+    RANKED_CUT_TEMPLATE,
     REGISTER_SCOPE_TEMPLATE,
+    SHARE_TEMPLATE,
+    SUMMARY_SCOPE_ALL_TIME,
     VERDICT_DENIED_LABEL,
     VERDICT_HELD_LABEL,
 )
-from chat_ui.chat_ui.admin_models import AuditRow
+from chat_ui.chat_ui.admin_models import AuditRow, SummaryFigure
 from chat_ui.chat_ui.admin_state import (
     GATE_REFUSED_MESSAGE,
+    RANKED_LIMIT,
     REGISTER_STATE_EMPTY,
     REGISTER_STATE_FAULT,
     REGISTER_STATE_NO_MATCHES,
     REGISTER_STATE_ROWS,
+    SUMMARY_STATE_EMPTY,
+    SUMMARY_STATE_FAULT,
+    SUMMARY_STATE_FIGURES,
     AdminState,
 )
 
@@ -1653,3 +1671,265 @@ def test_the_no_matches_state_implies_an_active_filter(configured_token):
 
     assert state.register_state == REGISTER_STATE_NO_MATCHES
     assert state.filters_active is True
+
+
+# --- STORY-015: the summary's figures ------------------------------------
+# The sheet's own invisible property is that its nine figures are *derived*, not
+# rendered: `components/summary.py` reads fields off `SummaryFigure` objects and
+# computes nothing, so the labels, the shares and the scopes are only ever
+# assertable here. A component test can see that the sheet binds to
+# `AdminState.who_figures`; only this file can see what is in it.
+
+
+# The counts a fully loaded state holds, and the figures they must produce.
+_SUMMARY_COUNTS = {
+    "total_recorded": 3180,
+    "blocked_duplicates": 412,
+    "blocked_suspicious": 37,
+    "unique_users": 24,
+    "successful_queries": 3100,
+    "pii_detected_queries": 412,
+    "top_models": ["gpt-4", "claude-3"],
+    "top_users": ["a.torres", "m.silva"],
+    "top_pii_entities": ["EMAIL_ADDRESS", "PERSON"],
+}
+
+# The nine `StatsResponse` fields, as the labels the sheet gives them. Driven
+# from `admin_copy` by name rather than typed as literals, so a reworded label
+# moves this assertion with it instead of breaking it.
+_NINE_FIGURE_LABELS = {
+    FIGURE_TOTAL_LABEL,
+    FIGURE_BLOCKED_DUPLICATES_LABEL,
+    FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_COMPLETION_LABEL,
+    FIGURE_UNIQUE_USERS_LABEL,
+    FIGURE_TOP_MODELS_LABEL,
+    FIGURE_TOP_USERS_LABEL,
+    FIGURE_PII_QUERIES_LABEL,
+    FIGURE_TOP_PII_LABEL,
+}
+
+
+def _summarized(configured_token, **overrides) -> AdminState:
+    """An authenticated state holding a full set of counts."""
+    state = _state()
+    _authenticate(state, configured_token)
+    for name, value in {**_SUMMARY_COUNTS, **overrides}.items():
+        setattr(state, name, value)
+    return state
+
+
+def _figures(state: AdminState) -> list[SummaryFigure]:
+    """Every figure the sheet renders, in the order the three blocks render them."""
+    return [
+        state.total_figure,
+        *state.blocked_figures,
+        state.completion_figure,
+        *state.who_figures,
+        *state.pii_figures,
+    ]
+
+
+def test_the_sheet_carries_all_nine_stats_response_figures(configured_token):
+    """AC 1. Nine figures, one per `StatsResponse` field, and no tenth: an extra
+    figure fails as loudly as a missing one, because a figure with no field
+    behind it is a number the record cannot back."""
+    state = _summarized(configured_token)
+
+    labels = [figure.label for figure in _figures(state)]
+
+    assert len(labels) == 9
+    assert set(labels) == _NINE_FIGURE_LABELS
+
+
+def test_every_figure_states_its_scope(configured_token):
+    """AC 4, and PRD-006 Risk 4's stated mitigation: an all-time total beside the
+    register's hundred-row window "invites a wrong reading", so the window is
+    part of the figure rather than a note somewhere on the page."""
+    state = _summarized(configured_token)
+
+    for figure in _figures(state):
+        assert figure.scope == SUMMARY_SCOPE_ALL_TIME, figure.label
+
+
+def test_the_blocked_figures_are_a_count_and_a_share(configured_token):
+    """AC 2's second half. Both halves are required: the count alone does not say
+    whether 412 is most of the traffic or a rounding error, and the share alone
+    hides how many rows an investigation would have to read."""
+    state = _summarized(configured_token)
+
+    duplicates, suspicious = state.blocked_figures
+
+    assert duplicates.label == FIGURE_BLOCKED_DUPLICATES_LABEL
+    assert duplicates.value == format_count(412)
+    assert duplicates.share == SHARE_TEMPLATE.format(share=format_share(412, 3180))
+    assert suspicious.label == FIGURE_BLOCKED_SUSPICIOUS_LABEL
+    assert suspicious.value == format_count(37)
+    assert suspicious.share == SHARE_TEMPLATE.format(share=format_share(37, 3180))
+
+
+def test_the_blocked_figures_are_the_two_that_indent(configured_token):
+    """AC 2's first half, as far as state can carry it: `blocked_figures` holds
+    exactly the two figures `components/summary.py` renders through
+    `_indented_figure`, so the subset claim cannot pick up a third member that is
+    not a subset of the total."""
+    state = _summarized(configured_token)
+
+    assert [figure.label for figure in state.blocked_figures] == [
+        FIGURE_BLOCKED_DUPLICATES_LABEL,
+        FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    ]
+
+
+def test_the_completion_figure_is_success_rates_value_under_a_true_label(
+    configured_token,
+):
+    """AC 3 and the ninth field. `app/routers/admin.py` computes `success_rate`
+    as `successful / total` to one decimal; the figure's share is that number, at
+    `format_share`'s deliberately identical rounding, and its value is the
+    ratio's numerator. The label is what this story fixes — the computation is
+    PRD-006 Section 13's."""
+    state = _summarized(configured_token)
+
+    figure = state.completion_figure
+    router_success_rate = f"{(3100 / 3180 * 100):.1f}%"
+
+    assert figure.label == FIGURE_COMPLETION_LABEL
+    assert figure.value == format_count(3100)
+    assert figure.share == SHARE_TEMPLATE.format(share=router_success_rate)
+
+
+def test_the_completion_label_is_not_an_answer_rate(configured_token):
+    """AC 3. STORY-016 pins the constant's wording; this pins that the constant is
+    what the figure carries, so a component reaching for a friendlier string
+    fails here."""
+    state = _summarized(configured_token)
+
+    assert "success rate" not in state.completion_figure.label.lower()
+    assert "included" in state.completion_figure.label.lower()
+
+
+@pytest.mark.parametrize(
+    "attribute, label, source",
+    [
+        ("who_figures", FIGURE_TOP_MODELS_LABEL, "top_models"),
+        ("who_figures", FIGURE_TOP_USERS_LABEL, "top_users"),
+        ("pii_figures", FIGURE_TOP_PII_LABEL, "top_pii_entities"),
+    ],
+)
+def test_each_ranked_figure_states_its_cut_and_carries_its_items(
+    configured_token, attribute, label, source
+):
+    """AC 6. The cut is the figure's *value* because the ranked reads return names
+    without tallies (`app/db/database.py`), so there is no honest number to put
+    there — and PRD-006 Section 4 requires the "top 5" be stated on the surface
+    rather than implied by the list's length."""
+    state = _summarized(configured_token)
+
+    figure = next(f for f in getattr(state, attribute) if f.label == label)
+
+    assert figure.value == RANKED_CUT_TEMPLATE.format(n=RANKED_LIMIT)
+    assert figure.items == _SUMMARY_COUNTS[source]
+
+
+def test_the_ranked_reads_ask_for_the_number_the_surface_states(configured_token):
+    """The other half of AC 6: the "top 5" on screen and the `LIMIT` in the query
+    are the same 5. A read left on its own default would leave the copy claiming
+    a cut nothing enforces."""
+    reads = _admin_state_module._READS
+    ranked = {
+        field: kwargs
+        for field, _, _, kwargs in reads
+        if field in ("top_models", "top_users", "top_pii_entities")
+    }
+
+    assert ranked == {name: {"limit": RANKED_LIMIT} for name in ranked}
+    assert RANKED_CUT_TEMPLATE.format(n=RANKED_LIMIT) == "top 5"
+
+
+def test_the_pii_telemetry_reaches_the_sheet(configured_token):
+    """AC 5. PRD-003 wrote these two counters and no UI has ever rendered them."""
+    state = _summarized(configured_token)
+
+    labels = [figure.label for figure in state.pii_figures]
+
+    assert labels == [FIGURE_PII_QUERIES_LABEL, FIGURE_TOP_PII_LABEL]
+    assert state.pii_figures[0].value == format_count(412)
+    assert state.pii_figures[1].items == ["EMAIL_ADDRESS", "PERSON"]
+
+
+def test_a_total_of_zero_renders_the_placeholder_rather_than_raising(
+    configured_token,
+):
+    """AC 8. `format_share` refuses the division rather than performing it, and
+    the placeholder is returned bare: "— of all queries" would claim a ratio
+    exists and is merely unknown."""
+    state = _state()
+    _authenticate(state, configured_token)
+
+    figures = _figures(state)
+
+    assert len(figures) == 9
+    for figure in figures:
+        assert figure.share in ("", SHARE_UNDEFINED), figure.label
+    assert state.completion_figure.share == SHARE_UNDEFINED
+    assert [f.share for f in state.blocked_figures] == [
+        SHARE_UNDEFINED,
+        SHARE_UNDEFINED,
+    ]
+
+
+def test_an_unshared_figure_carries_no_share_rather_than_a_placeholder(
+    configured_token,
+):
+    """`unique_users` is not a share of a query count, and a dash there would read
+    as "unknown" rather than "not applicable". The sheet renders the slot only
+    when the figure carries one."""
+    state = _summarized(configured_token)
+
+    users = next(f for f in state.who_figures if f.label == FIGURE_UNIQUE_USERS_LABEL)
+
+    assert users.share == ""
+    assert users.value == format_count(24)
+
+
+def test_the_summary_state_reads_a_failed_read_before_an_empty_table(
+    configured_token,
+):
+    """The ordering PRD-006 Section 4 turns on. A *first* read that raises leaves
+    every count at 0 with `error` set, and "Nothing to summarize" would present a
+    failure as a fact about the record."""
+    state = _state()
+    _authenticate(state, configured_token)
+    state.error = "Could not read the recorded total."
+
+    assert state.total_recorded == 0
+    assert state.summary_state == SUMMARY_STATE_FAULT
+
+
+def test_the_summary_state_is_empty_only_when_nothing_is_recorded(configured_token):
+    """The sheet counts the whole table, so its emptiness is a zero total — not an
+    empty `rows`, which is the register's hundred-row window."""
+    state = _state()
+    _authenticate(state, configured_token)
+
+    assert state.summary_state == SUMMARY_STATE_EMPTY
+
+    state.total_recorded = 3180
+    assert state.summary_state == SUMMARY_STATE_FIGURES
+
+
+def test_sign_out_empties_the_sheet(configured_token):
+    """The figure vars are computed, so `test_sign_out_clears_every_declared_var`
+    above cannot see them — it iterates `base_vars`. This is the same guarantee
+    stated where it is visible: after a sign-out the sheet reports nothing, and
+    every ranked list is empty."""
+    state = _summarized(configured_token)
+    assert state.total_figure.value == format_count(3180)
+
+    _sign_out(state)
+
+    assert state.summary_state == SUMMARY_STATE_EMPTY
+    assert state.total_figure.value == format_count(0)
+    for figure in _figures(state):
+        assert figure.items == [], figure.label

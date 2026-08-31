@@ -22,6 +22,7 @@ from chat_ui.components.admin_shell import (
 from chat_ui.components.chat import chat_input, message_list
 from chat_ui.components.register import register
 from chat_ui.components.shell import empty_state, header, user_id_gate
+from chat_ui.components.summary import summary
 from chat_ui.state import ChatState
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
@@ -57,9 +58,8 @@ def index() -> rx.Component:
 
 # The console's two views. `admin_page()` (STORY-009) supplies the frame around
 # both: the token gate, or the masthead over `content`. The register fills that
-# `content` slot; the summary's is still the empty `rx.fragment()` STORY-015
-# replaces with `summary.py`. It stays empty rather than taking a placeholder,
-# which would be a user-facing string with no home in `admin_copy.py`.
+# `content` slot with the audit table; the summary fills it with the tally sheet
+# (STORY-015), which is what the two-view switch in the masthead moves between.
 #
 # Neither function re-emits `rx.el.style(theme.GLOBAL_CSS)` the way `index()`
 # does: `admin_page()` already carries it, and a second copy on the page is what
@@ -69,7 +69,7 @@ def admin_register_page() -> rx.Component:
 
 
 def admin_summary_page() -> rx.Component:
-    return admin_page(rx.fragment(), VIEW_SUMMARY)
+    return admin_page(summary(), VIEW_SUMMARY)
 
 
 # Radix resolves its own colour tokens from the theme's appearance, and Reflex
