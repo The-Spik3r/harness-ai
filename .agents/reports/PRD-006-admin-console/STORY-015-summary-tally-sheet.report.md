@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-015-summary-tally-sheet.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: d8a9a9d
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-015-summary-tally-sheet.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `d8a9a9d`
 
 ## Summary
 

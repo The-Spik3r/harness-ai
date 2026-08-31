@@ -12,7 +12,7 @@ labels: [ui, reflex, component, design, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-015-summary-tally-sheet.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-015-summary-tally-sheet.report.md
-commit: null
+commit: d8a9a9d
 depends_on: [STORY-002, STORY-004, STORY-007, STORY-008, STORY-009, STORY-010]
 blocks: [STORY-016, STORY-018]
 skills: [frontend-design, reflex-docs]
