@@ -3,7 +3,7 @@ story: STORY-017
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-017-refresh-and-fault-panel.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: 3a64c47
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-017-refresh-and-fault-panel.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `3a64c47`
 
 ## Summary
 

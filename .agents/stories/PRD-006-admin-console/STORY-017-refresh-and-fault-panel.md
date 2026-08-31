@@ -12,7 +12,7 @@ labels: [ui, component, resilience, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-017-refresh-and-fault-panel.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-017-refresh-and-fault-panel.report.md
-commit: null
+commit: 3a64c47
 depends_on: [STORY-004, STORY-008, STORY-011, STORY-015]
 blocks: [STORY-019, STORY-020]
 skills: [frontend-design, reflex-docs]
