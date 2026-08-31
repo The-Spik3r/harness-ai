@@ -213,12 +213,174 @@ def _view_link(view: str, label: str, href: str, active: str) -> rx.Component:
     )
 
 
+def refresh_control() -> rx.Component:
+    """The console's one read action, and the only place it is declared.
+
+    **One name, three tenses.** `REFRESH_LABEL` here, `REFRESH_IN_FLIGHT_LABEL`
+    while the read is out, and `AdminState.refreshed_stamp`'s *Refreshed
+    {time}* after it lands — the frontend-design skill's "an action keeps the
+    same name through the whole flow", which PRD-006 Section 6.1 applies to this
+    control by name. The fault panel's retry is this same function rather than a
+    second button, for the reason `register.py:_no_matches` reuses
+    `_clear_control()`: one action gets one name, one handler and one
+    definition.
+
+    **The handler is bound, never called.** `AdminState.load` is a background
+    event (`@rx.event(background=True)`), and Reflex documents that such a
+    handler cannot be invoked from another handler — it is triggered by being
+    returned, yielded, or, as here, attached to an event trigger. That is why
+    `authenticate()` *returns* `AdminState.load` while this passes it to
+    `on_click`.
+
+    **`disabled` is the affordance, not the guard.** It locks the control for
+    the read's duration (PRD-006 Section 4), and `load()` independently refuses
+    a second in-flight read. The lock lifting again is STORY-004's `finally`,
+    which clears `loading` on the failing path too — PRD-004 Risk 3, a flag
+    stranded True being exactly how a refresh control locks forever.
+
+    The pulsing glyph is the console's **sole** moving element (PRD-006 Section
+    6.1). It reuses the chat's `.hx-pulse` class rather than declaring a second
+    animation, which is also how `prefers-reduced-motion` is honoured: the
+    opt-out is already written in `theme.GLOBAL_CSS`, and this page carries that
+    stylesheet through `admin_page()`.
+    """
+    return rx.el.button(
+        rx.cond(
+            AdminState.loading,
+            rx.hstack(
+                rx.box(
+                    class_name="hx-pulse",
+                    width=theme.GLYPH,
+                    height=theme.GLYPH,
+                    flex_shrink="0",
+                    border_radius="1px",
+                    background_color=theme.MUTE,
+                ),
+                rx.box(admin_copy.REFRESH_IN_FLIGHT_LABEL),
+                align="center",
+                spacing="2",
+            ),
+            rx.box(admin_copy.REFRESH_LABEL),
+        ),
+        on_click=AdminState.load,
+        disabled=AdminState.loading,
+        # Explicit, like sign out's: an unqualified <button> defaults to submit.
+        type="button",
+        cursor="pointer",
+        background="none",
+        border="none",
+        padding="0",
+        font_family=theme.FONT_DISPLAY,
+        font_size=theme.TEXT_DATA,
+        color=theme.MUTE,
+        text_decoration="underline",
+        text_underline_offset="3px",
+        _hover={"color": theme.INK},
+        _disabled={"opacity": "0.35", "cursor": "not-allowed"},
+    )
+
+
+def refreshed_stamp() -> rx.Component:
+    """*Refreshed 14:22:07* — the line the control produces, wherever a view
+    states its scope.
+
+    Declared in the shell because both views carry it and neither may reach into
+    the other (`summary.py:_empty_summary` records that rule). The shell is
+    their frame rather than a third sibling, so one definition here is what keeps
+    the register's line and the summary's line the same line.
+
+    `FONT_DATA`, not the reading face: it is a timestamp, and PRD-006 Section 6.1
+    reserves `FONT_BODY` for the two or three lines that state a scope in prose.
+
+    The sentence itself — including the *Not read yet* case before the first
+    read — is `AdminState.refreshed_stamp`, composed in Python where the format
+    string can run.
+    """
+    return rx.box(
+        AdminState.refreshed_stamp,
+        font_family=theme.FONT_DATA,
+        font_size=theme.TEXT_DATA,
+        color=theme.MUTE,
+    )
+
+
+def fault_panel() -> rx.Component:
+    """A read that raised, named — never a silently empty table.
+
+    PRD-006 Section 4's requirement, and the half `AdminState.register_state`
+    and `AdminState.summary_state` were written to expect: both test `error`
+    first and both render *the data* in that arm, so this panel hangs above rows
+    and figures that are still standing. `FAULT_MESSAGE_TEMPLATE` promises
+    exactly that — "Nothing on screen has changed" — and the promise is only
+    true because `load()` commits in one block, so a read that fails on the
+    eighth of ten writes nothing.
+
+    The copy names the read that failed and gives the action, and it does not
+    apologise: the frontend-design skill's "errors don't apologize, and they are
+    never vague about what happened". Every word is `admin_copy`'s, including the
+    ten read labels `load()` formats into it.
+
+    The retry is `refresh_control()` itself. A second button with a second label
+    for one action is the drift the skill's consistency rule rules out, and
+    `register.py:_no_matches` sets the precedent by reusing the filter strip's
+    own clear control.
+
+    Rendered on `PAPER` with a hairline under it — no card, no fill, no tint, no
+    accent, and **no colour at all**.
+
+    It carried an `INK_FAULT` mark in the register's stamp shape until the
+    STORY-017 critique pass, and the mark is gone deliberately. PRD-006 Section
+    6.1 spends the console's boldness in one place — the stamp margin, where a
+    mark means *this row is an exception* and a hundred rows resolve into a
+    stripe of them. The same shape on something that is not a row spends that
+    vocabulary somewhere it says nothing new: the words already state that the
+    read failed, and the margin's mark is worth less the moment it appears
+    outside the margin. Everything around the signature stays hairlines and
+    alignment, and this panel is around it.
+    """
+    return rx.cond(
+        AdminState.error != "",
+        rx.vstack(
+            rx.box(
+                admin_copy.FAULT_TITLE,
+                font_family=theme.FONT_DISPLAY,
+                font_size=theme.TEXT_BODY,
+                font_weight="600",
+                color=theme.INK,
+            ),
+            rx.box(
+                AdminState.error,
+                font_family=theme.FONT_BODY,
+                font_size=theme.TEXT_DATA,
+                line_height="1.6",
+                color=theme.MUTE,
+                max_width=theme.MEASURE,
+            ),
+            rx.box(refresh_control(), margin_top="0.25rem"),
+            spacing="1",
+            align="start",
+            min_width="0",
+            width="100%",
+            padding="0.9rem 1.5rem",
+            border_bottom=f"1px solid {theme.RULE}",
+            flex_shrink="0",
+            custom_attrs={"role": "alert"},
+        ),
+        rx.fragment(),
+    )
+
+
 def admin_masthead(active: str) -> rx.Component:
-    """The console header: wordmark, the two-view switch, sign out.
+    """The console header: wordmark, the two-view switch, refresh, sign out.
 
     PRD-006 Section 6.1: "one column, no sidebar. The two views are peers
     reached from a rule-separated switch in the header, because there are
     exactly two and a sidebar for two destinations is furniture."
+
+    Refresh takes the same rule-separated slot the switch and sign out take, so
+    the header reads as three clusters rather than as a toolbar. The line it
+    produces — `refreshed_stamp()` — is not here: PRD-006 Section 6.1's wireframe
+    puts it at the foot of each view's scope column, beside the window it stamps.
 
     The rules are `border_left`, the same way `shell.py` states one twice — not
     a "|" character, which would be a user-facing string with no home in
@@ -263,6 +425,12 @@ def admin_masthead(active: str) -> rx.Component:
                 ),
                 align="center",
                 spacing="0",
+            ),
+            rx.box(
+                refresh_control(),
+                padding_left="1rem",
+                margin_left="0.25rem",
+                border_left=f"1px solid {theme.RULE}",
             ),
             rx.box(
                 rx.el.button(
@@ -319,6 +487,16 @@ def admin_page(content: rx.Component, active: str) -> rx.Component:
     scrollbar rail and the prefers-reduced-motion block onto an admin page,
     which is otherwise not reached by that stylesheet. STORY-010's page
     functions must not inject a second copy.
+
+    `fault_panel()` sits here, between the masthead and the content, rather than
+    inside `register()` and `summary()`. One call site, and each page still
+    carries its own instance — which is what PRD-006's "both pages render the
+    panel independently" asks for, on the same reasoning the gate condition is
+    per-page. It is above the view rather than inside it because a failed read is
+    a fact about the whole screen, and an admin should meet it before reaching
+    the filter controls. Neither view's `rx.match` arms change: both already
+    render their data in the fault arm, which is what leaves the record standing
+    underneath this panel.
     """
     return rx.fragment(
         rx.el.style(theme.GLOBAL_CSS),
@@ -326,6 +504,7 @@ def admin_page(content: rx.Component, active: str) -> rx.Component:
             AdminState.authenticated,
             rx.vstack(
                 admin_masthead(active),
+                fault_panel(),
                 content,
                 height="100vh",
                 width="100%",

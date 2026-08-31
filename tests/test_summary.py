@@ -322,6 +322,20 @@ def test_the_sheet_never_says_success_rate(probe):
     assert "success rate" not in probe["rendered"].lower()
 
 
+def test_the_refreshed_stamp_sits_under_the_scope_note(probe, source):
+    """STORY-017, AC 1. The sheet's counterpart to the register's scope column:
+    the window is stated, then how fresh it is.
+
+    The component is `admin_shell.refreshed_stamp()`, not a second declaration
+    here — the two views state the refresh identically without either reaching
+    into the other.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "refreshed_stamp" in probe["rendered"]
+    assert "refreshed_stamp()" in source
+    assert "def refreshed_stamp" not in source
+
+
 def test_the_scope_note_states_the_two_windows(probe):
     """AC 4 and PRD-006 Risk 4: the sheet names the difference between its
     all-time totals and the register's window, rather than leaving 3,180 beside

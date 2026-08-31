@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "4 - Hardening"
-status: todo
+status: done
 labels: [ui, component, resilience, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-017-refresh-and-fault-panel.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-017-refresh-and-fault-panel.report.md
 commit: null
 depends_on: [STORY-004, STORY-008, STORY-011, STORY-015]
 blocks: [STORY-019, STORY-020]
 skills: [frontend-design, reflex-docs]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-017: Manual refresh with a last-refreshed stamp, and a fault panel with retry on both pages

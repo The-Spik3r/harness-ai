@@ -42,6 +42,10 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from chat_ui.chat_ui import admin_copy, theme  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
 
@@ -70,7 +74,40 @@ COPY_NAMES = (
     "GATE_BODY",
     "GATE_PLACEHOLDER",
     "GATE_SUBMIT_LABEL",
+    # STORY-017: the refresh cluster and the fault panel.
+    "REFRESH_LABEL",
+    "REFRESH_IN_FLIGHT_LABEL",
+    "FAULT_TITLE",
 )
+
+# The admin modules, globbed the way tests/test_admin_palette.py globs them: a
+# later story adding one must not have to remember this file.
+ADMIN_MODULE_PATTERNS = (
+    "chat_ui/chat_ui/admin_*.py",
+    "chat_ui/chat_ui/components/admin_*.py",
+    "chat_ui/chat_ui/components/register.py",
+    "chat_ui/chat_ui/components/summary.py",
+)
+
+# PRD-006 Section 4, out of scope, verbatim: "Auto-refresh, polling, or push
+# updates — refresh is a deliberate action." Each of these is a way to make the
+# console read on its own; none may appear in an admin module.
+AUTO_REFRESH_MARKERS = (
+    "on_mount",
+    "setInterval",
+    "set_interval",
+    "rx.moment",
+    "interval=",
+    "asyncio.sleep",
+)
+
+# PRD-006 Section 6.1: the loading indicator is "the sole moving element", and
+# it reuses the chat's class rather than declaring a second animation.
+MOTION_MARKERS = ("@keyframes", "animation:", "animation=")
+
+# The frontend-design skill, verbatim: "errors don't apologize, and they are
+# never vague about what happened."
+APOLOGY_WORDS = ("sorry", "apolog", "oops", "unfortunately", "whoops", "please try")
 
 # Module paths an admin component may never import (PRD-006 Section 4). Written
 # as dotted paths, not bare words: "chat" alone appears inside "chat_ui" on every
@@ -82,6 +119,13 @@ FORBIDDEN_IMPORTS = (
     "components import bubbles",
     "bubbles",
 )
+
+def _admin_modules() -> list[Path]:
+    found: list[Path] = []
+    for pattern in ADMIN_MODULE_PATTERNS:
+        found.extend(sorted(REPO_ROOT.glob(pattern)))
+    return found
+
 
 # --- STORY-010: registration -----------------------------------------------
 
@@ -120,6 +164,9 @@ try:
         admin_gate,
         admin_masthead,
         admin_page,
+        fault_panel,
+        refresh_control,
+        refreshed_stamp,
     )
 except Exception as exc:
     print(json.dumps({"errors": ["import: {}: {}".format(type(exc).__name__, exc)]}))
@@ -142,6 +189,9 @@ factories = [
     ("admin_masthead(summary)", lambda: admin_masthead(VIEW_SUMMARY)),
     ("admin_page(register)", lambda: admin_page(rx.box("x"), VIEW_REGISTER)),
     ("admin_page(summary)", lambda: admin_page(rx.box("x"), VIEW_SUMMARY)),
+    ("refresh_control", lambda: refresh_control()),
+    ("refreshed_stamp", lambda: refreshed_stamp()),
+    ("fault_panel", lambda: fault_panel()),
 ]
 built = {}
 for name, factory in factories:
@@ -178,6 +228,13 @@ result["masthead_words"] = {
         and admin_copy.CONSOLE_TITLE in summary_masthead
     ),
 }
+
+# STORY-017's three components, and both pages, as compiled strings.
+result["control"] = built.get("refresh_control", "")
+result["stamp"] = built.get("refreshed_stamp", "")
+result["panel"] = built.get("fault_panel", "")
+result["page_register"] = page
+result["page_summary"] = built.get("admin_page(summary)", "")
 
 result["routes"] = {"ROUTE_REGISTER": ROUTE_REGISTER, "ROUTE_SUMMARY": ROUTE_SUMMARY}
 result["views"] = {"VIEW_REGISTER": VIEW_REGISTER, "VIEW_SUMMARY": VIEW_SUMMARY}
@@ -353,6 +410,166 @@ def test_shell_sets_no_focus_reset(source):
     for killer in ("outline", "box_shadow"):
         assert f'"{killer}": "none"' not in source, killer
     assert "outline=\"none\"" not in source
+
+
+# --- STORY-017: refresh and the fault panel -------------------------------
+# The control, the line it produces and the panel that offers it again. The
+# state behind all three is STORY-004's and is asserted in
+# tests/test_admin_state.py; what is asserted here is that it reaches the screen
+# on both pages, that the control locks, and that nothing on this surface moves
+# except the one indicator.
+
+
+def test_the_refresh_control_reaches_both_pages(probe):
+    """AC 1, the control's half. It is declared once and called from the
+    masthead, which every page goes through, so each page carries its own
+    instance rather than sharing one.
+
+    The *line* it produces is asserted in `tests/test_register.py` and
+    `tests/test_summary.py`: PRD-006 Section 6.1's wireframe puts the stamp at
+    the foot of each view's scope column, beside the window it stamps, not in
+    the header.
+    """
+    assert not probe["errors"], probe["errors"]
+    for page in ("page_register", "page_summary"):
+        assert admin_copy.REFRESH_LABEL in probe[page], page
+
+
+def test_the_control_and_the_line_share_one_verb(probe):
+    """AC 1, and the frontend-design skill's "an action keeps the same name
+    through the whole flow": Refresh -> Refreshing -> Refreshed.
+
+    Read off the constants rather than the rendered page, so a reworded control
+    that left its line behind fails here rather than on screen.
+    """
+    stem = admin_copy.REFRESH_LABEL.lower()[:7]
+    assert admin_copy.REFRESH_IN_FLIGHT_LABEL.lower().startswith(stem)
+    assert admin_copy.REFRESHED_TEMPLATE.lower().startswith(stem)
+
+
+def test_the_stamp_binds_the_state_var_and_not_a_formatted_string(probe):
+    """The line is composed in Python (`AdminState.refreshed_stamp`), because
+    `REFRESHED_TEMPLATE` is a format string and components receive Vars."""
+    assert not probe["errors"], probe["errors"]
+    assert "refreshed_stamp" in probe["stamp"]
+
+
+def test_the_control_locks_for_the_duration_of_a_read(probe):
+    """AC 2. `disabled` is bound to the same flag `load()` sets, so the lock and
+    the read cannot disagree."""
+    assert not probe["errors"], probe["errors"]
+    assert "loading" in probe["control"]
+    assert "disabled" in probe["control"]
+
+
+def test_the_control_shows_an_indicator_while_the_read_is_out(probe):
+    """AC 2's second half: the label states the tense and one glyph pulses."""
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.REFRESH_IN_FLIGHT_LABEL in probe["control"]
+    assert "hx-pulse" in probe["control"]
+
+
+def test_the_panel_names_the_read_and_offers_the_retry(probe):
+    """AC 3. The sentence is `AdminState.error`, which `load()` builds from
+    FAULT_MESSAGE_TEMPLATE and the failing read's label."""
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.FAULT_TITLE in probe["panel"]
+    assert "error" in probe["panel"]
+    assert admin_copy.REFRESH_LABEL in probe["panel"]
+
+
+def test_the_retry_is_the_refresh_control_itself(source):
+    """AC 4, and the skill's consistency rule: one action, one name, one
+    handler. Two call sites would be two buttons; two `on_click` sites would be
+    two ways to start a read."""
+    assert source.count("on_click=AdminState.load") == 1
+    assert source.count("def refresh_control") == 1
+    # Called as an argument exactly twice: once by the masthead, once by the
+    # panel. Counted with the trailing comma so the prose in the docstrings,
+    # which names the function too, is not counted as a call site.
+    assert source.count("refresh_control(),") == 2
+
+
+def test_each_page_renders_its_own_panel(probe):
+    """AC 7. Not a shared instance reached from one view: both pages compile the
+    panel, so the fault path on either renders independently."""
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.FAULT_TITLE in probe["page_register"]
+    assert admin_copy.FAULT_TITLE in probe["page_summary"]
+
+
+def test_the_panel_does_not_apologise(probe):
+    """AC 5, the frontend-design skill verbatim: "errors don't apologize, and
+    they are never vague about what happened."""
+    assert not probe["errors"], probe["errors"]
+    lowered = probe["panel"].lower()
+    for word in APOLOGY_WORDS:
+        assert word not in lowered, word
+    # And it is not vague: the sentence names a read and states the action.
+    assert "{read}" in admin_copy.FAULT_MESSAGE_TEMPLATE
+    assert admin_copy.REFRESH_LABEL in admin_copy.FAULT_MESSAGE_TEMPLATE
+
+
+def test_the_panel_paints_no_verdict_ink(probe):
+    """The STORY-017 critique pass, pinned.
+
+    PRD-006 Section 6.1 gives each of the four inks exactly one job — a verdict
+    on a register row — and spends the console's boldness on the stamp margin,
+    where a mark means "this row is an exception". The panel briefly carried an
+    `INK_FAULT` mark in that same shape; it was cut, because the same device
+    outside the margin spends the margin's meaning without adding a fact the
+    words do not already state. This keeps it cut.
+    """
+    assert not probe["errors"], probe["errors"]
+    for name in ("INK_CLEAR", "INK_HELD", "INK_DENIED", "INK_FAULT"):
+        assert getattr(theme, name).upper() not in probe["panel"].upper(), name
+
+
+def test_the_indicator_is_the_only_moving_element(source):
+    """AC 6, first half. The pulse is the chat's existing class, so the console
+    declares no animation of its own — and therefore cannot declare one that the
+    reduced-motion block does not already cover."""
+    for marker in MOTION_MARKERS:
+        assert marker not in source, marker
+    assert source.count('class_name="hx-pulse"') == 1
+
+
+@pytest.mark.parametrize(
+    "module", sorted(str(p) for p in _admin_modules()), ids=lambda p: Path(p).name
+)
+def test_no_admin_module_declares_its_own_animation(module):
+    """AC 6 across the console, not just the shell."""
+    text = Path(module).read_text(encoding="utf-8")
+    for marker in MOTION_MARKERS:
+        assert marker not in text, (module, marker)
+
+
+def test_reduced_motion_covers_the_indicator():
+    """AC 6, second half. The opt-out is `theme.GLOBAL_CSS`'s, which
+    `admin_page()` injects onto every console page — asserted by reading the
+    stylesheet rather than by trusting that it was inherited."""
+    css = theme.GLOBAL_CSS
+    block = css.split("@media (prefers-reduced-motion: reduce)", 1)
+    assert len(block) == 2, "the reduced-motion block is gone"
+    opt_out = block[1].split("}}", 1)[0] if "}}" in block[1] else block[1]
+    assert "hx-pulse" in opt_out
+    assert "animation: none" in opt_out
+
+
+@pytest.mark.parametrize(
+    "module", sorted(str(p) for p in _admin_modules()), ids=lambda p: Path(p).name
+)
+def test_no_admin_module_refreshes_itself(module):
+    """AC 8, and PRD-006 Section 4's out-of-scope list: "Auto-refresh, polling,
+    or push updates — refresh is a deliberate action."
+
+    The companion to `test_no_console_view_loads_on_page_load`, which covers the
+    `on_load` route. This covers the component and state routes: a mount hook, a
+    timer, or a sleep loop that would read again without anyone asking.
+    """
+    text = Path(module).read_text(encoding="utf-8")
+    for marker in AUTO_REFRESH_MARKERS:
+        assert marker not in text, (module, marker)
 
 
 # --- STORY-010: the registration probe ------------------------------------

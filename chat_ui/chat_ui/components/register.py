@@ -102,6 +102,7 @@ from chat_ui.admin_state import (
     SORT_VERDICT,
     AdminState,
 )
+from chat_ui.components.admin_shell import refreshed_stamp
 
 # The nine columns, in PRD-006 Section 4's order: the stamp margin, then
 # timestamp, user_id, verdict, model_used, tokens_used, PII, device, audit_id —
@@ -950,9 +951,11 @@ def _filter_strip() -> rx.Component:
     that second row — the wireframe places neither, and a third row for three
     words would push the table down for nothing.
 
-    The left column deliberately holds **only** the two scope statements. The
-    wireframe's "Refreshed 14:22:07" belongs at the foot of that column and is
-    STORY-017's; the slot is left free rather than filled here.
+    The left column holds the two scope statements and, at its foot, the
+    refreshed stamp — the position PRD-006 Section 6.1's wireframe draws it in,
+    directly under the window it stamps. The stamp itself is `admin_shell`'s, so
+    the register and the summary state the refresh in one voice without either
+    view reaching into the other; this file supplies the slot, not the line.
 
     `wrap="wrap"` on both flex rows is the whole narrow-viewport answer, the
     same move `admin_shell.py:admin_masthead` makes on the header: the clusters
@@ -962,6 +965,7 @@ def _filter_strip() -> rx.Component:
         rx.vstack(
             _scope_line(),
             _filtered_line(),
+            refreshed_stamp(),
             spacing="1",
             align="start",
             min_width="0",

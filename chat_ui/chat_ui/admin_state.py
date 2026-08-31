@@ -65,7 +65,9 @@ from .admin_copy import (
     FILTER_DESCRIPTION_VERDICT_JOIN,
     FILTER_DESCRIPTION_VERDICT_TEMPLATE,
     GATE_REFUSED_MESSAGE,
+    NEVER_REFRESHED_LABEL,
     RANKED_CUT_TEMPLATE,
+    REFRESHED_TEMPLATE,
     REGISTER_FILTERED_TEMPLATE,
     REGISTER_SCOPE_TEMPLATE,
     SHARE_TEMPLATE,
@@ -647,6 +649,43 @@ class AdminState(rx.State):
             shown=format_count(len(self.visible_rows)),
             loaded=format_count(len(self.rows)),
         )
+
+    # --- Refresh (STORY-017) ----------------------------------------------
+
+    @rx.var
+    def refreshed_stamp(self) -> str:
+        """"Refreshed 2026-08-31 14:22:07 UTC" — the line the control produces.
+
+        One verb across the whole flow, per the frontend-design skill's "an
+        action keeps the same name through the whole flow": the control says
+        **Refresh**, the in-flight state says *Refreshing*, and this says
+        *Refreshed*. All three words are `admin_copy`'s, and none of them is
+        typed in a component.
+
+        **A var and not a string built in the component**, for the reason
+        `register_scope` and `register_filtered` above both record:
+        `REFRESHED_TEMPLATE` is a Python format string and component functions
+        receive Reflex Vars, which it cannot run against.
+
+        **Computed rather than declared**, which is the load-bearing half.
+        `sign_out()` is `reset()`, and
+        `tests/test_admin_state.py::test_sign_out_clears_every_declared_var`
+        iterates `base_vars` — a declared field holding a formatted stamp would
+        restore to a *truthy* default or, worse, survive as the time of a read
+        whose rows have just been cleared. Computed, it reads the cleared
+        `last_refreshed` and states that nothing has been read yet.
+
+        The never-read case is a stated fact, not a blank: `last_refreshed` is
+        empty until `load()` commits, and an empty slot beside the control reads
+        as a broken control rather than as an honest "not yet".
+
+        `self.last_refreshed` is read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records, so the line advances the
+        moment a read commits.
+        """
+        if not self.last_refreshed:
+            return NEVER_REFRESHED_LABEL
+        return REFRESHED_TEMPLATE.format(time=self.last_refreshed)
 
     # --- The summary sheet (STORY-015) ------------------------------------
     # Five vars, not one, and that is the sheet's structure rather than an

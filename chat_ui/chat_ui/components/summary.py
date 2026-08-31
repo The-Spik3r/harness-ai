@@ -71,6 +71,7 @@ from chat_ui.admin_state import (
     SUMMARY_STATE_FIGURES,
     AdminState,
 )
+from chat_ui.components.admin_shell import refreshed_stamp
 
 # The sheet is read down its left edge like the register, and its values are
 # compared down its right one. Bounded so a wide window does not strand the
@@ -435,10 +436,17 @@ def summary() -> rx.Component:
 
     The sheet is width-bounded rather than centred: the console is read down its
     left edge, and a centred column would be a card without a border.
+
+    The refreshed stamp sits under the scope note, which is this sheet's
+    counterpart to the register's scope column — the same reading order, the same
+    line. It is `admin_shell`'s component rather than a second declaration here,
+    so the two views state the refresh identically without either reaching into
+    the other, and the verb stays the control's.
     """
     return rx.vstack(
         rx.box(
             _scope_note(),
+            rx.box(refreshed_stamp(), margin_top="0.35rem"),
             _sheet_body(),
             max_width=_SHEET_MAX,
             width="100%",

@@ -79,7 +79,9 @@ from chat_ui.chat_ui.admin_copy import (
     FILTER_DESCRIPTION_JOIN,
     FILTER_DESCRIPTION_SEARCH_TEMPLATE,
     FILTER_DESCRIPTION_VERDICT_JOIN,
+    NEVER_REFRESHED_LABEL,
     RANKED_CUT_TEMPLATE,
+    REFRESHED_TEMPLATE,
     REGISTER_SCOPE_TEMPLATE,
     SHARE_TEMPLATE,
     SUMMARY_SCOPE_ALL_TIME,
@@ -661,6 +663,123 @@ async def test_a_recovered_read_clears_the_fault(configured_token, monkeypatch):
     assert state.error == ""
     assert len(state.rows) == 3
     assert state.last_refreshed.endswith(" UTC")
+
+
+# --- The refreshed stamp (STORY-017) -------------------------------------
+# The line the Refresh control produces. Asserted against the constants, never
+# against a retyped literal: the point of the copy module is that a reworded
+# stamp is one edit, and a test carrying its own copy of the words would make it
+# two.
+
+
+def test_the_stamp_states_that_nothing_has_been_read_yet(configured_token):
+    """A blank slot beside the control reads as a broken control. Before the
+    first read the line says so instead."""
+    state = _state()
+
+    assert state.last_refreshed == ""
+    assert state.refreshed_stamp == NEVER_REFRESHED_LABEL
+
+
+def test_the_stamp_carries_the_time_of_the_read(configured_token):
+    """AC 1: the control says Refresh and the line says Refreshed — one verb,
+    and the same word in both, which is why both read from admin_copy."""
+    state = _state()
+    state.last_refreshed = "2026-08-31 14:22:07 UTC"
+
+    assert state.refreshed_stamp == REFRESHED_TEMPLATE.format(
+        time="2026-08-31 14:22:07 UTC"
+    )
+    assert "2026-08-31 14:22:07 UTC" in state.refreshed_stamp
+
+
+def test_the_stamp_is_computed_so_a_sign_out_clears_it(configured_token):
+    """`sign_out()` is `reset()`, which restores declared vars. A declared stamp
+    would survive as the time of a read whose rows have just been cleared; a
+    computed one reads the cleared `last_refreshed` and states the truth."""
+    state = _state()
+    _authenticate(state, configured_token)
+    state.last_refreshed = "2026-08-31 14:22:07 UTC"
+    assert state.refreshed_stamp != NEVER_REFRESHED_LABEL
+
+    _sign_out(state)
+
+    assert state.refreshed_stamp == NEVER_REFRESHED_LABEL
+    # The mechanism, stated: it is not a declared var, so there is nothing for
+    # reset() to restore and nothing to survive the sign-out.
+    assert "refreshed_stamp" not in AdminState.base_vars
+    assert "refreshed_stamp" in AdminState.computed_vars
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_does_not_advance_the_stamp(
+    configured_token, monkeypatch
+):
+    """AC 3: the fault panel promises "Nothing on screen has changed", and a
+    stamp that advanced on a read that never landed would break that promise on
+    the one line whose whole job is to say how fresh the record is."""
+    state = _state()
+    _authenticate(state, configured_token)
+    _Reads(monkeypatch).install()
+    await _load(state)
+    stamped = state.refreshed_stamp
+
+    _Reads(monkeypatch, failing="top_users").install()
+    await _load(state)
+
+    assert state.error
+    assert state.refreshed_stamp == stamped
+
+
+@pytest.mark.asyncio
+async def test_the_retry_clears_the_fault_and_advances_the_stamp(
+    configured_token, monkeypatch
+):
+    """AC 4 at the state layer: the panel's retry is `load()`, and a successful
+    one must both clear the panel and move the line the panel stands over.
+
+    The clock is patched so "advanced" is an assertion rather than a race — two
+    reads inside the same second would otherwise stamp identically and pass this
+    test for the wrong reason.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    _Reads(monkeypatch).install()
+
+    # Three reads, three clock values: the good one, the one that raises (which
+    # reads the clock before it fails, and must not stamp with it), the retry.
+    clock = iter(
+        [
+            datetime(2026, 8, 31, 14, 22, 7, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 14, 25, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 14, 31, 40, tzinfo=timezone.utc),
+        ]
+    )
+
+    class _Clock:
+        @staticmethod
+        def now(tz=None):
+            return next(clock)
+
+    monkeypatch.setattr(_admin_state_module, "datetime", _Clock)
+
+    await _load(state)
+    first = state.refreshed_stamp
+    assert state.error == ""
+
+    _Reads(monkeypatch, failing="rows").install()
+    await _load(state)
+    assert state.error
+    assert state.refreshed_stamp == first
+
+    # The retry: the same handler the panel's control is bound to.
+    _Reads(monkeypatch).install()
+    await _load(state)
+
+    assert state.error == ""
+    assert len(state.rows) == 3
+    assert state.refreshed_stamp != first
+    assert "14:31:40" in state.refreshed_stamp
 
 
 @pytest.mark.asyncio

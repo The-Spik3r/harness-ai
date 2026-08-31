@@ -820,6 +820,23 @@ def test_the_filter_strip_carries_both_filters(probe):
     assert admin_copy.FILTER_SEARCH_PLACEHOLDER in probe["rendered"]
 
 
+def test_the_refreshed_stamp_sits_at_the_foot_of_the_scope_column(probe, source):
+    """STORY-017, AC 1. PRD-006 Section 6.1's wireframe puts "Refreshed
+    14:22:07" directly under the window it stamps, and `_filter_strip` left that
+    slot free for it.
+
+    The line itself is `admin_shell.refreshed_stamp()` — one declaration for both
+    views, so the register and the summary state the refresh in one voice. What
+    is asserted here is that it reaches this surface, and that this file did not
+    re-declare it.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "refreshed_stamp" in probe["strip"]
+    assert "refreshed_stamp" in probe["rendered"]
+    assert "refreshed_stamp()" in source
+    assert "def refreshed_stamp" not in source
+
+
 def test_the_verdict_filter_writes_the_state_handler(probe):
     """AC 2: a toggle is an event on `AdminState`, and the narrowing is the
     computed var — so no database call is reachable from a chip."""
