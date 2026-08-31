@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/20 stories done — 60%
+13/20 stories done — 65%
 
 ## Stories
 
@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 | STORY-010 | Register /admin, /admin/audit and /admin/stats without touching a reserved route | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md) | `b030618` |
 | STORY-011 | register.py: the audit table, the verdict column and the stamp margin | feature | ✅ done | large | [plan](../../plans/PRD-006-admin-console/completed/STORY-011-register-table-stamp-margin.plan.md) | `9228979` |
 | STORY-012 | Row detail disclosure: error_message, prompt_hash, PII entities, full User-Agent, pattern | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-012-row-detail-disclosure.plan.md) | `0d1c15b` |
-| STORY-013 | Verdict multi-select, free-text filter and sort controls on the register | feature | ⬜ todo | medium | — | — |
+| STORY-013 | Verdict multi-select, free-text filter and sort controls on the register | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-013-filter-and-sort-controls.plan.md) | `PENDING` |
 | STORY-014 | Three distinct register states: nothing recorded, nothing matching, rows shown | feature | ⬜ todo | small | — | — |
 | STORY-015 | summary.py: nine StatsResponse figures as a ruled tally sheet with stated scopes | feature | ⬜ todo | large | — | — |
 | STORY-016 | Copy test pinning the completion label so it cannot regress to "success rate" | technical | ⬜ todo | small | — | — |

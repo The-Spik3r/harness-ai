@@ -51,6 +51,7 @@ from app.db.database import (
 
 from .admin_copy import (
     GATE_REFUSED_MESSAGE,
+    REGISTER_FILTERED_TEMPLATE,
     REGISTER_SCOPE_TEMPLATE,
     READ_LABEL_BLOCKED_DUPLICATES,
     READ_LABEL_BLOCKED_SUSPICIOUS,
@@ -386,6 +387,40 @@ class AdminState(rx.State):
         return REGISTER_SCOPE_TEMPLATE.format(
             shown=format_count(len(self.rows)),
             total=format_count(self.total_recorded),
+        )
+
+    @rx.var
+    def register_filtered(self) -> str:
+        """"12 of 100 shown" — how much of the loaded window survived the filter.
+
+        **A second statement, not a replacement for the first.** `admin_copy`
+        draws the line at the constant itself: "the scope states the window,
+        this states how much of the window survived the filter". So the
+        denominator here is `len(self.rows)` — the loaded window — where
+        `register_scope`'s is `total_recorded`, the whole table. Collapsing the
+        two would leave the scope line moving when an admin types, and the
+        window is not what changed (PRD-006 Risk 4, and AC 4's "distinct from
+        the '100 most recent of {total}' scope line").
+
+        **A computed var rather than a string built in the component**, for the
+        reason `register_scope` above records and `admin_formatting`'s docstring
+        states generally: `REGISTER_FILTERED_TEMPLATE` is a Python format string
+        and `format_count` is Python-side thousands separation, and component
+        functions receive Reflex Vars — JS references — which neither can run
+        against.
+
+        This computes no filter. `visible_rows` is STORY-005's var and is read
+        here, not recomputed; the register's narrowing logic stays where that
+        story put it.
+
+        Both dependencies are read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records — and reading
+        `self.visible_rows` here makes this var depend transitively on all five
+        of its dependencies, so a toggled verdict updates this line too.
+        """
+        return REGISTER_FILTERED_TEMPLATE.format(
+            shown=format_count(len(self.visible_rows)),
+            loaded=format_count(len(self.rows)),
         )
 
     @rx.event

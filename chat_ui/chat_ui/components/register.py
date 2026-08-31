@@ -56,15 +56,25 @@ would be the frontend-design skill's "nothing quietly does double duty".
 `rx.el.details` and not `rx.accordion`, both of which exist in the pinned
 build. `rx.foreach` compiles to a `.map()` whose children are keyed by position,
 so a DOM-held open flag would reattach an open disclosure to whichever row
-landed in that slot once STORY-013's sort and filter move them — silent
-wrongness on an audit surface. `rx.accordion` additionally supplies colour at
-compile time, which is the failure `admin_shell.py:_view_link` records for
-`rx.link`'s Radix accent and which a source grep cannot see. The membership test
-is `Var.contains()`: `in` is not supported on Vars.
+landed in that slot once the sort and filter move them — silent wrongness on an
+audit surface. `rx.accordion` additionally supplies colour at compile time,
+which is the failure `admin_shell.py:_view_link` records for `rx.link`'s Radix
+accent and which a source grep cannot see. The membership test is
+`Var.contains()`: `in` is not supported on Vars.
 
-The filter and sort controls (STORY-013) and the three empty states (STORY-014)
-are not here. `register()` renders the table unconditionally; STORY-014 is what
-wraps it in the condition that chooses between it and an empty state.
+**The controls write state; they do not filter.** The verdict chips, the
+free-text field and the sort controls call `toggle_verdict`, `set_search` and
+`sort_by`, and the narrowing itself is `AdminState.visible_rows` — a
+synchronous computed var over rows already in state, so no control on this
+surface reaches the database (PRD-006 Section 6). They are built from plain
+buttons and one field rather than from a Radix group: the pinned build has no
+toggle group, `checkbox_group` is uncontrolled, and `segmented_control`'s only
+variants are fills carrying a compile-time accent, which Risk 6 rules out. The
+`_control_button` comment block records this in full.
+
+The three empty states (STORY-014) are not here. `register()` renders the table
+unconditionally; STORY-014 is what wraps it in the condition that chooses
+between it and an empty state.
 """
 
 import reflex as rx
@@ -77,7 +87,12 @@ from chat_ui.admin_formatting import (
     VERDICT_FAULT,
     VERDICT_HELD,
 )
-from chat_ui.admin_state import AdminState
+from chat_ui.admin_state import (
+    SORT_TIMESTAMP,
+    SORT_USER,
+    SORT_VERDICT,
+    AdminState,
+)
 
 # The nine columns, in PRD-006 Section 4's order: the stamp margin, then
 # timestamp, user_id, verdict, model_used, tokens_used, PII, device, audit_id —
@@ -551,6 +566,325 @@ def _column_head() -> rx.Component:
     )
 
 
+# --- The filter and sort controls ----------------------------------------
+# Every one of them is a plain <button> or a plain field. The pinned build has
+# no toggle group at all, `rx.checkbox_group.root` declares neither `value` nor
+# `on_change` (so it cannot be driven from `selected_verdicts`), and
+# `rx.segmented_control.root(type="multiple")` — which is controlled — has only
+# the "classic" and "surface" variants, both of them fills carrying a
+# `color_scheme` accent supplied at compile time. That is the failure
+# `admin_shell.py:_view_link` records for `rx.link` and this module's docstring
+# records for `rx.accordion`: a colour a source grep cannot see. PRD-006 Risk 6
+# rules fills and accents out, so the controls are built from the same
+# no-chrome button `_toggle_button` already uses.
+#
+# Its `on_change` would also hand over the whole selection as a list, where
+# `AdminState.toggle_verdict` takes one verdict — wiring it would mean adding a
+# handler to `admin_state.py`, and the state is STORY-005's, not this story's.
+
+
+def _control_label(label: str) -> rx.Component:
+    """The eyebrow over one cluster of controls.
+
+    `_head_cell`'s treatment without its `role="columnheader"`: both are
+    signposts set apart from what they label by size and case, but these label
+    controls rather than columns and claiming otherwise would put three
+    phantom columns into the table's ARIA structure.
+    """
+    return rx.box(
+        label,
+        font_family=theme.FONT_DISPLAY,
+        font_size=theme.TEXT_MICRO,
+        font_weight="600",
+        letter_spacing="0.1em",
+        text_transform="uppercase",
+        color=theme.MUTE,
+        flex_shrink="0",
+    )
+
+
+def _control_button(
+    *children, on_click, color: str, weight: str, attrs: dict, **props
+) -> rx.Component:
+    """One control in the strip, drawing no chrome of its own.
+
+    The single factory behind the verdict chips, the three sort controls and
+    the clear action, so the face and the reset are stated once. A real
+    `<button>`, which is the whole of the keyboard answer — it takes focus in
+    document order, fires on Enter and Space with no key handling here, and
+    takes its ring from `theme.GLOBAL_CSS`'s `:focus-visible`. No local
+    `outline` or `box_shadow` may take that back.
+
+    `type="button"` is explicit for the reason `admin_shell.py`'s sign-out
+    records: an unqualified <button> defaults to submit.
+
+    `**props` lands after `border`, so a caller's `border_bottom` wins over the
+    reset rather than being cancelled by it.
+    """
+    return rx.el.button(
+        *children,
+        on_click=on_click,
+        type="button",
+        cursor="pointer",
+        background="none",
+        border="none",
+        padding="0",
+        line_height="1.4",
+        font_family=theme.FONT_DISPLAY,
+        font_size=theme.TEXT_TAG,
+        color=color,
+        font_weight=weight,
+        custom_attrs=attrs,
+        **props,
+    )
+
+
+# Each verdict as (filter value, word on screen, ink). The value is the
+# formatter's key and the word is `admin_copy`'s label — the same separation
+# `_verdict_tag` keeps, so a chip can never disagree with the row it filters.
+# Built in Python because the four verdicts are plain strings, not Vars.
+_VERDICT_CHIPS = (
+    (VERDICT_CLEARED, admin_copy.VERDICT_CLEARED_LABEL, theme.INK_CLEAR),
+    (VERDICT_HELD, admin_copy.VERDICT_HELD_LABEL, theme.INK_HELD),
+    (VERDICT_DENIED, admin_copy.VERDICT_DENIED_LABEL, theme.INK_DENIED),
+    (VERDICT_FAULT, admin_copy.VERDICT_FAULT_LABEL, theme.INK_FAULT),
+)
+
+
+def _chip_button(key: str, label: str, ink: str, selected: bool) -> rx.Component:
+    """One verdict in the multi-select, in one of its two states.
+
+    The case split is `_tag`'s, applied here the same way and for the same
+    reason: `admin_copy` holds one lowercase label per verdict so the word
+    cannot arrive in two cases from two constants, and the treatment is what
+    marks an exception. A chip therefore reads as the row it isolates.
+
+    **Selection is marked without a fill** (PRD-006 Risk 6, and the story: the
+    chips "may carry their verdict ink as text, not as a fill"). Three
+    channels, none of them a ground: the verdict's ink replaces the mute, the
+    weight steps up, and a 2px rule in that same ink seats under the word.
+    `aria-pressed` is the fourth, for a reader that sees no colour at all.
+    """
+    exception = key != VERDICT_CLEARED
+    return _control_button(
+        label,
+        on_click=AdminState.toggle_verdict(key),
+        color=ink if selected else theme.MUTE,
+        weight="600" if selected else "500",
+        attrs={"aria-pressed": "true" if selected else "false"},
+        letter_spacing="0.08em" if exception else "0",
+        text_transform="uppercase" if exception else "none",
+        border_bottom=(f"2px solid {ink}" if selected else "2px solid transparent"),
+        padding_bottom="2px",
+        _hover={} if selected else {"color": theme.INK},
+    )
+
+
+def _verdict_filter() -> rx.Component:
+    """The verdict multi-select: four chips, any combination of them.
+
+    Both states of every chip are built, because the selected test is a Var and
+    the styling branches on it — the `_disclosure_toggle` pattern. `.contains()`
+    and not `in`: the `in` operator is not supported on Vars.
+
+    Toggling writes `AdminState.toggle_verdict` and nothing else. The narrowing
+    is `visible_rows`, a synchronous computed var over rows already in state, so
+    a toggle reaches no database (PRD-006 Section 6).
+    """
+    return rx.flex(
+        _control_label(admin_copy.FILTER_VERDICT_LABEL),
+        *[
+            rx.cond(
+                AdminState.selected_verdicts.contains(key),
+                _chip_button(key, label, ink, True),
+                _chip_button(key, label, ink, False),
+            )
+            for key, label, ink in _VERDICT_CHIPS
+        ],
+        align="center",
+        gap="0.75rem",
+        wrap="wrap",
+    )
+
+
+def _search_field() -> rx.Component:
+    """The free-text filter over `user_id` / `model_used` / `audit_id`.
+
+    This is the register's join back to the chat: the `#127` a user quotes out
+    of the success footer (PRD-004 STORY-010) resolves to its row by being typed
+    here. The `audit_id` coercion is `admin_state._matches`' — Python-side,
+    against an int field, never in this component.
+
+    **Debounced by construction.** `TextFieldRoot.create` wraps the field in
+    `DebounceInput` whenever both `value` and `on_change` are given, at the
+    core default of 300ms — so `visible_rows` re-evaluates on a pause rather
+    than on a keystroke, which is PRD-006 Risk 5's stated mitigation without a
+    line of debounce code here. Do not split the field into an uncontrolled one.
+
+    The `id` is not decoration: Radix paints the real `<input>` inside its
+    TextField wrapper, so the only way to colour the text an admin types is the
+    id selector `theme.py` carries for it — the same reason `admin_gate`'s
+    field has one.
+    """
+    return rx.flex(
+        _control_label(admin_copy.FILTER_SEARCH_LABEL),
+        rx.input(
+            id="register_filter_input",
+            class_name="hx-field-boxed",
+            value=AdminState.search,
+            on_change=AdminState.set_search,
+            placeholder=admin_copy.FILTER_SEARCH_PLACEHOLDER,
+            custom_attrs={
+                "aria-label": admin_copy.FILTER_SEARCH_LABEL,
+                "autoComplete": "off",
+                "autoCorrect": "off",
+            },
+            width="13rem",
+            height="1.75rem",
+            font_family=theme.FONT_DATA,
+            font_size=theme.TEXT_DATA,
+            border_radius=theme.RADIUS,
+        ),
+        align="center",
+        gap="0.5rem",
+    )
+
+
+# Which glyph each ordering shows, as (natural order, reversed). `sort_rows`
+# documents `sort_descending = False` as the *natural* order of the chosen key,
+# and that order is a different direction for each of the three — so one glyph
+# cannot serve all of them and the pair is chosen per key instead:
+#
+#   timestamp -> natural is newest first, i.e. time descending down the page
+#   user      -> natural is A-Z, i.e. ascending
+#   verdict   -> natural is fault first, i.e. severity descending
+#
+# Picked in Python because the keys are plain strings. The alternative — one
+# `rx.cond` on `sort_descending` shared by all three — would have to claim that
+# A-Z and newest-first point the same way, and they do not.
+_SORT_MARKS = {
+    SORT_TIMESTAMP: (
+        admin_copy.SORT_DESCENDING_MARK,
+        admin_copy.SORT_ASCENDING_MARK,
+    ),
+    SORT_USER: (
+        admin_copy.SORT_ASCENDING_MARK,
+        admin_copy.SORT_DESCENDING_MARK,
+    ),
+    SORT_VERDICT: (
+        admin_copy.SORT_DESCENDING_MARK,
+        admin_copy.SORT_ASCENDING_MARK,
+    ),
+}
+
+# One label per key in `admin_state.SORT_KEYS`, in the order the controls sit.
+_SORT_CONTROLS = (
+    (SORT_TIMESTAMP, admin_copy.SORT_TIMESTAMP_LABEL),
+    (SORT_USER, admin_copy.SORT_USER_LABEL),
+    (SORT_VERDICT, admin_copy.SORT_VERDICT_LABEL),
+)
+
+
+def _is_sorted_by(key: str):
+    """Whether this ordering is the one in force.
+
+    The timestamp arm also matches the empty string, and that is required
+    rather than defensive: `AdminState.sort_key` defaults to `""` so that
+    `sign_out()`'s reset clears it, and `sort_rows` reads `""` as the loaded
+    order — which *is* timestamp, newest first. Without this the register's
+    default ordering would render with no control marked, and PRD-006 Section
+    6.1's "timestamp descending remains the default" would be true of the table
+    and invisible on the surface.
+
+    `|`, never Python `or`: `or` short-circuits on the first Var, which is
+    truthy, and would silently return it instead of the disjunction.
+    """
+    if key == SORT_TIMESTAMP:
+        return (AdminState.sort_key == key) | (AdminState.sort_key == "")
+    return AdminState.sort_key == key
+
+
+def _sort_button(key: str, label: str, active: bool) -> rx.Component:
+    """One ordering, in one of its two states.
+
+    The direction mark rides only on the active control: three marks would say
+    three orderings are in force at once, where exactly one ever is. It is a
+    second child rather than a concatenation, because the mark comes out of an
+    `rx.cond` and is a Var, not a str.
+    """
+    children = [label]
+    if active:
+        children.append(
+            rx.el.span(
+                rx.cond(
+                    AdminState.sort_descending,
+                    _SORT_MARKS[key][1],
+                    _SORT_MARKS[key][0],
+                ),
+                margin_left="0.25rem",
+            )
+        )
+    return _control_button(
+        *children,
+        on_click=AdminState.sort_by(key),
+        color=theme.INK if active else theme.MUTE,
+        weight="600" if active else "500",
+        attrs={"aria-pressed": "true" if active else "false"},
+        _hover={} if active else {"color": theme.INK},
+    )
+
+
+def _sort_controls() -> rx.Component:
+    """The three orderings PRD-006 Section 4 names, as peers.
+
+    `sort_by` is the handler and not a plain setter: choosing the ordering
+    already in force reverses it instead of re-setting it, which is what makes
+    one control carry both the choice and the direction.
+    """
+    return rx.flex(
+        _control_label(admin_copy.SORT_LABEL),
+        *[
+            rx.cond(
+                _is_sorted_by(key),
+                _sort_button(key, label, True),
+                _sort_button(key, label, False),
+            )
+            for key, label in _SORT_CONTROLS
+        ],
+        align="center",
+        gap="0.75rem",
+        wrap="wrap",
+    )
+
+
+def _clear_control() -> rx.Component:
+    """Restores the full window, and appears only when there is one to restore.
+
+    Shown against `filters_active`, which excludes the sort deliberately —
+    reordering the register removes no row, so there is nothing for a clear to
+    undo. A control rendered against nothing to do is the one thing the
+    frontend-design skill's "let each element do exactly one job" rules out, and
+    `admin_shell.py:_view_link` already refuses it for the active view.
+
+    The sign-out button's treatment, so a text action reads the same on both
+    admin surfaces — the skill's consistency rule, not drift.
+    """
+    return rx.cond(
+        AdminState.filters_active,
+        _control_button(
+            admin_copy.CLEAR_FILTERS_LABEL,
+            on_click=AdminState.clear_filters,
+            color=theme.MUTE,
+            weight="500",
+            attrs={},
+            text_decoration="underline",
+            text_underline_offset="3px",
+            _hover={"color": theme.INK},
+        ),
+        rx.fragment(),
+    )
+
+
 def _scope_line() -> rx.Component:
     """"100 most recent of 3,180" — the window, stated against the whole record.
 
@@ -566,12 +900,89 @@ def _scope_line() -> rx.Component:
     )
 
 
-def register() -> rx.Component:
-    """The register: the scope strip over the scrolling table.
+def _filtered_line() -> rx.Component:
+    """"12 of 100 shown" — how much of the window survived the filter.
 
-    A strip rather than a bare line because STORY-013 hangs the verdict
-    multi-select and the free-text field on its right-hand side, which is where
-    PRD-006 Section 6.1's wireframe puts them.
+    A **second** scope statement under the first, never a replacement for it.
+    The scope line states the window against the whole record; this states the
+    filtered set against the window, and collapsing the two would leave the
+    window's own line moving every time an admin types (PRD-006 Risk 4).
+
+    So it takes `FONT_BODY` too. Section 6.1 reserves the reading face for "the
+    two or three explanatory lines that state a scope", and setting this one in
+    a different face would say the two statements are different kinds of thing.
+
+    Shown only while a filter is active: "100 of 100 shown" under an untouched
+    register is a line that reports nothing. `filters_active` excludes the sort,
+    which is right here for the same reason it is right for the clear action —
+    a reorder narrows nothing.
+
+    The sentence itself is `AdminState.register_filtered`, a computed var, for
+    the reason the module docstring gives: the template is a Python format
+    string over thousands-separated counts, and neither can run against a Var.
+    """
+    return rx.cond(
+        AdminState.filters_active,
+        rx.box(
+            AdminState.register_filtered,
+            font_family=theme.FONT_BODY,
+            font_size=theme.TEXT_DATA,
+            color=theme.MUTE,
+        ),
+        rx.fragment(),
+    )
+
+
+def _filter_strip() -> rx.Component:
+    """The scope statements on the left, the controls on the right.
+
+    PRD-006 Section 6.1's wireframe: the verdict filter sits on the scope line
+    and the text filter under it. The sort cluster and the clear action join
+    that second row — the wireframe places neither, and a third row for three
+    words would push the table down for nothing.
+
+    The left column deliberately holds **only** the two scope statements. The
+    wireframe's "Refreshed 14:22:07" belongs at the foot of that column and is
+    STORY-017's; the slot is left free rather than filled here.
+
+    `wrap="wrap"` on both flex rows is the whole narrow-viewport answer, the
+    same move `admin_shell.py:admin_masthead` makes on the header: the clusters
+    stack rather than compress, with no new CSS and no breakpoint.
+    """
+    return rx.flex(
+        rx.vstack(
+            _scope_line(),
+            _filtered_line(),
+            spacing="1",
+            align="start",
+            min_width="0",
+        ),
+        rx.vstack(
+            _verdict_filter(),
+            rx.flex(
+                _search_field(),
+                _sort_controls(),
+                _clear_control(),
+                align="center",
+                gap="1.25rem",
+                wrap="wrap",
+            ),
+            spacing="2",
+            align="end",
+        ),
+        justify="between",
+        align="start",
+        gap="1.5rem",
+        wrap="wrap",
+        padding="0.75rem 1.5rem",
+        border_bottom=f"1px solid {theme.RULE}",
+        flex_shrink="0",
+        width="100%",
+    )
+
+
+def register() -> rx.Component:
+    """The register: the filter strip over the scrolling table.
 
     `min_height="0"` on both the column and the scroll container is what makes
     the table scroll rather than the page: a flex child will not shrink below
@@ -583,13 +994,7 @@ def register() -> rx.Component:
     register someone is reading through.
     """
     return rx.vstack(
-        rx.box(
-            _scope_line(),
-            padding="0.75rem 1.5rem",
-            border_bottom=f"1px solid {theme.RULE}",
-            flex_shrink="0",
-            width="100%",
-        ),
+        _filter_strip(),
         rx.box(
             rx.box(
                 _column_head(),

@@ -87,6 +87,21 @@ COPY_NAMES = (
     "DETAIL_TOGGLE_CLOSE_MARK",
     "DETAIL_PII_PRESENT_LABEL",
     "DETAIL_PII_ABSENT_LABEL",
+    # STORY-013's controls: the three cluster labels, the field's placeholder,
+    # the clear action, the three ordering labels and the two direction marks.
+    # The four verdict words the chips carry are already listed above — the
+    # chip and the row read the same constant, which is what keeps a filter
+    # from disagreeing with the rows it produced.
+    "FILTER_VERDICT_LABEL",
+    "FILTER_SEARCH_LABEL",
+    "FILTER_SEARCH_PLACEHOLDER",
+    "CLEAR_FILTERS_LABEL",
+    "SORT_LABEL",
+    "SORT_TIMESTAMP_LABEL",
+    "SORT_USER_LABEL",
+    "SORT_VERDICT_LABEL",
+    "SORT_ASCENDING_MARK",
+    "SORT_DESCENDING_MARK",
 )
 
 # Every label the disclosure puts on screen, as the strings that must reach the
@@ -177,16 +192,24 @@ result = {"errors": []}
 
 try:
     import reflex as rx
-    from chat_ui.admin_state import AdminState
+    from chat_ui.admin_state import AdminState, SORT_KEYS
     from chat_ui.components.register import (
         register,
+        _SORT_CONTROLS,
+        _SORT_MARKS,
+        _clear_control,
         _column_head,
         _detail,
         _disclosure_toggle,
+        _filter_strip,
+        _filtered_line,
         _row,
         _row_line,
         _scope_line,
+        _search_field,
+        _sort_controls,
         _stamp_margin,
+        _verdict_filter,
         _verdict_tag,
     )
 except Exception as exc:
@@ -218,6 +241,16 @@ factories = [
         "toggle",
         lambda: rx.box(rx.foreach(AdminState.visible_rows, _disclosure_toggle)),
     ),
+    # STORY-013's controls. The strip is what the register actually renders;
+    # the five below are captured separately so a test that means to assert
+    # something about the sort cluster fails when the sort cluster is what
+    # broke, not when the strip is.
+    ("strip", lambda: _filter_strip()),
+    ("verdict_filter", lambda: _verdict_filter()),
+    ("search_field", lambda: _search_field()),
+    ("sort_controls", lambda: _sort_controls()),
+    ("clear_control", lambda: _clear_control()),
+    ("filtered_line", lambda: _filtered_line()),
 ]
 for name, factory in factories:
     try:
@@ -238,6 +271,23 @@ result["rendered"] = built.get("register", "")
 result["detail"] = built.get("detail", "")
 result["toggle"] = built.get("toggle", "")
 result["rows_rendered"] = built.get("rows", "")
+for _name in (
+    "strip",
+    "verdict_filter",
+    "search_field",
+    "sort_controls",
+    "clear_control",
+    "filtered_line",
+):
+    result[_name] = built.get(_name, "")
+
+# The sort tables as data. Emitted from the subprocess rather than imported in
+# the test, because `register.py` does `from chat_ui import admin_copy` — which
+# resolves only under the chat_ui/ PYTHONPATH this probe runs with, and is the
+# whole reason the probe exists.
+result["sort_keys"] = list(SORT_KEYS)
+result["sort_control_keys"] = [key for key, _ in _SORT_CONTROLS]
+result["sort_marks"] = {key: list(pair) for key, pair in _SORT_MARKS.items()}
 
 print(json.dumps(result))
 """
@@ -415,14 +465,21 @@ def test_source_imports_no_chat_component(source, forbidden):
     assert not offenders, offenders
 
 
-def test_body_face_appears_only_on_the_scope_line(source):
-    """AC 5, made countable.
+def test_the_body_face_is_reserved_for_the_scope_lines(source):
+    """STORY-011 AC 5, made countable.
 
     PRD-006 Section 6.1 reserves `FONT_BODY` for "the two or three explanatory
-    lines that state a scope". There is one such line on the register, so there
-    is one use of the face.
+    lines that state a scope". The register has exactly two, and both take the
+    reading face: `_scope_line` states the window against the whole record, and
+    STORY-013's `_filtered_line` states the filtered set against the window.
+    Setting the second in a different face would say the two statements are
+    different kinds of thing, when they are the same kind at two scopes.
+
+    Still a count, and still exact: everything else on this surface is data or a
+    label, and the face creeping onto a third element is how a register starts
+    reading as prose.
     """
-    assert source.count("theme.FONT_BODY") == 1, source.count("theme.FONT_BODY")
+    assert source.count("theme.FONT_BODY") == 2, source.count("theme.FONT_BODY")
 
 
 def test_the_data_face_is_dominant(source):
@@ -661,3 +718,250 @@ def test_the_row_model_still_has_no_preview_field():
     fields = set(AuditRow.model_fields)
     assert "prompt_preview" not in fields
     assert "response_preview" not in fields
+# --- STORY-013: the filter and sort controls ------------------------------
+#
+# The controls are asserted from both sides, like the disclosure above: the
+# compiled output for what reaches the screen, the source for the claims a
+# build cannot make. The recurring claim across all of them is that these
+# controls *write state and read a computed var* — PRD-006 Section 6's
+# "filtering never re-reads the database" is a property of this surface too,
+# not only of `visible_rows`.
+
+
+def _controls_source(source: str) -> str:
+    """Just the control factories, from `_control_label` down to `_scope_line`.
+
+    Sliced rather than asserted over the whole module, because two of the claims
+    below are true of the controls and false of the table: the rows *do* paint a
+    ground (`theme.HOVER`), and the register does draw borders. A whole-file
+    assertion would have to be weakened until it stopped saying anything.
+    """
+    assert "def _control_label" in source and "def _scope_line" in source
+    return source.split("def _control_label")[1].split("def _scope_line")[0]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        admin_copy.VERDICT_CLEARED_LABEL,
+        admin_copy.VERDICT_HELD_LABEL,
+        admin_copy.VERDICT_DENIED_LABEL,
+        admin_copy.VERDICT_FAULT_LABEL,
+    ],
+)
+def test_every_verdict_is_offered_as_a_filter(probe, label):
+    """AC 1: the multi-select covers all four verdicts, not just the exceptions."""
+    assert not probe["errors"], probe["errors"]
+    assert label in probe["verdict_filter"], label
+
+
+def test_the_filter_strip_carries_both_filters(probe):
+    """AC 1: the verdict multi-select and the free-text field are both on the
+    strip PRD-006 Section 6.1's wireframe puts above the table — and the strip
+    is what `register()` actually renders, not a factory nothing calls."""
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.FILTER_VERDICT_LABEL in probe["strip"]
+    assert admin_copy.FILTER_SEARCH_PLACEHOLDER in probe["strip"]
+    assert admin_copy.FILTER_VERDICT_LABEL in probe["rendered"]
+    assert admin_copy.FILTER_SEARCH_PLACEHOLDER in probe["rendered"]
+
+
+def test_the_verdict_filter_writes_the_state_handler(probe):
+    """AC 2: a toggle is an event on `AdminState`, and the narrowing is the
+    computed var — so no database call is reachable from a chip."""
+    assert not probe["errors"], probe["errors"]
+    assert "toggle_verdict" in probe["verdict_filter"]
+    for forbidden in ("list_audit_logs", "count_audit_logs", "app.db"):
+        assert forbidden not in probe["strip"], forbidden
+
+
+def test_the_selected_verdicts_are_marked_without_a_fill(probe, source):
+    """AC 2's "visibly marked", against PRD-006 Risk 6's "no fills".
+
+    The mark is the verdict's own ink plus a rule in that ink plus
+    `aria-pressed` — never a ground. `test_no_colour_outside_the_allowed_set`
+    already proves no stray colour reaches the output; this proves the controls
+    paint no *allowed* colour as a background either.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "selected_verdicts" in probe["verdict_filter"]
+    assert "aria-pressed" in probe["verdict_filter"]
+    assert "background_color" not in _controls_source(source), "a control paints a ground"
+
+
+def test_the_free_text_field_is_bound_to_the_search_var(probe):
+    """AC 3: the field is controlled by `search` and writes `set_search`, which
+    is what makes typing `127` reach `_matches`' str(audit_id) coercion."""
+    assert not probe["errors"], probe["errors"]
+    assert "set_search" in probe["search_field"]
+    assert "search" in probe["search_field"]
+
+
+def test_the_field_is_debounced_by_construction(probe):
+    """PRD-006 Risk 5: "every keystroke in the filter re-evaluates a computed var
+    over the full row list."
+
+    `TextFieldRoot.create` wraps a field given both `value` and `on_change` in
+    `DebounceInput`, so the mitigation is the framework's rather than a line of
+    code here — which makes it exactly the kind of thing that disappears in a
+    refactor to an uncontrolled field with nothing to notice it. Asserted on the
+    compiled output so it is checkable rather than assumed.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "DebounceInput" in probe["search_field"]
+
+
+def test_the_filtered_count_is_a_second_line_not_a_replacement(probe):
+    """AC 4: the filtered count and the window's scope are two statements.
+
+    Both computed vars must reach the strip. Collapsing them — rendering
+    `register_filtered` *instead of* `register_scope` — would leave the window's
+    own line moving whenever an admin types, which is the misreading PRD-006
+    Risk 4 exists to prevent.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "register_filtered" in probe["strip"]
+    assert "register_scope" in probe["strip"]
+
+
+def test_the_filtered_count_shows_only_against_an_active_filter(probe):
+    """"100 of 100 shown" under an untouched register reports nothing."""
+    assert not probe["errors"], probe["errors"]
+    assert "filters_active" in probe["filtered_line"]
+
+
+def test_the_clear_action_is_conditional_on_filters_active(probe):
+    """AC 5: the clear action restores the window, and appears only when there
+    is one to restore — `admin_shell.py:_view_link`'s refusal of a control that
+    does nothing, applied here."""
+    assert not probe["errors"], probe["errors"]
+    assert "clear_filters" in probe["clear_control"]
+    assert "filters_active" in probe["clear_control"]
+    assert admin_copy.CLEAR_FILTERS_LABEL in probe["clear_control"]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        admin_copy.SORT_TIMESTAMP_LABEL,
+        admin_copy.SORT_USER_LABEL,
+        admin_copy.SORT_VERDICT_LABEL,
+    ],
+)
+def test_each_sort_key_has_a_control(probe, label):
+    """AC 6: timestamp, user and verdict — the three orderings `_SORT_RANKS`
+    dispatches on, each reachable from the surface."""
+    assert not probe["errors"], probe["errors"]
+    assert label in probe["sort_controls"], label
+
+
+def test_the_sort_controls_cover_every_declared_key(probe):
+    """One control per key in `admin_state.SORT_KEYS`, aligned one-to-one.
+
+    A fourth ordering added to the state with no control would otherwise be
+    invisible, and a control for a key the state does not dispatch on would
+    silently fall back to the timestamp rank.
+
+    Read off the probe rather than imported here: `register.py` does
+    `from chat_ui import admin_copy`, which resolves only under the `chat_ui/`
+    PYTHONPATH the subprocess runs with — the whole reason the probe exists.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert probe["sort_control_keys"] == probe["sort_keys"]
+    assert sorted(probe["sort_marks"]) == sorted(probe["sort_keys"])
+
+
+def test_the_timestamp_default_is_marked_active(source, probe):
+    """AC 6: "timestamp descending remains the default."
+
+    `sort_key` defaults to the empty string so that `sign_out()`'s reset can
+    clear it, and `sort_rows` reads that as the loaded order — which is
+    timestamp, newest first. Without the empty-string arm the default ordering
+    would render with no control marked: true of the table, invisible on the
+    surface.
+
+    The disjunction is a Var `|` and never Python `or`, which would
+    short-circuit on the first Var (always truthy) and return it instead.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert 'AdminState.sort_key == ""' in source
+    assert "|" in source.split("def _is_sorted_by")[1].split("def _sort_button")[0]
+    assert "sort_descending" in probe["sort_controls"]
+
+
+def test_the_direction_mark_is_chosen_per_ordering(probe):
+    """PRD-006's three orderings run in three different natural directions, so
+    one glyph cannot serve all of them.
+
+    `sort_rows` documents `sort_descending = False` as the natural order:
+    newest-first for timestamp, A-Z for user, exceptions-first for verdict. The
+    first two point opposite ways, so the marks are paired per key — and the
+    timestamp and user pairs must be inverses of each other, or one of them is
+    claiming a direction the list does not run in.
+    """
+    assert not probe["errors"], probe["errors"]
+    marks = probe["sort_marks"]
+    assert marks["timestamp"] == list(reversed(marks["user"]))
+    assert marks["timestamp"][0] == admin_copy.SORT_DESCENDING_MARK
+    assert marks["user"][0] == admin_copy.SORT_ASCENDING_MARK
+
+
+def _as_compiled(mark: str) -> str:
+    """How a non-ASCII mark actually appears in the compiled JSX.
+
+    Reflex emits the arrow into the generated JavaScript as a six-character
+    `\\uXXXX` escape, so counting the character itself over the rendered output
+    finds nothing and quietly passes an assertion that meant to find something.
+    """
+    return mark.encode("unicode_escape").decode("ascii")
+
+
+def test_the_direction_mark_rides_only_on_the_active_control(probe):
+    """Three marks on screen would say three orderings are in force at once,
+    where exactly one ever is.
+
+    Two occurrences per ordering, not one: the mark comes out of an `rx.cond`
+    over `sort_descending`, which compiles to a ternary carrying both of its
+    arms. The *inactive* branch of each control carries no mark at all, and that
+    is the claim — so the total is exactly two per key, and a mark leaking into
+    an inactive branch pushes it to four.
+    """
+    assert not probe["errors"], probe["errors"]
+    rendered = probe["sort_controls"]
+    marks = sum(
+        rendered.count(_as_compiled(mark))
+        for mark in (
+            admin_copy.SORT_ASCENDING_MARK,
+            admin_copy.SORT_DESCENDING_MARK,
+        )
+    )
+    assert marks == 2 * len(probe["sort_keys"]), marks
+
+
+def test_every_control_is_a_real_button(probe, source):
+    """AC 7: the whole keyboard answer.
+
+    A real `<button>` takes focus in document order and fires on Enter and Space
+    with no key handling, and `theme.GLOBAL_CSS`'s `:focus-visible` gives it the
+    ring. A styled `rx.box` with an `on_click` would look identical and be
+    unreachable by tab — which is why this is asserted on the compiled output
+    rather than trusted to the source.
+    """
+    assert not probe["errors"], probe["errors"]
+    for name in ("verdict_filter", "sort_controls", "clear_control"):
+        assert "button" in probe[name].lower(), name
+    assert 'type="button"' in source
+
+
+def test_the_controls_set_no_focus_reset(source):
+    """The ring `theme.GLOBAL_CSS` grants must not be taken back locally.
+
+    `test_register_sets_no_focus_reset` already covers the whole module; this
+    names the controls specifically because they are the elements a keyboard
+    user actually lands on, and an `outline: none` added to make a chip "look
+    clean" is the likely regression.
+    """
+    controls = _controls_source(source)
+    for killer in ("outline", "box_shadow"):
+        assert f'"{killer}": "none"' not in controls, killer
+    assert "outline=" not in controls
