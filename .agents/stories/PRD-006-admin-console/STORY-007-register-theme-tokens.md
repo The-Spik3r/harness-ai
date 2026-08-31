@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, design, theme, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-007-register-theme-tokens.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-007-register-theme-tokens.report.md
 commit: null
 depends_on: []
 blocks: [STORY-009, STORY-011, STORY-015, STORY-018]
 skills: [frontend-design]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # STORY-007: theme.py register tokens: row height, stamp-margin width, hover ground, micro type step

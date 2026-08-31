@@ -3,7 +3,9 @@
 The verdict inks are the whole point of the redesign — one pigment per pipeline
 outcome — so a tag nobody can read is a broken feature, not a cosmetic nit. The
 ochre shipped at 4.38:1 against the paper and had to be darkened; this file
-keeps every ink above the line as the palette evolves.
+keeps every ink above the line as the palette evolves. PRD-006 adds a second
+ground to hold: the admin register's row hover, which every verdict ink is
+drawn on when a row is under the cursor.
 """
 
 import sys
@@ -63,6 +65,24 @@ def test_verdict_ink_is_readable_on_its_own_tint(name, ink, tint):
     assert contrast(ink, tint) >= AA_NORMAL, name
 
 
+# The register draws every verdict ink on the row hover ground, so the hover is
+# a fifth ground the inks have to clear — not a decoration. Four entries, not
+# six: INK_UPSTREAM and INK_SELF are chat-only (PRD-006 Section 6.1), and
+# asserting them here would imply the console draws them.
+_INK_ON_HOVER = [
+    ("INK_CLEAR", theme.INK_CLEAR),
+    ("INK_HELD", theme.INK_HELD),
+    ("INK_DENIED", theme.INK_DENIED),
+    ("INK_FAULT", theme.INK_FAULT),
+]
+
+
+@pytest.mark.parametrize("name,ink", _INK_ON_HOVER)
+def test_verdict_ink_is_readable_on_the_row_hover(name, ink):
+    """A hovered row is still a row being read."""
+    assert contrast(ink, theme.HOVER) >= AA_NORMAL, name
+
+
 @pytest.mark.parametrize(
     "name,fg,bg",
     [
@@ -71,6 +91,11 @@ def test_verdict_ink_is_readable_on_its_own_tint(name, ink, tint):
         ("muted text on paper", theme.MUTE, theme.PAPER),
         ("muted text on card", theme.MUTE, theme.CARD),
         ("inverted button label", theme.PAPER, theme.INK),
+        ("body ink on row hover", theme.INK, theme.HOVER),
+        ("muted text on row hover", theme.MUTE, theme.HOVER),
+        # RULE is deliberately absent: it is a hairline, not text, and measures
+        # 1.37:1 on the hover ground. AA is a text criterion, so asserting it
+        # here would either fail honestly or force the floor down for everyone.
     ],
 )
 def test_neutral_pairs_are_readable(name, fg, bg):
