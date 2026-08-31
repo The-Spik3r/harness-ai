@@ -6,7 +6,7 @@
 
 ## Progress
 
-8/20 stories done — 40%
+9/20 stories done — 45%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 | STORY-006 | tests/test_admin_state.py: gate, sign-out, failed read, four verdicts, no leak | technical | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-006-admin-state-tests.plan.md) | `3d6474e` |
 | STORY-007 | theme.py register tokens: row height, stamp-margin width, hover ground, micro type step | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-007-register-theme-tokens.plan.md) | `a650a97` |
 | STORY-008 | admin_copy.py: every admin-facing string in one module | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-008-admin-copy-module.plan.md) | `cc857e7` |
-| STORY-009 | admin_shell.py: token gate form, masthead, and the two-view switch | feature | ⬜ todo | medium | — | — |
+| STORY-009 | admin_shell.py: token gate form, masthead, and the two-view switch | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-009-admin-shell-and-gate.plan.md) | `5a35ce3` |
 | STORY-010 | Register /admin, /admin/audit and /admin/stats without touching a reserved route | technical | ⬜ todo | small | — | — |
 | STORY-011 | register.py: the audit table, the verdict column and the stamp margin | feature | ⬜ todo | large | — | — |
 | STORY-012 | Row detail disclosure: error_message, prompt_hash, PII entities, full User-Agent, pattern | feature | ⬜ todo | medium | — | — |

@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, reflex, component, design, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-009-admin-shell-and-gate.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-009-admin-shell-and-gate.report.md
+commit: 5a35ce3
 depends_on: [STORY-003, STORY-007, STORY-008]
 blocks: [STORY-010, STORY-011, STORY-015]
 skills: [frontend-design, reflex-docs]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-009: admin_shell.py: token gate form, masthead, and the two-view switch

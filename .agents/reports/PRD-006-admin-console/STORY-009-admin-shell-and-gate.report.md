@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-009-admin-shell-and-gate.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: pending
+commit: 5a35ce3
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-009-admin-shell-and-gate.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `pending`
+**Commit**: `5a35ce3`
 
 ## Summary
 
