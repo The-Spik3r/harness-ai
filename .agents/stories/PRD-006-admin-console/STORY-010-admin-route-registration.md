@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, reflex, routing, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-010-admin-route-registration.report.md
 commit: null
 depends_on: [STORY-009]
 blocks: [STORY-011, STORY-015]
 skills: [reflex-docs, reflex-process-management]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-010: Register /admin, /admin/audit and /admin/stats without touching a reserved route
