@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Hardening"
-status: todo
+status: done
 labels: [tests, security, design, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-018-render-invariant-tests.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-018-render-invariant-tests.report.md
+commit: ec7515e
 depends_on: [STORY-007, STORY-011, STORY-012, STORY-015]
 blocks: [STORY-020]
 skills: []
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-018: Render invariant tests: no previews in output, no tint or stray colour on the console

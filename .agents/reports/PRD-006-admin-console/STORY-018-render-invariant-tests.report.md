@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-018-render-invariant-tests.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: ec7515e
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-018-render-invariant-tests.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `ec7515e`
 
 ## Summary
 
