@@ -29,6 +29,104 @@ from chat_ui.chat_ui.copy import (
 )
 from chat_ui.chat_ui.formatting import format_duplicate_info
 
+# STORY-008: the console's own copy module. Imported by name, as the chat
+# constants above are, so a deleted or renamed constant fails at collection
+# rather than at render.
+from chat_ui.chat_ui import admin_copy
+from chat_ui.chat_ui.admin_copy import (
+    CONSOLE_TITLE,
+    MASTHEAD_SEPARATOR,
+    CONSOLE_VIEW_REGISTER,
+    CONSOLE_VIEW_SUMMARY,
+    VIEW_REGISTER_LABEL,
+    VIEW_SUMMARY_LABEL,
+    SIGN_OUT_LABEL,
+    GATE_TITLE,
+    GATE_BODY,
+    GATE_PLACEHOLDER,
+    GATE_SUBMIT_LABEL,
+    GATE_REFUSED_MESSAGE,
+    COLUMN_TIME,
+    COLUMN_USER,
+    COLUMN_VERDICT,
+    COLUMN_MODEL,
+    COLUMN_TOKENS,
+    COLUMN_PII,
+    COLUMN_DEVICE,
+    COLUMN_ID,
+    AUDIT_ID_PREFIX,
+    PII_INDICATOR_LABEL,
+    VERDICT_CLEARED_LABEL,
+    VERDICT_HELD_LABEL,
+    VERDICT_DENIED_LABEL,
+    VERDICT_FAULT_LABEL,
+    REGISTER_SCOPE_TEMPLATE,
+    REGISTER_FILTERED_TEMPLATE,
+    SUMMARY_SCOPE_ALL_TIME,
+    SUMMARY_SCOPE_NOTE,
+    REFRESH_LABEL,
+    REFRESH_IN_FLIGHT_LABEL,
+    REFRESHED_TEMPLATE,
+    NEVER_REFRESHED_LABEL,
+    FAULT_TITLE,
+    FAULT_MESSAGE_TEMPLATE,
+    READ_LABEL_ROWS,
+    READ_LABEL_TOTAL,
+    READ_LABEL_BLOCKED_DUPLICATES,
+    READ_LABEL_BLOCKED_SUSPICIOUS,
+    READ_LABEL_UNIQUE_USERS,
+    READ_LABEL_SUCCESSFUL,
+    READ_LABEL_PII_QUERIES,
+    READ_LABEL_TOP_MODELS,
+    READ_LABEL_TOP_USERS,
+    READ_LABEL_TOP_PII,
+    EMPTY_REGISTER_TITLE,
+    EMPTY_REGISTER_BODY,
+    EMPTY_MATCHES_TITLE,
+    EMPTY_MATCHES_TEMPLATE,
+    FILTER_DESCRIPTION_VERDICT_TEMPLATE,
+    FILTER_DESCRIPTION_SEARCH_TEMPLATE,
+    FILTER_DESCRIPTION_JOIN,
+    EMPTY_SUMMARY_TITLE,
+    EMPTY_SUMMARY_BODY,
+    FILTER_VERDICT_LABEL,
+    FILTER_SEARCH_LABEL,
+    FILTER_SEARCH_PLACEHOLDER,
+    CLEAR_FILTERS_LABEL,
+    SORT_LABEL,
+    SORT_TIMESTAMP_LABEL,
+    SORT_USER_LABEL,
+    SORT_VERDICT_LABEL,
+    SORT_ASCENDING_MARK,
+    SORT_DESCENDING_MARK,
+    DETAIL_TOGGLE_OPEN_LABEL,
+    DETAIL_TOGGLE_CLOSE_LABEL,
+    DETAIL_TIMESTAMP_LABEL,
+    DETAIL_PROMPT_HASH_LABEL,
+    DETAIL_ERROR_LABEL,
+    DETAIL_PATTERN_LABEL,
+    DETAIL_DEVICE_LABEL,
+    DETAIL_PII_ENTITIES_LABEL,
+    DETAIL_PII_INPUT_LABEL,
+    DETAIL_PII_OUTPUT_LABEL,
+    SUMMARY_COUNTS_HEADING,
+    SUMMARY_WHO_HEADING,
+    SUMMARY_PII_HEADING,
+    FIGURE_TOTAL_LABEL,
+    FIGURE_BLOCKED_DUPLICATES_LABEL,
+    FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_COMPLETION_LABEL,
+    FIGURE_COMPLETION_NOTE,
+    FIGURE_UNIQUE_USERS_LABEL,
+    FIGURE_TOP_MODELS_LABEL,
+    FIGURE_TOP_USERS_LABEL,
+    FIGURE_PII_QUERIES_LABEL,
+    FIGURE_TOP_PII_LABEL,
+    RANKED_CUT_TEMPLATE,
+    SHARE_TEMPLATE,
+    RANKED_EMPTY_LABEL,
+)
+
 
 def test_copy_constants_exist_and_not_empty():
     """Verify all critical copy strings are non-empty and accessible."""
@@ -116,3 +214,263 @@ def test_duplicate_formatting_empty_and_unparseable_fallback():
     main_bad, release_bad = format_duplicate_info("not-a-timestamp")
     assert "Already sent at not-a-timestamp" in main_bad
     assert release_bad == ""
+
+
+# --------------------------------------------------------------------------
+# STORY-008 — chat_ui/chat_ui/admin_copy.py
+#
+# Appended, never edited above: PRD-006 Section 15 lists this file as one that
+# must pass unmodified, which is read here as "no existing assertion weakened,
+# reworded, reordered or removed". Every test above this line is untouched.
+# --------------------------------------------------------------------------
+
+
+def test_admin_copy_constants_exist_and_not_empty():
+    """AC6: every admin-facing string is non-empty and accessible, matching
+    test_copy_constants_exist_and_not_empty's pattern above."""
+    assert CONSOLE_TITLE
+    assert MASTHEAD_SEPARATOR
+    assert CONSOLE_VIEW_REGISTER
+    assert CONSOLE_VIEW_SUMMARY
+    assert VIEW_REGISTER_LABEL
+    assert VIEW_SUMMARY_LABEL
+    assert SIGN_OUT_LABEL
+    assert GATE_TITLE
+    assert GATE_BODY
+    assert GATE_PLACEHOLDER
+    assert GATE_SUBMIT_LABEL
+    assert GATE_REFUSED_MESSAGE
+    assert COLUMN_TIME
+    assert COLUMN_USER
+    assert COLUMN_VERDICT
+    assert COLUMN_MODEL
+    assert COLUMN_TOKENS
+    assert COLUMN_PII
+    assert COLUMN_DEVICE
+    assert COLUMN_ID
+    assert AUDIT_ID_PREFIX
+    assert PII_INDICATOR_LABEL
+    assert VERDICT_CLEARED_LABEL
+    assert VERDICT_HELD_LABEL
+    assert VERDICT_DENIED_LABEL
+    assert VERDICT_FAULT_LABEL
+    assert REGISTER_SCOPE_TEMPLATE
+    assert REGISTER_FILTERED_TEMPLATE
+    assert SUMMARY_SCOPE_ALL_TIME
+    assert SUMMARY_SCOPE_NOTE
+    assert REFRESH_LABEL
+    assert REFRESH_IN_FLIGHT_LABEL
+    assert REFRESHED_TEMPLATE
+    assert NEVER_REFRESHED_LABEL
+    assert FAULT_TITLE
+    assert FAULT_MESSAGE_TEMPLATE
+    assert READ_LABEL_ROWS
+    assert READ_LABEL_TOTAL
+    assert READ_LABEL_BLOCKED_DUPLICATES
+    assert READ_LABEL_BLOCKED_SUSPICIOUS
+    assert READ_LABEL_UNIQUE_USERS
+    assert READ_LABEL_SUCCESSFUL
+    assert READ_LABEL_PII_QUERIES
+    assert READ_LABEL_TOP_MODELS
+    assert READ_LABEL_TOP_USERS
+    assert READ_LABEL_TOP_PII
+    assert EMPTY_REGISTER_TITLE
+    assert EMPTY_REGISTER_BODY
+    assert EMPTY_MATCHES_TITLE
+    assert EMPTY_MATCHES_TEMPLATE
+    assert FILTER_DESCRIPTION_VERDICT_TEMPLATE
+    assert FILTER_DESCRIPTION_SEARCH_TEMPLATE
+    assert FILTER_DESCRIPTION_JOIN
+    assert EMPTY_SUMMARY_TITLE
+    assert EMPTY_SUMMARY_BODY
+    assert FILTER_VERDICT_LABEL
+    assert FILTER_SEARCH_LABEL
+    assert FILTER_SEARCH_PLACEHOLDER
+    assert CLEAR_FILTERS_LABEL
+    assert SORT_LABEL
+    assert SORT_TIMESTAMP_LABEL
+    assert SORT_USER_LABEL
+    assert SORT_VERDICT_LABEL
+    assert SORT_ASCENDING_MARK
+    assert SORT_DESCENDING_MARK
+    assert DETAIL_TOGGLE_OPEN_LABEL
+    assert DETAIL_TOGGLE_CLOSE_LABEL
+    assert DETAIL_TIMESTAMP_LABEL
+    assert DETAIL_PROMPT_HASH_LABEL
+    assert DETAIL_ERROR_LABEL
+    assert DETAIL_PATTERN_LABEL
+    assert DETAIL_DEVICE_LABEL
+    assert DETAIL_PII_ENTITIES_LABEL
+    assert DETAIL_PII_INPUT_LABEL
+    assert DETAIL_PII_OUTPUT_LABEL
+    assert SUMMARY_COUNTS_HEADING
+    assert SUMMARY_WHO_HEADING
+    assert SUMMARY_PII_HEADING
+    assert FIGURE_TOTAL_LABEL
+    assert FIGURE_BLOCKED_DUPLICATES_LABEL
+    assert FIGURE_BLOCKED_SUSPICIOUS_LABEL
+    assert FIGURE_COMPLETION_LABEL
+    assert FIGURE_COMPLETION_NOTE
+    assert FIGURE_UNIQUE_USERS_LABEL
+    assert FIGURE_TOP_MODELS_LABEL
+    assert FIGURE_TOP_USERS_LABEL
+    assert FIGURE_PII_QUERIES_LABEL
+    assert FIGURE_TOP_PII_LABEL
+    assert RANKED_CUT_TEMPLATE
+    assert SHARE_TEMPLATE
+    assert RANKED_EMPTY_LABEL
+    # And nothing is missing from the list: a constant added to admin_copy.py
+    # without an assertion here would otherwise ship untested, which is the
+    # failure mode "each constant is asserted non-empty" exists to prevent.
+    declared = {
+        name for name in dir(admin_copy) if name.isupper() and not name.startswith("_")
+    }
+    asserted = {
+        "CONSOLE_TITLE",
+        "MASTHEAD_SEPARATOR",
+        "CONSOLE_VIEW_REGISTER",
+        "CONSOLE_VIEW_SUMMARY",
+        "VIEW_REGISTER_LABEL",
+        "VIEW_SUMMARY_LABEL",
+        "SIGN_OUT_LABEL",
+        "GATE_TITLE",
+        "GATE_BODY",
+        "GATE_PLACEHOLDER",
+        "GATE_SUBMIT_LABEL",
+        "GATE_REFUSED_MESSAGE",
+        "COLUMN_TIME",
+        "COLUMN_USER",
+        "COLUMN_VERDICT",
+        "COLUMN_MODEL",
+        "COLUMN_TOKENS",
+        "COLUMN_PII",
+        "COLUMN_DEVICE",
+        "COLUMN_ID",
+        "AUDIT_ID_PREFIX",
+        "PII_INDICATOR_LABEL",
+        "VERDICT_CLEARED_LABEL",
+        "VERDICT_HELD_LABEL",
+        "VERDICT_DENIED_LABEL",
+        "VERDICT_FAULT_LABEL",
+        "REGISTER_SCOPE_TEMPLATE",
+        "REGISTER_FILTERED_TEMPLATE",
+        "SUMMARY_SCOPE_ALL_TIME",
+        "SUMMARY_SCOPE_NOTE",
+        "REFRESH_LABEL",
+        "REFRESH_IN_FLIGHT_LABEL",
+        "REFRESHED_TEMPLATE",
+        "NEVER_REFRESHED_LABEL",
+        "FAULT_TITLE",
+        "FAULT_MESSAGE_TEMPLATE",
+        "READ_LABEL_ROWS",
+        "READ_LABEL_TOTAL",
+        "READ_LABEL_BLOCKED_DUPLICATES",
+        "READ_LABEL_BLOCKED_SUSPICIOUS",
+        "READ_LABEL_UNIQUE_USERS",
+        "READ_LABEL_SUCCESSFUL",
+        "READ_LABEL_PII_QUERIES",
+        "READ_LABEL_TOP_MODELS",
+        "READ_LABEL_TOP_USERS",
+        "READ_LABEL_TOP_PII",
+        "EMPTY_REGISTER_TITLE",
+        "EMPTY_REGISTER_BODY",
+        "EMPTY_MATCHES_TITLE",
+        "EMPTY_MATCHES_TEMPLATE",
+        "FILTER_DESCRIPTION_VERDICT_TEMPLATE",
+        "FILTER_DESCRIPTION_SEARCH_TEMPLATE",
+        "FILTER_DESCRIPTION_JOIN",
+        "EMPTY_SUMMARY_TITLE",
+        "EMPTY_SUMMARY_BODY",
+        "FILTER_VERDICT_LABEL",
+        "FILTER_SEARCH_LABEL",
+        "FILTER_SEARCH_PLACEHOLDER",
+        "CLEAR_FILTERS_LABEL",
+        "SORT_LABEL",
+        "SORT_TIMESTAMP_LABEL",
+        "SORT_USER_LABEL",
+        "SORT_VERDICT_LABEL",
+        "SORT_ASCENDING_MARK",
+        "SORT_DESCENDING_MARK",
+        "DETAIL_TOGGLE_OPEN_LABEL",
+        "DETAIL_TOGGLE_CLOSE_LABEL",
+        "DETAIL_TIMESTAMP_LABEL",
+        "DETAIL_PROMPT_HASH_LABEL",
+        "DETAIL_ERROR_LABEL",
+        "DETAIL_PATTERN_LABEL",
+        "DETAIL_DEVICE_LABEL",
+        "DETAIL_PII_ENTITIES_LABEL",
+        "DETAIL_PII_INPUT_LABEL",
+        "DETAIL_PII_OUTPUT_LABEL",
+        "SUMMARY_COUNTS_HEADING",
+        "SUMMARY_WHO_HEADING",
+        "SUMMARY_PII_HEADING",
+        "FIGURE_TOTAL_LABEL",
+        "FIGURE_BLOCKED_DUPLICATES_LABEL",
+        "FIGURE_BLOCKED_SUSPICIOUS_LABEL",
+        "FIGURE_COMPLETION_LABEL",
+        "FIGURE_COMPLETION_NOTE",
+        "FIGURE_UNIQUE_USERS_LABEL",
+        "FIGURE_TOP_MODELS_LABEL",
+        "FIGURE_TOP_USERS_LABEL",
+        "FIGURE_PII_QUERIES_LABEL",
+        "FIGURE_TOP_PII_LABEL",
+        "RANKED_CUT_TEMPLATE",
+        "SHARE_TEMPLATE",
+        "RANKED_EMPTY_LABEL",
+    }
+    assert declared == asserted
+
+
+def test_admin_copy_templates_carry_their_placeholders():
+    """AC3: a label with a value in it is a template constant formatted at the
+    call site, not concatenation — so each one names its fields and formats
+    without a KeyError. AC3 names the first two explicitly."""
+    assert REGISTER_SCOPE_TEMPLATE.format(shown=100, total="3,180") == (
+        "100 most recent of 3,180"
+    )
+    assert REFRESHED_TEMPLATE.format(time="14:22:07") == "Refreshed 14:22:07"
+    assert REGISTER_FILTERED_TEMPLATE.format(shown=2, loaded=100) == "2 of 100 shown"
+    assert "{read}" in FAULT_MESSAGE_TEMPLATE and "{detail}" in FAULT_MESSAGE_TEMPLATE
+    assert FAULT_MESSAGE_TEMPLATE.format(read=READ_LABEL_ROWS, detail="boom")
+    assert EMPTY_MATCHES_TEMPLATE.format(filters="verdict denied", loaded=100)
+    assert FILTER_DESCRIPTION_VERDICT_TEMPLATE.format(verdicts="denied")
+    assert FILTER_DESCRIPTION_SEARCH_TEMPLATE.format(search="a.torres")
+    assert RANKED_CUT_TEMPLATE.format(n=5) == "top 5"
+    assert SHARE_TEMPLATE.format(share="13.0%") == "13.0% of all queries"
+
+
+def test_refresh_keeps_one_verb_across_the_flow():
+    """AC4 / frontend-design: "an action keeps the same name through the whole
+    flow" — the control says Refresh, the line it produces says Refreshed, and
+    signing out returns the gate rather than announcing a session ended."""
+    verb = REFRESH_LABEL.lower()
+    assert REFRESHED_TEMPLATE.lower().startswith(verb)
+    assert REFRESH_IN_FLIGHT_LABEL.lower().startswith(verb)
+    # The fault panel's retry is REFRESH_LABEL itself; the message says the same
+    # word, so no second name for the same button can creep in.
+    assert verb in FAULT_MESSAGE_TEMPLATE.lower()
+
+    assert SIGN_OUT_LABEL == "Sign out"
+    for name in dir(admin_copy):
+        if name.isupper():
+            assert "session ended" not in getattr(admin_copy, name).lower()
+
+
+def test_admin_copy_states_one_refusal_and_says_nothing_about_why():
+    """AC5 / PRD-006 Section 9: "an empty, malformed or wrong token produces the
+    same message. The gate reports that access was refused, not why." One
+    constant, and no second, more specific one can be added beside it."""
+    assert GATE_REFUSED_MESSAGE
+    assert "refused" in GATE_REFUSED_MESSAGE.lower()
+
+    refusals = [
+        name
+        for name in dir(admin_copy)
+        if name.isupper() and "refus" in getattr(admin_copy, name).lower()
+    ]
+    assert refusals == ["GATE_REFUSED_MESSAGE"]
+
+    # It must not name the reason: no oracle distinguishing empty from wrong
+    # from malformed, and no advice that implies one.
+    forbidden = ("empty", "invalid", "incorrect", "wrong", "length", "expired", "format")
+    assert not [word for word in forbidden if word in GATE_REFUSED_MESSAGE.lower()]

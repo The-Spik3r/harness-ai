@@ -49,15 +49,25 @@ from app.db.database import (
     top_users as read_top_users,
 )
 
+from .admin_copy import (
+    GATE_REFUSED_MESSAGE,
+    READ_LABEL_BLOCKED_DUPLICATES,
+    READ_LABEL_BLOCKED_SUSPICIOUS,
+    READ_LABEL_PII_QUERIES,
+    READ_LABEL_ROWS,
+    READ_LABEL_SUCCESSFUL,
+    READ_LABEL_TOP_MODELS,
+    READ_LABEL_TOP_PII,
+    READ_LABEL_TOP_USERS,
+    READ_LABEL_TOTAL,
+    READ_LABEL_UNIQUE_USERS,
+    # Aliased to the name this module has used since STORY-004: `load()` formats
+    # it and a future test may import it from here, so the move to admin_copy.py
+    # stays a relocation of the string rather than of the call site.
+    FAULT_MESSAGE_TEMPLATE as LOAD_FAILED_MESSAGE,
+)
 from .admin_formatting import VERDICTS, format_refreshed_at, to_audit_row
 from .admin_models import AuditRow
-
-# One message for an empty token, a wrong-length token and a wrong token of the
-# right length. PRD-006 Section 9: "an empty, malformed or wrong token produces
-# the same message. The gate reports that access was refused, not why."
-# Splitting this into three would be the oracle.
-# STORY-008 moves this string to admin_copy.py; this module then imports it.
-GATE_REFUSED_MESSAGE = "Access refused. That token was not accepted."
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
 # pagination past 100 rows out of scope, and `list_audit_logs` is the only
@@ -98,22 +108,15 @@ _SORT_RANKS = {
     ),
 }
 
-# The fault message. Names the read that failed and states that nothing on
-# screen changed — a stale register is not a wrong one, and that is the fact the
-# admin needs before deciding whether to trust what is displayed. "Refresh" is
-# the same word STORY-017's control must carry.
-# STORY-008 moves this string to admin_copy.py; this module then imports it.
-LOAD_FAILED_MESSAGE = (
-    "Could not read {read}. Nothing on screen has changed. Refresh to try "
-    "again. ({detail})"
-)
-
 # The ten reads, as data: (state field, what to call it in a fault message, the
 # read function, its keyword arguments). A table rather than ten hand-written
 # awaits because "all ten" is then one countable structure — ten separate
 # `await` lines can become nine in a refactor with nothing to notice it, and
-# STORY-006 asserts `len(_READS) == 10`. The label is the only user-facing
-# string here and moves to admin_copy.py with STORY-008.
+# STORY-006 asserts `len(_READS) == 10`. The label is the only user-facing string
+# here, and since STORY-008 every one of them comes from `admin_copy` — the
+# fault message they are formatted into (LOAD_FAILED_MESSAGE, imported above)
+# lives there too, so the whole sentence an admin reads on a failed read is
+# assembled from that one module.
 #
 # Module level, not the class body: three of the field names below are also
 # declared as vars on `AdminState`, and inside the class body those declarations
@@ -123,21 +126,31 @@ LOAD_FAILED_MESSAGE = (
 # query fails fast, and `total_recorded` follows them because it is the
 # denominator the register states its 100-row cap against.
 _READS: tuple[tuple[str, str, object, dict], ...] = (
-    ("rows", "the audit rows", list_audit_logs, {"limit": REGISTER_ROW_LIMIT}),
-    ("total_recorded", "the recorded total", count_audit_logs, {}),
-    ("blocked_duplicates", "the blocked duplicates", count_blocked_duplicates, {}),
-    ("blocked_suspicious", "the blocked patterns", count_blocked_suspicious, {}),
-    ("unique_users", "the user count", count_unique_users, {}),
-    ("successful_queries", "the completed count", count_successful_queries, {}),
+    ("rows", READ_LABEL_ROWS, list_audit_logs, {"limit": REGISTER_ROW_LIMIT}),
+    ("total_recorded", READ_LABEL_TOTAL, count_audit_logs, {}),
+    (
+        "blocked_duplicates",
+        READ_LABEL_BLOCKED_DUPLICATES,
+        count_blocked_duplicates,
+        {},
+    ),
+    (
+        "blocked_suspicious",
+        READ_LABEL_BLOCKED_SUSPICIOUS,
+        count_blocked_suspicious,
+        {},
+    ),
+    ("unique_users", READ_LABEL_UNIQUE_USERS, count_unique_users, {}),
+    ("successful_queries", READ_LABEL_SUCCESSFUL, count_successful_queries, {}),
     (
         "pii_detected_queries",
-        "the PII detection count",
+        READ_LABEL_PII_QUERIES,
         count_pii_detected_queries,
         {},
     ),
-    ("top_models", "the model ranking", read_top_models, {}),
-    ("top_users", "the user ranking", read_top_users, {}),
-    ("top_pii_entities", "the PII entity ranking", read_top_pii_entities, {}),
+    ("top_models", READ_LABEL_TOP_MODELS, read_top_models, {}),
+    ("top_users", READ_LABEL_TOP_USERS, read_top_users, {}),
+    ("top_pii_entities", READ_LABEL_TOP_PII, read_top_pii_entities, {}),
 )
 
 
