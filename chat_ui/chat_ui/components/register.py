@@ -40,10 +40,31 @@ alignment down a hundred rows is what makes scanning work at all, `FONT_DISPLAY`
 sets the verdict tags and column heads, and `FONT_BODY` appears on the scope
 line and nowhere else.
 
-The disclosure (STORY-012), the filter and sort controls (STORY-013) and the
-three empty states (STORY-014) are not here. `register()` renders the table
-unconditionally; STORY-014 is what wraps it in the condition that chooses
-between it and an empty state.
+**The disclosure carries evidence, not a second summary.** Under each row line
+sits the five fields PRD-006 Section 10 moves onto disclosure — `error_message`
+and `suspicious_pattern` first, because a **fault** row is opened to read the
+error and a **denied** row to read the pattern, then `prompt_hash`, the full
+User-Agent, and the PII facts. The one in-row PII indicator is **split** here
+into its input and output halves, which is the whole point of moving it: the row
+answers "was there PII", the disclosure answers "where". Neither preview is
+among them and neither is on `AuditRow` to begin with (Risk 2), and
+`admin_copy.DETAIL_TIMESTAMP_LABEL` is deliberately not used — `_time_cell`
+already sets the absolute stamp under the relative one, and repeating it below
+would be the frontend-design skill's "nothing quietly does double duty".
+
+**Open state is `AdminState.open_rows`, keyed on `audit_id`.** Not
+`rx.el.details` and not `rx.accordion`, both of which exist in the pinned
+build. `rx.foreach` compiles to a `.map()` whose children are keyed by position,
+so a DOM-held open flag would reattach an open disclosure to whichever row
+landed in that slot once STORY-013's sort and filter move them — silent
+wrongness on an audit surface. `rx.accordion` additionally supplies colour at
+compile time, which is the failure `admin_shell.py:_view_link` records for
+`rx.link`'s Radix accent and which a source grep cannot see. The membership test
+is `Var.contains()`: `in` is not supported on Vars.
+
+The filter and sort controls (STORY-013) and the three empty states (STORY-014)
+are not here. `register()` renders the table unconditionally; STORY-014 is what
+wraps it in the condition that chooses between it and an empty state.
 """
 
 import reflex as rx
@@ -59,19 +80,23 @@ from chat_ui.admin_formatting import (
 from chat_ui.admin_state import AdminState
 
 # The nine columns, in PRD-006 Section 4's order: the stamp margin, then
-# timestamp, user_id, verdict, model_used, tokens_used, PII, device, audit_id.
+# timestamp, user_id, verdict, model_used, tokens_used, PII, device, audit_id —
+# and a tenth track at the right edge carrying the disclosure control, which is
+# a control rather than a column of values.
 #
 # One constant, used by the column head *and* by every row. Two matching
 # template strings would satisfy "the numeric columns align down the full
 # window" right up until someone edited one of them; one constant makes the
 # alignment true by construction rather than by discipline.
 _GRID = (
-    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 5rem 3.5rem minmax(9rem, 1fr) 5.5rem"
+    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 5rem 3.5rem minmax(9rem, 1fr) "
+    "5.5rem 2.5rem"
 )
 
-# Below this the nine columns crush rather than wrap. The table scrolls
-# sideways inside its own container instead of the page doing it.
-_MIN_WIDTH = "58rem"
+# Below this the ten columns crush rather than wrap. The table scrolls
+# sideways inside its own container instead of the page doing it. Raised from
+# 58rem with the control column: its 2.5rem track plus one 0.75rem column gap.
+_MIN_WIDTH = "61.25rem"
 
 
 def _head_cell(label: str, align: str = "left") -> rx.Component:
@@ -226,16 +251,213 @@ def _time_cell(row) -> rx.Component:
     )
 
 
-def _row(row) -> rx.Component:
-    """One register row: the stamp margin, then the eight columns.
+def _is_open(row):
+    """Whether this row's disclosure is open.
+
+    `Var.contains()` and not `in`: the `in` operator is not supported on Vars.
+    The set is `audit_id`s, so the answer follows the row through any reorder.
+    """
+    return AdminState.open_rows.contains(row.audit_id)
+
+
+def _toggle_button(row, mark: str, label: str, expanded: str) -> rx.Component:
+    """The disclosure control for one row, drawing no chrome of its own.
+
+    A real `<button>`, which is the whole of the keyboard answer: it takes focus
+    in document order and fires on both Enter and Space with no key handling
+    here, and `theme.GLOBAL_CSS`'s `:focus-visible` rule gives it the ring. No
+    local `outline`/`box_shadow` may take that back.
+
+    `type="button"` is explicit for the reason `admin_shell.py`'s sign-out
+    records: an unqualified <button> defaults to submit.
+
+    The mark is what the eye gets and `label` is what a screen reader gets —
+    the 2.5rem track has no room for DETAIL_TOGGLE_OPEN_LABEL, and a hundred
+    repetitions of it down the right edge would compete with the stamp margin,
+    which is where this design spends its one measure of boldness.
+    """
+    return rx.el.button(
+        mark,
+        on_click=AdminState.toggle_detail(row.audit_id),
+        type="button",
+        cursor="pointer",
+        background="none",
+        border="none",
+        padding="0",
+        width="100%",
+        font_family=theme.FONT_DATA,
+        font_size=theme.TEXT_DATA,
+        line_height="1",
+        color=theme.MUTE,
+        _hover={"color": theme.INK},
+        custom_attrs={"aria-label": label, "aria-expanded": expanded},
+    )
+
+
+def _disclosure_toggle(row) -> rx.Component:
+    """The control in both its states, so it keeps one name across the flow."""
+    return rx.box(
+        rx.cond(
+            _is_open(row),
+            _toggle_button(
+                row,
+                admin_copy.DETAIL_TOGGLE_CLOSE_MARK,
+                admin_copy.DETAIL_TOGGLE_CLOSE_LABEL,
+                "true",
+            ),
+            _toggle_button(
+                row,
+                admin_copy.DETAIL_TOGGLE_OPEN_MARK,
+                admin_copy.DETAIL_TOGGLE_OPEN_LABEL,
+                "false",
+            ),
+        ),
+        display="flex",
+        justify_content="center",
+        custom_attrs={"role": "cell"},
+    )
+
+
+def _detail_label(label: str) -> rx.Component:
+    """One field's name. The same treatment `_head_cell` gives a signpost,
+    because both are labels and neither is data."""
+    return rx.box(
+        label,
+        font_family=theme.FONT_DISPLAY,
+        font_size=theme.TEXT_MICRO,
+        font_weight="600",
+        letter_spacing="0.1em",
+        text_transform="uppercase",
+        color=theme.MUTE,
+        padding_top="0.15rem",
+    )
+
+
+def _detail_value(*children) -> rx.Component:
+    """One field's value: the data face, wrapping rather than truncating.
+
+    The exact opposite of `_cell`, and deliberately. A row cell truncates to
+    protect the alignment a hundred rows are scanned on; below the row line
+    there is no alignment to protect, and an `error_message` or a full
+    User-Agent cut off at the container edge would be the value this whole
+    disclosure exists to show, half-shown.
+    """
+    return rx.box(
+        *children,
+        font_family=theme.FONT_DATA,
+        font_size=theme.TEXT_DATA,
+        color=theme.INK,
+        line_height="1.5",
+        white_space="normal",
+        word_break="break-word",
+        min_width="0",
+    )
+
+
+def _detail_field(label: str, *value_children) -> rx.Component:
+    """One labelled fact: the label, then the value."""
+    return rx.fragment(_detail_label(label), _detail_value(*value_children))
+
+
+def _pii_entities(row) -> rx.Component:
+    """The entity types PRD-003 recorded, as words.
+
+    `.length() > 0`, never a bare truthiness test on the list: `rx.cond`
+    compiles to JavaScript, where `[]` is truthy, so `rx.cond(row.pii_entities,
+    ...)` would render an empty list as though it were populated — a row
+    claiming PII types it does not have.
+
+    Plain spaced words, not chips: a chip is a fill, and Risk 6 rules fills out.
+    """
+    return rx.cond(
+        row.pii_entities.length() > 0,
+        rx.hstack(
+            rx.foreach(row.pii_entities, lambda entity: rx.box(entity)),
+            spacing="3",
+            wrap="wrap",
+        ),
+        rx.box(VALUE_ABSENT, color=theme.MUTE),
+    )
+
+
+def _detail(row) -> rx.Component:
+    """The row's record: the five fields `GET /audit` does not return in full.
+
+    Ordered evidence-first. A **fault** row is opened to read its
+    `error_message` and a **denied** row to read its `suspicious_pattern`
+    (PRD-006 Section 5, story 3), so those are the top two lines and the hash
+    follows them.
+
+    The three string fields cannot arrive blank and get no fallback here:
+    `admin_formatting._text` already wrote `VALUE_ABSENT` into `prompt_hash`,
+    `error_message` and `suspicious_pattern` when their column was NULL, and
+    `_truncate_device` did the same for `device_full`. Absence is stated at the
+    boundary, which is where this module's "read fields, do not compute" rule
+    puts it. Only the entity list and the two booleans need a render-time
+    branch, because an empty list and a False have no absent mark to carry.
+
+    `margin_left` plus `border_left` is the one structural move: it continues
+    the stamp margin's own edge down through the open disclosure, so the stripe
+    of exceptions is never broken by an open row and the record visibly hangs
+    off the register's spine. No card, no fill, no background — it sits on the
+    same ground as everything else (Risk 6).
+    """
+    return rx.box(
+        rx.box(
+            _detail_field(admin_copy.DETAIL_ERROR_LABEL, row.error_message),
+            _detail_field(admin_copy.DETAIL_PATTERN_LABEL, row.suspicious_pattern),
+            _detail_field(admin_copy.DETAIL_PROMPT_HASH_LABEL, row.prompt_hash),
+            _detail_field(admin_copy.DETAIL_DEVICE_LABEL, row.device_full),
+            _detail_label(admin_copy.DETAIL_PII_ENTITIES_LABEL),
+            _detail_value(_pii_entities(row)),
+            # Split from the row's one combined indicator, which is the reason
+            # these two moved onto the disclosure at all: the row answers
+            # "was there PII", these answer "where".
+            _detail_field(
+                admin_copy.DETAIL_PII_INPUT_LABEL,
+                rx.cond(
+                    row.pii_detected_input,
+                    admin_copy.DETAIL_PII_PRESENT_LABEL,
+                    admin_copy.DETAIL_PII_ABSENT_LABEL,
+                ),
+            ),
+            _detail_field(
+                admin_copy.DETAIL_PII_OUTPUT_LABEL,
+                rx.cond(
+                    row.pii_detected_output,
+                    admin_copy.DETAIL_PII_PRESENT_LABEL,
+                    admin_copy.DETAIL_PII_ABSENT_LABEL,
+                ),
+            ),
+            display="grid",
+            grid_template_columns="9rem minmax(0, 1fr)",
+            row_gap="0.5rem",
+            column_gap="0.75rem",
+            align_items="start",
+            custom_attrs={"role": "cell"},
+        ),
+        margin_left=theme.STAMP_X,
+        border_left=f"1px solid {theme.RULE}",
+        padding="0.75rem 1.5rem 1rem 0.75rem",
+        custom_attrs={"role": "row"},
+    )
+
+
+def _row_line(row) -> rx.Component:
+    """One register row: the stamp margin, then the eight columns, then the
+    disclosure control.
 
     `min_height` rather than `height`: the time cell is two lines, and a fixed
     row height would clip the absolute timestamp under it.
 
-    Nine children and no tenth. `device_full`, `prompt_hash`, `error_message`,
+    Ten children and no eleventh. `device_full`, `prompt_hash`, `error_message`,
     `pii_entities`, `pii_detected_input`, `pii_detected_output` and
-    `suspicious_pattern` are disclosure-only fields on `AuditRow` and belong to
-    STORY-012.
+    `suspicious_pattern` are disclosure-only fields on `AuditRow` and are read
+    by `_detail`, never here — the row states the verdict, the record states the
+    evidence.
+
+    The hairline is not on this box: it belongs to `_row` below, so an open
+    disclosure sits inside its row's rule rather than beneath it.
     """
     return rx.box(
         _stamp_margin(row),
@@ -255,15 +477,35 @@ def _row(row) -> rx.Component:
         # This is the row's real id — the string a user quotes out of the chat's
         # success footer — so it is a key, not a decoration.
         _cell(admin_copy.AUDIT_ID_PREFIX, row.audit_id, text_align="right"),
+        _disclosure_toggle(row),
         display="grid",
         grid_template_columns=_GRID,
         align_items="center",
         column_gap="0.75rem",
         min_height=theme.ROW_H,
         padding_right="1.5rem",
-        border_bottom=f"1px solid {theme.RULE_SOFT}",
         _hover={"background_color": theme.HOVER},
         custom_attrs={"role": "row"},
+    )
+
+
+def _row(row) -> rx.Component:
+    """One row and its record: the line, and the disclosure when it is open.
+
+    `role="rowgroup"` on the wrapper, because a bare div between the
+    `role="table"` container and a `role="row"` would break the ARIA table
+    structure — a rowgroup holding two rows does not.
+
+    The hairline lives here rather than on the line, so it separates this row
+    from the next one rather than separating a row from its own record. `_hover`
+    stays on the line for the same reason: hovering must not tint an open
+    disclosure, which is being read rather than scanned.
+    """
+    return rx.box(
+        _row_line(row),
+        rx.cond(_is_open(row), _detail(row), rx.fragment()),
+        border_bottom=f"1px solid {theme.RULE_SOFT}",
+        custom_attrs={"role": "rowgroup"},
     )
 
 
@@ -277,7 +519,9 @@ def _column_head() -> rx.Component:
     heads stay readable through a hundred rows, which is the point of a head.
 
     The stamp margin gets an empty cell, not a head: a label over a column that
-    carries no values would be a label that labels nothing.
+    carries no values would be a label that labels nothing. The disclosure
+    column at the other edge gets one for the same reason — it carries a
+    control, not values, and the control names itself.
     """
     return rx.box(
         rx.box(width=theme.STAMP_X, border_right=f"1px solid {theme.RULE}"),
@@ -289,6 +533,7 @@ def _column_head() -> rx.Component:
         _head_cell(admin_copy.COLUMN_PII),
         _head_cell(admin_copy.COLUMN_DEVICE),
         _head_cell(admin_copy.COLUMN_ID, align="right"),
+        rx.box(),
         display="grid",
         grid_template_columns=_GRID,
         align_items="center",

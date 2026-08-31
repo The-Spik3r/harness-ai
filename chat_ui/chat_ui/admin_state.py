@@ -297,6 +297,23 @@ class AdminState(rx.State):
     sort_key: str = ""
     sort_descending: bool = False
 
+    # --- Disclosure -------------------------------------------------------
+    # Which rows have their detail open, by `audit_id` — never by position in
+    # `visible_rows`. The register renders through `rx.foreach`, which compiles
+    # to a `.map()` whose children are keyed by index, so a sort or a filter
+    # (STORY-013) moves every row to a new position while its id stays its own.
+    # Holding the open set as ids is what makes STORY-012's "each row's open
+    # state is independent" survive a reorder; holding it in the DOM (an
+    # `rx.el.details`) or by index would silently reattach an open disclosure to
+    # whichever row landed in that slot, which is the one kind of wrongness an
+    # audit surface cannot carry.
+    #
+    # `list[int]`, not a bare `list`: `Var.contains()` needs the strict
+    # annotation to compile. Empty default, like every var above, so sign_out()'s
+    # reset() closes every disclosure — an open row surviving a sign-out is the
+    # standing disclosure PRD-006 Section 9 is about.
+    open_rows: list[int] = []
+
     @rx.var
     def visible_rows(self) -> list[AuditRow]:
         """The rows the register renders: `rows` narrowed, then ordered.
@@ -393,6 +410,28 @@ class AdminState(rx.State):
             ]
         else:
             self.selected_verdicts = [*self.selected_verdicts, verdict]
+
+    @rx.event
+    def toggle_detail(self, audit_id: int):
+        """Opens or closes one row's disclosure, leaving every other row alone.
+
+        Keyed on the row's `audit_id`, for the reason the `open_rows`
+        declaration records: an id is the row, an index is only a position.
+
+        Reassigns the list rather than mutating it, the same requirement
+        `toggle_verdict` above carries — Reflex marks a var dirty on assignment,
+        and an in-place `.append()` can leave the register rendering its cached
+        open set.
+
+        Nothing clears this on a read or on a cleared filter, deliberately.
+        `audit_id` is monotonic, so a refresh that returns the same row should
+        return it in the same state, and an admin clearing a filter is not asking
+        for their open rows to close. `sign_out()`'s reset() is what closes them.
+        """
+        if audit_id in self.open_rows:
+            self.open_rows = [i for i in self.open_rows if i != audit_id]
+        else:
+            self.open_rows = [*self.open_rows, audit_id]
 
     @rx.event
     def sort_by(self, key: str):

@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, reflex, component, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-012-row-detail-disclosure.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-012-row-detail-disclosure.report.md
 commit: null
 depends_on: [STORY-008, STORY-011]
 blocks: [STORY-018]
 skills: [frontend-design, reflex-docs]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-012: Row detail disclosure: error_message, prompt_hash, PII entities, full User-Agent, pattern

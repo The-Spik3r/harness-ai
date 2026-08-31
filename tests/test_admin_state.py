@@ -1033,6 +1033,88 @@ def test_sign_out_clears_the_filter_and_sort_state_too(configured_token):
     assert state.rows == []
 
 
+# --- STORY-012: the row disclosure's open state --------------------------
+
+
+def test_open_rows_is_a_declared_var_with_an_empty_default(configured_token):
+    """A plain base var, not a computed one — the toggle writes it — and empty,
+    which is what makes sign_out()'s reset() close every disclosure."""
+    state = _loaded(configured_token)
+
+    assert "open_rows" in AdminState.base_vars
+    assert state.open_rows == []
+
+
+def test_toggle_detail_opens_closes_and_reassigns(configured_token):
+    """Reassignment rather than an in-place append, for the reason
+    `toggle_verdict` records: Reflex marks a var dirty on assignment, and a
+    mutated list can leave the register rendering its cached open set."""
+    state = _loaded(configured_token)
+
+    _call(state, "toggle_detail", 129)
+    assert state.open_rows == [129]
+    # The object itself, not its id(): a freed list's address is reused, so
+    # id() comparison can pass on a mutation and fail on a reassignment.
+    first = state.open_rows
+
+    _call(state, "toggle_detail", 127)
+    assert state.open_rows == [129, 127]
+    assert state.open_rows is not first
+    assert first == [129], "the previous list was mutated in place"
+    second = state.open_rows
+
+    _call(state, "toggle_detail", 129)
+    assert state.open_rows == [127]
+    assert state.open_rows is not second
+    assert second == [129, 127], "the previous list was mutated in place"
+
+
+def test_each_rows_disclosure_is_independent(configured_token):
+    """AC 8. Closing one disclosure closes exactly one."""
+    state = _loaded(configured_token)
+
+    for audit_id in (130, 129, 128):
+        _call(state, "toggle_detail", audit_id)
+    assert state.open_rows == [130, 129, 128]
+
+    _call(state, "toggle_detail", 129)
+
+    assert state.open_rows == [130, 128]
+
+
+def test_open_rows_is_keyed_on_the_audit_id_not_the_position(configured_token):
+    """The whole reason the open set is ids rather than indices.
+
+    `visible_rows` is reordered by the sort, so a disclosure held by position
+    would reattach itself to whatever row landed in that slot. Held by id, the
+    open row is the same row before and after.
+    """
+    state = _loaded(configured_token)
+    _call(state, "toggle_detail", 127)
+
+    assert _visible(state)[3] == 127
+
+    _call(state, "sort_by", "user")
+
+    assert state.open_rows == [127]
+    # 127 has moved off position 3, and the open set has not followed the slot.
+    assert _visible(state)[3] != 127
+    assert 127 in _visible(state)
+
+
+def test_sign_out_closes_every_disclosure(configured_token):
+    """An open disclosure surviving a sign-out is a standing disclosure of the
+    error messages and matched patterns PRD-006 Section 9 puts behind the gate."""
+    state = _loaded(configured_token)
+    _call(state, "toggle_detail", 130)
+    _call(state, "toggle_detail", 128)
+    assert state.open_rows == [130, 128]
+
+    _sign_out(state)
+
+    assert state.open_rows == []
+
+
 def test_the_verdict_vocabulary_is_imported_not_redeclared():
     """PRD-006 Section 6 fixes the four strings in admin_formatting.py so two
     rows with identical fields can never render differently. A second copy here

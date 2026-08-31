@@ -72,6 +72,48 @@ COPY_NAMES = (
     "VERDICT_HELD_LABEL",
     "VERDICT_DENIED_LABEL",
     "VERDICT_FAULT_LABEL",
+    # STORY-012's disclosure: the six field labels, the control in both its
+    # directions, and the two PII presence words.
+    "DETAIL_ERROR_LABEL",
+    "DETAIL_PATTERN_LABEL",
+    "DETAIL_PROMPT_HASH_LABEL",
+    "DETAIL_DEVICE_LABEL",
+    "DETAIL_PII_ENTITIES_LABEL",
+    "DETAIL_PII_INPUT_LABEL",
+    "DETAIL_PII_OUTPUT_LABEL",
+    "DETAIL_TOGGLE_OPEN_LABEL",
+    "DETAIL_TOGGLE_CLOSE_LABEL",
+    "DETAIL_TOGGLE_OPEN_MARK",
+    "DETAIL_TOGGLE_CLOSE_MARK",
+    "DETAIL_PII_PRESENT_LABEL",
+    "DETAIL_PII_ABSENT_LABEL",
+)
+
+# Every label the disclosure puts on screen, as the strings that must reach the
+# rendered output. `DETAIL_TIMESTAMP_LABEL` is deliberately absent: the row's
+# time cell already carries the absolute stamp, and repeating it below would be
+# the second summary the disclosure is not (see register.py's docstring).
+DETAIL_LABELS = (
+    admin_copy.DETAIL_ERROR_LABEL,
+    admin_copy.DETAIL_PATTERN_LABEL,
+    admin_copy.DETAIL_PROMPT_HASH_LABEL,
+    admin_copy.DETAIL_DEVICE_LABEL,
+    admin_copy.DETAIL_PII_ENTITIES_LABEL,
+    admin_copy.DETAIL_PII_INPUT_LABEL,
+    admin_copy.DETAIL_PII_OUTPUT_LABEL,
+)
+
+# The five fields PRD-006 Section 10 moves onto the disclosure, as `AuditRow`
+# field names. Each must be read by the component, or the disclosure is not
+# showing what the story says it shows.
+DETAIL_ROW_FIELDS = (
+    "error_message",
+    "suspicious_pattern",
+    "prompt_hash",
+    "device_full",
+    "pii_entities",
+    "pii_detected_input",
+    "pii_detected_output",
 )
 
 # The eight column heads, as the strings that must appear in the output.
@@ -139,7 +181,10 @@ try:
     from chat_ui.components.register import (
         register,
         _column_head,
+        _detail,
+        _disclosure_toggle,
         _row,
+        _row_line,
         _scope_line,
         _stamp_margin,
         _verdict_tag,
@@ -165,8 +210,14 @@ factories = [
     ("_column_head", lambda: _column_head()),
     ("_scope_line", lambda: _scope_line()),
     ("rows", lambda: rx.box(rx.foreach(AdminState.visible_rows, _row))),
+    ("lines", lambda: rx.box(rx.foreach(AdminState.visible_rows, _row_line))),
     ("stamps", lambda: rx.box(rx.foreach(AdminState.visible_rows, _stamp_margin))),
     ("tags", lambda: rx.box(rx.foreach(AdminState.visible_rows, _verdict_tag))),
+    ("detail", lambda: rx.box(rx.foreach(AdminState.visible_rows, _detail))),
+    (
+        "toggle",
+        lambda: rx.box(rx.foreach(AdminState.visible_rows, _disclosure_toggle)),
+    ),
 ]
 for name, factory in factories:
     try:
@@ -180,6 +231,13 @@ for name, factory in factories:
 result["broken_factories"] = broken
 
 result["rendered"] = built.get("register", "")
+# The disclosure and its control, separately: `register()` compiles the rows
+# through rx.foreach, so the detail is in there too — but a test that means to
+# assert something about the disclosure should fail when the disclosure is what
+# broke, not when the table is.
+result["detail"] = built.get("detail", "")
+result["toggle"] = built.get("toggle", "")
+result["rows_rendered"] = built.get("rows", "")
 
 print(json.dumps(result))
 """
@@ -444,6 +502,156 @@ def test_the_register_reads_only_fields_that_exist_on_the_row(source):
     assert referenced, "no row fields are read — the regex or the module moved"
     unknown = referenced - set(AuditRow.model_fields)
     assert not unknown, unknown
+
+
+# --- The row disclosure (STORY-012) ---------------------------------------
+
+
+@pytest.mark.parametrize("label", DETAIL_LABELS)
+def test_every_disclosure_label_is_rendered(probe, label):
+    """AC 1: every field PRD-006 Section 10 moves onto disclosure is labelled."""
+    assert not probe["errors"], probe["errors"]
+    assert label in probe["detail"], label
+
+
+@pytest.mark.parametrize("field", DETAIL_ROW_FIELDS)
+def test_the_disclosure_reads_every_disclosure_only_field(source, field):
+    """AC 1, from the source side.
+
+    A label rendered over a value the component never reads would satisfy the
+    test above and show nothing. Each disclosure-only field must actually be
+    read off the row.
+    """
+    assert f"row.{field}" in source, field
+
+
+def test_the_error_message_and_the_pattern_lead_the_disclosure(probe):
+    """AC 2 and AC 3, as ordering.
+
+    A **fault** row is opened to read its error and a **denied** row to read its
+    pattern (PRD-006 Section 5, story 3), so those two labels precede the hash.
+    Neither value is projected by `GET /audit` at all — the error not at all,
+    the pattern only as a flattened boolean — which is the console's clearest
+    gain over `curl`.
+    """
+    assert not probe["errors"], probe["errors"]
+    detail = probe["detail"]
+    error_at = detail.index(admin_copy.DETAIL_ERROR_LABEL)
+    pattern_at = detail.index(admin_copy.DETAIL_PATTERN_LABEL)
+    hash_at = detail.index(admin_copy.DETAIL_PROMPT_HASH_LABEL)
+    assert error_at < pattern_at < hash_at
+
+
+def test_the_pii_indicator_is_split_on_the_disclosure(probe):
+    """AC 4: one combined indicator in the row, two separate facts below it.
+
+    The row answers "was there PII"; the disclosure answers "where". Two labels
+    holding the same string would collapse that back into one statement.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.PII_INDICATOR_LABEL in probe["rendered"]
+    assert admin_copy.DETAIL_PII_INPUT_LABEL in probe["detail"]
+    assert admin_copy.DETAIL_PII_OUTPUT_LABEL in probe["detail"]
+    assert admin_copy.DETAIL_PII_INPUT_LABEL != admin_copy.DETAIL_PII_OUTPUT_LABEL
+
+
+def test_the_absent_case_is_stated_rather_than_left_blank(probe, source):
+    """AC 5, over the two kinds of absence this surface has.
+
+    The three nullable strings never arrive blank — `admin_formatting._text`
+    wrote `VALUE_ABSENT` into them at the boundary — so the component adds no
+    fallback for those and none is asserted here. What must be stated at render
+    are the two cases with no absent mark to carry: an empty entity list, and a
+    False boolean.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.DETAIL_PII_ABSENT_LABEL in probe["detail"]
+    assert admin_copy.DETAIL_PII_PRESENT_LABEL in probe["detail"]
+    # The entity list falls back to the absent mark, and does so on a length
+    # test: rx.cond compiles to JS, where [] is truthy, so a bare truthiness
+    # test would render an empty list as though it were populated.
+    assert "pii_entities.length()" in source
+
+
+def test_the_disclosure_renders_no_preview(probe):
+    """AC 6, restated over the disclosure specifically.
+
+    `test_the_register_reads_only_fields_that_exist_on_the_row` already regexes
+    every `row.<attr>` in the module, so it covers the new helpers — but the
+    disclosure is the surface that renders the *rest* of the row, and it is
+    where a preview would be reached for.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "prompt_preview" not in probe["detail"]
+    assert "response_preview" not in probe["detail"]
+
+
+def test_the_toggle_is_a_real_button_with_an_accessible_name(probe):
+    """AC 7.
+
+    A real `<button>` is the whole keyboard answer: focusable in document order,
+    fires on Enter and Space with no key handling of ours. The mark is what the
+    eye gets, so the name has to come from `aria-label` — and `aria-expanded`
+    carries the state that the mark shows visually.
+    """
+    assert not probe["errors"], probe["errors"]
+    toggle = probe["toggle"]
+    # Reflex compiles to JSX, not to an HTML string, so the element is asserted
+    # as the tag it renders rather than as "<button".
+    assert 'jsx("button"' in toggle
+    assert 'type:"button"' in toggle
+    assert "aria-expanded" in toggle
+    assert admin_copy.DETAIL_TOGGLE_OPEN_LABEL in toggle
+    assert admin_copy.DETAIL_TOGGLE_CLOSE_LABEL in toggle
+
+
+def test_the_open_state_is_the_state_var_not_the_dom(probe, source):
+    """AC 8's mechanism.
+
+    `rx.foreach` compiles to a `.map()` whose children are keyed by position, so
+    an open flag held in the DOM would reattach itself to whichever row landed
+    in that slot once STORY-013's sort and filter move them. The open set is
+    `audit_id`s on the state instead, and the membership test is
+    `Var.contains()` — `in` is not supported on Vars.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert "open_rows" in probe["rendered"]
+    # `contains` compiles to a JS `.includes(...)` over the open set.
+    assert "AdminState.open_rows.contains(" in source
+    assert ".includes(" in probe["rendered"]
+    # Called, not merely named: both appear in this module's docstring, which
+    # records why they were rejected.
+    assert "rx.el.details(" not in source
+    assert "rx.accordion(" not in source
+
+
+def test_toggling_one_row_is_one_event_carrying_one_id(source):
+    """AC 8: the handler is called with the row's own id, so it can only ever
+    open or close that row."""
+    assert "AdminState.toggle_detail(row.audit_id)" in source
+
+
+def test_the_disclosure_wraps_where_the_row_truncates(source):
+    """AC 2's "in full".
+
+    A row cell truncates to protect the alignment a hundred rows are scanned on.
+    Below the row line there is no alignment to protect, and an `error_message`
+    or a full User-Agent clipped at the container edge would be the value the
+    disclosure exists to show, half-shown.
+    """
+    assert 'white_space="normal"' in source
+    assert 'word_break="break-word"' in source
+
+
+def test_the_disclosure_continues_the_stamp_margins_edge(source):
+    """Risk 6, and the one structural move the disclosure makes.
+
+    No card and no fill: what marks the block as the row's record is that the
+    stamp margin's own edge runs down through it, so an open row never breaks
+    the stripe of exceptions. `border_left` off `STAMP_X`, and no background.
+    """
+    assert "margin_left=theme.STAMP_X" in source
+    assert 'background_color=theme.CARD' not in source
 
 
 def test_the_row_model_still_has_no_preview_field():

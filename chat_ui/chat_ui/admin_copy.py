@@ -224,6 +224,34 @@ SORT_DESCENDING_MARK = "↓"
 # name across both directions of the same control.
 DETAIL_TOGGLE_OPEN_LABEL = "Show detail"
 DETAIL_TOGGLE_CLOSE_LABEL = "Hide detail"
+
+# The toggle's *visible* content, against the two labels above as its accessible
+# name. Two names for one control, and not drift: the control sits in a 2.5rem
+# column at the right edge of a hundred rows, and "Show detail" set a hundred
+# times down that edge would compete with the stamp margin — which is where
+# PRD-006 Section 6.1 spends the whole design's boldness. `SORT_ASCENDING_MARK`
+# above is the precedent for a mark living in this module; the register's "no
+# icon" refusal is about icons, and these are characters. U+2212 MINUS SIGN
+# rather than a hyphen, for the same typographic reason `VALUE_ABSENT` is an em
+# dash.
+DETAIL_TOGGLE_OPEN_MARK = "+"
+DETAIL_TOGGLE_CLOSE_MARK = "−"
+
+# The two PII booleans, as words. A false boolean has no VALUE_ABSENT to fall
+# back on: `False` is a recorded fact, not a missing value — the same
+# distinction `to_audit_row` makes for `tokens_used` — so "not detected" says
+# the redactor ran and found nothing, where a dash would say the column was
+# NULL. STORY-012 AC 5 requires the empty case be stated rather than left blank.
+DETAIL_PII_PRESENT_LABEL = "detected"
+DETAIL_PII_ABSENT_LABEL = "not detected"
+
+# Declared, and deliberately not rendered. STORY-008 provisioned "one label per
+# field PRD-006 Section 10 puts on disclosure", but that section's timestamp row
+# describes the *in-row* column ("relative + absolute"), and
+# `components/register.py:_time_cell` already sets the absolute stamp under the
+# relative one. Repeating it on the disclosure would be the frontend-design
+# skill's "nothing quietly does double duty", and STORY-012's first acceptance
+# criterion names five fields, not six.
 DETAIL_TIMESTAMP_LABEL = "Recorded"
 DETAIL_PROMPT_HASH_LABEL = "Prompt hash"
 DETAIL_ERROR_LABEL = "Error"
