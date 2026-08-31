@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: 5e41346
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `5e41346`
 
 ## Summary
 

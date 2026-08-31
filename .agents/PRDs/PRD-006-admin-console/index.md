@@ -29,7 +29,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 | STORY-013 | Verdict multi-select, free-text filter and sort controls on the register | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-013-filter-and-sort-controls.plan.md) | `32efec0` |
 | STORY-014 | Three distinct register states: nothing recorded, nothing matching, rows shown | feature | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-014-three-empty-states.plan.md) | `3fe5dda` |
 | STORY-015 | summary.py: nine StatsResponse figures as a ruled tally sheet with stated scopes | feature | ✅ done | large | [plan](../../plans/PRD-006-admin-console/completed/STORY-015-summary-tally-sheet.plan.md) | `d8a9a9d` |
-| STORY-016 | Copy test pinning the completion label so it cannot regress to "success rate" | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md) | `PENDING` |
+| STORY-016 | Copy test pinning the completion label so it cannot regress to "success rate" | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md) | `5e41346` |
 | STORY-017 | Manual refresh with a last-refreshed stamp, and a fault panel with retry on both pages | feature | ⬜ todo | medium | — | — |
 | STORY-018 | Render invariant tests: no previews in output, no tint or stray colour on the console | technical | ⬜ todo | medium | — | — |
 | STORY-019 | Quality floor pass: keyboard, focus, narrow viewport — and a design self-critique | enhancement | ⬜ todo | medium | — | — |

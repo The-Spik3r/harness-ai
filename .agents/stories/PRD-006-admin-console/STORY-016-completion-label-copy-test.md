@@ -12,7 +12,7 @@ labels: [tests, copy, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-016-completion-label-copy-test.report.md
-commit: null
+commit: 5e41346
 depends_on: [STORY-008, STORY-015]
 blocks: [STORY-020]
 skills: []
