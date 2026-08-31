@@ -51,6 +51,7 @@ from app.db.database import (
 
 from .admin_copy import (
     GATE_REFUSED_MESSAGE,
+    REGISTER_SCOPE_TEMPLATE,
     READ_LABEL_BLOCKED_DUPLICATES,
     READ_LABEL_BLOCKED_SUSPICIOUS,
     READ_LABEL_PII_QUERIES,
@@ -66,7 +67,12 @@ from .admin_copy import (
     # stays a relocation of the string rather than of the call site.
     FAULT_MESSAGE_TEMPLATE as LOAD_FAILED_MESSAGE,
 )
-from .admin_formatting import VERDICTS, format_refreshed_at, to_audit_row
+from .admin_formatting import (
+    VERDICTS,
+    format_count,
+    format_refreshed_at,
+    to_audit_row,
+)
 from .admin_models import AuditRow
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
@@ -330,6 +336,40 @@ class AdminState(rx.State):
         shows against this.
         """
         return bool(self.selected_verdicts) or bool(self.search.strip())
+
+    @rx.var
+    def register_scope(self) -> str:
+        """The register's window, stated against the whole record.
+
+        PRD-006 Risk 4: all-time figures beside a 100-row window "invite a wrong
+        reading", so the register says which of the two it is showing. The
+        denominator is `count_audit_logs()`, read into `total_recorded`.
+
+        **`len(self.rows)`, not REGISTER_ROW_LIMIT.** Against a table of 12 rows
+        a hard-coded 100 would render "100 most recent of 12", which is false on
+        the one line whose whole job is to prevent a false reading. The loaded
+        count *is* min(REGISTER_ROW_LIMIT, total) by construction, so it states
+        the cap whenever the cap binds and states the truth when it does not.
+
+        **Not `visible_rows`.** How much of the window survived a filter is a
+        different statement with its own constant (REGISTER_FILTERED_TEMPLATE,
+        STORY-013). Collapsing the two would leave the scope line moving when an
+        admin types, and the window is not what changed.
+
+        A computed var rather than a declared one, so `sign_out()`'s reset()
+        keeps its guarantee: this returns a truthy string on a cleared state, and
+        `tests/test_admin_state.py::test_sign_out_clears_every_declared_var`
+        iterates `base_vars`, which computed vars are not part of.
+
+        Both dependencies are read off `self` in this body — the same
+        requirement `visible_rows` records above. `format_count` receives a
+        plain int, never `self`, so it stays invisible to the tracker and
+        harmless.
+        """
+        return REGISTER_SCOPE_TEMPLATE.format(
+            shown=format_count(len(self.rows)),
+            total=format_count(self.total_recorded),
+        )
 
     @rx.event
     def set_token_input(self, text: str):

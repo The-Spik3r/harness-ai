@@ -103,6 +103,26 @@ def format_share(count: Optional[int], total: Optional[int]) -> str:
     return f"{(count / total * 100):.1f}%"
 
 
+def format_count(value: Optional[int]) -> str:
+    """A whole-number figure, thousands-separated: 3180 reads as "3,180".
+
+    Here rather than in a component for the reason at the top of this module.
+    PRD-006 Section 6.1's scope line is "100 most recent of 3,180", and the
+    separator is `f"{n:,}"` — Python-side formatting, which cannot run against a
+    Var. `AdminState.register_scope` calls this when the read completes; the
+    register reads the field.
+
+    General rather than a `format_scope`, because the summary's nine figures are
+    the second caller (STORY-015) and a count is a count on both sheets.
+
+    0 returns "0", not the absent mark: nothing recorded is a fact, and the same
+    distinction `to_audit_row` makes for `tokens_used` below.
+    """
+    if value is None:
+        return VALUE_ABSENT
+    return f"{value:,}"
+
+
 def _text(value: Optional[object]) -> str:
     """A NULL column reads as the absent mark, so the row field stays a plain str."""
     if value is None or value == "":

@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, reflex, component, design, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-011-register-table-stamp-margin.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-011-register-table-stamp-margin.report.md
 commit: null
 depends_on: [STORY-001, STORY-002, STORY-004, STORY-007, STORY-008, STORY-009, STORY-010]
 blocks: [STORY-012, STORY-013, STORY-014, STORY-018]
 skills: [frontend-design, reflex-docs, reflex-process-management]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-011: register.py: the audit table, the verdict column and the stamp margin

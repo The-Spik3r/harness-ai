@@ -30,6 +30,7 @@ from chat_ui.chat_ui.admin_formatting import (
     VERDICT_HELD,
     VERDICTS,
     derive_verdict,
+    format_count,
     format_share,
     to_audit_row,
 )
@@ -285,3 +286,34 @@ def test_format_share_matches_the_stats_router_number_format():
     """The console and `curl /stats` must not disagree on rounding."""
     successful, total = 267, 3180
     assert format_share(successful, total) == f"{(successful / total * 100):.1f}%"
+
+
+# ---------------------------------------------------------------------------
+# format_count — the scope line's separator (STORY-011)
+# ---------------------------------------------------------------------------
+
+
+def test_format_count_separates_thousands():
+    """PRD-006 Section 6.1's scope line reads "100 most recent of 3,180".
+
+    Here rather than in the register for the reason at the top of the module:
+    `f"{n:,}"` is Python-side formatting and cannot run against a Var.
+    """
+    assert format_count(3180) == "3,180"
+    assert format_count(1234567) == "1,234,567"
+
+
+def test_format_count_leaves_small_numbers_alone():
+    assert format_count(999) == "999"
+    assert format_count(12) == "12"
+
+
+def test_format_count_reads_zero_as_a_count_not_an_absence():
+    """Zero recorded rows is a fact, and the same distinction `to_audit_row`
+    makes for `tokens_used`: 0 tokens is a value, a NULL column is not."""
+    assert format_count(0) == "0"
+
+
+def test_format_count_never_raises_on_a_missing_figure():
+    """No figure may raise into a page render."""
+    assert format_count(None) == VALUE_ABSENT

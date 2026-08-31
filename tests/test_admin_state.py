@@ -61,6 +61,7 @@ from chat_ui.chat_ui.admin_formatting import (
     VERDICT_HELD,
     to_audit_row,
 )
+from chat_ui.chat_ui.admin_copy import REGISTER_SCOPE_TEMPLATE
 from chat_ui.chat_ui.admin_models import AuditRow
 from chat_ui.chat_ui.admin_state import GATE_REFUSED_MESSAGE, AdminState
 
@@ -1265,3 +1266,89 @@ async def test_filtering_the_loaded_register_narrows_it_without_a_second_read(
     # Compared as a list, not a length: a read appended while another vanished
     # would leave the count intact.
     assert reads.calls == calls_after_load
+
+
+# ---------------------------------------------------------------------------
+# register_scope — the window stated against the whole record (STORY-011)
+# ---------------------------------------------------------------------------
+
+
+def test_register_scope_states_the_cap_against_the_true_total():
+    """PRD-006 Risk 4: all-time figures beside a 100-row window "invite a wrong
+    reading", so the register names which of the two it is showing.
+
+    Asserted against the template rather than against a hand-typed sentence, so
+    a rewording in admin_copy stays a one-file change.
+    """
+    state = _state()
+    state.rows = [AuditRow(audit_id=i) for i in range(100)]
+    state.total_recorded = 3180
+
+    assert state.register_scope == REGISTER_SCOPE_TEMPLATE.format(
+        shown="100", total="3,180"
+    )
+    # The separator is the whole reason format_count exists.
+    assert "3,180" in state.register_scope
+
+
+def test_register_scope_does_not_claim_a_cap_that_did_not_bind():
+    """A table of 12 rows must not read "100 most recent of 12".
+
+    The loaded count is min(REGISTER_ROW_LIMIT, total) by construction, so the
+    line states the cap when the cap binds and the truth when it does not — and
+    a hard-coded 100 would make the one line whose job is to prevent a wrong
+    reading into a false statement.
+    """
+    state = _state()
+    state.rows = [AuditRow(audit_id=i) for i in range(12)]
+    state.total_recorded = 12
+
+    assert state.register_scope == REGISTER_SCOPE_TEMPLATE.format(
+        shown="12", total="12"
+    )
+    assert "100" not in state.register_scope
+
+
+def test_register_scope_counts_the_window_not_the_filtered_view(configured_token):
+    """Filtering narrows the table, not the window.
+
+    How much of the window survived a filter is a different statement with its
+    own constant (REGISTER_FILTERED_TEMPLATE, STORY-013). If the scope line
+    moved when an admin typed, it would be reporting a change the window did
+    not make.
+    """
+    state = _state()
+    state.rows = [
+        AuditRow(audit_id=1, verdict=VERDICT_DENIED),
+        AuditRow(audit_id=2, verdict=VERDICT_CLEARED),
+        AuditRow(audit_id=3, verdict=VERDICT_CLEARED),
+    ]
+    state.total_recorded = 3
+
+    before = state.register_scope
+    state.selected_verdicts = [VERDICT_DENIED]
+
+    assert len(state.visible_rows) == 1
+    assert state.register_scope == before
+
+
+def test_register_scope_is_computed_so_sign_out_empties_it(configured_token):
+    """Why it is an @rx.var and not a declared field.
+
+    `sign_out()` is `reset()`, which restores declared vars to their defaults —
+    and every one of those defaults is falsy so that a filter or a row list
+    cannot survive a session. This var returns a truthy string on a cleared
+    state, so declaring it would have broken that guarantee; computed, it simply
+    recomputes from the emptied fields.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    _populate(state)
+
+    _sign_out(state)
+
+    assert state.rows == []
+    assert state.register_scope == REGISTER_SCOPE_TEMPLATE.format(
+        shown="0", total="0"
+    )
+    assert "register_scope" not in AdminState.base_vars

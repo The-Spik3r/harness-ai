@@ -6,7 +6,7 @@
 
 ## Progress
 
-10/20 stories done — 50%
+11/20 stories done — 55%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 | STORY-008 | admin_copy.py: every admin-facing string in one module | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-008-admin-copy-module.plan.md) | `cc857e7` |
 | STORY-009 | admin_shell.py: token gate form, masthead, and the two-view switch | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-009-admin-shell-and-gate.plan.md) | `5a35ce3` |
 | STORY-010 | Register /admin, /admin/audit and /admin/stats without touching a reserved route | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md) | `b030618` |
-| STORY-011 | register.py: the audit table, the verdict column and the stamp margin | feature | ⬜ todo | large | — | — |
+| STORY-011 | register.py: the audit table, the verdict column and the stamp margin | feature | ✅ done | large | [plan](../../plans/PRD-006-admin-console/completed/STORY-011-register-table-stamp-margin.plan.md) | `PENDING` |
 | STORY-012 | Row detail disclosure: error_message, prompt_hash, PII entities, full User-Agent, pattern | feature | ⬜ todo | medium | — | — |
 | STORY-013 | Verdict multi-select, free-text filter and sort controls on the register | feature | ⬜ todo | medium | — | — |
 | STORY-014 | Three distinct register states: nothing recorded, nothing matching, rows shown | feature | ⬜ todo | small | — | — |

@@ -20,6 +20,7 @@ from chat_ui.components.admin_shell import (
     admin_page,
 )
 from chat_ui.components.chat import chat_input, message_list
+from chat_ui.components.register import register
 from chat_ui.components.shell import empty_state, header, user_id_gate
 from chat_ui.state import ChatState
 
@@ -54,18 +55,17 @@ def index() -> rx.Component:
     )
 
 
-# The console's two views. `admin_page()` (STORY-009) is the whole of what these
-# render today: the token gate, or the masthead over `content`. The empty
-# `rx.fragment()` is that `content` slot — STORY-011 fills it with `register.py`
-# and STORY-015 with `summary.py`. It is left empty rather than given a
-# placeholder because the shell is all this story registers, and a placeholder
-# would be a user-facing string with no home in `admin_copy.py`.
+# The console's two views. `admin_page()` (STORY-009) supplies the frame around
+# both: the token gate, or the masthead over `content`. The register fills that
+# `content` slot; the summary's is still the empty `rx.fragment()` STORY-015
+# replaces with `summary.py`. It stays empty rather than taking a placeholder,
+# which would be a user-facing string with no home in `admin_copy.py`.
 #
 # Neither function re-emits `rx.el.style(theme.GLOBAL_CSS)` the way `index()`
 # does: `admin_page()` already carries it, and a second copy on the page is what
-# its docstring tells this story not to add.
+# its docstring tells these functions not to add.
 def admin_register_page() -> rx.Component:
-    return admin_page(rx.fragment(), VIEW_REGISTER)
+    return admin_page(register(), VIEW_REGISTER)
 
 
 def admin_summary_page() -> rx.Component:
