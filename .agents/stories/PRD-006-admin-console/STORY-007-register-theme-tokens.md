@@ -12,7 +12,7 @@ labels: [ui, design, theme, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-007-register-theme-tokens.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-007-register-theme-tokens.report.md
-commit: null
+commit: a650a97
 depends_on: []
 blocks: [STORY-009, STORY-011, STORY-015, STORY-018]
 skills: [frontend-design]

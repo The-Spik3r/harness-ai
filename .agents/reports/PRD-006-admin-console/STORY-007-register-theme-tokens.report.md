@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-007-register-theme-tokens.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: a650a97
 status: COMPLETE
 completed: 2026-08-30
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-30
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-007-register-theme-tokens.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `a650a97`
 
 ## Summary
 
