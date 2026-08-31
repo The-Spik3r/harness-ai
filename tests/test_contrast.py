@@ -91,6 +91,11 @@ def test_verdict_ink_is_readable_on_the_row_hover(name, ink):
         ("muted text on paper", theme.MUTE, theme.PAPER),
         ("muted text on card", theme.MUTE, theme.CARD),
         ("inverted button label", theme.PAPER, theme.INK),
+        # The admin gate's submit on hover (STORY-009). The chat's gate hovers
+        # to the upstream blue, which PRD-006 Section 6.1 keeps off the console,
+        # so the console's only other dark neutral carries it instead. 4.63:1 —
+        # the tightest pairing in this list, and the reason it is asserted.
+        ("inverted button label on hover", theme.PAPER, theme.MUTE),
         ("body ink on row hover", theme.INK, theme.HOVER),
         ("muted text on row hover", theme.MUTE, theme.HOVER),
         # RULE is deliberately absent: it is a hairline, not text, and measures
