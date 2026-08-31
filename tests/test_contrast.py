@@ -6,6 +6,11 @@ ochre shipped at 4.38:1 against the paper and had to be darkened; this file
 keeps every ink above the line as the palette evolves. PRD-006 adds a second
 ground to hold: the admin register's row hover, which every verdict ink is
 drawn on when a row is under the cursor.
+
+STORY-018 closes the file with the console's pairings stated as a set — six inks
+across three grounds — rather than as a list that has to be remembered when a
+component moves an ink. The blocks above stay as they are: they are the chat's
+specific pairings, and each one records why it is here.
 """
 
 import sys
@@ -105,3 +110,46 @@ def test_verdict_ink_is_readable_on_the_row_hover(name, ink):
 )
 def test_neutral_pairs_are_readable(name, fg, bg):
     assert contrast(fg, bg) >= AA_NORMAL, name
+
+
+# The console's pairings as a set rather than as a list someone remembers to
+# extend (STORY-018 AC 6). Six inks, three grounds, and every combination held to
+# the floor.
+_CONSOLE_INKS = (
+    ("INK", theme.INK),
+    ("MUTE", theme.MUTE),
+    ("INK_CLEAR", theme.INK_CLEAR),
+    ("INK_HELD", theme.INK_HELD),
+    ("INK_DENIED", theme.INK_DENIED),
+    ("INK_FAULT", theme.INK_FAULT),
+)
+
+_CONSOLE_GROUNDS = (
+    ("PAPER", theme.PAPER),  # the page, and the fault panel on it
+    ("CARD", theme.CARD),  # the gate panel and the masthead
+    ("HOVER", theme.HOVER),  # a register row under the cursor
+)
+
+
+@pytest.mark.parametrize(
+    "ink_name,ink,ground_name,ground",
+    [
+        (ink_name, ink, ground_name, ground)
+        for ink_name, ink in _CONSOLE_INKS
+        for ground_name, ground in _CONSOLE_GROUNDS
+    ],
+    ids=lambda value: value if not str(value).startswith("#") else "",
+)
+def test_every_console_pairing_is_readable(ink_name, ink, ground_name, ground):
+    """Every pairing the admin console introduced, at AA.
+
+    A cross product over-asserts — the register never paints `INK_HELD` on the
+    gate's card — and that is the point. It is a superset of what ships, so it
+    needs no edit when a component moves an ink onto a ground it had not used
+    before, which is exactly the drift a hand-maintained list misses. All
+    eighteen clear the floor with margin today; the tightest is `MUTE` on
+    `PAPER` at 4.63:1, the same pairing the neutral block above already flags as
+    the tightest in this file. A failure here is a token that moved, not a
+    matrix that is too strict.
+    """
+    assert contrast(ink, ground) >= AA_NORMAL, f"{ink_name} on {ground_name}"

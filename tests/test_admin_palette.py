@@ -12,13 +12,22 @@ The four tokens STORY-007 added are pinned here too, `STAMP_X` by identity
 rather than by value: PRD Section 6.1 asks for the chat's rail *continued*, and
 a hand-copied `"1.875rem"` would satisfy the value while losing the guarantee.
 
-**One deliberate exception, recorded for STORY-018.** `theme.GLOBAL_CSS` sets
-the global `:focus-visible` outline to `INK_UPSTREAM`, and the admin pages
-inherit that stylesheet. It is not a violation — the rule below is about admin
-*modules*, and a focus ring is a shared accessibility affordance rather than a
-verdict signal — but a naive grep of rendered admin HTML will find that blue.
-STORY-018's render-invariant assertion should be written knowing this, not
-discover it as a failure.
+**One deliberate exception.** `theme.GLOBAL_CSS` sets the global
+`:focus-visible` outline to `INK_UPSTREAM`, and the admin pages inherit that
+stylesheet. It is not a violation — the rule below is about admin *modules*, and
+a focus ring is a shared accessibility affordance rather than a verdict signal —
+but a naive grep of rendered admin HTML will find that blue. STORY-018 was
+written knowing it: `tests/test_render_invariants.py` strips the rendered
+stylesheet before collecting any hex from a page, and pins the exception from
+both sides in `test_the_focus_ring_is_the_only_upstream_ink`.
+
+**The hex guard (STORY-018).** `register.py`, `summary.py` and `admin_shell.py`
+each carry a literal-hex check over their own source, and the four modules
+without a component in them carried none — as would any admin module added
+tomorrow. The guard belongs on the glob that already defines what an admin
+module is, so it lives here, applied to every match, with a self-test that runs
+the same detector over a sample containing a hex. A guard nobody has watched
+fail is a guard nobody knows is armed.
 """
 
 import re
@@ -53,6 +62,15 @@ def _admin_modules() -> list[Path]:
     for pattern in ADMIN_MODULE_PATTERNS:
         found.extend(sorted(REPO_ROOT.glob(pattern)))
     return found
+
+
+def _literal_hexes(source: str) -> list[str]:
+    """Every `#RRGGBB` written into a source file.
+
+    One detector, called by both the guard and its self-test, so the sample that
+    proves the guard bites cannot drift from the guard itself.
+    """
+    return re.findall(r"#[0-9a-fA-F]{6}\b", source)
 
 
 # --- The four STORY-007 tokens -------------------------------------------
@@ -104,6 +122,40 @@ def test_no_admin_module_references_a_chat_only_ink(ink):
         if ink in path.read_text(encoding="utf-8")
     ]
     assert not offenders, f"{ink} is chat-only (PRD-006 Section 6.1): {offenders}"
+
+
+# --- No literal hex in any admin module (STORY-018) ----------------------
+
+
+@pytest.mark.parametrize(
+    "path", _admin_modules(), ids=lambda p: p.name
+)
+def test_no_admin_module_writes_a_literal_hex(path):
+    """Every colour on the console resolves from theme.py.
+
+    Parametrized per module rather than aggregated, so a failure names the file
+    that drifted. A hex written into a component is a colour that a change of
+    visual direction would miss, which breaks the single-file guarantee
+    `theme.py`'s own docstring makes — and it is how PRD-006 Risk 6's drift
+    arrives: "one reasonable-looking component at a time".
+    """
+    offenders = _literal_hexes(path.read_text(encoding="utf-8"))
+    assert not offenders, (
+        f"colours belong in theme.py: {path.relative_to(REPO_ROOT)} writes {offenders}"
+    )
+
+
+def test_the_hex_guard_detects_a_hex():
+    """The guard, watched failing.
+
+    STORY-018's fifth acceptance criterion is a claim about what *fails* — "given
+    a new hard-coded hex added to any admin component, the palette test fails" —
+    and a guard is only worth what its detector catches. Running that detector
+    over a sample is how the claim is checked without editing a shipped module.
+    """
+    sample = 'rx.box(background_color="#FF00AA", color=theme.INK)'
+    assert _literal_hexes(sample) == ["#FF00AA"]
+    assert _literal_hexes("rx.box(color=theme.INK)") == []
 
 
 def test_console_adds_no_tint():
