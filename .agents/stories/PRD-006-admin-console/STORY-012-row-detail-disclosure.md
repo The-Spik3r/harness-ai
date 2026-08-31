@@ -12,7 +12,7 @@ labels: [ui, reflex, component, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-012-row-detail-disclosure.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-012-row-detail-disclosure.report.md
-commit: null
+commit: 0d1c15b
 depends_on: [STORY-008, STORY-011]
 blocks: [STORY-018]
 skills: [frontend-design, reflex-docs]
