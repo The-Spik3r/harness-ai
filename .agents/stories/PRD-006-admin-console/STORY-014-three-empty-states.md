@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, component, copy, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-014-three-empty-states.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-014-three-empty-states.report.md
 commit: null
 depends_on: [STORY-005, STORY-008, STORY-011, STORY-013]
 blocks: []
 skills: [frontend-design]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-014: Three distinct register states: nothing recorded, nothing matching, rows shown

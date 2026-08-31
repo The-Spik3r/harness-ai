@@ -195,6 +195,14 @@ EMPTY_MATCHES_TEMPLATE = "{filters} matched none of the {loaded} rows loaded."
 FILTER_DESCRIPTION_VERDICT_TEMPLATE = "verdict {verdicts}"
 FILTER_DESCRIPTION_SEARCH_TEMPLATE = 'text "{search}"'
 FILTER_DESCRIPTION_JOIN = " and "
+# Between two selected verdicts *inside* FILTER_DESCRIPTION_VERDICT_TEMPLATE —
+# "verdict held, denied". Distinct from FILTER_DESCRIPTION_JOIN above, which joins
+# the two *kinds* of filter ('verdict denied and text "ana"'): one is a list, the
+# other a conjunction, and collapsing them would read as "verdict held and denied
+# and text ...". A named constant rather than a ", " typed into admin_state.py,
+# because STORY-014 AC 5 requires every string on these panels resolve from this
+# module.
+FILTER_DESCRIPTION_VERDICT_JOIN = ", "
 
 # 3. The summary with nothing to total. Every share renders its placeholder here
 # (STORY-015), so the sheet says why rather than showing nine dashes.

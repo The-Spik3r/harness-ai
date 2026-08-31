@@ -102,6 +102,15 @@ COPY_NAMES = (
     "SORT_VERDICT_LABEL",
     "SORT_ASCENDING_MARK",
     "SORT_DESCENDING_MARK",
+    # STORY-014's two empty states. The two templates
+    # (EMPTY_MATCHES_TEMPLATE and the three FILTER_DESCRIPTION_* parts) are
+    # deliberately absent: they are Python format strings assembled in
+    # `admin_state.empty_matches_message`, and `tests/test_admin_state.py`
+    # asserts the sentence they produce. What must resolve from `admin_copy`
+    # *here* is what this module names directly.
+    "EMPTY_REGISTER_TITLE",
+    "EMPTY_REGISTER_BODY",
+    "EMPTY_MATCHES_TITLE",
 )
 
 # Every label the disclosure puts on screen, as the strings that must reach the
@@ -201,6 +210,10 @@ try:
         _column_head,
         _detail,
         _disclosure_toggle,
+        _empty_register,
+        _no_matches,
+        _register_body,
+        _table,
         _filter_strip,
         _filtered_line,
         _row,
@@ -251,6 +264,13 @@ factories = [
     ("sort_controls", lambda: _sort_controls()),
     ("clear_control", lambda: _clear_control()),
     ("filtered_line", lambda: _filtered_line()),
+    # STORY-014's three states. Captured one by one for the reason the controls
+    # are: a test about the no-matches panel should fail when that panel breaks,
+    # not when the table does.
+    ("empty_register", lambda: _empty_register()),
+    ("no_matches", lambda: _no_matches()),
+    ("table", lambda: _table()),
+    ("body", lambda: _register_body()),
 ]
 for name, factory in factories:
     try:
@@ -278,6 +298,10 @@ for _name in (
     "sort_controls",
     "clear_control",
     "filtered_line",
+    "empty_register",
+    "no_matches",
+    "table",
+    "body",
 ):
     result[_name] = built.get(_name, "")
 
@@ -475,18 +499,48 @@ def test_the_body_face_is_reserved_for_the_scope_lines(source):
     Setting the second in a different face would say the two statements are
     different kinds of thing, when they are the same kind at two scopes.
 
+    STORY-014 takes it to **three**, and the count stays exact rather than
+    becoming a ceiling. The third is the empty states' sentence — an explanatory
+    line of exactly the kind Section 6.1 reserves the face for. One use and not
+    two, because both panels are built by the one `_empty_panel`; a second use
+    appearing here would mean the two states had grown two separate shapes.
+
+    Still within Section 6.1's "two or three explanatory lines" on screen, too:
+    an empty state replaces the table with the scope line still above it, so the
+    most an admin ever sees at once is the two scope statements and one panel
+    sentence.
+
     Still a count, and still exact: everything else on this surface is data or a
-    label, and the face creeping onto a third element is how a register starts
+    label, and the face creeping onto a fourth element is how a register starts
     reading as prose.
     """
-    assert source.count("theme.FONT_BODY") == 2, source.count("theme.FONT_BODY")
+    assert source.count("theme.FONT_BODY") == 3, source.count("theme.FONT_BODY")
+
+
+# The section marker STORY-014 opened in `register.py` for the two empty states.
+# Used as a boundary below, and asserted to exist so renaming it fails loudly
+# rather than silently skewing a count.
+EMPTY_STATE_MARKER = "# --- The three states (STORY-014)"
 
 
 def test_the_data_face_is_dominant(source):
     """AC 5's "FONT_DATA is the dominant face", in the one form that survives a
     refactor: it is used more than the display face, which sets only the tags
-    and the column heads."""
-    assert source.count("theme.FONT_DATA") > source.count("theme.FONT_DISPLAY")
+    and the column heads.
+
+    Counted over the **table's** half of the module, which is the half the claim
+    is about. PRD-006 Section 6.1 grounds it in the table's own job — "the
+    columns are numeric and must align down a hundred rows for scanning to work
+    at all" — and the two empty states have no columns and no rows. They
+    contribute one display use (the shared panel's title) and no data use, which
+    over the whole file drags the comparison to a tie while nothing about the
+    table has changed.
+    """
+    assert EMPTY_STATE_MARKER in source
+    table_source = source.split(EMPTY_STATE_MARKER)[0]
+    assert table_source.count("theme.FONT_DATA") > table_source.count(
+        "theme.FONT_DISPLAY"
+    )
 
 
 def test_register_sets_no_focus_reset(source):
@@ -965,3 +1019,184 @@ def test_the_controls_set_no_focus_reset(source):
     for killer in ("outline", "box_shadow"):
         assert f'"{killer}": "none"' not in controls, killer
     assert "outline=" not in controls
+
+
+# --- STORY-014: the three states ------------------------------------------
+#
+# The precedence itself is asserted in `tests/test_admin_state.py`, not here.
+# `rx.match` compiles *every* arm into the output, so "a failed read does not
+# render an empty state" is unreadable off the compiled string — it is a claim
+# about `AdminState.register_state`, which is a plain Python function. What this
+# section asserts is the other half: that each arm is wired to the component the
+# story names, and that the two panels look the way AC 6 requires.
+
+
+def test_both_empty_states_reach_the_output(probe):
+    """AC 1 and AC 2: two panels, and two *different* sentences.
+
+    The inequality is the acceptance criterion, not a tautology — a single
+    shared "No rows" panel would satisfy every other assertion in this file and
+    is exactly the ambiguity PRD-006 Section 4 exists to remove.
+    """
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.EMPTY_REGISTER_TITLE in probe["empty_register"]
+    assert admin_copy.EMPTY_REGISTER_BODY in probe["empty_register"]
+    assert admin_copy.EMPTY_MATCHES_TITLE in probe["no_matches"]
+    assert admin_copy.EMPTY_REGISTER_TITLE != admin_copy.EMPTY_MATCHES_TITLE
+    # And both are reachable from the register itself, not merely constructible.
+    for title in (
+        admin_copy.EMPTY_REGISTER_TITLE,
+        admin_copy.EMPTY_MATCHES_TITLE,
+    ):
+        assert title in probe["rendered"], title
+
+
+def test_the_nothing_recorded_state_names_no_filter(probe):
+    """AC 1's "distinct in wording", from the side that matters.
+
+    With nothing recorded there is no filter to blame, so the panel must not
+    borrow the no-matches vocabulary — including the clear action, which would
+    offer to undo something that removed nothing.
+    """
+    assert admin_copy.EMPTY_MATCHES_TITLE not in probe["empty_register"]
+    assert admin_copy.CLEAR_FILTERS_LABEL not in probe["empty_register"]
+
+
+def test_the_no_matches_state_offers_the_clear_action(probe):
+    """AC 2: "offers to clear it".
+
+    Both halves: the word on screen, and the handler behind it — a label with no
+    `clear_filters` behind it is a sentence, not an offer.
+    """
+    assert admin_copy.CLEAR_FILTERS_LABEL in probe["no_matches"]
+    assert "clear_filters" in probe["no_matches"]
+
+
+def test_the_no_matches_sentence_is_bound_to_the_state(probe, source):
+    """AC 2's "names the filter that produced it".
+
+    The sentence is `AdminState.empty_matches_message` — a Var reference in the
+    output, never a literal assembled here. `EMPTY_MATCHES_TEMPLATE` is a Python
+    format string over the selected verdicts and the loaded count, and a
+    component receives Vars; the same reason the scope line is a computed var
+    (`test_the_scope_line_is_bound_to_the_state`).
+    """
+    assert "empty_matches_message" in probe["no_matches"]
+    assert "AdminState.empty_matches_message" in source
+    assert "EMPTY_MATCHES_TEMPLATE" not in source
+
+
+def test_the_fault_arm_renders_the_table_not_an_empty_state(source):
+    """AC 4, at the render layer: an error is never presented as emptiness.
+
+    The precedence that gets us to this arm lives in
+    `admin_state.register_state` and is asserted there. What is asserted here is
+    the binding — that the `read_failed` arm is the table, so the previously
+    loaded rows stay on screen under the fault panel STORY-017 adds, exactly as
+    `admin_copy.FAULT_MESSAGE_TEMPLATE`'s "Nothing on screen has changed"
+    promises.
+    """
+    arms = _match_arms(source)
+    fault_arm = [line for line in arms if "REGISTER_STATE_FAULT" in line]
+    assert len(fault_arm) == 1, arms
+    assert "_table()" in fault_arm[0]
+    assert "_empty_register" not in fault_arm[0]
+    assert "_no_matches" not in fault_arm[0]
+
+
+def _match_arms(source: str) -> list[str]:
+    """The `rx.match` arms in `_register_body`, one per line."""
+    return [
+        line.strip()
+        for line in source.splitlines()
+        if line.strip().startswith("(REGISTER_STATE_")
+    ]
+
+
+def test_every_register_state_has_an_arm(probe, source):
+    """All four keys `admin_state.REGISTER_STATES` declares are matched.
+
+    A state with no arm falls through to the default, which is the table — safe,
+    but it would silently retire an empty state rather than fail.
+    """
+    assert not probe["errors"], probe["errors"]
+    arms = _match_arms(source)
+    assert len(arms) == 4, arms
+    for state in (
+        "REGISTER_STATE_FAULT",
+        "REGISTER_STATE_EMPTY",
+        "REGISTER_STATE_NO_MATCHES",
+        "REGISTER_STATE_ROWS",
+    ):
+        assert any(state in arm for arm in arms), state
+
+
+def test_the_table_is_the_default_arm(source):
+    """An unrecognised state renders the record, never a claim of emptiness.
+
+    The direction of the fallback is the story's whole point in miniature, so it
+    is pinned rather than left to reading order.
+    """
+    match_body = source.split("def _register_body()")[1]
+    match_body = match_body.split("return rx.match(")[1].split("\n    )")[0]
+    default = match_body.strip().splitlines()[-1].strip()
+    assert default == "_table(),", default
+
+
+def test_the_empty_states_carry_no_card_and_no_illustration(probe):
+    """AC 6: the register's existing type and rules, and nothing else.
+
+    An empty state is the single most likely place for a card, a centred icon
+    and an accent to arrive on this console (PRD-006 Risk 6) — the template
+    answer for a screen with nothing on it. None of them may.
+    `test_no_colour_outside_the_allowed_set` covers the accent over the whole
+    surface; this covers the shapes.
+    """
+    for name in ("empty_register", "no_matches"):
+        rendered = probe[name]
+        for forbidden in (
+            "backgroundColor",
+            "borderRadius",
+            "boxShadow",
+            "borderTop",
+            "<svg",
+            "<img",
+        ):
+            assert forbidden not in rendered, (name, forbidden)
+
+
+def test_the_empty_states_use_the_registers_own_type_scale(probe, source):
+    """AC 6's "existing type": the panel's faces are the two the surface already
+    uses, taken from `theme.py` rather than declared locally."""
+    panel = source.split(EMPTY_STATE_MARKER)[1].split("def register()")[0]
+    assert "theme.FONT_DISPLAY" in panel
+    assert "theme.FONT_BODY" in panel
+    assert 'font_family="' not in panel
+    assert theme.TEXT_LEAD in probe["empty_register"]
+
+
+def test_the_table_arm_is_the_table_story_011_built(probe):
+    """AC 3: rows shown means the table, unchanged — the same role and the same
+    column heads STORY-011 put there, with neither empty state near it."""
+    assert 'role:"table"' in probe["table"]
+    for head in COLUMN_HEADS:
+        assert head in probe["table"], head
+    assert admin_copy.EMPTY_REGISTER_TITLE not in probe["table"]
+    assert admin_copy.EMPTY_MATCHES_TITLE not in probe["table"]
+
+
+def test_the_filter_strip_renders_in_every_state(source):
+    """The controls sit outside the switch, so the way out of the no-matches
+    state is never taken away with the rows.
+
+    `register()` renders `_filter_strip()` as a sibling of `_register_body()`,
+    not inside an arm — removing the controls in the one state an admin needs
+    them to escape is the dead end the frontend-design skill's "an empty screen
+    is an invitation to act" rules out.
+    """
+    register_body = source.split("def register()")[1]
+    assert "_filter_strip()" in register_body
+    assert "_register_body()" in register_body
+    # And the strip is not inside the switch: _register_body never mentions it.
+    switch = source.split("def _register_body()")[1].split("def register()")[0]
+    assert "_filter_strip" not in switch

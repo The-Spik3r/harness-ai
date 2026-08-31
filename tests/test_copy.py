@@ -87,6 +87,7 @@ from chat_ui.chat_ui.admin_copy import (
     FILTER_DESCRIPTION_VERDICT_TEMPLATE,
     FILTER_DESCRIPTION_SEARCH_TEMPLATE,
     FILTER_DESCRIPTION_JOIN,
+    FILTER_DESCRIPTION_VERDICT_JOIN,
     EMPTY_SUMMARY_TITLE,
     EMPTY_SUMMARY_BODY,
     FILTER_VERDICT_LABEL,
@@ -285,6 +286,7 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert FILTER_DESCRIPTION_VERDICT_TEMPLATE
     assert FILTER_DESCRIPTION_SEARCH_TEMPLATE
     assert FILTER_DESCRIPTION_JOIN
+    assert FILTER_DESCRIPTION_VERDICT_JOIN
     assert EMPTY_SUMMARY_TITLE
     assert EMPTY_SUMMARY_BODY
     assert FILTER_VERDICT_LABEL
@@ -387,6 +389,7 @@ def test_admin_copy_constants_exist_and_not_empty():
         "FILTER_DESCRIPTION_VERDICT_TEMPLATE",
         "FILTER_DESCRIPTION_SEARCH_TEMPLATE",
         "FILTER_DESCRIPTION_JOIN",
+        "FILTER_DESCRIPTION_VERDICT_JOIN",
         "EMPTY_SUMMARY_TITLE",
         "EMPTY_SUMMARY_BODY",
         "FILTER_VERDICT_LABEL",
@@ -449,6 +452,35 @@ def test_admin_copy_templates_carry_their_placeholders():
     assert FILTER_DESCRIPTION_SEARCH_TEMPLATE.format(search="a.torres")
     assert RANKED_CUT_TEMPLATE.format(n=5) == "top 5"
     assert SHARE_TEMPLATE.format(share="13.0%") == "13.0% of all queries"
+
+
+def test_the_two_filter_joiners_are_distinct():
+    """STORY-014: one joins a *list*, the other a *conjunction*.
+
+    `FILTER_DESCRIPTION_VERDICT_JOIN` sits between two selected verdicts inside
+    the verdict clause ("verdict held, denied"); `FILTER_DESCRIPTION_JOIN` sits
+    between the two kinds of filter ('verdict denied and text "ana"'). Collapsing
+    them into one constant reads as "verdict held and denied and text ...", so
+    the assertion is that they are two strings and not one name used twice.
+    """
+    assert FILTER_DESCRIPTION_VERDICT_JOIN != FILTER_DESCRIPTION_JOIN
+    sentence = EMPTY_MATCHES_TEMPLATE.format(
+        filters=FILTER_DESCRIPTION_JOIN.join(
+            [
+                FILTER_DESCRIPTION_VERDICT_TEMPLATE.format(
+                    verdicts=FILTER_DESCRIPTION_VERDICT_JOIN.join(
+                        ["held", "denied"]
+                    )
+                ),
+                FILTER_DESCRIPTION_SEARCH_TEMPLATE.format(search="ana"),
+            ]
+        ),
+        loaded=100,
+    )
+    assert sentence == (
+        'verdict held, denied and text "ana" matched none of the 100 rows '
+        "loaded."
+    )
 
 
 def test_refresh_keeps_one_verb_across_the_flow():

@@ -50,9 +50,18 @@ from app.db.database import (
 )
 
 from .admin_copy import (
+    EMPTY_MATCHES_TEMPLATE,
+    FILTER_DESCRIPTION_JOIN,
+    FILTER_DESCRIPTION_SEARCH_TEMPLATE,
+    FILTER_DESCRIPTION_VERDICT_JOIN,
+    FILTER_DESCRIPTION_VERDICT_TEMPLATE,
     GATE_REFUSED_MESSAGE,
     REGISTER_FILTERED_TEMPLATE,
     REGISTER_SCOPE_TEMPLATE,
+    VERDICT_CLEARED_LABEL,
+    VERDICT_DENIED_LABEL,
+    VERDICT_FAULT_LABEL,
+    VERDICT_HELD_LABEL,
     READ_LABEL_BLOCKED_DUPLICATES,
     READ_LABEL_BLOCKED_SUSPICIOUS,
     READ_LABEL_PII_QUERIES,
@@ -69,6 +78,10 @@ from .admin_copy import (
     FAULT_MESSAGE_TEMPLATE as LOAD_FAILED_MESSAGE,
 )
 from .admin_formatting import (
+    VERDICT_CLEARED,
+    VERDICT_DENIED,
+    VERDICT_FAULT,
+    VERDICT_HELD,
     VERDICTS,
     format_count,
     format_refreshed_at,
@@ -90,6 +103,42 @@ SORT_TIMESTAMP = "timestamp"
 SORT_USER = "user"
 SORT_VERDICT = "verdict"
 SORT_KEYS = (SORT_TIMESTAMP, SORT_USER, SORT_VERDICT)
+
+# The register's four render states (STORY-014), in the order `register_state`
+# resolves them. Keys, not copy — they are the `rx.match` arms — so they live
+# here beside SORT_KEYS rather than in admin_copy.py, which holds words on
+# screen.
+#
+# `read_failed` rather than the verdict word `VERDICT_FAULT` carries: a state key
+# colliding with a verdict value would blunt two tests at once —
+# `test_the_verdict_vocabulary_is_imported_not_redeclared` below, which forbids
+# that literal in this module, and
+# `tests/test_register.py::test_no_copy_value_is_written_as_a_literal`, which
+# could no longer tell a hard-coded verdict label from a state key.
+REGISTER_STATE_FAULT = "read_failed"
+REGISTER_STATE_EMPTY = "no_rows"
+REGISTER_STATE_NO_MATCHES = "no_matches"
+REGISTER_STATE_ROWS = "rows"
+REGISTER_STATES = (
+    REGISTER_STATE_FAULT,
+    REGISTER_STATE_EMPTY,
+    REGISTER_STATE_NO_MATCHES,
+    REGISTER_STATE_ROWS,
+)
+
+# One label per verdict key, for the sentence that names the filter which
+# emptied the register. The same key/label separation
+# `components/register.py:_VERDICT_CHIPS` keeps — the key is the formatter's and
+# the filter's, the label is the word on screen — so the sentence cannot
+# disagree with the chip that produced it. `tests/test_admin_state.py` binds this
+# to `admin_formatting.VERDICTS`, so a fifth verdict fails there rather than
+# dropping silently out of the sentence.
+_VERDICT_LABELS = {
+    VERDICT_CLEARED: VERDICT_CLEARED_LABEL,
+    VERDICT_HELD: VERDICT_HELD_LABEL,
+    VERDICT_DENIED: VERDICT_DENIED_LABEL,
+    VERDICT_FAULT: VERDICT_FAULT_LABEL,
+}
 
 # Each key's rank function takes (position in the loaded list, row) and returns
 # a sort key. The position is the first argument for one reason:
@@ -354,6 +403,80 @@ class AdminState(rx.State):
         shows against this.
         """
         return bool(self.selected_verdicts) or bool(self.search.strip())
+
+    @rx.var
+    def register_state(self) -> str:
+        """Which of the four states the register is showing — decided once, here.
+
+        **The order is the acceptance criterion.** PRD-006 Section 4 forbids a
+        failed read being presented as emptiness, and a failed read very often
+        *is* an empty `rows`: `load()` leaves previously loaded rows untouched,
+        so a *first* read that raises leaves `rows == []` with `error` set.
+        Testing `error` first is the whole thing that keeps that case out of
+        "The register is empty."
+
+        `rows` before `visible_rows`: with nothing recorded at all there is no
+        filter to blame even when one is set, and the no-matches sentence would
+        otherwise name a filter that removed nothing.
+
+        A `str` and not four bools, and Python and not nested `rx.cond`s: the
+        precedence then has exactly one home, and
+        `tests/test_admin_state.py` asserts it by calling this function instead
+        of reading compiled JavaScript.
+
+        Every dependency is read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records above. Reading
+        `self.visible_rows` here makes this var depend transitively on the whole
+        filter state, so a toggled verdict moves the register between states.
+        """
+        if self.error:
+            return REGISTER_STATE_FAULT
+        if not self.rows:
+            return REGISTER_STATE_EMPTY
+        if not self.visible_rows:
+            return REGISTER_STATE_NO_MATCHES
+        return REGISTER_STATE_ROWS
+
+    @rx.var
+    def empty_matches_message(self) -> str:
+        '''`verdict denied and text "ana" matched none of the 100 rows loaded.`
+
+        PRD-006 Section 6.1: "the no-matches state names the filter that
+        produced it and offers to clear it." This is the naming half; the offer
+        is `components/register.py:_clear_control`, reused rather than
+        redeclared.
+
+        A computed var for the reason `register_filtered` records: three Python
+        format strings and a `format_count` thousands separator, none of which
+        can run against a Var.
+
+        The verdicts are listed in `VERDICTS` order rather than the order they
+        were clicked, so one selection always produces one sentence.
+
+        All three dependencies are read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records above.
+        '''
+        parts = []
+        if self.selected_verdicts:
+            parts.append(
+                FILTER_DESCRIPTION_VERDICT_TEMPLATE.format(
+                    verdicts=FILTER_DESCRIPTION_VERDICT_JOIN.join(
+                        _VERDICT_LABELS[verdict]
+                        for verdict in VERDICTS
+                        if verdict in self.selected_verdicts
+                    )
+                )
+            )
+        if self.search.strip():
+            parts.append(
+                FILTER_DESCRIPTION_SEARCH_TEMPLATE.format(
+                    search=self.search.strip()
+                )
+            )
+        return EMPTY_MATCHES_TEMPLATE.format(
+            filters=FILTER_DESCRIPTION_JOIN.join(parts),
+            loaded=format_count(len(self.rows)),
+        )
 
     @rx.var
     def register_scope(self) -> str:

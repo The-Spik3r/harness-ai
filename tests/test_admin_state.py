@@ -59,11 +59,28 @@ from chat_ui.chat_ui.admin_formatting import (
     VERDICT_DENIED,
     VERDICT_FAULT,
     VERDICT_HELD,
+    VERDICTS,
+    format_count,
     to_audit_row,
 )
-from chat_ui.chat_ui.admin_copy import REGISTER_SCOPE_TEMPLATE
+from chat_ui.chat_ui.admin_copy import (
+    EMPTY_MATCHES_TEMPLATE,
+    FILTER_DESCRIPTION_JOIN,
+    FILTER_DESCRIPTION_SEARCH_TEMPLATE,
+    FILTER_DESCRIPTION_VERDICT_JOIN,
+    REGISTER_SCOPE_TEMPLATE,
+    VERDICT_DENIED_LABEL,
+    VERDICT_HELD_LABEL,
+)
 from chat_ui.chat_ui.admin_models import AuditRow
-from chat_ui.chat_ui.admin_state import GATE_REFUSED_MESSAGE, AdminState
+from chat_ui.chat_ui.admin_state import (
+    GATE_REFUSED_MESSAGE,
+    REGISTER_STATE_EMPTY,
+    REGISTER_STATE_FAULT,
+    REGISTER_STATE_NO_MATCHES,
+    REGISTER_STATE_ROWS,
+    AdminState,
+)
 
 CONFIGURED_TOKEN = "correct-horse-battery"
 
@@ -1434,3 +1451,205 @@ def test_register_scope_is_computed_so_sign_out_empties_it(configured_token):
         shown="0", total="0"
     )
     assert "register_scope" not in AdminState.base_vars
+
+
+# ---------------------------------------------------------------------------
+# STORY-014: the register's three states, and the failed read that is none of
+# them
+#
+# This is where the story's hardest acceptance criterion is actually testable.
+# `components/register.py` renders the states with `rx.match`, which compiles
+# *every* arm into the output — so "a failed read never renders as emptiness" is
+# unreadable off the compiled JavaScript. It is a claim about the precedence,
+# the precedence is `AdminState.register_state`, and that is a plain Python
+# function these tests call directly.
+# ---------------------------------------------------------------------------
+
+
+def test_register_state_resolves_the_three_states(configured_token):
+    """AC 1, AC 2 and AC 3: the three states PRD-006 Section 4 names."""
+    state = _loaded(configured_token)
+
+    # Rows loaded and nothing filtering them: the table.
+    assert state.register_state == REGISTER_STATE_ROWS
+
+    # Rows loaded, filter matches none of them.
+    _call(state, "set_search", "zzzz")
+    assert state.visible_rows == []
+    assert state.register_state == REGISTER_STATE_NO_MATCHES
+
+    # Nothing recorded at all — and the filter is still set, which must not
+    # matter: there is no filter to blame when there was never a row.
+    state.rows = []
+    assert state.register_state == REGISTER_STATE_EMPTY
+
+
+def test_a_failed_read_is_never_reported_as_emptiness(configured_token):
+    """AC 4, and the reason `register_state` exists at all.
+
+    PRD-006 Section 4: "A failed read renders a fault panel naming what failed —
+    never a silently empty table." A failed read very often *is* an empty
+    `rows`: `load()` leaves previously loaded rows untouched, so a first read
+    that raises leaves `rows == []` with `error` set — the exact state that
+    would otherwise render "The register is empty."
+
+    Both empty keys must be unreachable while `error` is set, whatever the rows
+    and the filter say.
+    """
+    # The first-read failure: no rows, an error.
+    state = _state()
+    _authenticate(state, configured_token)
+    state.error = "Could not read the audit rows."
+    assert state.rows == []
+    assert state.register_state == REGISTER_STATE_FAULT
+
+    # The refresh failure over a stale window, with a filter matching nothing.
+    state = _loaded(configured_token)
+    _call(state, "set_search", "zzzz")
+    state.error = "Could not read the audit rows."
+    assert state.visible_rows == []
+    assert state.register_state == REGISTER_STATE_FAULT
+
+    # And with rows that do match: still the fault, never the table's own state.
+    _call(state, "clear_filters")
+    assert state.visible_rows
+    assert state.register_state == REGISTER_STATE_FAULT
+
+
+def test_clearing_the_error_returns_the_register_to_its_data(configured_token):
+    """The precedence is a precedence, not a latch.
+
+    STORY-017's retry clears `error` on a successful read, and the register must
+    return to whichever of the three states its data describes rather than
+    staying in the fault arm.
+    """
+    state = _loaded(configured_token)
+    state.error = "Could not read the audit rows."
+    assert state.register_state == REGISTER_STATE_FAULT
+
+    state.error = ""
+
+    assert state.register_state == REGISTER_STATE_ROWS
+
+
+def test_register_state_is_computed_so_sign_out_keeps_its_guarantee(
+    configured_token,
+):
+    """Computed, not declared — the reason `register_scope` is.
+
+    `sign_out()` is `reset()`, and
+    `test_sign_out_clears_every_declared_var` asserts every declared var
+    restores to a falsy default. `register_state` returns a truthy string on a
+    cleared state, so declaring it would have broken that test; computed, it
+    simply recomputes — and a signed-out console reports the empty register it
+    now has.
+    """
+    state = _loaded(configured_token)
+    _sign_out(state)
+
+    assert "register_state" in AdminState.computed_vars
+    assert "register_state" not in AdminState.base_vars
+    assert state.register_state == REGISTER_STATE_EMPTY
+
+
+def test_every_verdict_has_a_label():
+    """The sentence's label map is bound to the formatter's vocabulary.
+
+    A fifth verdict must fail here — loudly, in a test — rather than drop
+    silently out of the sentence that names the filter.
+    """
+    assert set(_admin_state_module._VERDICT_LABELS) == set(VERDICTS)
+    for verdict, label in _admin_state_module._VERDICT_LABELS.items():
+        assert isinstance(label, str) and label, verdict
+
+
+def test_the_no_matches_sentence_names_the_filter_that_produced_it(
+    configured_token,
+):
+    """AC 2's first half, and PRD-006 Section 6.1: "the no-matches state names
+    the filter that produced it".
+
+    Three shapes, because a filter can be either half or both: the sentence must
+    name what is actually set and nothing else — naming a text filter that is
+    empty would send an admin looking for a control they never touched.
+    """
+    # Text only.
+    state = _loaded(configured_token)
+    _call(state, "set_search", "zzzz")
+    message = state.empty_matches_message
+    assert 'text "zzzz"' in message
+    assert "verdict" not in message
+    assert format_count(len(_FILTER_ROWS)) in message
+
+    # Verdict only.
+    state = _loaded(configured_token)
+    _call(state, "toggle_verdict", VERDICT_DENIED)
+    message = state.empty_matches_message
+    assert VERDICT_DENIED_LABEL in message
+    assert "text" not in message
+
+    # Both, joined as one sentence rather than two.
+    _call(state, "set_search", "zzzz")
+    message = state.empty_matches_message
+    assert FILTER_DESCRIPTION_JOIN in message
+    assert VERDICT_DENIED_LABEL in message
+    assert 'text "zzzz"' in message
+    assert message.endswith(".")
+
+
+def test_the_verdict_list_is_ordered_and_labelled(configured_token):
+    """One selection, one sentence.
+
+    The verdicts are listed in `VERDICTS` order rather than click order, so the
+    same filter cannot produce two different sentences — and the words are
+    `admin_copy`'s labels, the same constants the chips carry, so the sentence
+    can never disagree with the control that produced it.
+    """
+    state = _loaded(configured_token)
+    _call(state, "toggle_verdict", VERDICT_DENIED)
+    _call(state, "toggle_verdict", VERDICT_HELD)
+    assert state.selected_verdicts == [VERDICT_DENIED, VERDICT_HELD]
+
+    message = state.empty_matches_message
+
+    expected = FILTER_DESCRIPTION_VERDICT_JOIN.join(
+        [VERDICT_HELD_LABEL, VERDICT_DENIED_LABEL]
+    )
+    assert expected in message
+
+
+def test_the_no_matches_sentence_states_the_loaded_window(configured_token):
+    """"... matched none of the 100 rows loaded."
+
+    The denominator is the loaded window, not the whole table: this sentence
+    explains an empty *register*, and the register only ever held those rows.
+    It is `register_filtered`'s denominator, for the same reason.
+    """
+    state = _loaded(configured_token)
+    _call(state, "set_search", "zzzz")
+
+    assert state.empty_matches_message == EMPTY_MATCHES_TEMPLATE.format(
+        filters=FILTER_DESCRIPTION_SEARCH_TEMPLATE.format(search="zzzz"),
+        loaded=format_count(len(_FILTER_ROWS)),
+    )
+
+
+def test_the_sentence_reads_the_trimmed_search(configured_token):
+    """`filters_active` and `filter_rows` both trim, so the sentence must too —
+    naming `text "  zzzz  "` would quote back whitespace the filter ignored."""
+    state = _loaded(configured_token)
+    _call(state, "set_search", "  zzzz  ")
+
+    assert 'text "zzzz"' in state.empty_matches_message
+
+
+def test_the_no_matches_state_implies_an_active_filter(configured_token):
+    """`components/register.py:_no_matches` renders `_clear_control()`, which is
+    `rx.cond(filters_active, ...)`. That guard is only ever true in this arm by
+    construction — this is the construction, asserted rather than assumed, so
+    the panel cannot render its sentence with no way out beneath it."""
+    state = _loaded(configured_token)
+    _call(state, "set_search", "zzzz")
+
+    assert state.register_state == REGISTER_STATE_NO_MATCHES
+    assert state.filters_active is True

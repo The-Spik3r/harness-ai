@@ -72,9 +72,14 @@ toggle group, `checkbox_group` is uncontrolled, and `segmented_control`'s only
 variants are fills carrying a compile-time accent, which Risk 6 rules out. The
 `_control_button` comment block records this in full.
 
-The three empty states (STORY-014) are not here. `register()` renders the table
-unconditionally; STORY-014 is what wraps it in the condition that chooses
-between it and an empty state.
+**The three states are chosen upstream of this module.** `_register_body` is an
+`rx.match` over `AdminState.register_state`, a computed var that resolves the
+precedence in Python — a failed read first, then nothing recorded, then nothing
+matching, then the table. It resolves there rather than in nested `rx.cond`s
+here because PRD-006 Section 4's hardest requirement is an *ordering* ("a failed
+read renders a fault panel — never a silently empty table"), and an ordering
+expressed as nesting can only be checked by reading compiled JavaScript, where
+one in a state function is a unit test.
 """
 
 import reflex as rx
@@ -88,6 +93,10 @@ from chat_ui.admin_formatting import (
     VERDICT_HELD,
 )
 from chat_ui.admin_state import (
+    REGISTER_STATE_EMPTY,
+    REGISTER_STATE_FAULT,
+    REGISTER_STATE_NO_MATCHES,
+    REGISTER_STATE_ROWS,
     SORT_TIMESTAMP,
     SORT_USER,
     SORT_VERDICT,
@@ -981,6 +990,136 @@ def _filter_strip() -> rx.Component:
     )
 
 
+# --- The three states (STORY-014) ----------------------------------------
+# PRD-006 Section 4: "Three distinct states: no rows recorded at all, rows
+# recorded but none matching the filter, and rows shown." The third is the table
+# that was already here; the two that need words are below. The precedence over
+# them — and over the failed read that must never be dressed as either — is
+# `AdminState.register_state`, resolved in Python (see the module docstring).
+
+
+def _empty_panel(title: str, *body_children) -> rx.Component:
+    """One empty state: a line saying what is true, then the way out.
+
+    AC 6, written as the list of what is absent — no illustration, no card, no
+    border, no background, no accent. The panel paints `INK` and `MUTE` on the
+    register's own ground and nothing else, which is also what keeps
+    `tests/test_register.py::test_no_colour_outside_the_allowed_set` true of the
+    surface as a whole. An empty state is exactly where a card and a centred
+    icon are the template answer (PRD-006 Risk 6), so neither is here.
+
+    The type is the surface's existing scale: `FONT_DISPLAY` for the title, the
+    face that already sets the column heads and verdict tags, and `FONT_BODY`
+    for the sentence — the reading face PRD-006 Section 6.1 reserves for
+    explanatory lines, which is what both of these are.
+
+    Left-aligned at the table's own inset rather than centred in the container:
+    a centred block is a card without a border, and the register is read down
+    its left edge.
+    """
+    return rx.box(
+        rx.box(
+            title,
+            font_family=theme.FONT_DISPLAY,
+            font_size=theme.TEXT_LEAD,
+            font_weight="600",
+            letter_spacing="-0.01em",
+            color=theme.INK,
+        ),
+        rx.box(
+            *body_children,
+            font_family=theme.FONT_BODY,
+            font_size=theme.TEXT_BODY,
+            line_height="1.6",
+            color=theme.MUTE,
+            max_width=theme.MEASURE,
+            margin_top="0.5rem",
+        ),
+        padding="3rem 0 2rem",
+        width="100%",
+    )
+
+
+def _empty_register() -> rx.Component:
+    """Nothing has ever been recorded.
+
+    Deliberately not the no-matches wording: PRD-006 Section 4 wants the two
+    distinguishable, and this one blames no filter because there is no filter to
+    blame — it is reached only when `rows` is empty, whatever the controls say.
+
+    It ends in the action available from it, per the frontend-design skill's
+    "an empty screen is an invitation to act": `EMPTY_REGISTER_BODY` points at
+    Refresh, and the control it names is the masthead's, so no second button is
+    declared here to compete with it.
+    """
+    return _empty_panel(
+        admin_copy.EMPTY_REGISTER_TITLE,
+        admin_copy.EMPTY_REGISTER_BODY,
+    )
+
+
+def _no_matches() -> rx.Component:
+    """Rows are loaded; this filter matched none of them.
+
+    PRD-006 Section 6.1 asks for two things and this renders both. The sentence
+    names the filter that produced the empty result — `empty_matches_message`, a
+    Var, hence a second child of the panel rather than a formatted string. And
+    the way out is `_clear_control()` **itself**, not a second button with the
+    same job: one name for one action across the strip and the panel is the
+    skill's consistency rule, and a second constant is the drift it warns about.
+
+    `_clear_control` is `rx.cond(filters_active, ...)`, whose condition is true
+    in this arm by construction — `register_state` returns no-matches only when
+    `visible_rows` is empty and `rows` is not, which requires an active filter.
+    The guard is left in place rather than bypassed so the control keeps one
+    definition instead of two.
+    """
+    return _empty_panel(
+        admin_copy.EMPTY_MATCHES_TITLE,
+        AdminState.empty_matches_message,
+        rx.box(_clear_control(), margin_top="0.75rem"),
+    )
+
+
+def _table() -> rx.Component:
+    """The column heads over the rows — STORY-011's table, now one arm of four.
+
+    It is also the `read_failed` arm, and that is the point of AC 4 rather than
+    an omission: `admin_copy.FAULT_MESSAGE_TEMPLATE` promises "Nothing on screen
+    has changed", so a failed read leaves the previously loaded rows standing
+    and STORY-017 hangs its fault panel above them. An empty *table* under a
+    fault panel is correct; an empty *state* under one is the misreading PRD-006
+    Section 4 forbids.
+    """
+    return rx.box(
+        _column_head(),
+        rx.foreach(AdminState.visible_rows, _row),
+        min_width=_MIN_WIDTH,
+        custom_attrs={"role": "table"},
+    )
+
+
+def _register_body() -> rx.Component:
+    """The three states, chosen by the one var that owns the precedence.
+
+    `rx.match` over `AdminState.register_state` rather than nested `rx.cond`s:
+    the ordering AC 4 turns on is then a Python function a unit test can call
+    (`tests/test_admin_state.py`), instead of a nesting order verifiable only by
+    reading compiled JavaScript.
+
+    The default arm is the table, and the direction is deliberate: an
+    unrecognised state renders the record rather than a claim of emptiness.
+    """
+    return rx.match(
+        AdminState.register_state,
+        (REGISTER_STATE_EMPTY, _empty_register()),
+        (REGISTER_STATE_NO_MATCHES, _no_matches()),
+        (REGISTER_STATE_FAULT, _table()),
+        (REGISTER_STATE_ROWS, _table()),
+        _table(),
+    )
+
+
 def register() -> rx.Component:
     """The register: the filter strip over the scrolling table.
 
@@ -992,16 +1131,18 @@ def register() -> rx.Component:
     Not `rx.auto_scroll`, which the chat's transcript uses: that pins the view
     to the newest entry, which is right for a live transcript and wrong for a
     register someone is reading through.
+
+    **The filter strip renders in every state**, including both empty ones. It
+    carries the scope statements — which are still true of an empty register —
+    and the controls, and taking the controls away in the one state an admin
+    needs them to escape would be the dead end the frontend-design skill's
+    "an empty screen is an invitation to act" rules out. What changes between
+    states is only what is inside the scroll container: `_register_body()`.
     """
     return rx.vstack(
         _filter_strip(),
         rx.box(
-            rx.box(
-                _column_head(),
-                rx.foreach(AdminState.visible_rows, _row),
-                min_width=_MIN_WIDTH,
-                custom_attrs={"role": "table"},
-            ),
+            _register_body(),
             class_name="hx-scroll",
             overflow_y="auto",
             overflow_x="auto",
