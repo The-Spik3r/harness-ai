@@ -12,7 +12,7 @@ labels: [ui, reflex, component, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-013-filter-and-sort-controls.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-013-filter-and-sort-controls.report.md
-commit: null
+commit: 32efec0
 depends_on: [STORY-005, STORY-008, STORY-011]
 blocks: [STORY-014]
 skills: [frontend-design, reflex-docs]
