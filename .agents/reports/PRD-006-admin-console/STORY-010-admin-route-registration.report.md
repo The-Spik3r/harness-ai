@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: b030618
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `b030618`
 
 ## Summary
 

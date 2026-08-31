@@ -12,7 +12,7 @@ labels: [ui, reflex, routing, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-010-admin-route-registration.report.md
-commit: null
+commit: b030618
 depends_on: [STORY-009]
 blocks: [STORY-011, STORY-015]
 skills: [reflex-docs, reflex-process-management]
