@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "3 - The summary"
-status: todo
+status: done
 labels: [tests, copy, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-016-completion-label-copy-test.report.md
 commit: null
 depends_on: [STORY-008, STORY-015]
 blocks: [STORY-020]
 skills: []
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-016: Copy test pinning the completion label so it cannot regress to "success rate"
