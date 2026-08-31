@@ -12,7 +12,7 @@ labels: [ui, component, copy, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-014-three-empty-states.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-014-three-empty-states.report.md
-commit: null
+commit: 3fe5dda
 depends_on: [STORY-005, STORY-008, STORY-011, STORY-013]
 blocks: []
 skills: [frontend-design]
