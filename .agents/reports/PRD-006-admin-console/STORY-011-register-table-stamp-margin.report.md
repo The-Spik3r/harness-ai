@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-011-register-table-stamp-margin.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: PENDING
+commit: 9228979
 status: COMPLETE
 completed: 2026-08-31
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-31
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-011-register-table-stamp-margin.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `PENDING`
+**Commit**: `9228979`
 
 ## Summary
 
