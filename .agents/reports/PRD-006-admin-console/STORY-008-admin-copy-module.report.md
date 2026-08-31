@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-006
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-008-admin-copy-module.plan.md
 epic_branch: epic/PRD-006-admin-console
-commit: pending
+commit: cc857e7
 status: COMPLETE
 completed: 2026-08-30
 ---
@@ -12,7 +12,7 @@ completed: 2026-08-30
 
 **Plan**: `.agents/plans/PRD-006-admin-console/completed/STORY-008-admin-copy-module.plan.md`
 **Epic Branch**: `epic/PRD-006-admin-console`
-**Commit**: `pending`
+**Commit**: `cc857e7`
 
 ## Summary
 

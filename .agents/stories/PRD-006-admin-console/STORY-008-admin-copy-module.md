@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - The register"
-status: todo
+status: done
 labels: [ui, copy, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-008-admin-copy-module.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-008-admin-copy-module.report.md
+commit: cc857e7
 depends_on: []
 blocks: [STORY-009, STORY-011, STORY-012, STORY-013, STORY-014, STORY-015, STORY-016, STORY-017]
 skills: [frontend-design]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # STORY-008: admin_copy.py: every admin-facing string in one module
