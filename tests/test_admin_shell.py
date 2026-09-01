@@ -62,11 +62,16 @@ BACKEND_ROUTES = ("/audit", "/stats", "/query", "/health")
 
 # Every masthead-and-gate constant the shell renders. Each must reach the screen
 # through `admin_copy.`, and none may appear in the source as a literal.
+#
+# STORY-019 removed three names from this tuple rather than from `admin_copy`:
+# `MASTHEAD_SEPARATOR`, `CONSOLE_VIEW_REGISTER` and `CONSOLE_VIEW_SUMMARY` are
+# the cut view word and the middot that joined it (see
+# `test_the_masthead_is_the_wordmark_and_nothing_else`). They are still declared,
+# because PRD-006 Section 15 keeps `tests/test_copy.py` unmodified and it asserts
+# them by name — but this tuple is the list of strings the shell *renders*, and
+# the shell no longer renders them. Leaving them here would assert the cut back.
 COPY_NAMES = (
     "CONSOLE_TITLE",
-    "MASTHEAD_SEPARATOR",
-    "CONSOLE_VIEW_REGISTER",
-    "CONSOLE_VIEW_SUMMARY",
     "VIEW_REGISTER_LABEL",
     "VIEW_SUMMARY_LABEL",
     "SIGN_OUT_LABEL",
@@ -213,9 +218,10 @@ page = built.get("admin_page(register)", "")
 result["page_has_gate_submit"] = admin_copy.GATE_SUBMIT_LABEL in page
 result["page_has_sign_out"] = admin_copy.SIGN_OUT_LABEL in page
 
-# The masthead names the view it is on, and not the other one. The separator is
-# a non-ASCII middot that the JSX renderer escapes to ·, so the two view
-# words are checked rather than the concatenated title.
+# The masthead carries the wordmark and nothing else — STORY-019's cut. The
+# uppercase view words are what was removed; the switch's own labels
+# ("Register" / "Summary") must still be there, because the switch is the
+# element that owns the fact now.
 register_masthead = built.get("admin_masthead(register)", "")
 summary_masthead = built.get("admin_masthead(summary)", "")
 result["masthead_words"] = {
@@ -226,6 +232,21 @@ result["masthead_words"] = {
     "both_have_wordmark": (
         admin_copy.CONSOLE_TITLE in register_masthead
         and admin_copy.CONSOLE_TITLE in summary_masthead
+    ),
+    "separator_rendered": (
+        admin_copy.MASTHEAD_SEPARATOR in register_masthead
+        or admin_copy.MASTHEAD_SEPARATOR in summary_masthead
+    ),
+    "both_have_switch_labels": all(
+        label in masthead
+        for masthead in (register_masthead, summary_masthead)
+        for label in (
+            admin_copy.VIEW_REGISTER_LABEL,
+            admin_copy.VIEW_SUMMARY_LABEL,
+        )
+    ),
+    "both_mark_current": (
+        'aria-current' in register_masthead and 'aria-current' in summary_masthead
     ),
 }
 
@@ -307,15 +328,43 @@ def test_page_carries_both_gate_branches(probe):
     assert probe["page_has_sign_out"], "the masthead's sign out is not in the page"
 
 
-def test_masthead_names_its_own_view(probe):
-    """`HARNESS · REGISTER` on the register, `HARNESS · SUMMARY` on the summary."""
+def test_the_masthead_is_the_wordmark_and_nothing_else(probe):
+    """STORY-019's cut, asserted absent so it cannot come back unnoticed.
+
+    The masthead read `HARNESS · REGISTER` / `HARNESS · SUMMARY` until the
+    quality-floor pass, while the two-view switch beside it already marked the
+    current view with `aria-current="page"`. Naming the view twice in one header
+    row is the frontend-design skill's "nothing quietly does double duty", so the
+    suffix came off (`admin_shell.py:admin_masthead` records the reasoning).
+
+    This replaces `test_masthead_names_its_own_view`, which asserted the
+    behaviour that was cut. The three copy constants stay declared — PRD-006
+    Section 15 keeps `tests/test_copy.py` unmodified and it asserts them by name
+    — so the assertion is over what the masthead *renders*, which is the thing
+    the critique actually changed.
+    """
     assert not probe["errors"], probe["errors"]
     words = probe["masthead_words"]
-    assert words["both_have_wordmark"]
-    assert words["register_has_register"]
-    assert words["summary_has_summary"]
+    assert words["both_have_wordmark"], "the wordmark itself must stay"
+    assert not words["register_has_register"], "the cut view word is back"
+    assert not words["summary_has_summary"], "the cut view word is back"
     assert not words["register_has_summary_word"]
     assert not words["summary_has_register_word"]
+    assert not words["separator_rendered"], "the middot had nothing left to join"
+
+
+def test_the_switch_still_owns_the_current_view(probe):
+    """The other half of the cut: removing a naming may not remove *the* naming.
+
+    Cutting the masthead suffix is only correct because the switch states the
+    same fact and can be acted on. If the switch stopped carrying both labels or
+    stopped marking the current one, the console would name the view zero times
+    and the cut would have taken information with it.
+    """
+    assert not probe["errors"], probe["errors"]
+    words = probe["masthead_words"]
+    assert words["both_have_switch_labels"], "the switch lost a destination"
+    assert words["both_mark_current"], "the switch no longer marks the current view"
 
 
 @pytest.mark.parametrize(("name", "expected"), sorted(EXPECTED_ROUTES.items()))
@@ -775,3 +824,75 @@ def test_route_is_imported_not_retyped(app_source, name, literal):
     assert name in app_source, f"{name} should be imported and used by chat_ui.py"
     assert f'"{literal}"' not in app_source, f"{literal} is retyped in chat_ui.py"
     assert f"'{literal}'" not in app_source, f"{literal} is retyped in chat_ui.py"
+
+
+# --- STORY-019: the quality floor ------------------------------------------
+# Appended, never edited above. The live pass walked the whole console from the
+# keyboard and measured a 2px solid ring on every stop (gate field, gate submit,
+# the switch, refresh, sign out, four chips, the find field, three sort controls,
+# clear, and a row disclosure). These pin the two source facts that produce it.
+
+
+def test_the_focus_ring_is_declared_for_every_focusable_element():
+    """AC 1's "visible focus", asserted at the one place that grants it.
+
+    `theme.GLOBAL_CSS` carries a bare `:focus-visible` rule and `admin_page()`
+    injects that stylesheet onto both console pages, which is why the walk
+    measured the same ring on all fifteen stops rather than on the handful of
+    elements that happen to keep a browser default. A ring that exists only in a
+    browser default is one Radix reset away from gone.
+    """
+    css = theme.GLOBAL_CSS
+    assert ":focus-visible" in css, "the global focus ring is gone"
+    block = css.split(":focus-visible", 1)[1].split("}", 1)[0]
+    assert "outline:" in block, "the focus rule no longer draws an outline"
+    assert "none" not in block, "the focus rule draws nothing"
+    # Measured live as 2px solid rgb(52, 86, 127) on every stop.
+    assert "2px" in block
+
+
+@pytest.mark.parametrize(
+    "module", sorted(str(p) for p in _admin_modules()), ids=lambda p: Path(p).name
+)
+def test_no_admin_module_takes_the_focus_ring_back(module):
+    """The companion: the ring is granted globally, so it can only be lost
+    locally.
+
+    `tests/test_register.py` and `tests/test_summary.py` each assert this for
+    their own file. It belongs on the glob that already defines what an admin
+    module is, so a module added tomorrow is covered the day it lands — the same
+    argument `tests/test_admin_palette.py` makes for the hex guard.
+    """
+    text = Path(module).read_text(encoding="utf-8")
+    for killer in ('"outline": "none"', 'outline="none"', '"box_shadow": "none"'):
+        assert killer not in text, (module, killer)
+    assert "tabindex" not in text.lower()
+    assert "tab_index" not in text
+
+
+@pytest.mark.parametrize(
+    "module", sorted(str(p) for p in _admin_modules()), ids=lambda p: Path(p).name
+)
+def test_no_admin_module_pins_a_width_the_viewport_cannot_meet(module):
+    """AC 2 by construction.
+
+    Measured live at 360, 390 and 640px across the gate, the register and the
+    summary: `documentElement.scrollWidth == innerWidth` in all nine. The layout
+    answers a narrow viewport by wrapping, and the one element that genuinely
+    cannot wrap — the ten-column table — scrolls inside its own container
+    (`tests/test_register.py` pins that pair). What would break it is a hard
+    pixel width on something the page cannot shrink, so no admin module may
+    declare one.
+
+    `max_width` is untouched by this: a maximum shrinks. `min_width="0"` is the
+    flex idiom that *enables* shrinking, and `min_width=_MIN_WIDTH` inside the
+    scroll container is the table's own width, which is the point of AC 2's
+    second half rather than a violation of its first.
+    """
+    text = Path(module).read_text(encoding="utf-8")
+    offenders = [
+        line.strip()
+        for line in text.splitlines()
+        if re.search(r'(?<!max_)(?<!\w)width=f?"\d+px"', line)
+    ]
+    assert not offenders, (module, offenders)

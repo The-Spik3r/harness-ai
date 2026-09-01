@@ -543,3 +543,47 @@ def test_the_sheet_answers_a_narrow_viewport_by_wrapping(source):
     """The same move `admin_masthead` and `_filter_strip` make: the value drops
     under its label rather than crushing it, with no breakpoint and no new CSS."""
     assert 'wrap="wrap"' in source
+
+
+# --- STORY-019: indentation, and nothing but indentation ------------------
+# Appended, never edited above. Measured live on the rendered sheet: the two
+# blocked labels sit at x=54 against the total's x=24 — a 30px step, which is
+# theme.STAMP_X — and match the total in every other channel (Archivo, 12px,
+# weight 600, INK, normal letter-spacing, no transform). These are the source
+# facts that make that measurement true.
+
+
+def test_a_blocked_figure_differs_from_the_total_by_its_indent_alone(source):
+    """AC 6's "as a subset of the total by their indentation alone".
+
+    The honest structural statement of a subset is the indent, and the moment a
+    second channel joins it — a bullet, a lighter ink, a smaller step, its own
+    rule — the indent is no longer what carries the relationship. So
+    `_indented_figure` must be `_figure` with one argument changed and nothing
+    else: same function, same element, same treatment.
+    """
+    body = source.split("def _indented_figure(")[1].split("\ndef ")[0]
+    call = body.split("return ")[1].strip()
+    assert call == "_figure(figure, indent=theme.STAMP_X)", (
+        "an indented figure is no longer plain _figure plus an indent: " + call
+    )
+    # theme.STAMP_X, not a fresh literal — the sheet's one indent sits on the
+    # same measure as the register's stamp margin.
+    assert "theme.STAMP_X" in body
+
+
+def test_the_indent_is_a_padding_and_not_a_second_element(source):
+    """The other half: `_figure` must spend `indent` on padding and nowhere else.
+
+    If `indent` ever reached a border, a margin-collapsing wrapper or a nested
+    box, two figures that this test says are "the same element with one number
+    changed" would stop being that, and the live measurement would drift without
+    the assertion above noticing.
+    """
+    figure = source.split("def _figure(")[1].split("\ndef ")[0]
+    uses = [line.strip() for line in figure.splitlines() if "indent" in line]
+    assert "padding_left=indent," in figure, "the indent is no longer a padding"
+    assert figure.count("indent") <= 4, (
+        "the indent is doing more than one job: " + repr(uses)
+    )
+    assert 'indent: str = "0"' in figure, "a figure is indented by default"

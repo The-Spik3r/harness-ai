@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: medium
 phase: "4 - Hardening"
-status: todo
+status: done
 labels: [ui, accessibility, design, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-019-quality-floor-and-critique.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-019-quality-floor-and-critique.report.md
 commit: null
 depends_on: [STORY-017]
 blocks: [STORY-020]
 skills: [frontend-design, reflex-process-management]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # STORY-019: Quality floor pass: keyboard, focus, narrow viewport — and a design self-critique

@@ -386,18 +386,34 @@ def admin_masthead(active: str) -> rx.Component:
     a "|" character, which would be a user-facing string with no home in
     `admin_copy`, and not `rx.divider()`, which is a component for a line.
 
-    The title is composed in Python because `active` is a plain str, not a Var:
-    the same reason PRD-006 Section 6 puts verdict derivation in Python rather
-    than at render time.
+    **The wordmark is the wordmark, and nothing else** — STORY-019's cut.
+
+    It read `HARNESS · REGISTER` / `HARNESS · SUMMARY` until the quality-floor
+    pass put the rendered page next to PRD-006 Section 6.1. Two clusters to the
+    right, the two-view switch already marks the current view: `_view_link`
+    renders the active one as plain bold text carrying `aria-current="page"`,
+    which is the switch's whole job. So the header named the view **twice, in
+    one row** — the frontend-design skill's "let each element do exactly one job
+    … nothing quietly does double duty", and an accessory by that skill's own
+    definition, since removing it loses no information the screen does not
+    already carry. It is worst at a narrow viewport, where the masthead wraps and
+    the two namings land on consecutive lines a few pixels apart.
+
+    Cutting the suffix also settles which element owns the fact: the switch does,
+    because it is the one that can be acted on. The wordmark now reads `HARNESS`
+    on both views and on the gate — one word, one job, stated once.
+
+    `admin_copy.CONSOLE_VIEW_REGISTER`, `CONSOLE_VIEW_SUMMARY` and
+    `MASTHEAD_SEPARATOR` stay **declared and unrendered**, deliberately: PRD-006
+    Section 15 lists `tests/test_copy.py` among the files that must pass
+    unmodified, and that file asserts each of them non-empty by name. Deleting
+    them would force an edit to a file this PRD promises not to touch, to remove
+    three strings that cost nothing where they sit. `active` is still the
+    parameter that drives the switch, so nothing else here changes.
     """
-    view_word = (
-        admin_copy.CONSOLE_VIEW_REGISTER
-        if active == VIEW_REGISTER
-        else admin_copy.CONSOLE_VIEW_SUMMARY
-    )
     return rx.hstack(
         rx.box(
-            admin_copy.CONSOLE_TITLE + admin_copy.MASTHEAD_SEPARATOR + view_word,
+            admin_copy.CONSOLE_TITLE,
             font_family=theme.FONT_DISPLAY,
             font_size="1.0625rem",
             font_weight="700",

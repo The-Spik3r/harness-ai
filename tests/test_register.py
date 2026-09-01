@@ -32,6 +32,7 @@ no `GLOBAL_CSS`. A whole-page assertion will have to allow for it; a
 component-level one does not.
 """
 
+import ast
 import json
 import os
 import re
@@ -1217,3 +1218,85 @@ def test_the_filter_strip_renders_in_every_state(source):
     # And the strip is not inside the switch: _register_body never mentions it.
     switch = source.split("def _register_body()")[1].split("def register()")[0]
     assert "_filter_strip" not in switch
+
+
+# --- STORY-019: the quality floor, asserted where it cannot drift ----------
+# Appended, never edited above. The live pass measured every property below in
+# a browser (report: keyboard walk, 0.000px column spread, 360/390/640px with no
+# page overflow). A measurement nobody re-runs is a claim, not a guarantee, so
+# each one that has a source-level cause is pinned to that cause here.
+
+
+def test_the_table_scrolls_sideways_in_its_own_container(source):
+    """AC 2's positive half, which the existing `overflow_y` guard cannot make.
+
+    `test_the_table_scrolls_in_its_own_container` above asserts the *vertical*
+    scroll and `min-height: 0`. AC 2 also requires that the ten columns scroll
+    **horizontally inside the container** rather than widening the page: measured
+    live at 360px as container `scrollWidth` 1066 against `clientWidth` 350, with
+    `document.documentElement.scrollWidth == innerWidth`. Two properties make
+    that true together — without `min_width` the columns crush instead of
+    scrolling, and without `overflow_x` the page scrolls instead of the box.
+    """
+    assert 'overflow_x="auto"' in source, "the container no longer scrolls sideways"
+    assert "min_width=_MIN_WIDTH" in source, "the table no longer holds its width"
+
+
+def test_the_grid_is_one_constant_shared_by_the_head_and_the_rows(source):
+    """AC 4's alignment, asserted at its cause.
+
+    Measured live at 0.000px spread for `tokens_used` and `audit_id` across all
+    100 rows — at the top of the scroll, at the bottom, and under all three
+    sorts. That holds because one `_GRID` string drives both the column head and
+    every row: two matching template strings would satisfy the same measurement
+    right up until someone edited one of them. `register.py`'s own comment makes
+    this promise ("one constant makes the alignment true by construction rather
+    than by discipline"); this is the assertion behind it.
+    """
+    assert source.count("_GRID = ") == 1, "the grid is defined more than once"
+    head = source.split("def _column_head()")[1].split("def ")[0]
+    assert "grid_template_columns=_GRID" in head, "the column head has its own grid"
+    row_line = source.split("def _row_line(")[1].split("\ndef ")[0]
+    assert "grid_template_columns=_GRID" in row_line, "the row has its own grid"
+    # No hand-written second copy of the track list anywhere.
+    assert "grid_template_columns=(" not in source
+
+
+def test_every_control_is_a_native_focusable_element(source):
+    """AC 1 by construction: the keyboard answer is the element, not a handler.
+
+    The live walk stopped on 11 controls plus 100 row toggles, each firing on
+    Enter and Space with no key handling in this module. That is only true while
+    every control is a real `<button>` or `<input>`. A `rx.box(on_click=...)`
+    would take focus never and fire on click only — invisible to this file's
+    other tests and to a keyboard user alike.
+    """
+    # Nothing may be pulled out of the tab order.
+    assert "tabindex" not in source.lower()
+    assert "tab_index" not in source
+
+    # Every `on_click` in the module is handed either to a real <button> or to
+    # one of this module's two button factories — `_control_button` (the chips,
+    # the sort controls, the clear action) and `_toggle_button` (the row
+    # disclosure), both of which return `rx.el.button`. Counting buttons against
+    # handlers cannot see that indirection; the call graph can.
+    tree = ast.parse(source)
+    factories = {"_control_button", "_toggle_button"}
+    allowed = {"button"} | factories
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not any(kw.arg == "on_click" for kw in node.keywords):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name not in allowed:
+            offenders.append(f"line {node.lineno}: on_click on {name}(...)")
+    assert not offenders, offenders
+
+    # And the factories really do produce native buttons.
+    for factory in sorted(factories):
+        body = source.split(f"def {factory}(")[1].split("\ndef ")[0]
+        assert "rx.el.button(" in body, f"{factory} stopped returning a <button>"
+        assert 'type="button"' in body, f"{factory} lost its explicit type"
