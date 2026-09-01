@@ -12,7 +12,7 @@ labels: [tests, verification, admin]
 epic_branch: epic/PRD-006-admin-console
 plan: .agents/plans/PRD-006-admin-console/completed/STORY-020-untouched-app-regression.plan.md
 report: .agents/reports/PRD-006-admin-console/STORY-020-untouched-app-regression.report.md
-commit: null
+commit: 7fc8cd2
 depends_on: [STORY-006, STORY-016, STORY-017, STORY-018, STORY-019]
 blocks: []
 skills: [reflex-process-management]
