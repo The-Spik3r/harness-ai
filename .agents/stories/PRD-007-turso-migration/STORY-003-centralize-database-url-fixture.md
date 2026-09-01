@@ -12,7 +12,7 @@ labels: [tests, infra, database]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-003-centralize-database-url-fixture.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-003-centralize-database-url-fixture.report.md
-commit: null
+commit: eebfc71
 depends_on: []
 blocks: [STORY-006]
 skills: []

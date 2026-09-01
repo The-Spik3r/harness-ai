@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-003-centralize-database-url-fixture.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: eebfc71
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-003-centralize-database-url-fixture.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING`
+**Commit**: `eebfc71`
 
 ## Summary
 
