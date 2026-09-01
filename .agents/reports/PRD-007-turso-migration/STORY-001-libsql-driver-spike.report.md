@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-001-libsql-driver-spike.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: 6e6b1c4
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-001-libsql-driver-spike.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING`
+**Commit**: `6e6b1c4`
 **Decision record**: [`STORY-001-driver-decision.md`](./STORY-001-driver-decision.md) — the story's actual deliverable
 
 ## Summary

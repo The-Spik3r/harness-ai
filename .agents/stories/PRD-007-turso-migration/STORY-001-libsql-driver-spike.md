@@ -12,7 +12,7 @@ labels: [backend, database, spike, turso, libsql]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-001-libsql-driver-spike.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-001-libsql-driver-spike.report.md
-commit: null
+commit: 6e6b1c4
 depends_on: []
 blocks: [STORY-005, STORY-006]
 skills: []
