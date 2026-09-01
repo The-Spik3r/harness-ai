@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import get_audit_log, get_connection, init_db, insert_user
+from app.db.database import get_audit_log, get_connection, insert_user
 from app.db.models import User
 from app.main import app
 from app.services.duplicate_checker import hash_prompt
@@ -44,14 +44,12 @@ _ADMIN_HEADERS = {"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
+def temp_db(temp_db):
+    """conftest's initialized database, plus this suite's authenticated user."""
     insert_user(
         User(user_id=_USER_ID, role="user", token_hash=hash_token(_USER_TOKEN))
     )
-    return db_path
+    return temp_db
 
 
 def _count_audit_rows() -> int:
@@ -265,12 +263,19 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
 
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
-    "tests/test_duplicate_checker.py",
     "tests/test_openrouter_client.py",
     "tests/test_pattern_detector.py",
     "tests/test_route_reservations.py",
 ]
 
+# PRD-007 STORY-003 centralizes every test's DATABASE_URL behind one conftest fixture,
+# so `tests/test_duplicate_checker.py` -- which held two of the 29 hand-rolled
+# DATABASE_URL sites, one of them the `uninitialized_db` fixture the STORY-002
+# characterization test depends on -- left this list rather than keep a fixture the
+# libSQL swap would have to edit while the suite is red. Only its two fixtures were
+# deleted; not one assertion, docstring or test function in it changed, which is what
+# `test_no_pre_epic_test_function_was_removed_or_renamed` below still holds it to.
+#
 # STORY-013 (PRD-005 Section 9/10) makes POST /query require a bearer credential and
 # refuses a body user_id that doesn't match it -- a deliberate, documented breaking
 # change to the pre-RBAC contract. tests/test_integration.py posts as two different

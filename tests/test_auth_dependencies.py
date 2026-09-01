@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import init_db, insert_user
+from app.db.database import insert_user
 from app.db.models import User
 from app.middleware.auth import require_admin_token, require_identity, require_permission
 from app.services.authz import PERMISSION_QUERY_BYOK
@@ -36,22 +36,6 @@ def fake_admin() -> dict:
 
 
 client = TestClient(_fake_app)
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
-
-
-@pytest.fixture
-def uninitialized_db(tmp_path, monkeypatch):
-    """A database init_db() never ran against, so the `users` table is absent."""
-    db_path = tmp_path / "uninitialized.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    return db_path
 
 
 # --- AC1: require_identity rejects no/invalid/malformed credential with 401 ---

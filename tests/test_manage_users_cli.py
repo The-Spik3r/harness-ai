@@ -6,17 +6,9 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import pytest
 
 from app.config import settings
-from app.db.database import find_user_by_token_hash, get_user, init_db
+from app.db.database import find_user_by_token_hash, get_user
 from app.services.identity import hash_token
 from scripts.manage_users import main
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 # --- create-user (AC1, AC2, AC3) ---

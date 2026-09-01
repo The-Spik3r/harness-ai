@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import count_active_users, init_db, insert_user
+from app.db.database import count_active_users, insert_user
 from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
@@ -85,10 +85,11 @@ def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch
 
 
 @pytest.fixture
-def _empty_users_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test_startup_guard.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
+def _empty_users_db(temp_db):
+    """conftest's initialized database, with no user seeded into it.
+
+    Requested for its side effect -- the startup guard reads the `users` table
+    through `settings.DATABASE_URL`, which `temp_db` has already patched."""
 
 
 def test_lifespan_fails_fast_when_rbac_enabled_and_no_active_users(

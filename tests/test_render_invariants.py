@@ -32,9 +32,9 @@ ever fails, nothing else here means anything, whatever colour it prints.
 admin modules import each other as `chat_ui.components...`, which resolves only
 under the `chat_ui/` PYTHONPATH — and putting the inner package on `sys.path`
 in-process breaks every other test module. Here it earns its place twice over:
-the script sets `settings.DATABASE_URL` to a throwaway path and writes rows, and
-doing that in the pytest process would put sentinel previews one misconfigured
-path away from a developer's real `harness_ai.db`.
+the probe writes rows into the throwaway database conftest hands it through
+`DATABASE_URL`, and doing that in the pytest process would put sentinel previews
+one misconfigured path away from a developer's real `harness_ai.db`.
 
 **Two colour claims cannot be made by hex, and are not.**
 
@@ -158,16 +158,13 @@ import json, sys
 result = {"errors": []}
 
 try:
-    import asyncio, tempfile
+    import asyncio
 
+    # DATABASE_URL arrives through this process's environment, where
+    # app/config.py's BaseSettings picks it up -- it must name a throwaway
+    # database, because init_db() against the developer's real audit log would
+    # write sentinel previews into it.
     from app.config import settings
-
-    # First, and before any database call: init_db() against the default
-    # sqlite:///harness_ai.db would write sentinel previews into the developer's
-    # real audit log.
-    settings.DATABASE_URL = "sqlite:///{}/console.db".format(
-        tempfile.mkdtemp().replace("\\", "/")
-    )
 
     import reflex as rx
     from app.db.database import init_db, insert_audit_log
@@ -259,7 +256,7 @@ print(json.dumps(result))
 
 
 @pytest.fixture(scope="module")
-def probe():
+def probe(database_url_factory):
     proc = subprocess.run(
         [sys.executable, "-c", _CHECK_SCRIPT],
         cwd=str(REPO_ROOT / "chat_ui"),
@@ -270,6 +267,7 @@ def probe():
             # fields. Same defaults tests/test_register.py sets.
             "ADMIN_TOKEN": os.environ.get("ADMIN_TOKEN", "test-token"),
             "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY", "test-key"),
+            "DATABASE_URL": database_url_factory("render_probe"),
         },
         capture_output=True,
         text=True,

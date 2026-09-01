@@ -59,10 +59,9 @@ def _run_probe(env):
 
 
 @pytest.fixture
-def _empty_rbac_env(tmp_path):
-    db_path = tmp_path / "chat_ui_guard_test.db"
+def _empty_rbac_env(database_url_factory):
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(_PYTHONPATH)}
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["DATABASE_URL"] = database_url_factory("chat_ui_guard")
     env["RBAC_ENABLED"] = "true"
     return env
 

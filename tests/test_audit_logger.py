@@ -7,20 +7,11 @@ from datetime import datetime
 
 import pytest
 
-from app.config import settings
-from app.db.database import get_audit_log, init_db
+from app.db.database import get_audit_log
 from app.services.audit_logger import log_query
 from app.services.duplicate_checker import hash_prompt
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 def test_success_case_writes_expected_row(temp_db):

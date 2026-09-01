@@ -693,11 +693,14 @@ print(json.dumps(result))
 
 
 @pytest.fixture(scope="module")
-def pages_probe(tmp_path_factory):
+def pages_probe(database_url_factory):
     # DATABASE_URL is pinned because importing chat_ui.chat_ui calls init_db() at
     # module scope; without it the probe writes harness_ai.db into chat_ui/ on
-    # every run. The file is gitignored, so it would go unnoticed.
-    db_path = tmp_path_factory.mktemp("admin_pages") / "probe.db"
+    # every run. The file is gitignored, so it would go unnoticed. The URL comes
+    # from conftest so the libSQL swap has one place to change; the factory is
+    # session-scoped because this fixture is module-scoped and could not request
+    # a function-scoped one.
+    db_url = database_url_factory("admin_pages")
     proc = subprocess.run(
         [sys.executable, "-c", _PAGES_CHECK_SCRIPT],
         cwd=str(REPO_ROOT / "chat_ui"),
@@ -706,7 +709,7 @@ def pages_probe(tmp_path_factory):
             "PYTHONPATH": os.pathsep.join(_PYTHONPATH),
             "ADMIN_TOKEN": os.environ.get("ADMIN_TOKEN", "test-token"),
             "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY", "test-key"),
-            "DATABASE_URL": f"sqlite:///{db_path}",
+            "DATABASE_URL": db_url,
         },
         capture_output=True,
         text=True,

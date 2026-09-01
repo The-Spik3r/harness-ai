@@ -5,22 +5,13 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import pytest
 
-from app.config import settings
-from app.db.database import get_audit_log, get_connection, init_db
+from app.db.database import get_audit_log, get_connection
 from app.models.schemas import QueryBlockedForbiddenResponse, QuerySuccessResponse
 from app.services.authz import PERMISSION_QUERY_BYOK, PERMISSION_QUERY_SUBMIT
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterResult
 from app.services.query_pipeline import run_query
 import app.services.query_pipeline as query_pipeline
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 def _count_audit_rows() -> int:

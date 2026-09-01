@@ -7,21 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import init_db, insert_audit_log, insert_user
+from app.db.database import insert_audit_log, insert_user
 from app.db.models import AuditLog, User
 from app.main import app
 from app.services.authz import PERMISSION_STATS_READ
 from app.services.identity import hash_token
 
 client = TestClient(app)
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 def _fail_if_called(*args, **kwargs):

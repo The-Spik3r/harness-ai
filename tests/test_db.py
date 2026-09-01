@@ -9,7 +9,6 @@ from datetime import datetime
 
 import pytest
 
-from app.config import settings
 from app.db import database
 from app.db.database import (
     count_active_users,
@@ -35,22 +34,6 @@ from app.db.database import (
     top_users,
 )
 from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
-
-
-@pytest.fixture
-def uninitialized_db(tmp_path, monkeypatch):
-    """A database init_db() never ran against, so no table exists at all."""
-    db_path = tmp_path / "uninitialized.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    return db_path
 
 
 def test_init_db_creates_table(temp_db):
@@ -82,11 +65,9 @@ def test_added_columns_declaring_not_null_also_declare_a_default():
             )
 
 
-def test_add_missing_columns_applies_any_declared_column(tmp_path, monkeypatch):
+def test_add_missing_columns_applies_any_declared_column(uninitialized_db, monkeypatch):
     """The mechanism is proven independently of whichever columns the mapping
     happens to hold today, so this stays meaningful after STORY-009 adds more."""
-    db_path = tmp_path / "synthetic.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
     init_db()
     insert_audit_log(
         AuditLog(
@@ -134,13 +115,15 @@ def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
     assert not any("ALTER" in sql.upper() for sql in statements), statements
 
 
-def _create_pre_pii_database(db_path) -> None:
+def _create_pre_pii_database(connect, url) -> None:
     """Builds the 14-column audit_logs table exactly as it shipped before PRD-003.
 
-    Uses raw sqlite3.connect rather than get_connection() so the fixture is the
-    genuine pre-migration shape, unaffected by whatever init_db() does today.
+    Takes conftest's `db_connect` rather than calling get_connection() so the
+    fixture is the genuine pre-migration shape, unaffected by whatever init_db()
+    does today -- and rather than a path, so the database it builds is named the
+    same way every other test names one.
     """
-    legacy = sqlite3.connect(db_path)
+    legacy = connect(url)
     legacy.execute(
         """
         CREATE TABLE audit_logs (
@@ -169,17 +152,14 @@ def _create_pre_pii_database(db_path) -> None:
     legacy.close()
 
 
-def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
+def test_init_db_migrates_pre_pii_database(uninitialized_db, db_connect):
     """A database created before PRD-003 gains the PII columns and keeps its rows.
 
     CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so without the
     additive migration an upgraded deployment fails every insert with
     "table audit_logs has no column named pii_detected_input".
     """
-    db_path = tmp_path / "legacy.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_pii_database(db_path)
+    _create_pre_pii_database(db_connect, uninitialized_db)
 
     init_db()
 
@@ -207,13 +187,13 @@ def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
     assert count_audit_logs() == 2
 
 
-def _create_pre_rbac_database(db_path) -> None:
+def _create_pre_rbac_database(connect, url) -> None:
     """Builds the 17-column audit_logs table exactly as it ships on `main`
     today -- i.e. after PRD-003's PII columns, before this story's role /
     denied_permission columns. This is the correct "pre-RBAC" baseline;
     _create_pre_pii_database fixtures an older, pre-PII shape instead.
     """
-    legacy = sqlite3.connect(db_path)
+    legacy = connect(url)
     legacy.execute(
         """
         CREATE TABLE audit_logs (
@@ -245,14 +225,11 @@ def _create_pre_rbac_database(db_path) -> None:
     legacy.close()
 
 
-def test_init_db_migrates_pre_rbac_database(tmp_path, monkeypatch):
+def test_init_db_migrates_pre_rbac_database(uninitialized_db, db_connect):
     """A database created before PRD-005 gains role/denied_permission and
     keeps its rows, with NULL in both new fields (AC2).
     """
-    db_path = tmp_path / "pre_rbac_audit.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_rbac_database(db_path)
+    _create_pre_rbac_database(db_connect, uninitialized_db)
 
     init_db()
 
@@ -278,12 +255,10 @@ def test_init_db_migrates_pre_rbac_database(tmp_path, monkeypatch):
     assert count_audit_logs() == 2
 
 
-def test_init_db_migration_is_idempotent_across_repeated_calls(tmp_path, monkeypatch):
+def test_init_db_migration_is_idempotent_across_repeated_calls(uninitialized_db, db_connect):
     """Reflex calls init_db() on every hot reload; a second ADD COLUMN for an
     existing column raises sqlite3.OperationalError: duplicate column name."""
-    db_path = tmp_path / "legacy.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    _create_pre_pii_database(db_path)
+    _create_pre_pii_database(db_connect, uninitialized_db)
 
     init_db()
     init_db()
@@ -865,14 +840,11 @@ def test_init_db_is_idempotent_for_users_table(temp_db):
     assert index is not None
 
 
-def test_init_db_adds_users_table_to_pre_rbac_database(tmp_path, monkeypatch):
+def test_init_db_adds_users_table_to_pre_rbac_database(uninitialized_db, db_connect):
     """A new *table* needs no ALTER-based migration: CREATE TABLE IF NOT EXISTS
     reaches an existing database file, unlike a new column. This is why
     _add_missing_columns stays audit_logs-specific."""
-    db_path = tmp_path / "pre_rbac.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_pii_database(db_path)  # audit_logs only -- no users table
+    _create_pre_pii_database(db_connect, uninitialized_db)  # audit_logs only -- no users table
 
     init_db()
 
