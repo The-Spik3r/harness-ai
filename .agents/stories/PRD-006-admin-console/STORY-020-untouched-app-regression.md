@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "4 - Hardening"
-status: todo
+status: done
 labels: [tests, verification, admin]
 epic_branch: epic/PRD-006-admin-console
-plan: null
-report: null
+plan: .agents/plans/PRD-006-admin-console/completed/STORY-020-untouched-app-regression.plan.md
+report: .agents/reports/PRD-006-admin-console/STORY-020-untouched-app-regression.report.md
 commit: null
 depends_on: [STORY-006, STORY-016, STORY-017, STORY-018, STORY-019]
 blocks: []
 skills: [reflex-process-management]
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-09-01
 ---
 
 # STORY-020: Full-suite regression and the proof that nothing under app/ changed

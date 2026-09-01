@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-006-admin-console` (base: `main`)
-**Status**: active
+**Status**: complete
 
 ## Progress
 
-19/20 stories done — 95%
+20/20 stories done — 100%
 
 ## Stories
 
@@ -33,7 +33,7 @@ All stories commit on the epic branch `epic/PRD-006-admin-console`. No per-story
 | STORY-017 | Manual refresh with a last-refreshed stamp, and a fault panel with retry on both pages | feature | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-017-refresh-and-fault-panel.plan.md) | `3a64c47` |
 | STORY-018 | Render invariant tests: no previews in output, no tint or stray colour on the console | technical | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-018-render-invariant-tests.plan.md) | `ec7515e` |
 | STORY-019 | Quality floor pass: keyboard, focus, narrow viewport — and a design self-critique | enhancement | ✅ done | medium | [plan](../../plans/PRD-006-admin-console/completed/STORY-019-quality-floor-and-critique.plan.md) | `7cd66b4` |
-| STORY-020 | Full-suite regression and the proof that nothing under app/ changed | technical | ⬜ todo | small | — | — |
+| STORY-020 | Full-suite regression and the proof that nothing under app/ changed | technical | ✅ done | small | [plan](../../plans/PRD-006-admin-console/completed/STORY-020-untouched-app-regression.plan.md) | `PENDING` |
 
 ## Status Icons
 - ⬜ todo
