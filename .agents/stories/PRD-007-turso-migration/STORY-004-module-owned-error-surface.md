@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Storage layer swap"
-status: todo
+status: done
 labels: [backend, database, errors, rbac]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-004-module-owned-error-surface.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-004-module-owned-error-surface.report.md
+commit: 2961f33
 depends_on: [STORY-002]
 blocks: [STORY-006]
 skills: []
