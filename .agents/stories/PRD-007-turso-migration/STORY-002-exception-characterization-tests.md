@@ -12,7 +12,7 @@ labels: [backend, database, tests, rbac]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-002-exception-characterization-tests.report.md
-commit: null
+commit: 403b191
 depends_on: []
 blocks: [STORY-004]
 skills: []

@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: TBD
+commit: 403b191
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `TBD`
+**Commit**: `403b191`
 
 ## Summary
 

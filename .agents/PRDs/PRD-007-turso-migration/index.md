@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Spike: verify the six risky libSQL client behaviors and record the driver decision | spike | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-001-libsql-driver-spike.plan.md) | `6e6b1c4` |
-| STORY-002 | Characterization tests pinning the three driver-exception behaviors against current SQLite | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md) | `TBD` |
+| STORY-002 | Characterization tests pinning the three driver-exception behaviors against current SQLite | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md) | `403b191` |
 | STORY-003 | Centralize the 27 DATABASE_URL test sites behind one conftest fixture, still SQLite-backed | technical | ⬜ todo | medium | — | — |
 | STORY-004 | app/db/errors.py: a module-owned exception surface, decoupling the three catch sites from sqlite3 | technical | ⬜ todo | small | — | — |
 | STORY-005 | Config: TURSO_AUTH_TOKEN, libSQL DATABASE_URL semantics, and no file fallback | feature | ⬜ todo | small | — | — |
