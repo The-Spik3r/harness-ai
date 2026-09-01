@@ -1,11 +1,11 @@
 """The database fixtures' own contract, asserted rather than assumed.
 
 `tests/conftest.py` is the seam PRD-007 STORY-006 flips: 19 files stopped
-spelling `sqlite:///` and now depend on what these fixtures promise. Those
-promises -- a URL string and not a path, per-test isolation, a database with no
-schema when one is asked for -- are only worth something if something checks
-them, and every consuming test would keep passing today for reasons that have
-nothing to do with them.
+spelling their own database URLs and now depend on what these fixtures
+promise. Those promises -- a URL string and not a path, per-test isolation, and
+a database with no schema when one is asked for -- are only worth something if
+something checks them, and every consuming test would keep passing today for
+reasons that have nothing to do with them.
 
 These tests are written against the *contract*, never against SQLite. Nothing
 here opens a file, joins a path, or asserts a scheme, so STORY-006 inherits
@@ -19,7 +19,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import pytest
 
-from app.config import settings
+from app.config import Settings, settings
 from app.db.database import count_audit_logs, get_connection, insert_audit_log, init_db
 from app.db.models import AuditLog
 
@@ -47,9 +47,14 @@ def test_settings_points_at_the_url_the_fixture_returned(temp_db):
 
 
 def test_the_url_is_not_the_configured_default(temp_db):
-    """`app/config.py` defaults DATABASE_URL to the repo-root database. A
-    fixture that silently failed to patch would leave that value in place."""
-    assert temp_db != "sqlite:///harness_ai.db"
+    """A fixture that silently failed to patch would leave the developer's own
+    configured database in place, and every test below would still pass.
+
+    Compared against the declared default rather than a literal, so this test
+    neither duplicates `app/config.py` nor has to be edited when STORY-005
+    changes what that default is.
+    """
+    assert temp_db != Settings.model_fields["DATABASE_URL"].default
 
 
 # --- Isolation (AC 1): no test sees another test's rows ---------------------
