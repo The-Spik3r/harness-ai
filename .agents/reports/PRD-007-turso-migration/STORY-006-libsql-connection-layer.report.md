@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-006-libsql-connection-layer.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: 86ece73
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-006-libsql-connection-layer.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING`
+**Commit**: `86ece73`
 
 ## Summary
 
