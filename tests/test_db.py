@@ -33,6 +33,7 @@ from app.db.database import (
     top_pii_entities,
     top_users,
 )
+from app.db.errors import IntegrityError, MissingRelationError, StorageError
 from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
 
 
@@ -1025,8 +1026,12 @@ def test_insert_user_defaults_created_at_to_utc_now(temp_db):
 def test_insert_user_rejects_duplicate_user_id(temp_db):
     insert_user(User(user_id="ana", role="user", token_hash="h-1"))
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError) as exc_info:
         insert_user(User(user_id="ana", role="admin", token_hash="h-2"))
+
+    # The module-owned type carries which constraint failed, so a caller can tell
+    # this apart from a duplicate token_hash (PRD-007 STORY-004 AC1).
+    assert exc_info.value.constraint == "users.user_id"
 
 
 def test_insert_user_rejects_duplicate_token_hash(temp_db):
@@ -1034,8 +1039,69 @@ def test_insert_user_rejects_duplicate_token_hash(temp_db):
     credential and the lookup would return an arbitrary winner."""
     insert_user(User(user_id="ana", role="user", token_hash="shared-hash"))
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError) as exc_info:
         insert_user(User(user_id="bob", role="user", token_hash="shared-hash"))
+
+    assert exc_info.value.constraint == "users.token_hash"
+
+
+def test_no_driver_exception_escapes_app_db(temp_db):
+    """PRD-007 STORY-004 AC2: every driver exception is translated at the
+    module boundary, so no caller ever sees a sqlite3 type."""
+    with get_connection() as conn:
+        conn.execute("DROP TABLE audit_logs")
+
+    with pytest.raises(MissingRelationError) as exc_info:
+        count_audit_logs()
+
+    raised = exc_info.value
+    assert raised.relation == "audit_logs"
+    # A subclass of the general failure on purpose: duplicate_checker catches
+    # StorageError and must keep catching a missing table, exactly as
+    # `except sqlite3.Error` did before the translation existed.
+    assert isinstance(raised, StorageError)
+    assert not isinstance(raised, sqlite3.Error)
+
+
+def test_find_user_by_token_hash_raises_when_the_failure_is_not_a_missing_table(
+    temp_db, monkeypatch
+):
+    """The 401 arm is narrow by design (PRD-007 STORY-004, Design Note 3).
+
+    Before the translation it caught every sqlite3.OperationalError, so a locked
+    or unreadable database resolved as "no match" -- a real storage outage
+    reported as a bad credential. Only a missing `users` table folds into None
+    now; anything else must surface.
+
+    Mirrors the connection-patching idiom at test_init_db_issues_no_alter... --
+    a proxy stands in for the connection so the failure is induced at execute
+    time rather than by writing a broken database to disk.
+    """
+
+    class _LockedConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, *args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    real_get_connection = database.get_connection
+    monkeypatch.setattr(
+        database, "get_connection", lambda: _LockedConnection(real_get_connection())
+    )
+
+    with pytest.raises(StorageError) as exc_info:
+        find_user_by_token_hash("any-hash")
+
+    assert not isinstance(exc_info.value, MissingRelationError)
+    assert "locked" in str(exc_info.value)
 
 
 def test_get_user_missing_returns_none(temp_db):

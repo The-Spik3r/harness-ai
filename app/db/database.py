@@ -1,8 +1,11 @@
+import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterator, Optional
 
 from app.config import settings
+from app.db.errors import IntegrityError, MissingRelationError, StorageError
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
     CREATE_AUDIT_LOGS_TABLE,
@@ -29,8 +32,56 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+# The driver states both conditions in the exception message and nowhere else:
+# `sqlite_errorname` collapses "no such table" and "duplicate column name" into
+# the same SQLITE_ERROR, and it is a CPython-only attribute a libSQL client will
+# not carry. libSQL is SQLite-derived and emits the same text, so STORY-006
+# re-verifies these two patterns rather than replacing the approach.
+_MISSING_RELATION = re.compile(r"no such table: (\w+)")
+_CONSTRAINT = re.compile(r"constraint failed: ([\w.]+)")
+
+
+def _constraint_of(exc: sqlite3.IntegrityError) -> Optional[str]:
+    match = _CONSTRAINT.search(str(exc))
+    return match.group(1) if match is not None else None
+
+
+@contextmanager
+def _translated() -> Iterator[None]:
+    """Driver exceptions in, app.db.errors exceptions out.
+
+    The single seam in the codebase where sqlite3's exception hierarchy is known.
+    STORY-006 rewrites this body and nothing else has to change.
+    """
+    try:
+        yield
+    except sqlite3.IntegrityError as exc:
+        raise IntegrityError(_constraint_of(exc), str(exc)) from exc
+    except sqlite3.OperationalError as exc:
+        match = _MISSING_RELATION.search(str(exc))
+        if match is not None:
+            raise MissingRelationError(match.group(1), str(exc)) from exc
+        raise StorageError(str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise StorageError(str(exc)) from exc
+
+
+@contextmanager
+def _session() -> Iterator[sqlite3.Connection]:
+    """`with get_connection() as conn:` plus translation.
+
+    Same commit-on-success, rollback-on-exception, do-not-close semantics as the
+    block it replaces -- `with sqlite3.Connection` is a transaction, not a
+    closing context manager, and nothing here changes that.
+    """
+    with _translated():
+        conn = get_connection()
+        with conn:
+            yield conn
+
+
 def init_db() -> None:
-    with get_connection() as conn:
+    with _session() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
         _add_missing_columns(conn)
         conn.execute(CREATE_USERS_TABLE)
@@ -49,7 +100,7 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
 
 
 def insert_audit_log(entry: AuditLog) -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         cursor = conn.execute(
             """
             INSERT INTO audit_logs (
@@ -85,7 +136,7 @@ def insert_audit_log(entry: AuditLog) -> int:
 
 
 def find_duplicate_timestamp(prompt_hash: str, since: str) -> Optional[str]:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             """
             SELECT timestamp FROM audit_logs
@@ -123,7 +174,7 @@ def _row_to_audit_log(row: sqlite3.Row) -> AuditLog:
 
 
 def get_audit_log(audit_id: int) -> Optional[AuditLog]:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT * FROM audit_logs WHERE id = ?", (audit_id,)
         ).fetchone()
@@ -133,7 +184,7 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
 
 
 def count_audit_logs(user_id: Optional[str] = None) -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         if user_id is not None:
             row = conn.execute(
                 "SELECT COUNT(*) AS n FROM audit_logs WHERE user_id = ?",
@@ -145,7 +196,7 @@ def count_audit_logs(user_id: Optional[str] = None) -> int:
 
 
 def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[AuditLog]:
-    with get_connection() as conn:
+    with _session() as conn:
         if user_id is not None:
             rows = conn.execute(
                 """
@@ -164,7 +215,7 @@ def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[Aud
 
 
 def count_blocked_duplicates() -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM audit_logs WHERE was_duplicate_blocked = 1"
         ).fetchone()
@@ -172,7 +223,7 @@ def count_blocked_duplicates() -> int:
 
 
 def count_blocked_suspicious() -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM audit_logs WHERE suspicious_pattern IS NOT NULL"
         ).fetchone()
@@ -180,7 +231,7 @@ def count_blocked_suspicious() -> int:
 
 
 def count_unique_users() -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT COUNT(DISTINCT user_id) AS n FROM audit_logs"
         ).fetchone()
@@ -188,7 +239,7 @@ def count_unique_users() -> int:
 
 
 def count_successful_queries() -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM audit_logs WHERE success = 1"
         ).fetchone()
@@ -196,7 +247,7 @@ def count_successful_queries() -> int:
 
 
 def top_models(limit: int = 5) -> list[str]:
-    with get_connection() as conn:
+    with _session() as conn:
         rows = conn.execute(
             """
             SELECT model_used FROM audit_logs
@@ -211,7 +262,7 @@ def top_models(limit: int = 5) -> list[str]:
 
 
 def top_users(limit: int = 5) -> list[str]:
-    with get_connection() as conn:
+    with _session() as conn:
         rows = conn.execute(
             """
             SELECT user_id FROM audit_logs
@@ -225,7 +276,7 @@ def top_users(limit: int = 5) -> list[str]:
 
 
 def count_pii_detected_queries() -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             """
             SELECT COUNT(*) AS n FROM audit_logs
@@ -236,7 +287,7 @@ def count_pii_detected_queries() -> int:
 
 
 def top_pii_entities(limit: int = 5) -> list[str]:
-    with get_connection() as conn:
+    with _session() as conn:
         rows = conn.execute(
             "SELECT pii_entities FROM audit_logs WHERE pii_entities IS NOT NULL"
         ).fetchall()
@@ -263,7 +314,7 @@ def _row_to_user(row: sqlite3.Row) -> User:
 def get_user(user_id: str) -> Optional[User]:
     """Returns the user regardless of active state -- administrative reads
     (CLI list/deactivate) must be able to see a revoked row."""
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
@@ -279,14 +330,19 @@ def find_user_by_token_hash(token_hash: str) -> Optional[User]:
 
     A `users` table that hasn't been created yet (init_db() never ran against
     this connection) is folded into the same "no match" outcome rather than
-    raised -- callers resolving a credential need a closed door, not a 500."""
-    with get_connection() as conn:
+    raised -- callers resolving a credential need a closed door, not a 500.
+
+    That arm catches MissingRelationError and nothing wider (PRD-007 STORY-004):
+    a storage failure that is not a missing table surfaces as a 500 rather than
+    a silent 401, because a real outage must not read as a bad credential."""
+    with _session() as conn:
         try:
-            row = conn.execute(
-                "SELECT * FROM users WHERE token_hash = ? AND active = 1",
-                (token_hash,),
-            ).fetchone()
-        except sqlite3.OperationalError:
+            with _translated():
+                row = conn.execute(
+                    "SELECT * FROM users WHERE token_hash = ? AND active = 1",
+                    (token_hash,),
+                ).fetchone()
+        except MissingRelationError:
             return None
         if row is None:
             return None
@@ -294,7 +350,7 @@ def find_user_by_token_hash(token_hash: str) -> Optional[User]:
 
 
 def list_users(limit: int = 100) -> list[User]:
-    with get_connection() as conn:
+    with _session() as conn:
         rows = conn.execute(
             "SELECT * FROM users ORDER BY created_at DESC LIMIT ?",
             (limit,),
@@ -303,7 +359,7 @@ def list_users(limit: int = 100) -> list[User]:
 
 
 def count_active_users() -> int:
-    with get_connection() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM users WHERE active = 1"
         ).fetchone()
@@ -311,13 +367,14 @@ def count_active_users() -> int:
 
 
 def insert_user(entry: User) -> str:
-    """Raises sqlite3.IntegrityError on a duplicate user_id or token_hash --
-    deliberately not caught here; app/db/ has no error handling anywhere and the
-    caller needs to tell those two cases apart."""
+    """Raises app.db.errors.IntegrityError on a duplicate user_id or token_hash --
+    deliberately not caught here; the translation happens at this module's
+    boundary but the handling stays with the caller, which needs to tell those two
+    cases apart. IntegrityError.constraint carries which constraint failed."""
     created_at = entry.created_at or datetime.now(timezone.utc).strftime(
         _TIMESTAMP_FORMAT
     )
-    with get_connection() as conn:
+    with _session() as conn:
         conn.execute(
             """
             INSERT INTO users (user_id, role, token_hash, active, created_at)
@@ -338,7 +395,7 @@ def deactivate_user(user_id: str) -> bool:
     """Revocation is not deletion: audit_logs rows carry a bare user_id with no
     foreign key, so removing the row would orphan the audit trail. Returns False
     when no such user exists, so the CLI can report a typo."""
-    with get_connection() as conn:
+    with _session() as conn:
         cursor = conn.execute(
             "UPDATE users SET active = 0 WHERE user_id = ?", (user_id,)
         )
@@ -348,7 +405,7 @@ def deactivate_user(user_id: str) -> bool:
 def set_user_token_hash(user_id: str, token_hash: str) -> bool:
     """Credential rotation (STORY-004 `issue-token`). The old hash stops
     resolving the moment this returns."""
-    with get_connection() as conn:
+    with _session() as conn:
         cursor = conn.execute(
             "UPDATE users SET token_hash = ? WHERE user_id = ?",
             (token_hash, user_id),
