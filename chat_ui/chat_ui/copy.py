@@ -10,19 +10,27 @@ the word in the copy below it, and the label on its button all agree.
 """
 
 # --- Session gate --------------------------------------------------------
-USER_ID_PROMPT_TITLE = "Who is sending?"
-USER_ID_PROMPT_BODY = (
-    "Every prompt is recorded against a user ID. Enter the one you go by."
+LOGIN_PROMPT_TITLE = "Sign in"
+LOGIN_PROMPT_BODY = (
+    "Every prompt is recorded against your identity. Enter your access "
+    "token to start the session."
 )
-USER_ID_PLACEHOLDER = "e.g. a.torres"
-USER_ID_SUBMIT_LABEL = "Start session"
-USER_ID_VALIDATION_ERROR = "Enter a user ID to start the session."
+LOGIN_TOKEN_PLACEHOLDER = "Access token"
+LOGIN_SUBMIT_LABEL = "Sign in"
+LOGIN_TOKEN_REQUIRED_ERROR = "Enter a token to sign in."
+LOGIN_INVALID_TOKEN_ERROR = "Invalid or deactivated token."
+# A credential can go bad mid-session (deactivated by an admin while the tab
+# stays open). send() re-resolves on every call and surfaces this rather
+# than silently keep using a role that no longer exists.
+SESSION_INVALIDATED_ERROR = (
+    "Your session credential is no longer valid. Sign out and sign in again."
+)
 
 # --- Header --------------------------------------------------------------
 SHELL_HEADER_TITLE = "HARNESS"
 SHELL_HEADER_BADGE = "Inspecting"
 SHELL_USER_LABEL = "Sending as"
-SHELL_CHANGE_USER_LABEL = "Switch user"
+SHELL_LOGOUT_LABEL = "Sign out"
 SHELL_MODEL_SLOT_LABEL = "Model"
 
 # --- Empty state ---------------------------------------------------------
@@ -49,6 +57,7 @@ TAG_USER = "YOU"
 TAG_ASSISTANT = "CLEARED"
 TAG_DUPLICATE = "HELD"
 TAG_INJECTION = "DENIED"
+TAG_FORBIDDEN = "FORBIDDEN"
 TAG_UPSTREAM = "UPSTREAM"
 TAG_INTERNAL = "FAULT"
 TAG_UNKNOWN = "LOGGED"
@@ -83,6 +92,7 @@ DUPLICATE_UNPARSEABLE_TEMPLATE = "Already sent at {absolute}"
 # --- Block and failure cards --------------------------------------------
 INJECTION_PATTERN_LABEL = "Matched pattern"
 INJECTION_NO_PATTERN = "This prompt matched a prompt-injection rule."
+FORBIDDEN_PERMISSION_LABEL = "Required permission"
 
 # Risk 7: the upstream card names OpenRouter, so a model the key cannot reach
 # does not read as "the harness is broken".

@@ -12,9 +12,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import get_audit_log, get_connection, init_db
+from app.db.database import get_audit_log, get_connection, init_db, insert_user
+from app.db.models import User
 from app.main import app
 from app.services.duplicate_checker import hash_prompt
+from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterResult
 
 client = TestClient(app)
@@ -46,6 +48,9 @@ def temp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
     init_db()
+    insert_user(
+        User(user_id=_USER_ID, role="user", token_hash=hash_token(_USER_TOKEN))
+    )
     return db_path
 
 
@@ -71,6 +76,8 @@ def _capturing_openrouter(seen: list, response: str = _PII_RESPONSE):
 # caller's identity disjoint from the prompt's PII is what lets the leak assertions
 # below distinguish "leaked from the prompt" from "recorded as the requester".
 _USER_ID = "analyst-7"
+_USER_TOKEN = "analyst-7-token"
+_USER_HEADERS = {"Authorization": f"Bearer {_USER_TOKEN}"}
 
 
 def _post_pii_query(monkeypatch, seen=None, user_id=_USER_ID):
@@ -82,6 +89,7 @@ def _post_pii_query(monkeypatch, seen=None, user_id=_USER_ID):
     response = client.post(
         "/query",
         json={"user_id": user_id, "prompt": _PII_PROMPT, "device": "Chrome/Windows"},
+        headers=_USER_HEADERS,
     )
     return response, seen
 
@@ -182,12 +190,14 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
 
     assert sorted(entry) == [
         "audit_id",
+        "denied_permission",
         "device",
         "model",
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",
         "prompt_hash",
+        "role",
         "suspicious_pattern_detected",
         "timestamp",
         "user_id",
@@ -256,12 +266,16 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
     "tests/test_duplicate_checker.py",
-    "tests/test_integration.py",
     "tests/test_openrouter_client.py",
     "tests/test_pattern_detector.py",
     "tests/test_route_reservations.py",
 ]
 
+# STORY-013 (PRD-005 Section 9/10) makes POST /query require a bearer credential and
+# refuses a body user_id that doesn't match it -- a deliberate, documented breaking
+# change to the pre-RBAC contract. tests/test_integration.py posts as two different
+# users in a single test (PRD-001 Section 5's happy-path/dup/pattern coverage), so it
+# had to gain per-request Authorization headers rather than staying untouched.
 _TEST_DEF = re.compile(r"^def (test_\w+)", re.MULTILINE)
 
 
@@ -293,6 +307,44 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
     assert [line for line in changed.splitlines() if line.strip()] == []
 
 
+# Test functions whose entire premise was the pre-RBAC contract and that STORY-013
+# deliberately superseded (not an accidental deletion -- see the comment above
+# _PRE_EPIC_UNTOUCHED_TESTS). Each was replaced by a same-file test asserting the new,
+# PRD-005-documented behavior:
+#   - QueryRequest.user_id is now Optional[str] = None (app/models/schemas.py), so a
+#     request without it no longer raises ValidationError -- replaced by
+#     test_query_request_missing_user_id_defaults_to_none.
+#   - POST /query without a body user_id is no longer a 422/400 validation error --
+#     it's now the AC4 "proceeds using the credential's user_id" case, replaced by
+#     test_body_user_id_absent_proceeds_with_credential_user_id and
+#     test_missing_authorization_header_returns_401_and_no_audit_row.
+#
+# STORY-014 (PRD-005 Section 6/9, Risk 5) replaces the free-text user_id prompt with a
+# real token login: ChatState.submit_user_id()/reset_user_id() become login()/logout().
+# Each superseded test was replaced by a same-file test asserting the new,
+# token-based behavior:
+#   - test_chat_state_submit_empty_or_whitespace_user_id_shows_error ->
+#     test_chat_state_login_empty_token_shows_error
+#   - test_chat_state_submit_valid_user_id_clears_error_and_sets_user ->
+#     test_chat_state_login_valid_token_sets_user_id_and_clears_error
+#   - test_chat_state_reset_user_id_clears_error -> folded into
+#     test_chat_state_logout_clears_session_and_credential
+#   - test_reset_user_id_clears_the_transcript -> test_logout_clears_the_transcript
+_DELIBERATELY_SUPERSEDED_TESTS = {
+    "tests/test_schemas.py": {"test_query_request_missing_user_id_raises"},
+    "tests/test_query_router.py": {
+        "test_missing_user_id_returns_422",
+        "test_empty_user_id_returns_400_before_any_side_effect",
+    },
+    "tests/test_chat_state.py": {
+        "test_chat_state_submit_empty_or_whitespace_user_id_shows_error",
+        "test_chat_state_submit_valid_user_id_clears_error_and_sets_user",
+        "test_chat_state_reset_user_id_clears_error",
+        "test_reset_user_id_clears_the_transcript",
+    },
+}
+
+
 def test_no_pre_epic_test_function_was_removed_or_renamed():
     """AC4, layer 2: catches a deletion inside a file the epic legitimately extended."""
     base = _epic_base()
@@ -310,8 +362,9 @@ def test_no_pre_epic_test_function_was_removed_or_renamed():
         assert base_source is not None, f"git show failed for {path}"
         current = _REPO_ROOT / path
         current_source = current.read_text(encoding="utf-8") if current.exists() else ""
-        gone = sorted(set(_TEST_DEF.findall(base_source)) - set(_TEST_DEF.findall(current_source)))
+        gone = set(_TEST_DEF.findall(base_source)) - set(_TEST_DEF.findall(current_source))
+        gone -= _DELIBERATELY_SUPERSEDED_TESTS.get(path, set())
         if gone:
-            missing[path] = gone
+            missing[path] = sorted(gone)
 
     assert missing == {}

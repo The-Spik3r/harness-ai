@@ -5,6 +5,7 @@ from app.models.schemas import (
     AuditQueryEntry,
     AuditResponse,
     QueryBlockedDuplicateResponse,
+    QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
     QueryRequest,
     QuerySuccessResponse,
@@ -12,9 +13,9 @@ from app.models.schemas import (
 )
 
 
-def test_query_request_missing_user_id_raises():
-    with pytest.raises(ValidationError):
-        QueryRequest(prompt="hi")
+def test_query_request_missing_user_id_defaults_to_none():
+    request = QueryRequest(prompt="hi")
+    assert request.user_id is None
 
 
 def test_query_request_missing_prompt_raises():
@@ -71,6 +72,18 @@ def test_query_blocked_suspicious_response_shape():
     }
 
 
+def test_query_blocked_forbidden_response_shape():
+    response = QueryBlockedForbiddenResponse(
+        reason="Model not permitted for this role",
+        required_permission="query:model:anthropic/claude-3.5-sonnet",
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Model not permitted for this role",
+        "required_permission": "query:model:anthropic/claude-3.5-sonnet",
+    }
+
+
 def test_audit_response_shape():
     entry = AuditQueryEntry(
         audit_id=1,
@@ -98,6 +111,8 @@ def test_audit_response_shape():
                 "pii_detected_input": False,
                 "pii_detected_output": False,
                 "pii_entities": [],
+                "role": None,
+                "denied_permission": None,
             }
         ],
     }
@@ -166,5 +181,6 @@ def test_query_request_contract_is_unchanged():
         "prompt",
         "user_id",
     ]
-    assert QueryRequest.model_fields["user_id"].is_required()
+    assert not QueryRequest.model_fields["user_id"].is_required()
+    assert QueryRequest.model_fields["user_id"].default is None
     assert QueryRequest.model_fields["prompt"].is_required()

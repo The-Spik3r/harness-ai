@@ -30,6 +30,7 @@ _EXPECTED_RENDERERS = [
     "render_assistant",
     "render_duplicate",
     "render_injection",
+    "render_forbidden",
     "render_upstream_error",
     "render_internal_error",
     "render_fallback",
@@ -43,6 +44,7 @@ _KINDS = [
     "assistant",
     "duplicate",
     "injection",
+    "forbidden",
     "upstream_error",
     "internal_error",
     "something_new",
@@ -60,7 +62,7 @@ try:
     import reflex as rx
     from chat_ui.components import bubbles
     from chat_ui.components.chat import chat_input, message_bubble, message_list
-    from chat_ui.components.shell import empty_state, header, user_id_gate
+    from chat_ui.components.shell import empty_state, header, login_gate
     from chat_ui.state import ChatState
 except Exception as exc:
     print(json.dumps({"errors": ["import: {}: {}".format(type(exc).__name__, exc)]}))
@@ -91,7 +93,7 @@ except Exception as exc:
 result["unrendered_kinds"] = unrendered
 
 broken = []
-for factory in (header, empty_state, user_id_gate, message_list, chat_input):
+for factory in (header, empty_state, login_gate, message_list, chat_input):
     try:
         if not isinstance(factory(), rx.Component):
             broken.append(factory.__name__)

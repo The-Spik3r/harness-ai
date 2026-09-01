@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from chat_ui.chat_ui.copy import (
-    USER_ID_PROMPT_TITLE,
+    LOGIN_PROMPT_TITLE,
     COMPOSER_PLACEHOLDER,
     WELCOME_MESSAGE_CONTENT,
     PII_BADGE_TEMPLATE,
@@ -19,7 +19,7 @@ from chat_ui.chat_ui.copy import (
     SHELL_HEADER_TITLE,
     SHELL_HEADER_BADGE,
     SHELL_USER_LABEL,
-    SHELL_CHANGE_USER_LABEL,
+    SHELL_LOGOUT_LABEL,
     SHELL_MODEL_SLOT_LABEL,
     EMPTY_STATE_TITLE,
     EMPTY_STATE_SUBTITLE,
@@ -135,7 +135,7 @@ from chat_ui.chat_ui.admin_copy import (
 
 def test_copy_constants_exist_and_not_empty():
     """Verify all critical copy strings are non-empty and accessible."""
-    assert USER_ID_PROMPT_TITLE
+    assert LOGIN_PROMPT_TITLE
     assert COMPOSER_PLACEHOLDER == "Message..."
     assert WELCOME_MESSAGE_CONTENT
     assert RETRY_LABEL == "Retry"
@@ -143,7 +143,7 @@ def test_copy_constants_exist_and_not_empty():
     assert SHELL_HEADER_TITLE
     assert SHELL_HEADER_BADGE
     assert SHELL_USER_LABEL
-    assert SHELL_CHANGE_USER_LABEL
+    assert SHELL_LOGOUT_LABEL
     assert SHELL_MODEL_SLOT_LABEL
     assert EMPTY_STATE_TITLE
     assert EMPTY_STATE_SUBTITLE

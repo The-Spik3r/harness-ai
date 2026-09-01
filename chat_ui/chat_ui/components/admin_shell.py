@@ -67,7 +67,7 @@ VIEW_SUMMARY = "summary"
 def admin_gate() -> rx.Component:
     """Full-page form collecting the admin token before either view opens.
 
-    Mirrors `shell.py`'s `user_id_gate()` in structure — a centred panel, a
+    Mirrors `shell.py`'s `login_gate()` in structure — a centred panel, a
     controlled field, one error line, one submit — because the console's gate
     and the chat's gate being the same shape is the vocabulary consistency the
     frontend-design skill asks for, not drift.

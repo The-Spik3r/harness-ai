@@ -10,15 +10,27 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import get_audit_log, get_connection, init_db, insert_audit_log
-from app.db.models import AuditLog
+from app.db.database import (
+    get_audit_log,
+    get_connection,
+    init_db,
+    insert_audit_log,
+    insert_user,
+)
+from app.db.models import AuditLog, User
 from app.main import app
 import app.services.query_pipeline as query_pipeline
+from app.services.authz import PERMISSION_QUERY_BYOK, PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import hash_prompt
+from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
 
-client = TestClient(app)
+_AUTH_USER_ID = "juan@empresa.com"
+_AUTH_TOKEN = "test-user-token"
+_AUTH_HEADERS = {"Authorization": f"Bearer {_AUTH_TOKEN}"}
+
+client = TestClient(app, headers=_AUTH_HEADERS)
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -28,6 +40,9 @@ def temp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
     init_db()
+    insert_user(
+        User(user_id=_AUTH_USER_ID, role="user", token_hash=hash_token(_AUTH_TOKEN))
+    )
     return db_path
 
 
@@ -55,24 +70,83 @@ def _fail_if_called(*args, **kwargs):
     raise AssertionError("call_openrouter should not have been called")
 
 
-def test_missing_user_id_returns_422(temp_db, monkeypatch):
+def test_missing_authorization_header_returns_401_and_no_audit_row(temp_db, monkeypatch):
     monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    unauth_client = TestClient(app)
 
-    response = client.post("/query", json={"prompt": "hello world"})
+    response = unauth_client.post("/query", json={"prompt": "hello world"})
 
-    assert response.status_code == 422
+    assert response.status_code == 401
     assert _count_audit_rows() == 0
 
 
-def test_empty_user_id_returns_400_before_any_side_effect(temp_db, monkeypatch):
+def test_identity_lacking_query_submit_returns_403_naming_permission(temp_db, monkeypatch):
+    insert_user(
+        User(user_id="reviewer", role="auditor", token_hash=hash_token("auditor-token"))
+    )
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    auditor_client = TestClient(app, headers={"Authorization": "Bearer auditor-token"})
+
+    response = auditor_client.post("/query", json={"prompt": "hello world"})
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": f"Permission denied: {PERMISSION_QUERY_SUBMIT}"}
+    assert _count_audit_rows() == 0
+
+
+def test_body_user_id_mismatch_returns_403_without_overriding(temp_db, monkeypatch):
     monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
 
     response = client.post(
-        "/query", json={"user_id": "   ", "prompt": "hello world"}
+        "/query", json={"user_id": "someone-else", "prompt": "hello world"}
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     assert _count_audit_rows() == 0
+
+
+def test_body_user_id_absent_proceeds_with_credential_user_id(temp_db, monkeypatch):
+    def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fake_call_openrouter)
+
+    response = client.post("/query", json={"prompt": "hello world"})
+
+    assert response.status_code == 200
+    entry = get_audit_log(response.json()["audit_id"])
+    assert entry.user_id == _AUTH_USER_ID
+
+
+def test_body_user_id_matching_credential_proceeds(temp_db, monkeypatch):
+    def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fake_call_openrouter)
+
+    response = client.post(
+        "/query", json={"user_id": _AUTH_USER_ID, "prompt": "hello world"}
+    )
+
+    assert response.status_code == 200
+    entry = get_audit_log(response.json()["audit_id"])
+    assert entry.user_id == _AUTH_USER_ID
+
+
+def test_byok_without_permission_returns_200_blocked_with_required_permission(
+    temp_db, monkeypatch
+):
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+
+    response = client.post(
+        "/query",
+        json={"prompt": "hello world", "openrouter_api_key": "sk-whatever"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "BLOCKED"
+    assert body["required_permission"] == PERMISSION_QUERY_BYOK
 
 
 def test_clean_prompt_success_returns_expected_shape_and_logs_row(temp_db, monkeypatch):
