@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Driver verification and behavior pinning"
-status: todo
+status: done
 labels: [backend, database, tests, rbac]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-002-exception-characterization-tests.report.md
 commit: null
 depends_on: []
 blocks: [STORY-004]

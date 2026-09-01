@@ -46,6 +46,14 @@ def temp_db(tmp_path, monkeypatch):
     return db_path
 
 
+@pytest.fixture
+def uninitialized_db(tmp_path, monkeypatch):
+    """A database init_db() never ran against, so the `users` table is absent."""
+    db_path = tmp_path / "uninitialized.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+    return db_path
+
+
 # --- AC1: require_identity rejects no/invalid/malformed credential with 401 ---
 
 
@@ -123,6 +131,29 @@ def test_require_permission_rejects_missing_credential_with_401_not_403():
     response = client.get("/fake-byok")
 
     assert response.status_code == 401
+
+
+def test_require_identity_returns_401_not_500_when_users_table_does_not_exist(
+    uninitialized_db,
+):
+    """PRD-007 STORY-002 characterization test -- the endpoint-level half of
+    the arm at app/db/database.py:289.
+
+    This is a security control, not a convenience. PRD-005 Section 9 requires
+    every credential failure to be indistinguishable at the boundary; a 500
+    here would separate "the users table is missing" from "that credential is
+    unknown" and reopen the credential-enumeration oracle that
+    find_user_by_token_hash()'s docstring exists to close.
+
+    Asserted by status code, never by exception type, so STORY-004's driver
+    swap leaves this test untouched.
+    """
+    response = client.get(
+        "/fake-identity", headers={"Authorization": "Bearer anything"}
+    )
+
+    assert response.status_code == 401
+    assert response.status_code != 500
 
 
 # --- AC4/AC5: require_admin_token reimplemented on require_identity, behavior unchanged ---

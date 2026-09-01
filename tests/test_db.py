@@ -45,6 +45,14 @@ def temp_db(tmp_path, monkeypatch):
     return db_path
 
 
+@pytest.fixture
+def uninitialized_db(tmp_path, monkeypatch):
+    """A database init_db() never ran against, so no table exists at all."""
+    db_path = tmp_path / "uninitialized.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
+    return db_path
+
+
 def test_init_db_creates_table(temp_db):
     init_db()  # calling twice must not raise or duplicate the schema
 
@@ -915,6 +923,22 @@ def test_find_user_by_token_hash_ignores_deactivated_user(temp_db):
 
 def test_find_user_by_token_hash_unknown_returns_none(temp_db):
     assert find_user_by_token_hash("nope") is None
+
+
+def test_find_user_by_token_hash_returns_none_when_users_table_does_not_exist(
+    uninitialized_db,
+):
+    """PRD-007 STORY-002 characterization test.
+
+    Pins the `except sqlite3.OperationalError` arm at app/db/database.py:289:
+    a missing `users` table is folded into the same "no match" outcome as an
+    unknown credential, rather than escaping to the caller.
+
+    Asserted by return value, never by exception type -- STORY-004 replaces
+    the driver's exception with a module-owned one, and this test must keep
+    passing across that swap untouched.
+    """
+    assert find_user_by_token_hash("any-hash") is None
 
 
 def test_find_user_by_token_hash_is_exact_not_prefix(temp_db):
