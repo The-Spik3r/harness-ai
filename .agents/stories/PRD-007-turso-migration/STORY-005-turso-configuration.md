@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: small
 phase: "2 - Storage layer swap"
-status: todo
+status: done
 labels: [backend, config, security, turso]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-005-turso-configuration.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-005-turso-configuration.report.md
+commit: 907eb6c
 depends_on: [STORY-001]
 blocks: [STORY-006]
 skills: []

@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/16 stories done — 25%
+5/16 stories done — 31%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | STORY-002 | Characterization tests pinning the three driver-exception behaviors against current SQLite | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md) | `403b191` |
 | STORY-003 | Centralize the 27 DATABASE_URL test sites behind one conftest fixture, still SQLite-backed | technical | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-003-centralize-database-url-fixture.plan.md) | `eebfc71` |
 | STORY-004 | app/db/errors.py: a module-owned exception surface, decoupling the three catch sites from sqlite3 | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-004-module-owned-error-surface.plan.md) | `2961f33` |
-| STORY-005 | Config: TURSO_AUTH_TOKEN, libSQL DATABASE_URL semantics, and no file fallback | feature | ⬜ todo | small | — | — |
+| STORY-005 | Config: TURSO_AUTH_TOKEN, libSQL DATABASE_URL semantics, and no file fallback | feature | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-005-turso-configuration.plan.md) | `907eb6c` |
 | STORY-006 | Swap app/db/database.py onto a shared libSQL client, preserving all 22 public signatures | feature | ⬜ todo | large | — | — |
 | STORY-007 | Make init_db() and _add_missing_columns() converge under concurrent multi-instance startup | technical | ⬜ todo | medium | — | — |
 | STORY-008 | Fail fast and legibly when the database is unreachable or the token is missing | feature | ⬜ todo | small | — | — |
@@ -53,7 +53,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 - STORY-015 blocked by STORY-014
 - STORY-016 blocked by STORY-007, STORY-014
 
-STORY-001 through STORY-004 are done. STORY-005 is unblocked and is the last prerequisite left before STORY-006, the driver swap.
+STORY-001 through STORY-005 are done. STORY-006, the driver swap, is now unblocked: all four of its dependencies (STORY-001, STORY-003, STORY-004, STORY-005) are complete.
 
 ## Phases
 

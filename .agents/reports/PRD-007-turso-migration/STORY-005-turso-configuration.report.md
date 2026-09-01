@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-005-turso-configuration.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: 907eb6c
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-005-turso-configuration.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING` (recorded by the follow-up chore commit, as for STORY-001..004)
+**Commit**: `907eb6c`
 
 ## Summary
 
