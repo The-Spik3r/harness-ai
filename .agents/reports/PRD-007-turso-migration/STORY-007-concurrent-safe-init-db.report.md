@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: pending
+commit: efdb114
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `pending` (recorded by the follow-up chore commit, as for STORY-004/005/006)
+**Commit**: `efdb114`
 
 ## Summary
 

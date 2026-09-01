@@ -12,7 +12,7 @@ labels: [backend, database, migration, concurrency]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-007-concurrent-safe-init-db.report.md
-commit: null
+commit: efdb114
 depends_on: [STORY-006]
 blocks: [STORY-016]
 skills: []
