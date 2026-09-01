@@ -20,6 +20,12 @@ INK = "#14181C"
 MUTE = "#626C77"
 RULE = "#CBD2D9"
 RULE_SOFT = "#DDE2E7"
+# The register's row hover. A hover has to be findable without becoming a
+# second signal — the stamp margin is where that surface spends its boldness —
+# so it lifts toward the card rather than darkening toward the rule. Darkening
+# was measured and rejected: it drops MUTE below AA, and MUTE sets the
+# register's timestamps.
+HOVER = "#F1F3F5"
 # The rail itself. It has to hold its own against the paper: it is the one
 # structural line the whole design rests on.
 SPINE = "#C3CBD3"
@@ -68,6 +74,7 @@ FONTS_HREF = (
 )
 
 # --- Scale ---------------------------------------------------------------
+TEXT_MICRO = "0.625rem"  # register column heads — a signpost, never row data
 TEXT_TAG = "0.6875rem"  # verdict tags, eyebrows
 TEXT_DATA = "0.75rem"  # footers, evidence lines
 TEXT_BODY = "0.9375rem"
@@ -75,7 +82,9 @@ TEXT_LEAD = "1.0625rem"
 
 RADIUS = "3px"
 RAIL_X = "1.875rem"  # rail's distance from the transcript's left edge
+STAMP_X = RAIL_X  # the register's stamp margin *is* the chat's rail, continued
 GLYPH = "9px"
+ROW_H = "2.25rem"  # one register row: dense enough to scan a hundred
 COLUMN_MAX = "56rem"
 MEASURE = "42rem"  # reading measure for prose — roughly 70 characters
 PANEL_MAX = "36rem"  # a verdict is a short record, not a banner
@@ -135,12 +144,15 @@ body {{
 
 /* Radix paints the real <input> inside its TextField wrapper, so inline props
    on the wrapper never reach the text the user types. State both colours
-   outright rather than inheriting a token that depends on the appearance. */
-#chat_input, #user_id_input {{
+   outright rather than inheriting a token that depends on the appearance.
+   Four fields need it: the composer, the chat's session gate, the admin
+   console's token gate, and the register's filter field. */
+#chat_input, #user_id_input, #admin_token_input, #register_filter_input {{
   color: {INK} !important;
   background: transparent;
 }}
-#chat_input::placeholder, #user_id_input::placeholder {{
+#chat_input::placeholder, #user_id_input::placeholder,
+#admin_token_input::placeholder, #register_filter_input::placeholder {{
   color: {MUTE} !important;
   opacity: 1;  /* Firefox dims placeholders by default */
 }}
