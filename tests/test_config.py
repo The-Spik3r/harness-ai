@@ -6,6 +6,9 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import re
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from app.config import Settings, settings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -72,3 +75,177 @@ def test_env_example_rbac_vars_appear_in_settings_field_order():
     positions = [text.index(f"{var}=") for var in declared_order]
 
     assert positions == sorted(positions)
+
+
+# --- PRD-007 STORY-005: DATABASE_URL semantics and TURSO_AUTH_TOKEN ----------
+#
+# Every test below constructs Settings explicitly rather than reading the
+# process environment, because the whole point of the story is what happens at
+# construction. `_env_file=None` keeps a developer's real `.env` -- which on a
+# pre-migration machine still says `sqlite:///harness_ai.db` -- from deciding
+# whether these pass.
+
+# A token value no message is allowed to echo (AC 6).
+_TOKEN_SENTINEL = "s3cr3t-sentinel"
+
+_REMOTE_URL = "libsql://harness-ai-acme.turso.io"
+_LOCAL_URL = "http://127.0.0.1:8080"
+
+
+def _settings(**overrides) -> Settings:
+    base = {"OPENROUTER_API_KEY": "test-key", "ADMIN_TOKEN": "test-token"}
+    return Settings(_env_file=None, **{**base, **overrides})
+
+
+@pytest.mark.parametrize("url", [_REMOTE_URL, "https://harness-ai-acme.turso.io"])
+def test_remote_endpoint_without_a_token_is_a_startup_error(url):
+    """AC 2: both remote schemes require the credential, not just libsql://."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=url, TURSO_AUTH_TOKEN="")
+
+    assert "TURSO_AUTH_TOKEN" in str(exc_info.value)
+
+
+def test_local_dev_server_without_a_token_is_accepted():
+    """AC 3: the local libSQL server takes no token (PRD Section 9)."""
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.DATABASE_URL == _LOCAL_URL
+    assert result.TURSO_AUTH_TOKEN == ""
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite:///harness_ai.db",  # the default this story removed
+        "sqlite:///:memory:",  # Dockerfile:17's build placeholder
+        "sqlite:////app/data/harness_ai.db",  # docker-compose.yml:12
+    ],
+)
+def test_any_sqlite_url_is_rejected_and_the_message_names_the_replacement(url):
+    """AC 4: never a file, never silently ignored, and the error is actionable.
+
+    Parametrized over the three spellings that actually exist in this repo, so
+    a validator that only caught `sqlite:///` relative paths would fail here.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=url)
+
+    message = str(exc_info.value)
+    assert "libsql://" in message, "the message must name the replacement form"
+
+
+def test_database_url_is_required_with_no_default(monkeypatch):
+    """AC 5: the default is removed, not replaced with another default.
+
+    `_env_file=None` silences the dotenv source but not the process
+    environment, and `tests/conftest.py` puts a placeholder there so the suite
+    can import `app.config` at all -- so "unset" has to be made true here, the
+    way `test_settings_construct_without_new_env_vars` above does it.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        _settings()
+
+    assert "DATABASE_URL" in str(exc_info.value)
+    assert Settings.model_fields["DATABASE_URL"].is_required()
+
+
+def test_a_valid_remote_pair_constructs():
+    """AC 7's fifth case: the configuration this PRD is migrating toward."""
+    result = _settings(DATABASE_URL=_REMOTE_URL, TURSO_AUTH_TOKEN=_TOKEN_SENTINEL)
+
+    assert result.DATABASE_URL == _REMOTE_URL
+    assert result.TURSO_AUTH_TOKEN == _TOKEN_SENTINEL
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite:///harness_ai.db",  # scheme failure, token present but irrelevant
+        "postgres://db.example.com",  # unsupported scheme
+    ],
+)
+def test_no_failure_message_ever_echoes_the_token(url):
+    """AC 6: the credential is "never echoed in error messages" (PRD Section 9)."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=url, TURSO_AUTH_TOKEN=_TOKEN_SENTINEL)
+
+    assert _TOKEN_SENTINEL not in str(exc_info.value)
+
+
+def test_a_token_carried_inside_the_url_is_not_echoed_either():
+    """AC 6's sharp case, and the reason messages quote only the scheme.
+
+    A libSQL endpoint can carry its credential in the URL itself. Here the
+    setting is empty, so validation fails for a missing TURSO_AUTH_TOKEN -- and
+    a message that echoed `DATABASE_URL`, the way `app/db/database.py:25` does,
+    would print the token while reporting that no token was given.
+    """
+    url = f"libsql://harness-ai-acme.turso.io?authToken={_TOKEN_SENTINEL}"
+
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=url, TURSO_AUTH_TOKEN="")
+
+    assert _TOKEN_SENTINEL not in str(exc_info.value)
+
+
+def test_unsupported_scheme_names_the_accepted_ones():
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL="postgres://db.example.com", TURSO_AUTH_TOKEN="t")
+
+    message = str(exc_info.value)
+    for scheme in ("libsql://", "https://", "http://"):
+        assert scheme in message
+
+
+def test_https_is_remote_even_though_it_starts_like_http():
+    """`"https://".startswith("http://")` is False, and the token rule depends on it.
+
+    Pinned because the next reader will assume the opposite, and the failure it
+    would cause -- a remote endpoint silently accepted with no credential -- is
+    the one this story exists to prevent.
+    """
+    with pytest.raises(ValidationError):
+        _settings(DATABASE_URL="https://harness-ai-acme.turso.io")
+
+
+def test_surrounding_whitespace_is_stripped_not_rejected():
+    """A trailing newline in a `.env` value must not read as an unknown scheme."""
+    result = _settings(DATABASE_URL=f"  {_LOCAL_URL}\n")
+
+    assert result.DATABASE_URL == _LOCAL_URL
+
+
+# --- AC4 (STORY-005): .env.example documents both new variables --------------
+
+
+def test_env_example_documents_both_turso_vars_with_a_comment():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in ("DATABASE_URL", "TURSO_AUTH_TOKEN"):
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_carries_no_sqlite_url():
+    """The committed example must not hand anyone the value that now fails."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "DATABASE_URL=sqlite:" not in text
+
+
+def test_env_example_turso_vars_appear_in_settings_field_order():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = ["DATABASE_URL", "TURSO_AUTH_TOKEN"]
+
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_ships_no_token_value():
+    """AC 6's committed-file half: the example must never carry a real token."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert re.search(r"(?m)^TURSO_AUTH_TOKEN=$", text), "TURSO_AUTH_TOKEN must be present and empty"

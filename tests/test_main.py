@@ -24,12 +24,19 @@ def test_health_returns_ok():
 
 
 @pytest.fixture
-def _small_model_and_reset(monkeypatch):
+def _small_model_and_reset(monkeypatch, temp_db):
     monkeypatch.setattr(settings, "PII_NLP_MODEL", "en_core_web_sm")
     monkeypatch.setattr(pii_redactor, "_analyzer", None)
     monkeypatch.setattr(pii_redactor, "_anonymizer", None)
-    # Unrelated to RBAC bootstrap; the real dev DATABASE_URL these tests run
-    # against has no seeded users, so STORY-016's guard would otherwise fire.
+    # `temp_db` because the lifespan calls init_db(): before STORY-005 these
+    # tests ran against whatever DATABASE_URL the developer had configured --
+    # the repo-root harness_ai.db -- which the comment below used to admit in
+    # passing. Now that a DATABASE_URL naming no reachable database is a real
+    # error rather than a file that springs into existence, the dependency has
+    # to be declared. Nothing about these assertions wanted a shared database.
+    #
+    # RBAC_ENABLED is unrelated to the bootstrap: the fixture database has no
+    # seeded users, so STORY-016's guard would otherwise fire.
     monkeypatch.setattr(settings, "RBAC_ENABLED", False)
     yield
 
@@ -66,12 +73,16 @@ def test_lifespan_skips_analyzer_when_redaction_disabled(_small_model_and_reset,
         assert response.status_code == 200
 
 
-def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch):
+def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch, temp_db):
     roles_file = tmp_path / "roles.json"
     roles_file.write_text('{"user": ["query:submit"]}')
     monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
-    # Unrelated to RBAC bootstrap; the real dev DATABASE_URL this test runs
-    # against has no seeded users, so STORY-016's guard would otherwise fire.
+    # `temp_db` for the same reason as `_small_model_and_reset` above: the
+    # lifespan calls init_db(), and this test used to lean on the developer's
+    # configured database rather than asking for one.
+    #
+    # RBAC_ENABLED is unrelated to the bootstrap: the fixture database has no
+    # seeded users, so STORY-016's guard would otherwise fire.
     monkeypatch.setattr(settings, "RBAC_ENABLED", False)
     original = authz.ROLE_PERMISSIONS
 

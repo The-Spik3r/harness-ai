@@ -1,4 +1,31 @@
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Accepted DATABASE_URL schemes (PRD-007 Section 4). Remote endpoints carry TLS
+# or the libSQL protocol and require a token; plaintext http:// is permitted
+# only for the local development server, which takes no token (PRD Section 9,
+# and the endpoint recorded in STORY-001's driver decision).
+_REMOTE_SCHEMES = ("libsql://", "https://")
+_LOCAL_SCHEME = "http://"
+
+# Matches every spelling of the file URL this PRD removes: sqlite:///relative,
+# sqlite:////absolute, and sqlite:///:memory:.
+_SQLITE_SCHEME = "sqlite:"
+
+
+def _scheme_of(url: str) -> str:
+    """The scheme part of a URL, and the only part of one any message quotes.
+
+    A libSQL endpoint may carry `?authToken=...`, and PRD-007 Section 9 requires
+    the credential to be "never logged, never echoed in error messages". Quoting
+    the scheme alone makes that structural rather than something every `raise`
+    below has to remember. This is the one place the module deliberately does
+    not mirror `app/db/database.py:25`, which echoes the whole URL.
+    """
+    head, separator, _ = url.partition("://")
+    if separator:
+        return head + separator
+    return f"{url.split(':', 1)[0]}:" if ":" in url else ""
 
 
 class Settings(BaseSettings):
@@ -7,7 +34,14 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str
     ADMIN_TOKEN: str
 
-    DATABASE_URL: str = "sqlite:///harness_ai.db"
+    # Turso / libSQL (PRD-007). DATABASE_URL names a network endpoint, not a
+    # file, and carries no default: a default that silently creates a local
+    # database nobody reads and nobody backs up is the failure mode this PRD
+    # removes. TURSO_AUTH_TOKEN is required for a remote endpoint and unused
+    # against the local dev server.
+    DATABASE_URL: str
+    TURSO_AUTH_TOKEN: str = ""
+
     PORT: int = 8000
     HOST: str = "0.0.0.0"
     LOG_LEVEL: str = "INFO"
@@ -23,6 +57,45 @@ class Settings(BaseSettings):
     PII_SCORE_THRESHOLD: float = 0.35
     PII_ENTITIES: str = "PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION"
     PII_NLP_MODEL: str = "en_core_web_lg"
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _validate_database_url(cls, value: str) -> str:
+        """A libSQL endpoint, or a startup error -- never a file (PRD-007)."""
+        url = value.strip()
+        scheme = _scheme_of(url).lower()
+
+        if scheme.startswith(_SQLITE_SCHEME):
+            raise ValueError(
+                "DATABASE_URL must name a libSQL endpoint, not a file. Replace the "
+                "'sqlite:' URL with 'libsql://<database>-<org>.turso.io' (or "
+                "'http://127.0.0.1:8080' for the local dev server). PRD-007 removed "
+                "the file fallback deliberately: a local database file is written to "
+                "an ephemeral container layer, read by nobody, and backed up by nobody."
+            )
+
+        if scheme not in _REMOTE_SCHEMES + (_LOCAL_SCHEME,):
+            raise ValueError(
+                f"Unsupported DATABASE_URL scheme: {scheme!r}. Expected one of: "
+                "libsql://, https://, http:// (local dev server only)."
+            )
+
+        return url
+
+    @model_validator(mode="after")
+    def _require_token_for_remote_endpoint(self) -> "Settings":
+        """A remote endpoint without its credential is a startup error, not a retry.
+
+        Both fields are needed, so this cannot be a field validator.
+        """
+        is_remote = self.DATABASE_URL.lower().startswith(_REMOTE_SCHEMES)
+        if is_remote and not self.TURSO_AUTH_TOKEN.strip():
+            raise ValueError(
+                "TURSO_AUTH_TOKEN is required when DATABASE_URL names a remote "
+                "endpoint (libsql:// or https://). The local libSQL dev server on "
+                "http:// takes no token."
+            )
+        return self
 
     @property
     def pii_entities_list(self) -> list[str]:

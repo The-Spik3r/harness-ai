@@ -45,6 +45,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from chat_ui.chat_ui import admin_copy, theme  # noqa: E402
+from tests.conftest import CHILD_SETTINGS_PREAMBLE, child_db_env  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
@@ -631,7 +632,7 @@ def test_no_admin_module_refreshes_itself(module):
 # The route-table walk is tests/test_route_reservations.py:13-25 verbatim.
 # FastAPI wraps include_router() results in a lazy _IncludedRouter, so reaching
 # the real paths means descending into original_router.routes.
-_PAGES_CHECK_SCRIPT = r"""
+_PAGES_CHECK_SCRIPT = CHILD_SETTINGS_PREAMBLE + r"""
 import json, sys
 
 result = {"errors": []}
@@ -700,6 +701,11 @@ def pages_probe(database_url_factory):
     # from conftest so the libSQL swap has one place to change; the factory is
     # session-scoped because this fixture is module-scoped and could not request
     # a function-scoped one.
+    # It travels in two variables, not one: STORY-005 made a `sqlite:///` value
+    # a startup error, and a child process constructs its own Settings() where
+    # monkeypatch cannot reach -- so DATABASE_URL carries a URL that validates
+    # and CHILD_SETTINGS_PREAMBLE assigns the real one on top. STORY-006 folds
+    # both back into DATABASE_URL.
     db_url = database_url_factory("admin_pages")
     proc = subprocess.run(
         [sys.executable, "-c", _PAGES_CHECK_SCRIPT],
@@ -709,7 +715,7 @@ def pages_probe(database_url_factory):
             "PYTHONPATH": os.pathsep.join(_PYTHONPATH),
             "ADMIN_TOKEN": os.environ.get("ADMIN_TOKEN", "test-token"),
             "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY", "test-key"),
-            "DATABASE_URL": db_url,
+            **child_db_env(db_url),
         },
         capture_output=True,
         text=True,

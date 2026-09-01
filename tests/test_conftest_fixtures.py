@@ -50,11 +50,15 @@ def test_the_url_is_not_the_configured_default(temp_db):
     """A fixture that silently failed to patch would leave the developer's own
     configured database in place, and every test below would still pass.
 
-    Compared against the declared default rather than a literal, so this test
-    neither duplicates `app/config.py` nor has to be edited when STORY-005
-    changes what that default is.
+    STORY-005 removed `DATABASE_URL`'s default rather than changing it, so the
+    comparison moved from the declared default -- now `PydanticUndefined`, which
+    no URL can equal, making the assertion unfailable -- to the endpoint this
+    process is actually configured with. Still not a literal, so this test
+    duplicates nothing in `app/config.py`. The second assertion pins the removal
+    itself, which is what the first one used to be standing in for.
     """
-    assert temp_db != Settings.model_fields["DATABASE_URL"].default
+    assert temp_db != os.environ["DATABASE_URL"]
+    assert Settings.model_fields["DATABASE_URL"].is_required()
 
 
 # --- Isolation (AC 1): no test sees another test's rows ---------------------
