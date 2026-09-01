@@ -5,6 +5,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import re
 import sqlite3
+import threading
 from datetime import datetime
 
 import pytest
@@ -1200,3 +1201,315 @@ def test_the_shared_client_is_rebuilt_when_the_database_url_changes(
     monkeypatch.setattr(settings, "DATABASE_URL", "http://127.0.0.1:59999")
 
     assert database._shared_client() is not first
+
+
+# PRD-007 STORY-007: concurrent init_db()
+# ---------------------------------------------------------------------------
+#
+# The race is the read-then-ALTER pair in `_add_missing_columns()`: two
+# instances can both read a column as missing, and the loser's ALTER fails with
+# `duplicate column name`. Because init_db() runs at import time, the loser is a
+# container that will not boot.
+#
+# Four of the six tests below are *deterministic* -- they reproduce the loser's
+# condition directly rather than hoping an interleave occurs. The two N-thread
+# tests at the end are realism, and say so in their own docstrings: on their own
+# they would pass whether or not the race ever happened, which is exactly the
+# kind of evidence AC7 rejects.
+
+
+class _DelegatingConnection:
+    """Base for the connection proxies below: passes everything through.
+
+    Same idiom as `_RecordingConnection` and `_LockedConnection` above, which
+    STORY-006 introduced because the libSQL connection has no
+    `set_trace_callback` equivalent to hook instead.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._conn.__exit__(*exc_info)
+
+    def execute(self, sql, *parameters):
+        return self._conn.execute(sql, *parameters)
+
+
+class _StaleReadConnection(_DelegatingConnection):
+    """Reports `audit_logs` as having no columns; everything else is real."""
+
+    def execute(self, sql, *parameters):
+        if _is_table_info(sql):
+            return []
+        return self._conn.execute(sql, *parameters)
+
+
+class _GatedConnection(_DelegatingConnection):
+    """Holds the caller at `gate` once its PRAGMA table_info has returned."""
+
+    def __init__(self, conn, gate):
+        super().__init__(conn)
+        self._gate = gate
+
+    def execute(self, sql, *parameters):
+        result = self._conn.execute(sql, *parameters)
+        if _is_table_info(sql):
+            # Materialise before waiting: the caller must already hold its stale
+            # view, and no cursor may stay open across the barrier.
+            result = result.fetchall()
+            self._gate.wait()
+        return result
+
+
+class _FailingAlterConnection(_DelegatingConnection):
+    """Passes everything through but fails every ADD COLUMN."""
+
+    def __init__(self, conn, message):
+        super().__init__(conn)
+        self._message = message
+
+    def execute(self, sql, *parameters):
+        if _is_add_column(sql):
+            raise _driver_error(self._message)
+        return self._conn.execute(sql, *parameters)
+
+
+def _is_table_info(sql: str) -> bool:
+    return sql.strip().upper().startswith("PRAGMA TABLE_INFO")
+
+
+def _is_add_column(sql: str) -> bool:
+    return "ADD COLUMN" in sql.upper()
+
+
+def _install(monkeypatch, make_proxy) -> None:
+    """Points `database.get_connection` at a proxy over the real connection."""
+    real_get_connection = database.get_connection
+    monkeypatch.setattr(
+        database, "get_connection", lambda: make_proxy(real_get_connection())
+    )
+
+
+def _driver_error(message: str) -> ValueError:
+    """The driver's real failure shape, captured from the live endpoint.
+
+    libSQL raises a bare `builtins.ValueError` whose message is Hrana-wrapped,
+    and `_translated()` recognises it by that wrapper rather than by an
+    exception type there is none of (STORY-001 3.5).
+    """
+    return ValueError(
+        'Hrana: `stream error: `Error { message: "SQLite error: '
+        + message
+        + '", code: "SQLITE_UNKNOWN" }`'
+    )
+
+
+def _run_concurrently(count, work):
+    """Runs `work` in `count` threads released together, and returns failures.
+
+    The barrier is the point: started sequentially the threads would finish one
+    after another and the interleave under test would never occur.
+
+    The workers reach the database through `database.get_connection()` like
+    everything else. STORY-006 measured a client per thread losing 169 of 200
+    writes to TRANSACTION_TIMEOUT, so a test that built its own client would be
+    testing a configuration the application does not use.
+    """
+    start = threading.Barrier(count, timeout=30)
+    failures: list = []
+    lock = threading.Lock()
+
+    def worker():
+        try:
+            start.wait()
+            work()
+        except BaseException as exc:  # noqa: BLE001 -- reported, never swallowed
+            with lock:
+                failures.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert not any(thread.is_alive() for thread in threads), "a worker hung"
+    return failures
+
+
+def test_add_missing_columns_treats_an_existing_column_as_success(
+    temp_db, monkeypatch
+):
+    """The losing instance's exact condition, without needing a race to occur.
+
+    This is the deterministic half of AC7. `temp_db` leaves the schema current,
+    and the proxy reports `audit_logs` as having no columns at all -- the stale
+    read a loser gets when another instance ALTERs between its PRAGMA and its
+    own ALTER. All five ADD COLUMNs therefore fire against a table that already
+    has them, and every one of them fails. init_db() must still return.
+
+    The users-table assertion is not incidental: it proves the statements
+    *after* the swallowed failures still landed, i.e. that a converging instance
+    finishes its migration rather than committing a half-built schema.
+    """
+    _install(monkeypatch, _StaleReadConnection)
+
+    init_db()  # must not raise
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+        users = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+
+    for name in AUDIT_LOGS_ADDED_COLUMNS:
+        assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
+    assert users is not None, "the statements after the swallowed failures were lost"
+
+
+def test_two_init_db_calls_interleaved_between_read_and_alter_both_succeed(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The race itself, forced rather than hoped for -- the other half of AC7.
+
+    Both threads are held at a barrier *after* their PRAGMA returns and before
+    either ALTERs, so both are guaranteed to act on the same stale view. That is
+    precisely the interleave PRAGMA(A) -> PRAGMA(B) -> ALTER(A) -> ALTER(B) that
+    Section 6 Pattern 5 describes, and here it happens on every run.
+
+    Two details that keep this safe. The barrier is released only after
+    `execute()` has returned, so no thread blocks while the driver holds
+    anything -- `_client_lock` guards client *construction*, never execution.
+    And the barrier carries a timeout, so a deadlock fails the test instead of
+    hanging the suite.
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+    gate = threading.Barrier(2, timeout=30)
+    _install(monkeypatch, lambda conn: _GatedConnection(conn, gate))
+
+    failures = _run_concurrently(2, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert count_audit_logs() == 1
+    assert get_audit_log(1).user_id == "juan@empresa.com"
+
+
+def test_add_missing_columns_propagates_a_failure_that_is_not_a_duplicate_column(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """AC3's second half. "Column already exists" is one specific condition.
+
+    A locked or unreachable database failing an ALTER must still reach the
+    caller: a migration that reports success without having run would hide a
+    broken schema behind a healthy-looking boot, which is a worse failure than
+    the crash this story removes.
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+    _install(
+        monkeypatch, lambda conn: _FailingAlterConnection(conn, "database is locked")
+    )
+
+    with pytest.raises(StorageError) as exc_info:
+        init_db()
+
+    assert not isinstance(exc_info.value, MissingRelationError)
+    assert "locked" in str(exc_info.value)
+
+
+def test_add_missing_columns_propagates_a_duplicate_naming_a_different_column(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The predicate checks the column name, not merely the phrase.
+
+    A duplicate reported for a column we did not ask for means the statement
+    that failed was not the one we think it was. That is why
+    `_is_duplicate_column()` takes `name` at all, and this is the test that
+    keeps it from decaying into a substring match on "duplicate column name".
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+    _install(
+        monkeypatch,
+        lambda conn: _FailingAlterConnection(
+            conn, "duplicate column name: some_other_column"
+        ),
+    )
+
+    with pytest.raises(StorageError) as exc_info:
+        init_db()
+
+    assert "some_other_column" in str(exc_info.value)
+
+
+def test_concurrent_init_db_on_an_empty_database_converges(database_url):
+    """AC1: N instances booting together on an empty database all return.
+
+    Honest about what it proves, and measured rather than guessed: run against
+    the pre-STORY-007 `_add_missing_columns()` this test still passes. On an
+    *empty* database `CREATE TABLE IF NOT EXISTS` builds the current schema
+    outright, so no ALTER is ever needed and there is no race to lose. It is
+    therefore realism, not evidence -- which is the standard AC7 sets. The
+    deterministic proof is
+    `test_add_missing_columns_treats_an_existing_column_as_success` and
+    `test_two_init_db_calls_interleaved_between_read_and_alter_both_succeed`
+    above. This one is here because "the whole of init_db(), under real
+    concurrency, end to end" is a different claim from either of those, and it
+    is the claim the PRD's Risk 3 mitigation names.
+    """
+    failures = _run_concurrently(8, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+        users = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+        index = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='idx_users_token_hash'"
+        ).fetchone()
+
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert users is not None
+    assert index is not None
+
+
+def test_concurrent_init_db_on_a_partially_migrated_database_converges(
+    uninitialized_db, db_connect
+):
+    """AC2: the same, against a table missing a subset of the added columns.
+
+    The pre-PII fixture is the case with real migration work in it -- five
+    ALTERs that must each run exactly once across eight instances -- and the
+    surviving row is what keeps "additive only" honest under concurrency.
+
+    Same caveat as the test above: realism, not deterministic evidence.
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+
+    failures = _run_concurrently(8, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "juan@empresa.com"
+    assert preserved.pii_detected_input is False

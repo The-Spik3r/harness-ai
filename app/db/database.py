@@ -231,8 +231,15 @@ def get_connection() -> _Connection:
 #       users", code: "SQLITE_UNKNOWN" }``
 # Matching on the code is not an option: SQLITE_UNKNOWN covers both a missing
 # table and a duplicate column, and SQLITE_CONSTRAINT covers both duplicates.
+#   Hrana: `stream error: `Error { message: "SQLite error: duplicate column
+#       name: pii_detected_input", code: "SQLITE_UNKNOWN" }``
+# The third is the one STORY-007 needs, and it is why the second sentence above
+# is not a footnote: `no such table` and `duplicate column name` arrive under
+# the same SQLITE_UNKNOWN, so only the message separates "another instance
+# already added this column" from "the table is gone".
 _MISSING_RELATION = re.compile(r"no such table: (\w+)")
 _CONSTRAINT = re.compile(r"constraint failed: ([\w.]+)")
+_DUPLICATE_COLUMN = re.compile(r"duplicate column name: (\w+)")
 
 # libSQL raises a bare `builtins.ValueError` for every failure -- there is no
 # exception hierarchy to catch, and `libsql.Error` is not what gets raised
@@ -245,6 +252,21 @@ _DRIVER_ERROR = "Hrana:"
 def _constraint_of(exc: ValueError) -> Optional[str]:
     match = _CONSTRAINT.search(str(exc))
     return match.group(1) if match is not None else None
+
+
+def _is_duplicate_column(exc: StorageError, name: str) -> bool:
+    """True when the driver is reporting that `name` already exists.
+
+    Narrow on two counts, both deliberate. It reads a `StorageError` -- the
+    translated type, not the driver's bare `ValueError` -- so a `ValueError`
+    raised by our own code can never reach it. And it requires the driver to
+    name *the column we just tried to add*: a duplicate reported for some other
+    column means the statement that failed was not the one we think, which is a
+    real failure and must reach the caller, as must a permissions problem or an
+    unreachable endpoint.
+    """
+    match = _DUPLICATE_COLUMN.search(str(exc))
+    return match is not None and match.group(1) == name
 
 
 @contextmanager
@@ -296,11 +318,44 @@ def _add_missing_columns(conn: _Connection) -> None:
     """Brings a pre-existing audit_logs table up to the current schema.
 
     Additive only: existing rows keep their data and take the column default.
+    That constraint is unchanged; what STORY-007 adds is convergence.
+
+    **The read and the write are not atomic, and cannot be made so.**
+    `ALTER TABLE ADD COLUMN` has no `IF NOT EXISTS` form, so this is the one
+    non-idempotent step in `init_db()` -- the rest is `CREATE ... IF NOT EXISTS`
+    by construction. Against a shared database, N instances booting together can
+    all read the same missing column and all try to add it, and every loser gets
+    `duplicate column name`. Since `init_db()` runs at import time
+    (`chat_ui/chat_ui/chat_ui.py`, `app/main.py`), that is a container that will
+    not boot. So the loser treats that one condition as success and converges.
+
+    Two things this deliberately does not do. It does not drop the pre-check:
+    the guard is what makes a steady-state boot issue no `ALTER` at all, which
+    `test_init_db_issues_no_alter_when_schema_is_current` asserts and which
+    matters because `init_db()` re-runs on every Reflex hot reload. And it does
+    not catch broadly -- `_is_duplicate_column()` requires the driver to name
+    the column being added, so a permissions failure, an unreachable endpoint or
+    a locked database still propagates. Swallowing those would hide a broken
+    migration behind a healthy-looking boot.
+
+    The `_translated()` here is not redundant with the one in `_session()`.
+    That one converts on the way out of the *whole* block, so a statement
+    failing mid-block arrives as the driver's bare `ValueError`; wrapping the
+    single `ALTER` is what lets this decide on `app/db/errors.py`'s types rather
+    than on the driver's. A re-raised `StorageError` is not a `ValueError`, so
+    it passes back out through `_session()` untouched rather than being parsed
+    twice.
     """
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")}
     for name, ddl in AUDIT_LOGS_ADDED_COLUMNS.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}")
+        if name in existing:
+            continue
+        try:
+            with _translated():
+                conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}")
+        except StorageError as exc:
+            if not _is_duplicate_column(exc, name):
+                raise
 
 
 def insert_audit_log(entry: AuditLog) -> int:
