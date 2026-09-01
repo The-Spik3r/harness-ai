@@ -47,18 +47,27 @@ def test_settings_points_at_the_url_the_fixture_returned(temp_db):
 
 
 def test_the_url_is_not_the_configured_default(temp_db):
-    """A fixture that silently failed to patch would leave the developer's own
-    configured database in place, and every test below would still pass.
+    """A fixture that silently failed to patch must not leave the suite pointed
+    at a database someone cares about.
 
-    STORY-005 removed `DATABASE_URL`'s default rather than changing it, so the
-    comparison moved from the declared default -- now `PydanticUndefined`, which
-    no URL can equal, making the assertion unfailable -- to the endpoint this
-    process is actually configured with. Still not a literal, so this test
-    duplicates nothing in `app/config.py`. The second assertion pins the removal
-    itself, which is what the first one used to be standing in for.
+    The comparison this made has moved twice. STORY-005 removed `DATABASE_URL`'s
+    default rather than changing it, so "not the declared default" became
+    unfailable (`PydanticUndefined` equals no URL) and the test compared against
+    the endpoint this process is configured with instead. STORY-006 made the
+    fixtures hand out that same endpoint -- deliberately, so a child process
+    could stop carrying the real URL in a second variable -- which makes *that*
+    comparison unfailable in the other direction.
+
+    What is left is the claim the other two were standing in for, and it is the
+    one that matters: `DATABASE_URL` has no default to fall back to, and the
+    suite runs against a local dev server that structurally cannot be a
+    production database. STORY-005 requires a token for every remote scheme
+    (`libsql://`, `https://`) and accepts `http://` only for the local server,
+    so a plain-`http` endpoint is one no Turso database can be reached at.
     """
-    assert temp_db != os.environ["DATABASE_URL"]
     assert Settings.model_fields["DATABASE_URL"].is_required()
+    assert not temp_db.startswith("sqlite:")
+    assert temp_db.startswith("http://")
 
 
 # --- Isolation (AC 1): no test sees another test's rows ---------------------
@@ -123,25 +132,45 @@ def test_uninitialized_db_also_yields_a_url_string(uninitialized_db):
 # --- The subprocess factory -------------------------------------------------
 
 
-def test_factory_yields_a_distinct_url_on_every_call(database_url_factory):
-    """Two probes must not share a database. `mktemp` guarantees this; the
-    assertion is here because the guarantee is easy to lose when the factory is
-    rewritten for a libSQL endpoint."""
+def test_factory_yields_a_distinct_url_on_every_call(database_url_factory, temp_db):
+    """Two probes must not see each other's rows -- which is no longer the same
+    thing as two distinct URLs, and this is where that was traded.
+
+    `mktemp` used to guarantee a distinct file per call. One libSQL server serves
+    one database, so the factory now yields the same endpoint every time; making
+    it distinct would mean a namespace per probe, which the client addresses by
+    hostname (`<ns>.localhost`) and which does not resolve inside a container.
+    A suite that passes on one machine and fails on another is a worse trade than
+    this one.
+
+    What carries the isolation instead: a probe is always created inside a test,
+    and `_never_the_configured_database` has emptied the database before that
+    test began. So the surviving claim is "a probe starts from nothing", and that
+    is what is asserted -- against the storage layer, not against a URL string.
+    """
     first = database_url_factory("probe")
     second = database_url_factory("probe")
 
     assert isinstance(first, str) and isinstance(second, str)
-    assert first != second
+    assert first == second == temp_db
+    assert count_audit_logs() == 0
 
 
 def test_factory_does_not_patch_this_process_settings(database_url_factory, temp_db):
     """It mints URLs for *child* processes. Patching the parent would leak
     across a module-scoped fixture and silently redirect the caller's own
-    database."""
-    minted = database_url_factory("probe")
+    database.
 
-    assert settings.DATABASE_URL == temp_db
-    assert settings.DATABASE_URL != minted
+    Asserted as "calling it changes nothing" rather than "what it returns differs
+    from what settings holds": since STORY-006 those two values are the same
+    endpoint, so only the mutation itself can still be observed -- and the
+    mutation is what the test was ever really about.
+    """
+    before = settings.DATABASE_URL
+
+    database_url_factory("probe")
+
+    assert settings.DATABASE_URL == before == temp_db
 
 
 # --- db_connect -------------------------------------------------------------

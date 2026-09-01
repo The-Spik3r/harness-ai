@@ -1,38 +1,45 @@
 """The one place a test database is provisioned, and the one place a URL is spelled.
 
-**This file is the seam.** PRD-007 replaces the local SQLite file with a remote
-libSQL endpoint; STORY-006 changes the two private helpers below and nothing
-else in `tests/`. Before this file existed the idiom
+**This file is the seam.** PRD-007 replaced the local SQLite file with a remote
+libSQL endpoint; STORY-006 changed this file's private helpers and left the 19
+consumers alone. Before it existed the idiom
 `monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/test.db")`
 was copy-pasted across 29 sites in 19 files, and the swap would have meant
 editing all 19 while the suite was red.
 
 **Why every fixture returns a `str` URL and never a `Path`.** A `Path` return
-would bake "the database is a file" into all 19 consumers, which is precisely
-the assumption the migration removes -- a libSQL endpoint has no path to join,
-no parent directory, and no `.exists()`. The two tests that genuinely need a
-connection rather than a URL (the pre-migration schema builders in
+would have baked "the database is a file" into all 19 consumers, which is
+precisely the assumption the migration removed -- a libSQL endpoint has no path
+to join, no parent directory, and no `.exists()`. The two tests that genuinely
+need a connection rather than a URL (the pre-migration schema builders in
 `test_db.py`) get one from `db_connect`, so the URL-to-connection translation
 also stays here rather than spreading.
 
-Isolation is per-test and comes from `tmp_path` / `tmp_path_factory`: every
-fixture below hands out a database no other test can reach, which is what lets
-`STORY-006` promise the same property against a shared libSQL server rather
-than having to establish it.
+**Where isolation comes from now.** It used to come from `tmp_path`: a distinct
+file per test. One libSQL server serves one database, so isolation is now a
+**reset** rather than a fresh name -- `_reset_database()` drops every table and
+index before each test, from an autouse fixture, so every test starts empty
+whether it asked for a database or not. The promise the old docstring made is
+unchanged; only the mechanism behind it moved. What did not survive is distinct
+URLs per test: see `database_url_factory`.
+
+Running these tests needs the local libSQL dev server from STORY-001's decision
+record. It is offline, takes no token, and cannot reach production:
+
+    docker run -d --name harness-libsql-dev -p 8080:8080 -e SQLD_NODE=primary \\
+      ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+
+Point the suite somewhere else with `HARNESS_TEST_LIBSQL_URL`.
 """
 
 import os
-import sqlite3
-from pathlib import Path
 from typing import Callable
 
 import pytest
 
-# The endpoint an unpatched `Settings()` validates against. Nothing connects to
-# it: it is the local dev-server URL from STORY-001's decision record, chosen
-# because it is the one value that satisfies STORY-005's validator without a
-# token.
-_PLACEHOLDER_URL = "http://127.0.0.1:8080"
+#: The libSQL endpoint every test runs against. `http://` is the local dev
+#: server, which `app/config.py` accepts without a token (STORY-005).
+_ENDPOINT = os.environ.get("HARNESS_TEST_LIBSQL_URL", "http://127.0.0.1:8080")
 
 # STORY-005 removed DATABASE_URL's default, and `app/config.py` constructs
 # Settings() at import -- so a value has to exist before the `from app.config`
@@ -42,71 +49,86 @@ _PLACEHOLDER_URL = "http://127.0.0.1:8080"
 # same reason; those still work, and this makes the requirement legible in one
 # place.)
 #
-# This is a *placeholder that satisfies validation*, not a database any test
-# reads: every fixture below repoints `settings.DATABASE_URL` through
-# `monkeypatch`, which assigns to a constructed instance and so does not re-run
-# validators. That is what lets the fixtures keep minting `sqlite:///` URLs
-# after STORY-005 made that scheme a startup error, until STORY-006 swaps them
-# for real libSQL endpoints.
-os.environ.setdefault("DATABASE_URL", _PLACEHOLDER_URL)
+# Unlike the placeholder this used to be, the value is now the endpoint the
+# tests genuinely use -- which is what let STORY-006 delete the second
+# environment variable the subprocess probes needed to carry the real URL in.
+os.environ.setdefault("DATABASE_URL", _ENDPOINT)
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import libsql  # noqa: E402  -- after the bootstrap, for symmetry with the rest
+
 from app.config import settings  # noqa: E402  -- must follow the bootstrap above
-from app.db.database import init_db  # noqa: E402
-
-# The only `sqlite:///` literal in tests/. STORY-006 replaces these two helpers
-# with the libSQL endpoint equivalents; nothing else in this directory knows the
-# scheme exists.
-_SQLITE_PREFIX = "sqlite:///"
-
-#: Environment variable the child probes carry their real (still SQLite)
-#: database URL in. A subprocess constructs its own `Settings()`, where
-#: `monkeypatch` cannot reach and STORY-005's validator *does* fire -- so
-#: `DATABASE_URL` must carry something that validates, and the throwaway URL
-#: travels beside it. The preamble below then assigns it onto the constructed
-#: settings: the subprocess equivalent of what every in-process fixture does.
-#: STORY-006 deletes both this constant and the preamble, because once the
-#: fixtures mint libSQL endpoints, `DATABASE_URL` carries them directly again.
-TEST_DATABASE_URL_ENV = "HARNESS_TEST_DATABASE_URL"
-
-CHILD_SETTINGS_PREAMBLE = f"""
-import os as _os
-from app.config import settings as _settings
-_settings.DATABASE_URL = _os.environ["{TEST_DATABASE_URL_ENV}"]
-"""
+from app.db.database import get_connection, init_db  # noqa: E402
 
 
 def child_db_env(url: str) -> dict:
-    """The two DATABASE_URL entries a probe subprocess needs.
+    """The `DATABASE_URL` entry a probe subprocess needs.
 
     A plain function rather than a fixture: the three call sites are a mix of
     function- and module-scoped fixtures, and a helper sidesteps the
     `ScopeMismatch` that `database_url_factory` below already exists to dodge.
+
+    It used to return two variables. A child constructs its own `Settings()`,
+    where `monkeypatch` cannot reach and STORY-005's validator *does* fire, so
+    while the fixtures still minted `sqlite:///` URLs the real one had to travel
+    beside a second value that validated. Now that the fixtures hand out a real
+    endpoint, `DATABASE_URL` carries it directly and the workaround is gone.
     """
-    return {"DATABASE_URL": _PLACEHOLDER_URL, TEST_DATABASE_URL_ENV: url}
+    return {"DATABASE_URL": url}
 
 
-def _url_for(directory: Path, name: str) -> str:
-    """A DATABASE_URL naming a database inside `directory`, created on first use."""
-    return f"{_SQLITE_PREFIX}{directory / name}"
+def _reset_database() -> None:
+    """Drops every table and index, leaving an empty database.
 
+    Indexes first: dropping a table takes its indexes with it, and asking for a
+    dropped index by name afterwards is an error.
 
-def _path_from_url(url: str) -> str:
-    """The filesystem path a `sqlite:///` URL names.
-
-    Deliberately not `app.db.database._db_path()`: coupling the test seam to a
-    private production helper that STORY-006 deletes would make the swap harder,
-    not easier.
+    **Through `app.db.database`'s own connection, deliberately, and not a second
+    client of its own.** A fixture that opened its own client would be the one
+    pattern STORY-006 measured and found dangerous: two independent clients
+    writing to one libSQL database contend for its single writer, and the loser
+    gets `TRANSACTION_TIMEOUT` after the driver's five-second default rather
+    than waiting its turn. One client per process is the property that makes
+    both the application and this suite predictable, so the fixtures hold to it
+    too. The coupling costs nothing here -- these are `DROP` statements, and
+    nothing about them depends on the module under test behaving correctly.
     """
-    if not url.startswith(_SQLITE_PREFIX):
-        raise ValueError(f"not a sqlite URL: {url}")
-    return url[len(_SQLITE_PREFIX):]
+    with get_connection() as conn:
+        objects = conn.execute(
+            "SELECT name, type FROM sqlite_master "
+            "WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        for name, kind in sorted(objects, key=lambda row: row[1], reverse=True):
+            conn.execute(f'DROP {kind.upper()} IF EXISTS "{name}"')
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _libsql_endpoint() -> str:
+    """Proves the endpoint is reachable once, and says how to start it if not.
+
+    A hard failure rather than a skip: a suite that quietly stops exercising
+    storage still reports green, which is worse than a red one.
+    """
+    try:
+        libsql.connect(_ENDPOINT).execute("SELECT 1").fetchone()
+    except Exception as exc:  # noqa: BLE001 -- any failure means "no database"
+        pytest.exit(
+            f"The libSQL dev server at {_ENDPOINT} is unreachable ({exc}).\n"
+            "Start it with:\n"
+            "  docker run -d --name harness-libsql-dev -p 8080:8080 "
+            "-e SQLD_NODE=primary \\\n"
+            "    ghcr.io/tursodatabase/libsql-server@sha256:"
+            "6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67\n"
+            "or point HARNESS_TEST_LIBSQL_URL at another one.",
+            returncode=1,
+        )
+    return _ENDPOINT
 
 
 @pytest.fixture(autouse=True)
-def _never_the_configured_database(tmp_path, monkeypatch) -> None:
-    """Every test points at an isolated database, whether it asked for one or not.
+def _never_the_configured_database(_libsql_endpoint, monkeypatch) -> None:
+    """Every test starts on an empty database, whether it asked for one or not.
 
     Until STORY-005, `DATABASE_URL` defaulted to `sqlite:///harness_ai.db`, so a
     test that reached storage without requesting a fixture quietly opened the
@@ -125,21 +147,24 @@ def _never_the_configured_database(tmp_path, monkeypatch) -> None:
     anyone's real database -- now holds for every test, not only for the ones
     that remember to ask.
 
-    Explicit fixtures still win: `database_url` below patches the same setting
-    afterwards, and pytest instantiates autouse fixtures first.
+    Since STORY-006 it carries the isolation itself. One endpoint serves one
+    database, so "an isolated database" means "a database nothing else has left
+    anything in", and the reset is what makes that true. Explicit fixtures still
+    win: `database_url` below patches the same setting afterwards, and pytest
+    instantiates autouse fixtures first.
     """
-    monkeypatch.setattr(settings, "DATABASE_URL", _url_for(tmp_path, "unrequested.db"))
+    monkeypatch.setattr(settings, "DATABASE_URL", _libsql_endpoint)
+    _reset_database()
 
 
 @pytest.fixture
-def database_url(tmp_path, monkeypatch) -> str:
+def database_url(_libsql_endpoint, monkeypatch) -> str:
     """An isolated, empty database with `settings.DATABASE_URL` patched at it.
 
     No schema: `init_db()` has not run. Use `temp_db` for an initialized one.
     """
-    url = _url_for(tmp_path, "test.db")
-    monkeypatch.setattr(settings, "DATABASE_URL", url)
-    return url
+    monkeypatch.setattr(settings, "DATABASE_URL", _libsql_endpoint)
+    return _libsql_endpoint
 
 
 @pytest.fixture
@@ -165,7 +190,7 @@ def uninitialized_db(database_url) -> str:
 
 
 @pytest.fixture(scope="session")
-def database_url_factory(tmp_path_factory) -> Callable[[str], str]:
+def database_url_factory(_libsql_endpoint) -> Callable[[str], str]:
     """Session-scoped URL minting for tests that hand the URL to a subprocess.
 
     Two reasons this exists alongside `database_url` rather than being folded
@@ -175,25 +200,34 @@ def database_url_factory(tmp_path_factory) -> Callable[[str], str]:
     pass the URL through the *child's* environment, so patching this process's
     `settings` would be a lie about what the fixture does.
 
-    `name` distinguishes call sites; `mktemp` makes each call unique.
+    **It no longer mints a distinct URL per call, and cannot.** One libSQL server
+    serves one database; distinct URLs would mean a namespace per probe, which
+    the client addresses by hostname (`<ns>.localhost`) and which does not
+    resolve inside a container -- a suite that passes on one machine and fails on
+    another. What replaces the guarantee: every probe is created inside a test,
+    after `_never_the_configured_database` has emptied the database, so each one
+    still starts from nothing. `name` is kept because it documents the call site.
     """
 
     def make(name: str) -> str:
-        return _url_for(tmp_path_factory.mktemp(name), "test.db")
+        return _libsql_endpoint
 
     return make
 
 
 @pytest.fixture
-def db_connect() -> Callable[[str], sqlite3.Connection]:
-    """Opens a raw connection to a database named by URL.
+def db_connect() -> Callable[[str], object]:
+    """Opens a connection to the database named by URL, for raw DDL.
 
     For the handful of tests that build a *pre-migration* schema by hand and so
-    need a connection rather than the URL -- deliberately raw, because the
-    point of those tests is a table shape `init_db()` would not produce.
+    need a connection rather than the URL. "Raw" means the SQL is theirs and
+    `init_db()` never ran -- the point of those tests is a table shape
+    `init_db()` would not produce -- not that the connection bypasses the
+    module: it comes from `get_connection()` for the same one-client-per-process
+    reason `_reset_database()` does.
     """
 
-    def connect(url: str) -> sqlite3.Connection:
-        return sqlite3.connect(_path_from_url(url))
+    def connect(url: str):
+        return get_connection()
 
     return connect

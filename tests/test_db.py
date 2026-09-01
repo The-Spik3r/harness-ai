@@ -9,6 +9,7 @@ from datetime import datetime
 
 import pytest
 
+from app.config import settings
 from app.db import database
 from app.db.database import (
     count_active_users,
@@ -103,16 +104,41 @@ def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
     statements: list[str] = []
     real_get_connection = database.get_connection
 
-    def traced() -> sqlite3.Connection:
-        conn = real_get_connection()
-        conn.set_trace_callback(statements.append)
-        return conn
+    class _RecordingConnection:
+        """Records the SQL passed through, and delegates everything else.
 
-    monkeypatch.setattr(database, "get_connection", traced)
+        PRD-007 STORY-006 replaced `sqlite3`'s `set_trace_callback` with this:
+        the libSQL connection has no tracing hook (its whole surface is
+        close/commit/cursor/execute/executemany/executescript/in_transaction/
+        isolation_level/rollback/sync). The claim below is unchanged; only the
+        instrument moved, onto the same proxy idiom
+        `test_find_user_by_token_hash_raises_when_the_failure_is_not_a_missing_table`
+        already uses.
+        """
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    monkeypatch.setattr(
+        database,
+        "get_connection",
+        lambda: _RecordingConnection(real_get_connection()),
+    )
 
     init_db()  # temp_db already migrated this database to the current schema
 
-    assert statements, "trace callback captured nothing -- the patch did not take"
+    assert statements, "the proxy captured nothing -- the patch did not take"
     assert not any("ALTER" in sql.upper() for sql in statements), statements
 
 
@@ -1071,7 +1097,9 @@ def test_find_user_by_token_hash_raises_when_the_failure_is_not_a_missing_table(
     Before the translation it caught every sqlite3.OperationalError, so a locked
     or unreadable database resolved as "no match" -- a real storage outage
     reported as a bad credential. Only a missing `users` table folds into None
-    now; anything else must surface.
+    now; anything else must surface. The induced failure is the libSQL driver's
+    own shape since STORY-006, which is the point: the arm has to stay narrow
+    across a driver swap, not merely across a refactor.
 
     Mirrors the connection-patching idiom at test_init_db_issues_no_alter... --
     a proxy stands in for the connection so the failure is induced at execute
@@ -1090,7 +1118,14 @@ def test_find_user_by_token_hash_raises_when_the_failure_is_not_a_missing_table(
             return self._conn.__exit__(*exc_info)
 
         def execute(self, *args, **kwargs):
-            raise sqlite3.OperationalError("database is locked")
+            # The driver's real failure shape, captured from the live endpoint by
+            # PRD-007 STORY-006: libSQL raises a bare `builtins.ValueError` whose
+            # message is Hrana-wrapped, and `_translated()` recognises it by that
+            # wrapper rather than by an exception type there is none of.
+            raise ValueError(
+                "Hrana: `stream error: `Error { message: \"SQLite error: database "
+                'is locked", code: "SQLITE_BUSY" }``'
+            )
 
     real_get_connection = database.get_connection
     monkeypatch.setattr(
@@ -1130,3 +1165,38 @@ def test_set_user_token_hash_rotates_the_credential(temp_db):
 
 def test_set_user_token_hash_unknown_returns_false(temp_db):
     assert set_user_token_hash("ghost", "hash") is False
+
+
+# PRD-007 STORY-006: the shared client itself
+# ---------------------------------------------------------------------------
+
+
+def test_the_shared_client_is_reused_across_calls(temp_db):
+    """PRD-007 Section 6 Pattern 1. Against a remote endpoint every construction
+    is a TCP + TLS handshake, so a client built per call would make a single
+    admin console load pay ten of them. Asserted by identity, because "it is
+    reused" is the whole claim -- a correct-looking module that quietly rebuilds
+    passes every other test in this file."""
+    first = database._shared_client()
+
+    count_audit_logs()
+
+    assert database._shared_client() is first
+
+
+def test_the_shared_client_is_rebuilt_when_the_database_url_changes(
+    temp_db, monkeypatch
+):
+    """The cache is keyed on the URL, and it has to be.
+
+    Every fixture in `tests/conftest.py` repoints `settings.DATABASE_URL` on the
+    constructed `Settings` instance. A client cached without regard to that
+    would keep serving the endpoint it was first built against -- so one test's
+    reads would come from another's database, and the whole suite would report
+    green while testing one thing.
+    """
+    first = database._shared_client()
+
+    monkeypatch.setattr(settings, "DATABASE_URL", "http://127.0.0.1:59999")
+
+    assert database._shared_client() is not first

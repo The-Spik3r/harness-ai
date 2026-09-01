@@ -10,11 +10,41 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The suite talks to a real libSQL server (PRD-007 STORY-006): there is no
+    # file fallback any more, so without this every storage test fails. Pinned by
+    # digest rather than a tag -- this is the image every result in STORY-001's
+    # driver decision record was measured against. No volume is mounted, so the
+    # database starts empty and dies with the job.
+    services:
+      libsql:
+        image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+        env:
+          SQLD_NODE: primary
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "curl -sf http://127.0.0.1:8080/health || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      # A local primary takes no token, and app/config.py accepts plain http://
+      # for exactly this case (STORY-005).
+      DATABASE_URL: http://127.0.0.1:8080
+      HARNESS_TEST_LIBSQL_URL: http://127.0.0.1:8080
+      OPENROUTER_API_KEY: test-key
+      ADMIN_TOKEN: test-token
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
+          # 3.11 is load-bearing, not incidental: `libsql` is a compiled
+          # extension with no pure-Python fallback, and 0.1.11 publishes no
+          # wheel for every newer interpreter (STORY-001 §5). A version bump
+          # here needs the wheel matrix checked first.
           python-version: "3.11"
           cache: "pip"
 

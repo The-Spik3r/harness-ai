@@ -21,12 +21,12 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tests.conftest import CHILD_SETTINGS_PREAMBLE, child_db_env  # noqa: E402
+from tests.conftest import child_db_env  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
 
-_CHECK_SCRIPT = CHILD_SETTINGS_PREAMBLE + r"""
+_CHECK_SCRIPT = r"""
 import json, sys
 
 result = {"errors": []}
@@ -65,9 +65,9 @@ def _run_probe(env):
 @pytest.fixture
 def _empty_rbac_env(database_url_factory):
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(_PYTHONPATH)}
-    # Two variables rather than one: STORY-005 rejects `sqlite:///` in a
-    # child's own Settings(), so the validating URL and the throwaway one
-    # travel separately until STORY-006 makes them the same again.
+    # One variable: STORY-005 rejects `sqlite:///` in a child's own Settings(),
+    # which briefly split the validating URL from the throwaway one. STORY-006
+    # made the fixture hand out a real libSQL endpoint, so they are the same.
     env.update(child_db_env(database_url_factory("chat_ui_guard")))
     env["RBAC_ENABLED"] = "true"
     return env

@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Storage layer swap"
-status: todo
+status: done
 labels: [backend, database, turso, libsql, tests]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-006-libsql-connection-layer.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-006-libsql-connection-layer.report.md
 commit: null
 depends_on: [STORY-001, STORY-003, STORY-004, STORY-005]
 blocks: [STORY-007, STORY-008, STORY-009, STORY-010, STORY-013, STORY-014]

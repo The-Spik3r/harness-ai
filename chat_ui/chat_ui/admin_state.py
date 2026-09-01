@@ -978,13 +978,16 @@ class AdminState(rx.State):
         acquisition. The second check, inside the lock, is the one that holds.
 
         Each read is offloaded **per call**. Every function in
-        `app/db/database.py` opens its own `sqlite3` connection (see
-        `get_connection`), and a connection cannot cross threads — so the thread
-        boundary sits around one call, and no connection is hoisted out of it.
-        Sequential rather than gathered: ten indexed counts over one small table
-        do not need the concurrency, ten simultaneous connections would contend
-        with the chat surface's writes, and a gathered failure cannot say which
-        of ten reads produced it.
+        `app/db/database.py` is synchronous and blocking, so the thread boundary
+        sits around one call and nothing is hoisted out of it. The reason has
+        changed shape since PRD-007: those functions no longer open a connection
+        each, they share one libSQL client, and reaching it from these worker
+        threads is safe — STORY-006 measured a shared client against eight
+        concurrent writers and lost nothing, while a client per thread lost most
+        of its writes to transaction contention. Sequential rather than gathered:
+        ten indexed counts over one small table do not need the concurrency, ten
+        simultaneous reads would contend with the chat surface's writes, and a
+        gathered failure cannot say which of ten reads produced it.
 
         Every result is collected into a **local** and committed in one block at
         the end. That is what makes the fault arm's "rows and figures untouched"

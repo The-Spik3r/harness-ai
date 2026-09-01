@@ -66,7 +66,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from chat_ui.chat_ui import theme  # noqa: E402
-from tests.conftest import CHILD_SETTINGS_PREAMBLE, child_db_env  # noqa: E402
+from tests.conftest import child_db_env  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
@@ -153,7 +153,7 @@ REQUIRED_ROW_FIELDS = (
 
 
 # Runs in the subprocess. Emits one JSON object on the last stdout line.
-_CHECK_SCRIPT = CHILD_SETTINGS_PREAMBLE + r"""
+_CHECK_SCRIPT = r"""
 import json, sys
 
 result = {"errors": []}
@@ -268,9 +268,10 @@ def probe(database_url_factory):
             # fields. Same defaults tests/test_register.py sets.
             "ADMIN_TOKEN": os.environ.get("ADMIN_TOKEN", "test-token"),
             "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY", "test-key"),
-            # Two variables: STORY-005 made `sqlite:///` a startup error in
-            # the child's own Settings(), so DATABASE_URL carries a URL that
-            # validates and the preamble assigns the throwaway one on top.
+            # One variable again: STORY-005 made `sqlite:///` a startup error
+            # in the child's own Settings(), which briefly forced the real URL to
+            # travel beside a validating one. Since STORY-006 the fixture hands
+            # out a libSQL endpoint, which validates, so DATABASE_URL carries it.
             **child_db_env(database_url_factory("render_probe")),
         },
         capture_output=True,

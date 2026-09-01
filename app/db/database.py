@@ -1,8 +1,10 @@
 import re
-import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
+
+import libsql
 
 from app.config import settings
 from app.db.errors import IntegrityError, MissingRelationError, StorageError
@@ -15,33 +17,232 @@ from app.db.models import (
     User,
 )
 
-_SQLITE_PREFIX = "sqlite:///"
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-
-def _db_path() -> str:
-    url = settings.DATABASE_URL
-    if not url.startswith(_SQLITE_PREFIX):
-        raise ValueError(f"Unsupported DATABASE_URL scheme: {url}")
-    return url[len(_SQLITE_PREFIX):]
+_client_lock = threading.Lock()
+_client_key: Optional[tuple[str, str]] = None
+_client: Optional[Any] = None
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(_db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
+def _shared_client() -> Any:
+    """The process-wide libSQL client, constructed once and reused.
+
+    PRD-007 Section 6 Pattern 1: against a remote endpoint every construction is
+    a TCP + TLS handshake, so connection-per-operation would make a single admin
+    console load pay ten of them.
+
+    **One client for the whole process, not one per thread.** STORY-006 measured
+    both against the local server with eight threads writing concurrently: the
+    shared client completed all 200 writes with no error, while a client per
+    thread lost 169 of them to `TRANSACTION_TIMEOUT`. Independent clients contend
+    for the database's single writer; one client serializes its own callers.
+    That is what makes this safe to reach from `chat_ui/chat_ui/admin_state.py`'s
+    `asyncio.to_thread(...)` worker threads, and it is why the obvious defensive
+    move -- a thread-local client -- is the wrong one here.
+
+    Keyed by URL and token: every test repoints `settings.DATABASE_URL` on the
+    constructed `Settings` instance, and a client cached without regard to it
+    would serve one test's reads from another test's endpoint.
+    """
+    global _client_key, _client
+    key = (settings.DATABASE_URL, settings.TURSO_AUTH_TOKEN)
+    with _client_lock:
+        if _client is None or _client_key != key:
+            # Not closing the previous client: close() discards uncommitted work
+            # (STORY-001 §2.2) and the key only changes under test.
+            _client = libsql.connect(key[0], auth_token=key[1])
+            _client_key = key
+        return _client
 
 
-# The driver states both conditions in the exception message and nowhere else:
-# `sqlite_errorname` collapses "no such table" and "duplicate column name" into
-# the same SQLITE_ERROR, and it is a CPython-only attribute a libSQL client will
-# not carry. libSQL is SQLite-derived and emits the same text, so STORY-006
-# re-verifies these two patterns rather than replacing the approach.
+class _Row:
+    """A result row that answers both `row["timestamp"]` and `(count,) = row`.
+
+    libSQL returns plain tuples and offers no `row_factory` hook (STORY-001
+    §2.1), but `cursor.description` is populated -- for `SELECT *`, for aliased
+    aggregates like `COUNT(*) AS n`, and for `PRAGMA table_info` alike. Mapping
+    those names back on is what lets `_row_to_audit_log()`'s 19 named reads, the
+    seven `row["n"]` counters and `_add_missing_columns()`'s `row["name"]` stay
+    exactly as they were.
+
+    Both a mapping and a sequence, like the `sqlite3.Row` it replaces: callers
+    index it by name, and tests unpack it positionally.
+    """
+
+    __slots__ = ("_values", "_names")
+
+    def __init__(self, values: tuple, names: dict) -> None:
+        self._values = tuple(values)
+        self._names = names
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            try:
+                index = self._names[key]
+            except KeyError:
+                raise IndexError(f"No item with that key: {key!r}") from None
+            return self._values[index]
+        return self._values[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def keys(self) -> list:
+        return list(self._names)
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, _Row):
+            return self._values == other._values
+        if isinstance(other, tuple):
+            return self._values == other
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return f"_Row({dict(zip(self._names, self._values))!r})"
+
+
+class _Cursor:
+    """The driver's cursor, made iterable and mapped through `_Row`.
+
+    Two gaps to close (STORY-001 §2.5): the driver's cursor is **not iterable**,
+    which `_add_missing_columns()` and four test modules rely on, and its rows
+    are bare tuples.
+    """
+
+    __slots__ = ("_cursor", "_name_index")
+
+    def __init__(self, cursor: Any) -> None:
+        self._cursor = cursor
+        self._name_index: Optional[dict] = None
+
+    def _names(self) -> dict:
+        if self._name_index is None:
+            description = self._cursor.description
+            self._name_index = (
+                {column[0]: index for index, column in enumerate(description)}
+                if description
+                else {}
+            )
+        return self._name_index
+
+    def _wrap(self, values):
+        return None if values is None else _Row(values, self._names())
+
+    def execute(self, sql: str, *parameters) -> "_Cursor":
+        self._cursor.execute(sql, *parameters)
+        self._name_index = None
+        return self
+
+    def fetchone(self) -> Optional[_Row]:
+        return self._wrap(self._cursor.fetchone())
+
+    def fetchall(self) -> list:
+        return [self._wrap(values) for values in self._cursor.fetchall()]
+
+    def fetchmany(self, *args) -> list:
+        return [self._wrap(values) for values in self._cursor.fetchmany(*args)]
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    @property
+    def lastrowid(self):
+        return self._cursor.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def close(self) -> None:
+        self._cursor.close()
+
+
+class _Connection:
+    """A transaction over the shared client, with the old block's semantics.
+
+    `with get_connection() as conn:` still means "a transaction", never "a
+    connection lifetime" -- the same thing `with sqlite3.Connection` meant. The
+    commit is issued **explicitly** on exit rather than inherited from the
+    driver's own context manager, which is PRD-007 Risk 1's mitigation: a write
+    that leaves the block uncommitted is lost with no error and no warning
+    (STORY-001 §2.2, re-verified by STORY-006).
+    """
+
+    __slots__ = ("_client",)
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def execute(self, sql: str, *parameters) -> _Cursor:
+        return _Cursor(self._client.execute(sql, *parameters))
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self._client.cursor())
+
+    def commit(self) -> None:
+        self._client.commit()
+
+    def rollback(self) -> None:
+        self._client.rollback()
+
+    def close(self) -> None:
+        """Deliberately a no-op.
+
+        The client is shared by every caller in the process, so closing it here
+        would strand the others -- and `close()` discards uncommitted work rather
+        than flushing it (STORY-001 §2.2). Nothing in `app/db/` closes it; the
+        process exit does.
+        """
+
+    def __enter__(self) -> "_Connection":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        if exc_type is None:
+            self._client.commit()
+        else:
+            self._client.rollback()
+        return False
+
+
+def get_connection() -> _Connection:
+    """A transaction handle over the process-wide client.
+
+    Public because thirteen test modules open one directly. The signature is
+    unchanged from the `sqlite3` version; only what it hands back moved, and the
+    wrapper above exists so that nothing downstream can tell.
+    """
+    return _Connection(_shared_client())
+
+
+# The driver states both conditions in the exception message and nowhere else.
+# STORY-006 re-verified both patterns against the live endpoint rather than
+# assuming them, and they match libSQL's text unchanged:
+#   Hrana: `stream error: `Error { message: "SQLite error: UNIQUE constraint
+#       failed: users.token_hash", code: "SQLITE_CONSTRAINT" }``
+#   Hrana: `stream error: `Error { message: "SQLite error: no such table:
+#       users", code: "SQLITE_UNKNOWN" }``
+# Matching on the code is not an option: SQLITE_UNKNOWN covers both a missing
+# table and a duplicate column, and SQLITE_CONSTRAINT covers both duplicates.
 _MISSING_RELATION = re.compile(r"no such table: (\w+)")
 _CONSTRAINT = re.compile(r"constraint failed: ([\w.]+)")
 
+# libSQL raises a bare `builtins.ValueError` for every failure -- there is no
+# exception hierarchy to catch, and `libsql.Error` is not what gets raised
+# (STORY-001 §3.5). Every one of them carries this prefix, including a failure
+# to reach the server at all, so it is what separates a driver error from a
+# genuine ValueError raised by our own code, which must not be swallowed.
+_DRIVER_ERROR = "Hrana:"
 
-def _constraint_of(exc: sqlite3.IntegrityError) -> Optional[str]:
+
+def _constraint_of(exc: ValueError) -> Optional[str]:
     match = _CONSTRAINT.search(str(exc))
     return match.group(1) if match is not None else None
 
@@ -50,29 +251,32 @@ def _constraint_of(exc: sqlite3.IntegrityError) -> Optional[str]:
 def _translated() -> Iterator[None]:
     """Driver exceptions in, app.db.errors exceptions out.
 
-    The single seam in the codebase where sqlite3's exception hierarchy is known.
-    STORY-006 rewrites this body and nothing else has to change.
+    The single seam in the codebase where the driver's failure shape is known.
+    STORY-004 wrote this to be rewritten here, and `app/db/errors.py` did not
+    have to change.
     """
     try:
         yield
-    except sqlite3.IntegrityError as exc:
-        raise IntegrityError(_constraint_of(exc), str(exc)) from exc
-    except sqlite3.OperationalError as exc:
-        match = _MISSING_RELATION.search(str(exc))
-        if match is not None:
-            raise MissingRelationError(match.group(1), str(exc)) from exc
-        raise StorageError(str(exc)) from exc
-    except sqlite3.Error as exc:
-        raise StorageError(str(exc)) from exc
+    except ValueError as exc:
+        message = str(exc)
+        if _DRIVER_ERROR not in message:
+            raise
+        constraint = _constraint_of(exc)
+        if constraint is not None:
+            raise IntegrityError(constraint, message) from exc
+        relation = _MISSING_RELATION.search(message)
+        if relation is not None:
+            raise MissingRelationError(relation.group(1), message) from exc
+        raise StorageError(message) from exc
 
 
 @contextmanager
-def _session() -> Iterator[sqlite3.Connection]:
+def _session() -> Iterator[_Connection]:
     """`with get_connection() as conn:` plus translation.
 
     Same commit-on-success, rollback-on-exception, do-not-close semantics as the
-    block it replaces -- `with sqlite3.Connection` is a transaction, not a
-    closing context manager, and nothing here changes that.
+    block it replaces -- `with sqlite3.Connection` was a transaction, not a
+    closing context manager, and `_Connection` keeps that meaning.
     """
     with _translated():
         conn = get_connection()
@@ -88,7 +292,7 @@ def init_db() -> None:
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
 
 
-def _add_missing_columns(conn: sqlite3.Connection) -> None:
+def _add_missing_columns(conn: _Connection) -> None:
     """Brings a pre-existing audit_logs table up to the current schema.
 
     Additive only: existing rows keep their data and take the column default.
@@ -149,7 +353,7 @@ def find_duplicate_timestamp(prompt_hash: str, since: str) -> Optional[str]:
         return row["timestamp"] if row is not None else None
 
 
-def _row_to_audit_log(row: sqlite3.Row) -> AuditLog:
+def _row_to_audit_log(row: _Row) -> AuditLog:
     return AuditLog(
         id=row["id"],
         timestamp=row["timestamp"],
@@ -301,7 +505,7 @@ def top_pii_entities(limit: int = 5) -> list[str]:
     return [entity for entity, _ in ranked[:limit]]
 
 
-def _row_to_user(row: sqlite3.Row) -> User:
+def _row_to_user(row: _Row) -> User:
     return User(
         user_id=row["user_id"],
         role=row["role"],

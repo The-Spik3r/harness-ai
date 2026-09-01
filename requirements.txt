@@ -10,3 +10,4 @@ reflex==0.9.6.post1
 presidio-analyzer
 presidio-anonymizer
 spacy
+libsql==0.1.11
