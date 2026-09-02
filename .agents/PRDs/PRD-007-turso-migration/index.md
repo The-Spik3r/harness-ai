@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/16 stories done — 56%
+10/16 stories done — 63%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | STORY-007 | Make init_db() and _add_missing_columns() converge under concurrent multi-instance startup | technical | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md) | `efdb114` |
 | STORY-008 | Fail fast and legibly when the database is unreachable or the token is missing | feature | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md) | `c924b32` |
 | STORY-009 | Aggregate top_pii_entities() in SQL instead of transferring every PII-bearing row | enhancement | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md) | `f60471c` |
-| STORY-010 | One batched database read returning all ten summary figures in a single round trip | feature | ⬜ todo | medium | — | — |
+| STORY-010 | One batched database read returning all ten summary figures in a single round trip | feature | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md) | `PENDING` |
 | STORY-011 | GET /stats consumes the batched read instead of nine sequential calls | enhancement | ⬜ todo | small | — | — |
 | STORY-012 | AdminState._READS consumes the batched read, preserving per-figure failure attribution | enhancement | ⬜ todo | medium | — | — |
 | STORY-013 | scripts/migrate_to_turso.py: copy audit_logs and users with verification and a rollback point | feature | ⬜ todo | medium | — | — |
@@ -53,7 +53,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 - STORY-015 blocked by STORY-014
 - STORY-016 blocked by STORY-007, STORY-014
 
-STORY-001 through STORY-009 are done. The driver swap has landed, `init_db()` converges under concurrent multi-instance startup, an unreachable database or a rejected credential now fails at boot with a message that names the setting at fault, and `top_pii_entities()` aggregates in SQL (50 PII rows in the table, 5 on the wire). STORY-010 (batched read) and STORY-013 (migration script) are ready to start. **Open issue, not owned by any story yet:** the shared libSQL client's Hrana stream expires after an idle window, so a whole-suite run in one process fails with `STREAM_EXPIRED` once a slow module (presidio/spacy model load) idles it out. Present since STORY-006; each suite passes alone. See the STORY-009 report -- it likely needs its own story before STORY-016. STORY-014 now waits only on STORY-013, and it owns setting `DB_BOOTSTRAP_ENABLED=false` in the Docker builder stage (see STORY-008 report). STORY-016 still waits on STORY-014.
+STORY-001 through STORY-010 are done. The driver swap has landed, `init_db()` converges under concurrent multi-instance startup, an unreachable database or a rejected credential now fails at boot with a message that names the setting at fault, `top_pii_entities()` aggregates in SQL (50 PII rows in the table, 5 on the wire), and the admin summary's ten figures now come back in **one** statement (measured: 1 round trip vs 10, 2.7 ms vs 21.2 ms). The driver has no batch API (STORY-001 §2.6), so STORY-010 used the recorded §3.4 workaround -- one `SELECT` of scalar subqueries whose named columns carry the per-figure attribution Risk 6 needs, with a fallback to the ten standalone reads when the statement itself fails. **STORY-011 and STORY-012 are unblocked**; STORY-012 should note the report's finding that `_READS`' "rows come first so the slowest query fails fast" comment no longer holds. STORY-013 (migration script) is also ready to start. **Open issue, not owned by any story yet:** the shared libSQL client's Hrana stream expires after an idle window, so a whole-suite run in one process fails with `STREAM_EXPIRED` once a slow module (presidio/spacy model load) idles it out. Present since STORY-006; each suite passes alone. See the STORY-009 report -- it likely needs its own story before STORY-016. STORY-014 now waits only on STORY-013, and it owns setting `DB_BOOTSTRAP_ENABLED=false` in the Docker builder stage (see STORY-008 report). STORY-016 still waits on STORY-014.
 
 ## Phases
 

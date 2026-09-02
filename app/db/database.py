@@ -1,8 +1,10 @@
+import json
 import re
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Mapping, Optional
 from urllib.parse import urlsplit
 
 import libsql
@@ -570,7 +572,19 @@ def find_duplicate_timestamp(prompt_hash: str, since: str) -> Optional[str]:
         return row["timestamp"] if row is not None else None
 
 
-def _row_to_audit_log(row: _Row) -> AuditLog:
+def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
+    """Map one audit row onto `AuditLog`, by column name.
+
+    Annotated as a `Mapping`, not `_Row`, because it takes both: `_Row` for a
+    row off the wire, and the plain `dict` `summary_snapshot()` decodes out of
+    `json_object(...)` (STORY-010). Every access below is `row["name"]` and
+    nothing else, so one mapper serves both shapes -- which is the point. A
+    second mapper for the batched path is exactly how the two would drift, and
+    AC 5 is that they agree figure for figure.
+
+    The `bool(...)` coercions are load-bearing on the JSON path too: SQLite's
+    INTEGER columns come back through `json_object` as 0 and 1.
+    """
     return AuditLog(
         id=row["id"],
         timestamp=row["timestamp"],
@@ -751,6 +765,317 @@ def top_pii_entities(limit: int = 5) -> list[str]:
             (limit,),
         ).fetchall()
         return [row["entity"] for row in rows]
+
+
+# --------------------------------------------------------------------------
+# The batched summary read (STORY-010)
+# --------------------------------------------------------------------------
+
+#: The ten figures the admin summary is made of, in `_READS`' order.
+#:
+#: The names are `chat_ui/chat_ui/admin_state.py`'s `_READS` field names on
+#: purpose, so its ten `READ_LABEL_*` entries map one-to-one onto them and
+#: `len(_READS) == 10` survives the batching (PRD-007 Risk 6).
+SUMMARY_FIGURES = (
+    "rows",
+    "total_recorded",
+    "blocked_duplicates",
+    "blocked_suspicious",
+    "unique_users",
+    "successful_queries",
+    "pii_detected_queries",
+    "top_models",
+    "top_users",
+    "top_pii_entities",
+)
+
+
+@dataclass(frozen=True)
+class SummarySnapshot:
+    """All ten summary figures, with per-figure failure attribution.
+
+    **This type exists because one statement is all-or-nothing and the admin
+    console is not.** `_READS` gives each figure its own `READ_LABEL_*` so a
+    partial failure names the read that broke; collapsing ten reads into one
+    result that either arrives or does not would turn ten legible partial
+    failures into one blank page, which is PRD-007 Risk 6 exactly.
+
+    So the result is a partition, not a tuple: `figures` holds the figures that
+    arrived, each with the type its standalone function returns (`int`,
+    `list[str]`, `list[AuditLog]`), and `errors` holds the ones that did not,
+    each against its own name. Every name in `SUMMARY_FIGURES` appears in
+    exactly one of the two -- asserted below, because a figure silently in
+    neither is the blank page arriving by another route.
+
+    The ten named properties are for callers that want the value or nothing;
+    they raise the recorded failure. Callers that want attribution -- STORY-012
+    is the one -- read `errors` and never trigger them.
+    """
+
+    figures: dict = field(default_factory=dict)
+    errors: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        covered = set(self.figures) | set(self.errors)
+        if covered != set(SUMMARY_FIGURES) or (set(self.figures) & set(self.errors)):
+            raise AssertionError(
+                "figures and errors must partition SUMMARY_FIGURES exactly; "
+                f"got figures={sorted(self.figures)} errors={sorted(self.errors)}"
+            )
+
+    def _figure(self, name: str) -> Any:
+        if name in self.errors:
+            raise self.errors[name]
+        return self.figures[name]
+
+    @property
+    def rows(self) -> list:
+        return self._figure("rows")
+
+    @property
+    def total_recorded(self) -> int:
+        return self._figure("total_recorded")
+
+    @property
+    def blocked_duplicates(self) -> int:
+        return self._figure("blocked_duplicates")
+
+    @property
+    def blocked_suspicious(self) -> int:
+        return self._figure("blocked_suspicious")
+
+    @property
+    def unique_users(self) -> int:
+        return self._figure("unique_users")
+
+    @property
+    def successful_queries(self) -> int:
+        return self._figure("successful_queries")
+
+    @property
+    def pii_detected_queries(self) -> int:
+        return self._figure("pii_detected_queries")
+
+    @property
+    def top_models(self) -> list:
+        return self._figure("top_models")
+
+    @property
+    def top_users(self) -> list:
+        return self._figure("top_users")
+
+    @property
+    def top_pii_entities(self) -> list:
+        return self._figure("top_pii_entities")
+
+
+# One statement, ten named columns -- **not** a client batch, because there is
+# no client batch to use. STORY-001 §2.6 pasted the driver's whole surface:
+#
+#   dir(connection) = ['close','commit','cursor','execute','executemany',
+#                      'executescript','in_transaction','isolation_level',
+#                      'rollback','sync']
+#   has conn.batch: False        has conn.execute_batch: False
+#
+# `executescript()` returns None, and multi-statement `execute()` is worse than
+# unsupported -- it returns only statement 1 and reports success for a batch
+# containing `SELECT * FROM no_such_table`. Per-statement results and
+# per-statement errors are both unavailable, so Risk 6 cannot be answered with
+# a batch API at all. §3.4 recorded the workaround this constant is: one SELECT
+# of scalar subqueries, measured at 1.7 ms against 16.3 ms for the ten
+# sequential statements, with `cursor.description` giving every figure its own
+# column name -- which is what carries the attribution that statements cannot.
+#
+# Every subquery is its standalone function's predicates copied verbatim, and
+# `split` is STORY-009's recursive CTE hoisted to the top so `top_pii_entities`
+# can be read from a scalar subquery beside the rest. Copied, not paraphrased:
+# AC 5 is that all ten agree with the individual functions figure for figure.
+#
+# **The four parameters bind positionally, in column order**:
+#     (row_limit, ranked_limit, ranked_limit, ranked_limit)
+# Reordering or inserting a column silently reorders them. Named placeholders
+# were not among STORY-001's six verified behaviors, so this does not use them.
+#
+# `"rows"` is quoted: ROWS is a keyword (window frames) and an unquoted alias
+# is a syntax error.
+_SUMMARY_SQL = """
+WITH RECURSIVE split(entity, rest) AS (
+    SELECT NULL, pii_entities || ','
+      FROM audit_logs
+     WHERE pii_entities IS NOT NULL
+    UNION ALL
+    SELECT substr(rest, 1, instr(rest, ',') - 1),
+           substr(rest, instr(rest, ',') + 1)
+      FROM split
+     WHERE rest <> ''
+)
+SELECT
+  (SELECT json_group_array(json_object(
+              'id', id,
+              'timestamp', timestamp,
+              'user_id', user_id,
+              'device', device,
+              'prompt_hash', prompt_hash,
+              'prompt_preview', prompt_preview,
+              'response_hash', response_hash,
+              'response_preview', response_preview,
+              'model_used', model_used,
+              'tokens_used', tokens_used,
+              'was_duplicate_blocked', was_duplicate_blocked,
+              'suspicious_pattern', suspicious_pattern,
+              'success', success,
+              'error_message', error_message,
+              'pii_detected_input', pii_detected_input,
+              'pii_detected_output', pii_detected_output,
+              'pii_entities', pii_entities,
+              'role', role,
+              'denied_permission', denied_permission))
+     FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
+  ) AS "rows",
+  (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
+  (SELECT COUNT(*) FROM audit_logs WHERE was_duplicate_blocked = 1)
+      AS blocked_duplicates,
+  (SELECT COUNT(*) FROM audit_logs WHERE suspicious_pattern IS NOT NULL)
+      AS blocked_suspicious,
+  (SELECT COUNT(DISTINCT user_id) FROM audit_logs) AS unique_users,
+  (SELECT COUNT(*) FROM audit_logs WHERE success = 1) AS successful_queries,
+  (SELECT COUNT(*) FROM audit_logs
+    WHERE pii_detected_input = 1 OR pii_detected_output = 1)
+      AS pii_detected_queries,
+  (SELECT json_group_array(model_used) FROM (
+      SELECT model_used FROM audit_logs
+       WHERE model_used IS NOT NULL
+       GROUP BY model_used
+       ORDER BY COUNT(*) DESC
+       LIMIT ?)) AS top_models,
+  (SELECT json_group_array(user_id) FROM (
+      SELECT user_id FROM audit_logs
+       GROUP BY user_id
+       ORDER BY COUNT(*) DESC
+       LIMIT ?)) AS top_users,
+  (SELECT json_group_array(entity) FROM (
+      SELECT entity FROM split
+       WHERE entity IS NOT NULL
+       GROUP BY entity
+       ORDER BY COUNT(*) DESC, entity ASC
+       LIMIT ?)) AS top_pii_entities
+"""
+
+
+def _decode_rows(value: Any) -> list[AuditLog]:
+    return [_row_to_audit_log(entry) for entry in json.loads(value)]
+
+
+def _decode_ranked(value: Any) -> list[str]:
+    return list(json.loads(value))
+
+
+def _decode_count(value: Any) -> int:
+    return int(value)
+
+
+#: One decoder per figure, turning its column into the type the standalone
+#: function returns. A module-level dict so each figure's decode can be
+#: isolated -- and so a test can break exactly one of them.
+_SUMMARY_DECODERS = {
+    "rows": _decode_rows,
+    "total_recorded": _decode_count,
+    "blocked_duplicates": _decode_count,
+    "blocked_suspicious": _decode_count,
+    "unique_users": _decode_count,
+    "successful_queries": _decode_count,
+    "pii_detected_queries": _decode_count,
+    "top_models": _decode_ranked,
+    "top_users": _decode_ranked,
+    "top_pii_entities": _decode_ranked,
+}
+
+
+def _summary_figure_by_figure(
+    row_limit: int, ranked_limit: int, cause: Exception
+) -> SummarySnapshot:
+    """The ten standalone reads, each guarded, when the one statement failed.
+
+    A dead statement carries no attribution: ten figures fail anonymously and
+    the console has nothing to name. That is the blank page Risk 6 describes,
+    so the failure path buys the attribution back the only way left -- by
+    reading the figures individually and letting each one succeed or fail on
+    its own. It costs up to ten round trips, and it is paid **only** when the
+    batch is already broken; the success path stays at one.
+
+    `cause` is the statement's own failure. A figure that then reads fine is a
+    figure that arrived, so `cause` is not recorded against it. It is used only
+    when nothing at all came back -- the database is unreachable, or the table
+    is gone -- where every figure carries it, so an outage still reads as an
+    outage rather than as ten unrelated coincidences.
+    """
+    reads = (
+        ("rows", lambda: list_audit_logs(limit=row_limit)),
+        ("total_recorded", count_audit_logs),
+        ("blocked_duplicates", count_blocked_duplicates),
+        ("blocked_suspicious", count_blocked_suspicious),
+        ("unique_users", count_unique_users),
+        ("successful_queries", count_successful_queries),
+        ("pii_detected_queries", count_pii_detected_queries),
+        ("top_models", lambda: top_models(limit=ranked_limit)),
+        ("top_users", lambda: top_users(limit=ranked_limit)),
+        ("top_pii_entities", lambda: top_pii_entities(limit=ranked_limit)),
+    )
+    figures: dict = {}
+    errors: dict = {}
+    for name, read in reads:
+        try:
+            figures[name] = read()
+        except Exception as exc:  # noqa: BLE001 -- attribution is the whole point
+            errors[name] = exc
+    if not figures:
+        # Nothing came back individually either: the database is unreachable or
+        # the table is gone. Report the statement's own failure rather than ten
+        # copies of a downstream symptom.
+        errors = {name: cause for name in SUMMARY_FIGURES}
+    return SummarySnapshot(figures=figures, errors=errors)
+
+
+def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnapshot:
+    """All ten admin summary figures, in one round trip.
+
+    Two callers ran the same fan-out sequentially: `_READS` in
+    `chat_ui/chat_ui/admin_state.py` with ten reads, and `GET /stats` with
+    nine. Against a local file that cost nothing; against a remote endpoint it
+    is ten round trips per page load (PRD-007 Section 6 Pattern 3).
+
+    This is one statement. Not a client batch -- the driver has none, and its
+    multi-statement `execute()` swallows errors (STORY-001 §2.6); see
+    `_SUMMARY_SQL` for the whole finding and for the fact that the single
+    SELECT measured 1.7 ms against 16.3 ms for the ten it replaces.
+
+    **Attribution rides on column names, not on statements.** Each figure is a
+    named column, so the ten `READ_LABEL_*` entries map one-to-one onto them
+    and a figure that fails to decode fails alone. If the statement itself
+    fails there are no columns to attribute anything to, and the read falls
+    back to the ten standalone functions to buy the attribution back.
+
+    `row_limit` and `ranked_limit` are parameters, not constants baked into the
+    statement: the callers pass `REGISTER_ROW_LIMIT` and `RANKED_LIMIT`. They
+    bind **positionally, in column order** -- see `_SUMMARY_SQL`.
+    """
+    try:
+        with _session() as conn:
+            row = conn.execute(
+                _SUMMARY_SQL,
+                (row_limit, ranked_limit, ranked_limit, ranked_limit),
+            ).fetchone()
+    except StorageError as exc:
+        return _summary_figure_by_figure(row_limit, ranked_limit, exc)
+
+    figures: dict = {}
+    errors: dict = {}
+    for name in SUMMARY_FIGURES:
+        try:
+            figures[name] = _SUMMARY_DECODERS[name](row[name])
+        except Exception as exc:  # noqa: BLE001 -- one bad column is one bad figure
+            errors[name] = exc
+    return SummarySnapshot(figures=figures, errors=errors)
 
 
 def _row_to_user(row: _Row) -> User:

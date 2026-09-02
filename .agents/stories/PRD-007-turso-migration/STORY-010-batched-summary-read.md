@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Network-cost remediation"
-status: todo
+status: done
 labels: [backend, database, performance, admin]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-010-batched-summary-read.report.md
 commit: null
 depends_on: [STORY-006, STORY-009]
 blocks: [STORY-011, STORY-012]

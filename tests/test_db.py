@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import inspect
 import re
 import sqlite3
 import threading
@@ -13,6 +14,7 @@ import pytest
 from app.config import settings
 from app.db import database
 from app.db.database import (
+    SUMMARY_FIGURES,
     check_database_reachable,
     count_active_users,
     count_audit_logs,
@@ -32,6 +34,7 @@ from app.db.database import (
     list_audit_logs,
     list_users,
     set_user_token_hash,
+    summary_snapshot,
     top_models,
     top_pii_entities,
     top_users,
@@ -905,6 +908,307 @@ def test_top_pii_entities_ignores_rows_without_pii(temp_db):
         )
 
     assert top_pii_entities() == ["PERSON"]
+
+
+# --------------------------------------------------------------------------
+# PRD-007 STORY-010: the batched summary read
+# --------------------------------------------------------------------------
+
+
+def _seed_summary_fixture() -> None:
+    """A table with something to say about every one of the ten figures.
+
+    Deliberately includes two rows sharing a timestamp: `list_audit_logs`
+    orders by `timestamp DESC` alone, so a tie is where the batched read's
+    `json_group_array` over an ordered subquery would diverge first if it did
+    not preserve order.
+    """
+    rows = [
+        # (timestamp, user, model, duplicate, suspicious, success, pii)
+        ("2026-07-09T10:00:00Z", "alice", "gpt-4", 0, None, 1, "PERSON,EMAIL_ADDRESS"),
+        ("2026-07-09T10:00:00Z", "bob", "gpt-4", 1, None, 1, None),
+        ("2026-07-08T10:00:00Z", "alice", "claude-3", 0, "injection", 0, "PERSON"),
+        ("2026-07-07T10:00:00Z", "carol", "gpt-4", 0, None, 1, "EMAIL_ADDRESS"),
+        ("2026-07-06T10:00:00Z", "alice", "claude-3", 1, "leak", 1, None),
+        ("2026-07-05T10:00:00Z", "bob", None, 0, None, 0, "PHONE_NUMBER"),
+    ]
+    for index, (ts, user, model, dup, suspicious, success, pii) in enumerate(rows):
+        insert_audit_log(
+            AuditLog(
+                timestamp=ts,
+                user_id=user,
+                prompt_hash=f"h{index}",
+                model_used=model,
+                was_duplicate_blocked=bool(dup),
+                suspicious_pattern=suspicious,
+                success=bool(success),
+                pii_detected_input=bool(pii),
+                pii_entities=pii,
+            )
+        )
+
+
+def _individually(row_limit: int = 100, ranked_limit: int = 5) -> dict:
+    """The same ten figures, read the old way — the batched read's oracle."""
+    return {
+        "rows": list_audit_logs(limit=row_limit),
+        "total_recorded": count_audit_logs(),
+        "blocked_duplicates": count_blocked_duplicates(),
+        "blocked_suspicious": count_blocked_suspicious(),
+        "unique_users": count_unique_users(),
+        "successful_queries": count_successful_queries(),
+        "pii_detected_queries": count_pii_detected_queries(),
+        "top_models": top_models(limit=ranked_limit),
+        "top_users": top_users(limit=ranked_limit),
+        "top_pii_entities": top_pii_entities(limit=ranked_limit),
+    }
+
+
+class _RecordingConnection:
+    """Counts the statements that reach the database, and delegates the rest.
+
+    The same proxy idiom `test_init_db_issues_no_alter_when_schema_is_current`
+    uses: the libSQL connection has no tracing hook, so the instrument is a
+    wrapper rather than `set_trace_callback`.
+    """
+
+    def __init__(self, conn, statements):
+        self._conn = conn
+        self._statements = statements
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._conn.__exit__(*exc_info)
+
+    def execute(self, sql, *parameters):
+        self._statements.append(sql)
+        return self._conn.execute(sql, *parameters)
+
+    def cursor(self):
+        return self._conn.cursor()
+
+
+def _count_statements(monkeypatch) -> list:
+    statements: list = []
+    real_get_connection = database.get_connection
+    monkeypatch.setattr(
+        database,
+        "get_connection",
+        lambda: _RecordingConnection(real_get_connection(), statements),
+    )
+    return statements
+
+
+def test_summary_snapshot_agrees_with_the_individual_reads(temp_db):
+    """AC 5. Every figure identical to the function it replaces a call to.
+
+    `rows` is compared as a whole ordered list of AuditLog objects, not a
+    field subset: the batched path carries them through `json_object`, where
+    the INTEGER columns arrive as 0/1 and would quietly stop being bools.
+    """
+    _seed_summary_fixture()
+
+    snapshot = summary_snapshot()
+    expected = _individually()
+
+    assert snapshot.errors == {}
+    assert set(snapshot.figures) == set(SUMMARY_FIGURES)
+    for name in SUMMARY_FIGURES:
+        assert snapshot.figures[name] == expected[name], name
+
+
+def test_summary_snapshot_types_match_the_standalone_functions(temp_db):
+    """AC 2. Each figure individually addressable, with today's type."""
+    _seed_summary_fixture()
+
+    snapshot = summary_snapshot()
+
+    assert isinstance(snapshot.rows, list)
+    assert all(isinstance(entry, AuditLog) for entry in snapshot.rows)
+    assert isinstance(snapshot.rows[0].was_duplicate_blocked, bool)
+    assert isinstance(snapshot.rows[0].success, bool)
+    for name in (
+        "total_recorded",
+        "blocked_duplicates",
+        "blocked_suspicious",
+        "unique_users",
+        "successful_queries",
+        "pii_detected_queries",
+    ):
+        assert isinstance(snapshot.figures[name], int), name
+    for name in ("top_models", "top_users", "top_pii_entities"):
+        assert isinstance(snapshot.figures[name], list), name
+        assert all(isinstance(item, str) for item in snapshot.figures[name]), name
+
+
+def test_summary_snapshot_on_an_empty_database(temp_db):
+    """Six zeros and four empty lists — no figure missing, no error."""
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.figures == {
+        "rows": [],
+        "total_recorded": 0,
+        "blocked_duplicates": 0,
+        "blocked_suspicious": 0,
+        "unique_users": 0,
+        "successful_queries": 0,
+        "pii_detected_queries": 0,
+        "top_models": [],
+        "top_users": [],
+        "top_pii_entities": [],
+    }
+    assert snapshot.figures == _individually()
+
+
+def test_summary_snapshot_isolation_of_one_bad_decode(temp_db, monkeypatch):
+    """AC 3, decode layer: one figure fails, the other nine still arrive."""
+    _seed_summary_fixture()
+
+    def boom(value):
+        raise ValueError("decode exploded")
+
+    monkeypatch.setitem(database._SUMMARY_DECODERS, "top_users", boom)
+
+    snapshot = summary_snapshot()
+
+    assert set(snapshot.errors) == {"top_users"}
+    assert str(snapshot.errors["top_users"]) == "decode exploded"
+    expected = _individually()
+    for name in SUMMARY_FIGURES:
+        if name == "top_users":
+            continue
+        assert snapshot.figures[name] == expected[name], name
+    # The partition holds: no figure silently in neither.
+    assert set(snapshot.figures) | set(snapshot.errors) == set(SUMMARY_FIGURES)
+
+
+def test_summary_snapshot_isolation_names_the_one_broken_figure(temp_db, monkeypatch):
+    """AC 3, the case Risk 6 is about.
+
+    The statement is broken, so there are no columns to attribute anything to,
+    and exactly one of the standalone reads is broken behind it. The caller
+    must still learn *which* figure failed and still receive the other nine —
+    which is what a naive all-or-nothing collapse would have destroyed.
+    """
+    _seed_summary_fixture()
+    monkeypatch.setattr(
+        database, "_SUMMARY_SQL", "SELECT * FROM no_such_table_at_all"
+    )
+
+    def boom():
+        raise StorageError("this one figure is broken")
+
+    monkeypatch.setattr(database, "count_unique_users", boom)
+
+    snapshot = summary_snapshot()
+
+    assert set(snapshot.errors) == {"unique_users"}
+    assert "this one figure is broken" in str(snapshot.errors["unique_users"])
+    expected = _individually()
+    for name in SUMMARY_FIGURES:
+        if name == "unique_users":
+            continue
+        assert snapshot.figures[name] == expected[name], name
+
+
+def test_summary_snapshot_reports_every_figure_when_the_table_is_gone(
+    temp_db, monkeypatch
+):
+    """An outage reads as an outage: ten named errors, not one blank result."""
+    _seed_summary_fixture()
+    with get_connection() as conn:
+        conn.execute("DROP TABLE audit_logs")
+
+    snapshot = summary_snapshot()
+
+    assert set(snapshot.errors) == set(SUMMARY_FIGURES)
+    assert snapshot.figures == {}
+    assert all(isinstance(exc, StorageError) for exc in snapshot.errors.values())
+    # Accessing a failed figure raises its own error rather than returning None.
+    with pytest.raises(StorageError):
+        snapshot.total_recorded
+
+
+def test_summary_snapshot_issues_one_round_trip(temp_db, monkeypatch):
+    """AC 1, proved rather than asserted in prose.
+
+    The evidence PRD-007 Section 12 Phase 3 asks for — a measured round-trip
+    count — and the contrast that makes it mean something: the same ten figures
+    read the old way issue ten statements.
+    """
+    _seed_summary_fixture()
+
+    statements = _count_statements(monkeypatch)
+    summary_snapshot()
+
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert len(statements) == 1, statements
+
+    statements.clear()
+    _individually()
+    assert len(statements) == 10, statements
+
+
+def test_summary_snapshot_limits_are_parameters(temp_db):
+    """AC 6. Both limits are arguments, and they are not the same argument.
+
+    row_limit and ranked_limit differ deliberately: if the four positional
+    parameters were ever bound in the wrong order, equal values would hide it.
+    """
+    _seed_summary_fixture()
+
+    snapshot = summary_snapshot(row_limit=2, ranked_limit=1)
+
+    assert len(snapshot.rows) == 2
+    assert snapshot.rows == list_audit_logs(limit=2)
+    assert len(snapshot.top_models) == 1
+    assert len(snapshot.top_users) == 1
+    assert len(snapshot.top_pii_entities) == 1
+    assert snapshot.top_models == top_models(limit=1)
+    assert snapshot.top_users == top_users(limit=1)
+    assert snapshot.top_pii_entities == top_pii_entities(limit=1)
+    # The counts are whole-table figures and no limit touches them.
+    assert snapshot.total_recorded == count_audit_logs()
+
+
+def test_summary_snapshot_leaves_the_ten_standalone_signatures_unchanged(temp_db):
+    """AC 4. The ten are public surface STORY-006 promised not to change — and
+    the fallback in `summary_snapshot()` is built out of them."""
+    # Return annotations included: AC 2 requires the batched read to hand back
+    # `int`, `list[str]` and `list[AuditLog]`, and these are where those types
+    # are declared.
+    expected = {
+        "list_audit_logs": (
+            "(limit: int = 100, user_id: Optional[str] = None)"
+            " -> list[app.db.models.AuditLog]"
+        ),
+        "count_audit_logs": "(user_id: Optional[str] = None) -> int",
+        "count_blocked_duplicates": "() -> int",
+        "count_blocked_suspicious": "() -> int",
+        "count_unique_users": "() -> int",
+        "count_successful_queries": "() -> int",
+        "count_pii_detected_queries": "() -> int",
+        "top_models": "(limit: int = 5) -> list[str]",
+        "top_users": "(limit: int = 5) -> list[str]",
+        "top_pii_entities": "(limit: int = 5) -> list[str]",
+    }
+    for name, signature in expected.items():
+        assert str(inspect.signature(getattr(database, name))) == signature, name
+
+
+def test_count_audit_logs_still_scopes_by_user(temp_db):
+    """AC 4, the one the story calls out: `GET /audit` scopes with this, so it
+    is not the summary's to fold away."""
+    _seed_summary_fixture()
+
+    assert count_audit_logs() == 6
+    assert count_audit_logs(user_id="alice") == 3
+    assert count_audit_logs(user_id="bob") == 2
+    assert count_audit_logs(user_id="nobody") == 0
 
 
 # --------------------------------------------------------------------------
