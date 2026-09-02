@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: c924b32
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING`
+**Commit**: `c924b32`
 
 ## Summary
 

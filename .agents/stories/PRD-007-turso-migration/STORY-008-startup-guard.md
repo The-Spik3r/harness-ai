@@ -12,7 +12,7 @@ labels: [backend, database, ops, reliability]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-008-startup-guard.report.md
-commit: null
+commit: c924b32
 depends_on: [STORY-006]
 blocks: [STORY-014]
 skills: []
