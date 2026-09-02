@@ -12,7 +12,7 @@ labels: [docs, deployment]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-015-readme-and-deployment-docs.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-015-readme-and-deployment-docs.report.md
-commit: PENDING
+commit: 484ba3b
 depends_on: [STORY-014]
 blocks: []
 skills: []

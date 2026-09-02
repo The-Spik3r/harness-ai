@@ -28,7 +28,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | STORY-012 | AdminState._READS consumes the batched read, preserving per-figure failure attribution | enhancement | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-012-admin-console-batched-reads.plan.md) | `784567a` |
 | STORY-013 | scripts/migrate_to_turso.py: copy audit_logs and users with verification and a rollback point | feature | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-013-data-migration-script.plan.md) | `74cd352` |
 | STORY-014 | Cutover: remove the harness_data volume, the build placeholder, and harness_ai.db | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-014-deployment-cutover.plan.md) | `fd9ab85` |
-| STORY-015 | README: correct the persistence claim, the env table, and document multi-instance deployment | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-015-readme-and-deployment-docs.plan.md) | `PENDING` |
+| STORY-015 | README: correct the persistence claim, the env table, and document multi-instance deployment | technical | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-015-readme-and-deployment-docs.plan.md) | `484ba3b` |
 | STORY-016 | Prove two instances share one database: concurrent writes, cross-instance duplicate detection, no lost rows | technical | ⬜ todo | medium | — | — |
 
 ## Status Icons
