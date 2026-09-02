@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-011-stats-endpoint-batched.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: TBD
+commit: 94fdf4a
 status: COMPLETE
 completed: 2026-09-02
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-02
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-011-stats-endpoint-batched.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `TBD`
+**Commit**: `94fdf4a`
 
 ## Summary
 
