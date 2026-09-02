@@ -12,7 +12,7 @@ labels: [backend, database, performance, admin]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-010-batched-summary-read.report.md
-commit: null
+commit: b592264
 depends_on: [STORY-006, STORY-009]
 blocks: [STORY-011, STORY-012]
 skills: []

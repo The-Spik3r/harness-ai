@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: b592264
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING`
+**Commit**: `b592264`
 
 ## Summary
 
