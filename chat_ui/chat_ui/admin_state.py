@@ -39,6 +39,7 @@ from app.db.database import (
     count_successful_queries,
     count_unique_users,
     list_audit_logs,
+    summary_snapshot,
     # Aliased because the state declares fields of these three names. The module
     # global and the class attribute live in different namespaces and Python
     # resolves each correctly, but a reader of `load()` cannot tell which one a
@@ -210,22 +211,41 @@ _SORT_RANKS = {
 }
 
 # The ten reads, as data: (state field, what to call it in a fault message, the
-# read function, its keyword arguments). A table rather than ten hand-written
-# awaits because "all ten" is then one countable structure — ten separate
-# `await` lines can become nine in a refactor with nothing to notice it, and
-# STORY-006 asserts `len(_READS) == 10`. The label is the only user-facing string
-# here, and since STORY-008 every one of them comes from `admin_copy` — the
-# fault message they are formatted into (LOAD_FAILED_MESSAGE, imported above)
-# lives there too, so the whole sentence an admin reads on a failed read is
-# assembled from that one module.
+# database function that figure is read from, its keyword arguments). A table
+# rather than ten hand-written awaits because "all ten" is then one countable
+# structure — ten separate `await` lines can become nine in a refactor with
+# nothing to notice it, and STORY-006 asserts `len(_READS) == 10`. The label is
+# the only user-facing string here, and since STORY-008 every one of them comes
+# from `admin_copy` — the fault message they are formatted into
+# (LOAD_FAILED_MESSAGE, imported above) lives there too, so the whole sentence an
+# admin reads on a failed read is assembled from that one module.
+#
+# Since STORY-012 the third slot is provenance rather than the callable `load()`
+# awaits: `load()` makes one call to `summary_snapshot()`, which reads all ten
+# figures in a single statement and is itself built out of exactly these ten
+# functions (`app/db/database.py`, `_summary_figure_by_figure`). The slot is what
+# lets a reader see which query stands behind a figure, and what
+# `test_the_read_table_names_all_ten_database_functions` checks are ten distinct
+# reads rather than nine and a duplicate.
 #
 # Module level, not the class body: three of the field names below are also
 # declared as vars on `AdminState`, and inside the class body those declarations
 # would shadow the imported functions.
 #
-# Order is the read order and is deliberate: the rows come first so the slowest
-# query fails fast, and `total_recorded` follows them because it is the
-# denominator the register states its 100-row cap against.
+# Order is no longer the read order — there is one read. It is load-bearing
+# twice over anyway. It is the order `SUMMARY_FIGURES` (`app/db/database.py`)
+# mirrors, so the two tables can be diffed against each other; and it is the
+# order `load()`'s fault arm walks, so when more than one figure comes back
+# broken the label an admin sees is the first in this table — the same sentence
+# the sequential loop produced when it aborted at its first failure.
+#
+# What used to stand here — "the rows come first so the slowest query fails
+# fast" — was retired by STORY-010 and must not come back: in one statement
+# there is no first, the database plans all ten subqueries together, and the
+# attribution fallback deliberately reads every figure precisely so that nothing
+# fails fast. `total_recorded` still follows the rows because it is the
+# denominator the register states its 100-row cap against; that was always a
+# statement about two figures rather than about execution, so it survives.
 _READS: tuple[tuple[str, str, object, dict], ...] = (
     ("rows", READ_LABEL_ROWS, list_audit_logs, {"limit": REGISTER_ROW_LIMIT}),
     ("total_recorded", READ_LABEL_TOTAL, count_audit_logs, {}),
@@ -969,7 +989,7 @@ class AdminState(rx.State):
         render. It returns before `loading` is ever set, so an ungated call
         leaves no trace at all.
 
-        Four structural properties below, each a requirement rather than a style
+        Five structural properties below, each a requirement rather than a style
         choice:
 
         The gate is asserted **twice**. The first check is a read outside the
@@ -977,23 +997,34 @@ class AdminState(rx.State):
         between `authenticate()` returning this event and the first lock
         acquisition. The second check, inside the lock, is the one that holds.
 
-        Each read is offloaded **per call**. Every function in
-        `app/db/database.py` is synchronous and blocking, so the thread boundary
-        sits around one call and nothing is hoisted out of it. The reason has
-        changed shape since PRD-007: those functions no longer open a connection
-        each, they share one libSQL client, and reaching it from these worker
-        threads is safe — STORY-006 measured a shared client against eight
-        concurrent writers and lost nothing, while a client per thread lost most
-        of its writes to transaction contention. Sequential rather than gathered:
-        ten indexed counts over one small table do not need the concurrency, ten
-        simultaneous reads would contend with the chat surface's writes, and a
-        gathered failure cannot say which of ten reads produced it.
+        The read is offloaded **once**. `summary_snapshot()` is synchronous and
+        blocking — that, and not the connection model, is why the thread
+        boundary exists at all. Until STORY-012 there were ten hops because
+        there were ten reads; there is now one statement returning all ten
+        figures (STORY-010), so one hop covers it. Reaching the database from a
+        worker thread is safe: STORY-006 measured the shared libSQL client
+        against eight concurrent writers and lost nothing, where a client per
+        thread lost most of its writes to transaction contention. Against a
+        remote endpoint this is the whole point of the story — one round trip
+        per page load where there were ten (PRD-007 Section 6 Pattern 3).
+
+        Per-figure attribution is the thing batching would otherwise cost, and
+        it is bought back by name. `summary_snapshot()` returns a partition:
+        `figures` for what arrived, `errors` for what did not, keyed by
+        `_READS`' own field names. The fault arm walks `_READS` **in order** and
+        names the first field present in `errors`, so an admin reads the same
+        `READ_LABEL_*` sentence the sequential loop produced, and ten legible
+        partial failures never collapse into one blank page (PRD-007 Risk 6).
+        If the batched call raises outright there is no partition to walk and
+        nothing to attribute, so the first read's label stands — which is what
+        a total outage said before, when `list_audit_logs` was the first to
+        fail.
 
         Every result is collected into a **local** and committed in one block at
         the end. That is what makes the fault arm's "rows and figures untouched"
         true by construction rather than by discipline: there is no instant at
-        which some fields are new and others old, so a read that fails on the
-        eighth of ten cannot leave a register that half agrees with its summary.
+        which some fields are new and others old, so a figure that fails eighth of
+        ten cannot leave a register that half agrees with its summary.
 
         The `finally` clears `loading` on **both** paths. A flag stranded True
         locks STORY-017's refresh control permanently — PRD-004 Risk 3, the same
@@ -1017,20 +1048,48 @@ class AdminState(rx.State):
             # One clock read for the whole batch, so the rows' relative times and
             # the refresh stamp cannot disagree by a straggling second.
             now = datetime.now(timezone.utc)
-            results: dict[str, object] = {}
-            for field, label, read, kwargs in _READS:
-                try:
-                    results[field] = await asyncio.to_thread(read, **kwargs)
-                except Exception as exc:
+            # One hop, one statement, all ten figures (STORY-010). The limits are
+            # passed rather than left to the function's defaults, for the reason
+            # RANKED_LIMIT's comment gives: the "top 5" on screen and the
+            # `LIMIT ?` in the query must be the same 5, owned here.
+            try:
+                snapshot = await asyncio.to_thread(
+                    summary_snapshot,
+                    row_limit=REGISTER_ROW_LIMIT,
+                    ranked_limit=RANKED_LIMIT,
+                )
+            except Exception as exc:
+                # The call itself failed, so there is no partition to walk and
+                # no figure to name. `_READS[0]`'s label stands: it is what a
+                # total outage read as before, when the rows were the first of
+                # ten sequential reads to fail.
+                async with self:
+                    self.error = LOAD_FAILED_MESSAGE.format(
+                        read=_READS[0][1], detail=exc
+                    )
+                return
+
+            for field, label, _read, _kwargs in _READS:
+                if field in snapshot.errors:
                     # Catch-all, matching PRD-004's "no silent drops": a read
                     # that fails is a fault naming what failed, never a silently
                     # empty table (PRD-006 Section 4). Nothing has been written
                     # to state at this point, so the previous record stands.
+                    #
+                    # First in `_READS` order, not first in `snapshot.errors`:
+                    # the batch can report several broken figures at once and a
+                    # dict's order is the decode order, so walking the table is
+                    # what keeps the sentence an admin reads deterministic — and
+                    # equal to the one the sequential loop produced.
                     async with self:
                         self.error = LOAD_FAILED_MESSAGE.format(
-                            read=label, detail=exc
+                            read=label, detail=snapshot.errors[field]
                         )
                     return
+
+            # A plain dict, because the commit below pops "rows" out of it and
+            # `snapshot.figures` belongs to a frozen result.
+            results: dict[str, object] = dict(snapshot.figures)
 
             # Order preserved from `list_audit_logs`' ORDER BY timestamp DESC —
             # newest first already. Sorting is STORY-005's computed var, and a

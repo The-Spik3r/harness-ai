@@ -7,17 +7,17 @@ type: enhancement
 priority: high
 complexity: medium
 phase: "3 - Network-cost remediation"
-status: todo
+status: done
 labels: [ui, reflex, state, admin, performance]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-012-admin-console-batched-reads.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-012-admin-console-batched-reads.report.md
 commit: null
 depends_on: [STORY-010]
 blocks: []
 skills: [reflex-docs]
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # STORY-012: AdminState._READS consumes the batched read, preserving per-figure failure attribution
