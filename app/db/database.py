@@ -708,18 +708,49 @@ def count_pii_detected_queries() -> int:
 
 
 def top_pii_entities(limit: int = 5) -> list[str]:
+    """The most frequent PII entity types, most frequent first.
+
+    `pii_entities` is comma-separated TEXT, not a normalized table, so ranking it
+    means splitting it -- and the split belongs in the database. This used to
+    read every PII-bearing row and count them in a Python dict, which was free
+    against a local file and is the whole PII history over the network against a
+    remote one (PRD-007 Section 6 Pattern 4). The recursive CTE peels one entity
+    off the front of each value per step, and at most `limit` rows come back.
+
+    **The seed row selects `NULL`, not `''`.** The usual idiom seeds with `''`
+    and drops the seed with `WHERE entity <> ''`, which would also drop a genuine
+    empty segment -- `"A,,B"` would lose its middle where `"A,,B".split(",")`
+    keeps it. `NULL` distinguishes the seed from an empty entity, so this counts
+    exactly what the loop it replaces counted.
+
+    **The tie-break is chosen here, not inherited.** The old `sorted(...,
+    key=count, reverse=True)` was stable over dict insertion order, so equal
+    counts resolved by whichever row the database happened to return first --
+    incidental, and not a thing to reproduce across N instances. Equal counts now
+    order by entity name (STORY-009).
+    """
     with _session() as conn:
         rows = conn.execute(
-            "SELECT pii_entities FROM audit_logs WHERE pii_entities IS NOT NULL"
+            """
+            WITH RECURSIVE split(entity, rest) AS (
+                SELECT NULL, pii_entities || ','
+                  FROM audit_logs
+                 WHERE pii_entities IS NOT NULL
+                UNION ALL
+                SELECT substr(rest, 1, instr(rest, ',') - 1),
+                       substr(rest, instr(rest, ',') + 1)
+                  FROM split
+                 WHERE rest <> ''
+            )
+            SELECT entity FROM split
+            WHERE entity IS NOT NULL
+            GROUP BY entity
+            ORDER BY COUNT(*) DESC, entity ASC
+            LIMIT ?
+            """,
+            (limit,),
         ).fetchall()
-
-    counts: dict[str, int] = {}
-    for row in rows:
-        for entity in row["pii_entities"].split(","):
-            counts[entity] = counts.get(entity, 0) + 1
-
-    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
-    return [entity for entity, _ in ranked[:limit]]
+        return [row["entity"] for row in rows]
 
 
 def _row_to_user(row: _Row) -> User:

@@ -7,11 +7,11 @@ type: enhancement
 priority: high
 complexity: small
 phase: "3 - Network-cost remediation"
-status: todo
+status: done
 labels: [backend, database, performance, pii]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-009-top-pii-entities-sql-aggregation.report.md
 commit: null
 depends_on: [STORY-006]
 blocks: [STORY-010]

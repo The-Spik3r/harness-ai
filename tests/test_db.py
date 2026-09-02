@@ -807,6 +807,106 @@ def test_top_pii_entities_respects_limit(temp_db):
     assert top_pii_entities(limit=2) == ["EMAIL_ADDRESS", "PERSON"]
 
 
+def test_top_pii_entities_counts_each_entity_in_a_multi_entity_value(temp_db):
+    """One row holding three entities contributes one to each of the three.
+
+    STORY-009 moved this count from a Python loop into a recursive CTE. The
+    split is now the database's job, so the case that proves the split happens
+    at all is a value with commas in it.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="m1",
+            pii_entities="EMAIL_ADDRESS,PERSON,LOCATION",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="m2",
+            pii_entities="PERSON",
+        )
+    )
+
+    # PERSON: 2, EMAIL_ADDRESS: 1, LOCATION: 1 -- the two 1s tie and sort by name
+    assert top_pii_entities() == ["PERSON", "EMAIL_ADDRESS", "LOCATION"]
+
+
+def test_top_pii_entities_breaks_ties_by_entity_name(temp_db):
+    """Equal counts order by entity name -- a chosen rule, not an inherited one.
+
+    The implementation this replaced sorted a dict by count alone, which Python
+    resolves stably over insertion order, so ties fell out as "whichever row the
+    database returned first". That was incidental and not reproducible across
+    instances. STORY-009 pins `ORDER BY COUNT(*) DESC, entity ASC` instead.
+
+    The rows are inserted in a deliberately non-alphabetical order: under the old
+    behavior this would have returned them as inserted, so the test fails if row
+    order ever decides the outcome again.
+    """
+    for index, entity in enumerate(("PERSON", "LOCATION", "EMAIL_ADDRESS")):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{index + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"t{index}",
+                pii_entities=entity,
+            )
+        )
+
+    # All three tie at 1, so entity name alone decides.
+    assert top_pii_entities() == ["EMAIL_ADDRESS", "LOCATION", "PERSON"]
+
+
+def test_top_pii_entities_counts_repeats_within_one_value(temp_db):
+    """A value repeating an entity counts it twice, from that one row.
+
+    The count is over entities, not over rows -- the case a `DISTINCT` or a
+    row-counting rewrite would quietly get wrong.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="r1",
+            pii_entities="PERSON,PERSON,EMAIL_ADDRESS",
+        )
+    )
+
+    # PERSON: 2 and EMAIL_ADDRESS: 1, both out of a single row.
+    assert top_pii_entities() == ["PERSON", "EMAIL_ADDRESS"]
+
+
+def test_top_pii_entities_ignores_rows_without_pii(temp_db):
+    """Rows leaving `pii_entities` at NULL contribute nothing -- not None, not "".
+
+    A table with rows but no PII-bearing ones is the other half of the empty
+    case; the empty *table* is covered by
+    `test_aggregates_on_empty_db_return_zero_or_empty` above.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="n1",
+            pii_entities="PERSON",
+        )
+    )
+    for index in range(2):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{index + 2}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"n{index + 2}",
+            )
+        )
+
+    assert top_pii_entities() == ["PERSON"]
+
+
 # --------------------------------------------------------------------------
 # PRD-005 STORY-002: users table + CRUD helpers
 # --------------------------------------------------------------------------
