@@ -6,7 +6,7 @@
 
 ## Progress
 
-7/16 stories done — 44%
+8/16 stories done — 50%
 
 ## Stories
 
@@ -21,7 +21,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | STORY-005 | Config: TURSO_AUTH_TOKEN, libSQL DATABASE_URL semantics, and no file fallback | feature | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-005-turso-configuration.plan.md) | `907eb6c` |
 | STORY-006 | Swap app/db/database.py onto a shared libSQL client, preserving all 22 public signatures | feature | ✅ done | large | [plan](../../plans/PRD-007-turso-migration/completed/STORY-006-libsql-connection-layer.plan.md) | `86ece73` |
 | STORY-007 | Make init_db() and _add_missing_columns() converge under concurrent multi-instance startup | technical | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md) | `efdb114` |
-| STORY-008 | Fail fast and legibly when the database is unreachable or the token is missing | feature | ⬜ todo | small | — | — |
+| STORY-008 | Fail fast and legibly when the database is unreachable or the token is missing | feature | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md) | `PENDING` |
 | STORY-009 | Aggregate top_pii_entities() in SQL instead of transferring every PII-bearing row | enhancement | ⬜ todo | small | — | — |
 | STORY-010 | One batched database read returning all ten summary figures in a single round trip | feature | ⬜ todo | medium | — | — |
 | STORY-011 | GET /stats consumes the batched read instead of nine sequential calls | enhancement | ⬜ todo | small | — | — |
@@ -53,7 +53,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 - STORY-015 blocked by STORY-014
 - STORY-016 blocked by STORY-007, STORY-014
 
-STORY-001 through STORY-007 are done. The driver swap has landed and `init_db()` now converges under concurrent multi-instance startup, which leaves STORY-008 (startup guard), STORY-009 (top_pii_entities in SQL), STORY-010 (batched read), STORY-013 (migration script) and STORY-014 (cutover) ready to start. STORY-016 still waits on STORY-014.
+STORY-001 through STORY-008 are done. The driver swap has landed, `init_db()` converges under concurrent multi-instance startup, and an unreachable database or a rejected credential now fails at boot with a message that names the setting at fault. STORY-009 (top_pii_entities in SQL), STORY-010 (batched read) and STORY-013 (migration script) are ready to start. STORY-014 now waits only on STORY-013, and it owns setting `DB_BOOTSTRAP_ENABLED=false` in the Docker builder stage (see STORY-008 report). STORY-016 still waits on STORY-014.
 
 ## Phases
 

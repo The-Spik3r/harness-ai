@@ -42,6 +42,21 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     TURSO_AUTH_TOKEN: str = ""
 
+    # Whether startup touches the database at all -- STORY-008's reachability
+    # guard and the schema migration behind it. The only sanctioned `False` is
+    # the Dockerfile's builder stage: `reflex export` imports `chat_ui.chat_ui`,
+    # which calls `init_db()` at import, and PRD-007 Section 11 requires the
+    # build to succeed with no reachable database. STORY-014 sets it there,
+    # beside the `DATABASE_URL` build placeholder it already owns.
+    #
+    # It gates the schema work as well as the probe, because gating only the
+    # probe would leave the build doing exactly what it cannot do -- reach the
+    # database -- one line later. The consequence is stated rather than defended
+    # against: `False` in a running deployment boots an application whose schema
+    # was never created, and it fails on first use. Defending against that would
+    # mean probing the database, which is the thing being skipped.
+    DB_BOOTSTRAP_ENABLED: bool = True
+
     PORT: int = 8000
     HOST: str = "0.0.0.0"
     LOG_LEVEL: str = "INFO"

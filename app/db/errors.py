@@ -69,3 +69,47 @@ class IntegrityError(StorageError):
     def __init__(self, constraint: Optional[str], message: str) -> None:
         self.constraint = constraint
         super().__init__(message)
+
+
+class DatabaseUnreachableError(StorageError):
+    """The database did not answer at all (PRD-007 STORY-008).
+
+    Raised only by `app/db/database.py`'s `check_database_reachable()`, which
+    `init_db()` calls before it touches the schema -- so this is a boot-time
+    failure by construction, and by the time any request is served it has either
+    been raised or will not be. Liveness after a successful start is deliberately
+    out of MVP scope (PRD Section 4, Section 13).
+
+    A `StorageError` like the rest, so `app/services/duplicate_checker.py` keeps
+    the breadth `except sqlite3.Error` gave it. That arm is not what catches this
+    one in practice -- nothing has started yet -- but the type should not lie
+    about what it is: a storage failure.
+
+    `endpoint` is the sanitized `scheme://host[:port]`, never the configured URL:
+    a libSQL endpoint may carry `?authToken=...`, and PRD Section 9 requires the
+    credential to be "never logged, never echoed in error messages". The raiser
+    has already stripped it, so a caller may print this attribute freely.
+    """
+
+    def __init__(self, endpoint: str, message: str) -> None:
+        self.endpoint = endpoint
+        super().__init__(message)
+
+
+class DatabaseAuthError(StorageError):
+    """The database answered and rejected the credential (PRD-007 STORY-008).
+
+    The distinction from `DatabaseUnreachableError` is the whole point of having
+    two types: "cannot reach the endpoint" sends an operator to `DATABASE_URL`
+    and the network, "the credential was refused" sends them to
+    `TURSO_AUTH_TOKEN`. One generic "database error" would send them nowhere.
+
+    `endpoint` carries the same sanitized value, for the same reason. What this
+    exception must never carry is the token itself -- naming the *setting* is the
+    entire message, and `app/db/database.py` redacts the driver's own text before
+    embedding it.
+    """
+
+    def __init__(self, endpoint: str, message: str) -> None:
+        self.endpoint = endpoint
+        super().__init__(message)

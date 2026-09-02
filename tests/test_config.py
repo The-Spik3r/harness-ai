@@ -249,3 +249,25 @@ def test_env_example_ships_no_token_value():
     text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
 
     assert re.search(r"(?m)^TURSO_AUTH_TOKEN=$", text), "TURSO_AUTH_TOKEN must be present and empty"
+
+
+# --- STORY-008: the build-time bootstrap switch is opt-in to disable ---
+
+
+def test_db_bootstrap_enabled_defaults_to_true():
+    """The guard is on unless something deliberately turns it off.
+
+    A default of False would make the escape hatch the norm and the guard the
+    exception -- the inversion PRD-007 Section 2 rejects ("a fallback that
+    silently writes audit rows to a local file no one reads is worse than a
+    failure"). Only the Dockerfile's builder stage may set it.
+    """
+    assert _settings(DATABASE_URL=_LOCAL_URL).DB_BOOTSTRAP_ENABLED is True
+
+
+def test_db_bootstrap_enabled_can_be_turned_off_for_the_build():
+    """STORY-014 sets this in the builder stage, where `reflex export` imports
+    chat_ui.chat_ui with no database reachable (PRD Section 11)."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, DB_BOOTSTRAP_ENABLED="false")
+
+    assert result.DB_BOOTSTRAP_ENABLED is False

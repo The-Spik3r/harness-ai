@@ -7,7 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
+from app.db import database
 from app.db.database import count_active_users, insert_user
+from app.db.errors import DatabaseUnreachableError
 from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
@@ -144,3 +146,28 @@ def test_lifespan_fails_fast_even_with_only_admin_token_configured(
     with pytest.raises(authz.RbacNotBootstrappedError):
         with TestClient(app):
             pass
+
+
+def test_lifespan_fails_when_the_database_is_unreachable(monkeypatch):
+    """STORY-008 AC1 and AC4 on the FastAPI path.
+
+    The distinction this test exists to make is *where* the failure happens.
+    tests/test_db.py already proves init_db() raises against a dead endpoint;
+    what matters here is that app.main's lifespan reaches it before the
+    application is serving, so uvicorn exits during startup instead of binding a
+    port and failing on the first POST /query -- the "boots, accepts queries,
+    drops audit rows" outcome the story was written against.
+    """
+    monkeypatch.setattr(settings, "DATABASE_URL", "http://127.0.0.1:1")
+    database._client = None
+    database._client_key = None
+
+    try:
+        with pytest.raises(DatabaseUnreachableError):
+            with TestClient(app):
+                pass
+    finally:
+        # The module-level `client` above shares this process's client; leaving
+        # it pointed at a dead endpoint would leak into every later test.
+        database._client = None
+        database._client_key = None

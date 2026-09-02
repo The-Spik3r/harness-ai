@@ -3,11 +3,18 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator, Optional
+from urllib.parse import urlsplit
 
 import libsql
 
 from app.config import settings
-from app.db.errors import IntegrityError, MissingRelationError, StorageError
+from app.db.errors import (
+    DatabaseAuthError,
+    DatabaseUnreachableError,
+    IntegrityError,
+    MissingRelationError,
+    StorageError,
+)
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
     CREATE_AUDIT_LOGS_TABLE,
@@ -269,6 +276,142 @@ def _is_duplicate_column(exc: StorageError, name: str) -> bool:
     return match is not None and match.group(1) == name
 
 
+# STORY-008. The credential can travel in the URL itself -- a libSQL endpoint
+# accepts `?authToken=...` -- so anything that quotes the URL in a message quotes
+# the token unless it is stripped first. `app/config.py:_scheme_of()` solves the
+# same problem by quoting the scheme alone; the guard needs one segment more,
+# because a message that says "cannot reach the database at libsql://" has not
+# told the operator which database.
+_AUTH_TOKEN_IN_URL = re.compile(r"(auth_?token=)[^&\s\"'`]+", re.IGNORECASE)
+_REDACTED = "***"
+
+
+def _safe_endpoint(url: str) -> str:
+    """`scheme://host[:port]` -- no userinfo, no path, no query, no fragment.
+
+    Everything a message is allowed to say about `DATABASE_URL`. The drop is
+    positive rather than subtractive (build from the parts that are safe, never
+    "remove the parts that are not"), so a URL shape nobody anticipated cannot
+    smuggle a credential through: anything unparseable degrades to the scheme.
+    """
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return "(unparseable DATABASE_URL)"
+
+    if not parts.scheme:
+        return "(unparseable DATABASE_URL)"
+
+    # `hostname` and `port` are the parsed pieces; `netloc` would carry any
+    # `user:password@` prefix straight into the message.
+    host = parts.hostname or ""
+    if not host:
+        return f"{parts.scheme}://"
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme}://{host}{port}"
+
+
+def _redacted(message: str) -> str:
+    """Driver text with the credential removed, in both forms it can take.
+
+    Belt and braces, deliberately. The driver formats the endpoint into its own
+    `http error:` text, so a token carried in the query string arrives inside a
+    message this module did not compose -- and a token configured through
+    `TURSO_AUTH_TOKEN` can be echoed back by a server that quotes what it was
+    sent. Neither is hypothetical enough to leave to chance: PRD Section 9 says
+    the credential is "never logged, never echoed in error messages", and
+    `tests/test_config.py:178` already treats the in-URL form as a real case.
+    """
+    scrubbed = _AUTH_TOKEN_IN_URL.sub(rf"\1{_REDACTED}", message)
+    token = settings.TURSO_AUTH_TOKEN.strip()
+    if token:
+        scrubbed = scrubbed.replace(token, _REDACTED)
+    return scrubbed
+
+
+# The two boot-time failures, told apart by message text for the same reason
+# `_MISSING_RELATION` above is: libSQL raises a bare `ValueError` for everything
+# and the unreachable case carries **no `code:` field at all** (STORY-006's
+# error-surface table), so there is no type and no code to branch on.
+#
+#   unreachable: `Hrana: `http error: error sending request for url
+#       (http://127.0.0.1:1/v2/pipeline): ... Connection refused``  -- verified
+#
+# The auth case is **not** verified against a live Turso: the suite runs against
+# a local libSQL primary, which takes no token and cannot produce a 401, and
+# PRD Section 12 makes "no account needed" non-negotiable for the test
+# infrastructure. These markers are therefore inference, and the fallback below
+# is chosen accordingly. STORY-014's first real deployment is where to confirm
+# them -- if the text differs, add the marker; the failure mode of a miss is a
+# still-legible unreachable message, not a wrong one.
+_AUTH_MARKERS = (
+    "401",
+    "unauthorized",
+    "authentication",
+    "auth token",
+    "auth_token",
+    "authtoken",
+    "invalid token",
+    "expired token",
+    "permission denied",
+)
+
+
+def _classify_startup_failure(exc: Exception, endpoint: str) -> StorageError:
+    """Which of the two boot-time failures this is, and what to tell an operator.
+
+    **Unclassified failures fall to unreachable, never to auth.** The asymmetry
+    is deliberate: telling an operator the endpoint is unreachable when the token
+    was actually rejected costs them one wrong guess before they check the token,
+    while telling them the token was rejected during a real outage sends them to
+    rotate a credential that was fine.
+    """
+    detail = _redacted(str(exc))
+    haystack = detail.lower()
+
+    if any(marker in haystack for marker in _AUTH_MARKERS):
+        return DatabaseAuthError(
+            endpoint,
+            f"TURSO_AUTH_TOKEN was rejected by the database at {endpoint}. The "
+            "endpoint answered; the credential did not authenticate. Check that "
+            "TURSO_AUTH_TOKEN matches the database named by DATABASE_URL and has "
+            f"not expired. Driver said: {detail}",
+        )
+
+    return DatabaseUnreachableError(
+        endpoint,
+        f"Cannot reach the database at {endpoint}. The application will not "
+        "start: PRD-007 removed the local-file fallback deliberately, so there "
+        "is nothing to degrade to. Check DATABASE_URL and that the endpoint is "
+        f"reachable from this host. Driver said: {detail}",
+    )
+
+
+def check_database_reachable() -> None:
+    """One round trip, at boot, so an unreachable database is not a runtime surprise.
+
+    PRD-007 Section 7.7. `_shared_client()` is lazy -- importing this module
+    connects to nothing -- so without this the first contact with the database is
+    whatever statement happens to run first, and for `insert_audit_log()` that is
+    a write the query pipeline treats as fire-and-forget. An audit trail that
+    silently stops recording is the failure this exists to prevent.
+
+    Deliberately **not** wrapped in `_translated()`. That helper exists to give
+    operational callers the module's error surface, and it re-raises anything
+    without the `Hrana:` prefix untouched -- correct there, wrong here, where the
+    guard's job is that *every* boot-time failure comes out classified and
+    legible rather than as a raw driver `ValueError`.
+
+    One statement, no transaction, no commit: a read needs neither, and
+    `_Connection.close()` is already a no-op because the client is shared.
+    """
+    endpoint = _safe_endpoint(settings.DATABASE_URL)
+    try:
+        get_connection().execute("SELECT 1").fetchone()
+    except Exception as exc:  # noqa: BLE001 -- every failure is classified below
+        raise _classify_startup_failure(exc, endpoint) from exc
+
+
 @contextmanager
 def _translated() -> Iterator[None]:
     """Driver exceptions in, app.db.errors exceptions out.
@@ -307,6 +450,25 @@ def _session() -> Iterator[_Connection]:
 
 
 def init_db() -> None:
+    """Create or migrate the schema -- and, first, prove the database answers.
+
+    **The guard lives here rather than in each entry point on purpose.** Every
+    boot path already calls this function and no other: `app/main.py`'s lifespan,
+    `chat_ui/chat_ui/chat_ui.py` at import time (Reflex's api_transformer never
+    runs the FastAPI lifespan), and `scripts/manage_users.py` in each command. A
+    guard each caller had to remember to invoke would be forgotten by the fourth
+    one, which is precisely the silent gap STORY-008 exists to close.
+
+    `DB_BOOTSTRAP_ENABLED` is the one sanctioned way out, and it exists for the
+    Docker builder stage alone: `reflex export` imports `chat_ui.chat_ui`, which
+    lands here, and PRD Section 11 requires the build to succeed with no
+    reachable database. See the setting's comment in `app/config.py` for why it
+    gates the schema work too and not just the probe.
+    """
+    if not settings.DB_BOOTSTRAP_ENABLED:
+        return
+
+    check_database_reachable()
     with _session() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
         _add_missing_columns(conn)

@@ -13,6 +13,7 @@ import pytest
 from app.config import settings
 from app.db import database
 from app.db.database import (
+    check_database_reachable,
     count_active_users,
     count_audit_logs,
     count_blocked_duplicates,
@@ -35,7 +36,13 @@ from app.db.database import (
     top_pii_entities,
     top_users,
 )
-from app.db.errors import IntegrityError, MissingRelationError, StorageError
+from app.db.errors import (
+    DatabaseAuthError,
+    DatabaseUnreachableError,
+    IntegrityError,
+    MissingRelationError,
+    StorageError,
+)
 from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
 
 
@@ -1513,3 +1520,224 @@ def test_concurrent_init_db_on_a_partially_migrated_database_converges(
     preserved = get_audit_log(1)
     assert preserved.user_id == "juan@empresa.com"
     assert preserved.pii_detected_input is False
+
+
+# --------------------------------------------------------------------------
+# STORY-008 -- the startup guard: fail fast, legibly, and without the token.
+# --------------------------------------------------------------------------
+
+#: A closed port on loopback. No DNS lookup and no route to wait on -- the
+#: connection is refused immediately, which is the unreachable case the guard is
+#: written against, at the lowest wall-clock cost available.
+_UNREACHABLE_URL = "http://127.0.0.1:1"
+
+#: Stands in for a real credential the way `tests/test_config.py`'s sentinel
+#: does. If it ever reaches a failure message, PRD Section 9 has been broken.
+_TOKEN_SENTINEL = "s3cret-turso-token-value"
+
+#: The unreachable message the driver actually produces, recorded verbatim by
+#: STORY-006 (report, error-surface table). Note the absent `code:` field, which
+#: is why the classifier reads message text and not a code.
+_REAL_UNREACHABLE_TEXT = (
+    "Hrana: `http error: error sending request for url "
+    "(http://127.0.0.1:1/v2/pipeline): client error (Connect): "
+    "tcp connect error: Connection refused (os error 111)`"
+)
+
+
+@pytest.fixture
+def _restore_shared_client():
+    """Drops the process-wide client after a test repoints DATABASE_URL.
+
+    `_shared_client()` keys on `(URL, token)` and rebuilds when either changes,
+    so this is belt and braces -- but a test that deliberately points the module
+    at a dead endpoint is the last place to rely on a cache invalidating itself.
+    """
+    yield
+    database._client = None
+    database._client_key = None
+
+
+@pytest.mark.parametrize(
+    "url, must_not_contain",
+    [
+        (f"libsql://db-org.turso.io?authToken={_TOKEN_SENTINEL}", _TOKEN_SENTINEL),
+        ("https://user:pw@db-org.turso.io/some/path", "pw"),
+        ("http://127.0.0.1:8080", "@"),
+    ],
+)
+def test_safe_endpoint_drops_query_userinfo_and_path(url, must_not_contain):
+    """AC3, structurally: the only part of DATABASE_URL a message may quote."""
+    safe = database._safe_endpoint(url)
+
+    assert must_not_contain not in safe
+    assert "?" not in safe and "@" not in safe
+    assert "db-org.turso.io" in safe or "127.0.0.1" in safe
+
+
+def test_safe_endpoint_keeps_the_port_so_the_message_identifies_the_database():
+    """AC1 wants the endpoint named. A scheme alone would not tell two apart."""
+    assert database._safe_endpoint("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+
+
+def test_safe_endpoint_degrades_rather_than_echoing_an_unparseable_url():
+    assert "not a url at all" not in database._safe_endpoint("not a url at all")
+
+
+def test_redacted_removes_a_token_carried_in_driver_text(monkeypatch):
+    """Both forms: the query-string parameter and the configured value itself."""
+    monkeypatch.setattr(settings, "TURSO_AUTH_TOKEN", _TOKEN_SENTINEL)
+    message = (
+        f"Hrana: `http error: url (libsql://db.turso.io?authToken={_TOKEN_SENTINEL}) "
+        f"rejected the credential {_TOKEN_SENTINEL}`"
+    )
+
+    scrubbed = database._redacted(message)
+
+    assert _TOKEN_SENTINEL not in scrubbed
+    assert "authToken=***" in scrubbed
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["401", "Unauthorized", "authentication failed", "invalid token", "expired token"],
+)
+def test_classify_names_the_token_setting_for_an_auth_failure(marker):
+    """AC2: an operator sent to the credential, not to the network."""
+    error = database._classify_startup_failure(
+        ValueError(f"Hrana: `api error: {marker}`"), "libsql://db-org.turso.io"
+    )
+
+    assert isinstance(error, DatabaseAuthError)
+    assert "TURSO_AUTH_TOKEN" in str(error)
+    assert error.endpoint == "libsql://db-org.turso.io"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [_REAL_UNREACHABLE_TEXT, "Hrana: `something nobody has seen before`"],
+)
+def test_classify_falls_back_to_unreachable(message):
+    """The real driver text, and an unrecognized failure.
+
+    The fallback direction is the assertion: an unclassifiable failure must not
+    accuse a credential that may be perfectly good.
+    """
+    error = database._classify_startup_failure(ValueError(message), "http://127.0.0.1:1")
+
+    assert isinstance(error, DatabaseUnreachableError)
+    assert "DATABASE_URL" in str(error)
+    assert "http://127.0.0.1:1" in str(error)
+
+
+@pytest.mark.parametrize("marker", ["401 Unauthorized", "Connection refused"])
+def test_no_guard_message_ever_echoes_the_token(marker, monkeypatch):
+    """AC3 on both branches, with the token in all three places it can hide: the
+    setting, the URL the driver quotes back, and the driver's own text."""
+    monkeypatch.setattr(settings, "TURSO_AUTH_TOKEN", _TOKEN_SENTINEL)
+    url = f"libsql://db-org.turso.io?authToken={_TOKEN_SENTINEL}"
+    driver_text = f"Hrana: `http error: url ({url}) {marker} for {_TOKEN_SENTINEL}`"
+
+    error = database._classify_startup_failure(
+        ValueError(driver_text), database._safe_endpoint(url)
+    )
+
+    assert _TOKEN_SENTINEL not in str(error)
+    assert _TOKEN_SENTINEL not in error.endpoint
+
+
+def test_init_db_fails_fast_against_an_unreachable_endpoint(
+    monkeypatch, _restore_shared_client
+):
+    """AC1: the boot path raises rather than returning and failing later.
+
+    `http://` passes STORY-005's validator (it is the local-dev scheme), so what
+    fails here is this story's guard and not the configuration check -- the
+    exception type is the proof.
+    """
+    monkeypatch.setattr(settings, "DATABASE_URL", _UNREACHABLE_URL)
+    database._client = None
+    database._client_key = None
+
+    with pytest.raises(DatabaseUnreachableError) as exc_info:
+        init_db()
+
+    assert "DATABASE_URL" in str(exc_info.value)
+    assert "127.0.0.1:1" in str(exc_info.value)
+
+
+def test_guard_issues_exactly_one_extra_statement(temp_db, monkeypatch):
+    """AC5: one round trip, not a handshake-plus-retry loop.
+
+    Same recording-proxy idiom as
+    `test_init_db_issues_no_alter_when_schema_is_current`.
+    """
+    statements: list[str] = []
+    real_get_connection = database.get_connection
+
+    class _RecordingConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    monkeypatch.setattr(
+        database,
+        "get_connection",
+        lambda: _RecordingConnection(real_get_connection()),
+    )
+
+    check_database_reachable()
+
+    assert statements == ["SELECT 1"]
+
+
+def test_guard_does_not_run_outside_init_db(temp_db, monkeypatch):
+    """AC7: startup, not liveness.
+
+    After a successful start the guard must never fire again -- if a later
+    version wired a reachability check into the operational path, this booby
+    trap would spring on the first ordinary write or read.
+    """
+
+    def _explode() -> None:
+        raise AssertionError("the guard re-fired outside init_db()")
+
+    monkeypatch.setattr(database, "check_database_reachable", _explode)
+
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-01T10:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="abc123",
+            prompt_preview="hola",
+            model_used="gpt-4",
+        )
+    )
+
+    assert count_audit_logs() == 1
+
+
+def test_bootstrap_disabled_skips_the_guard_and_the_schema(
+    monkeypatch, _restore_shared_client
+):
+    """The Docker builder stage's case: import the app with no database at all.
+
+    PRD Section 11 requires the build to succeed without a reachable database,
+    and `reflex export` imports `chat_ui.chat_ui`, which calls `init_db()`.
+    """
+    monkeypatch.setattr(settings, "DATABASE_URL", _UNREACHABLE_URL)
+    monkeypatch.setattr(settings, "DB_BOOTSTRAP_ENABLED", False)
+    database._client = None
+    database._client_key = None
+
+    init_db()  # must not raise, and must not have reached the network
