@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-013-data-migration-script.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: pending
+commit: 74cd352
 status: COMPLETE
 completed: 2026-09-02
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-02
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-013-data-migration-script.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: pending (recorded by the follow-up chore commit)
+**Commit**: `74cd352`
 
 ## Summary
 

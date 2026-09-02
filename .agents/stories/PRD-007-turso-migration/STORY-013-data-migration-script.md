@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "4 - Data migration and cutover"
-status: todo
+status: done
 labels: [backend, migration, tooling, compliance]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-013-data-migration-script.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-013-data-migration-script.report.md
+commit: 74cd352
 depends_on: [STORY-006]
 blocks: [STORY-014]
 skills: []
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # STORY-013: scripts/migrate_to_turso.py: copy audit_logs and users with verification and a rollback point
