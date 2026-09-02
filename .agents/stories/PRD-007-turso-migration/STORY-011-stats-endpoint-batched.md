@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "3 - Network-cost remediation"
-status: todo
+status: done
 labels: [backend, api, performance, admin]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-011-stats-endpoint-batched.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-011-stats-endpoint-batched.report.md
 commit: null
 depends_on: [STORY-010]
 blocks: []
 skills: []
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # STORY-011: GET /stats consumes the batched read instead of nine sequential calls
