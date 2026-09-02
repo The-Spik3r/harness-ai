@@ -22,8 +22,15 @@ jobs:
           SQLD_NODE: primary
         ports:
           - 8080:8080
+        # The probe is a bash TCP connect, not `curl`: this image ships no
+        # curl and no wget (only /bin/bash and /bin/sh), so a curl health-cmd
+        # fails with "command not found" on every retry and the job aborts
+        # before pytest ever runs. sqld binds 8080 only once its HTTP server is
+        # serving, so a successful connect means ready. The endpoint itself is
+        # verified a second time, and far more loudly, by the session fixture in
+        # tests/conftest.py.
         options: >-
-          --health-cmd "curl -sf http://127.0.0.1:8080/health || exit 1"
+          --health-cmd "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
