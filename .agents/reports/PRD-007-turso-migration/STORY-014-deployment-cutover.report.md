@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-014-deployment-cutover.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: TBD
+commit: fd9ab85
 status: COMPLETE
 completed: 2026-09-02
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-02
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-014-deployment-cutover.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `TBD`
+**Commit**: `fd9ab85`
 
 ## Summary
 
