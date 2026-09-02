@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "4 - Data migration and cutover"
-status: todo
+status: done
 labels: [infra, docker, deployment, security]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-014-deployment-cutover.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-014-deployment-cutover.report.md
 commit: null
 depends_on: [STORY-006, STORY-008, STORY-013]
 blocks: [STORY-015, STORY-016]
 skills: []
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # STORY-014: Cutover: remove the harness_data volume, the build placeholder, and harness_ai.db
