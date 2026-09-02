@@ -12,7 +12,7 @@ labels: [ui, reflex, state, admin, performance]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-012-admin-console-batched-reads.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-012-admin-console-batched-reads.report.md
-commit: null
+commit: 784567a
 depends_on: [STORY-010]
 blocks: []
 skills: [reflex-docs]

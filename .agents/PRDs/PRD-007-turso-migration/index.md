@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | STORY-009 | Aggregate top_pii_entities() in SQL instead of transferring every PII-bearing row | enhancement | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md) | `f60471c` |
 | STORY-010 | One batched database read returning all ten summary figures in a single round trip | feature | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md) | `b592264` |
 | STORY-011 | GET /stats consumes the batched read instead of nine sequential calls | enhancement | ⬜ todo | small | — | — |
-| STORY-012 | AdminState._READS consumes the batched read, preserving per-figure failure attribution | enhancement | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-012-admin-console-batched-reads.plan.md) | `PENDING` |
+| STORY-012 | AdminState._READS consumes the batched read, preserving per-figure failure attribution | enhancement | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-012-admin-console-batched-reads.plan.md) | `784567a` |
 | STORY-013 | scripts/migrate_to_turso.py: copy audit_logs and users with verification and a rollback point | feature | ⬜ todo | medium | — | — |
 | STORY-014 | Cutover: remove the harness_data volume, the build placeholder, and harness_ai.db | technical | ⬜ todo | small | — | — |
 | STORY-015 | README: correct the persistence claim, the env table, and document multi-instance deployment | technical | ⬜ todo | small | — | — |
