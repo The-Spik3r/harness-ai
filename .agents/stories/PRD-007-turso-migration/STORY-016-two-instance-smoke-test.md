@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Data migration and cutover"
-status: todo
+status: done
 labels: [tests, integration, concurrency, deployment]
 epic_branch: epic/PRD-007-turso-migration
-plan: null
-report: null
+plan: .agents/plans/PRD-007-turso-migration/completed/STORY-016-two-instance-smoke-test.plan.md
+report: .agents/reports/PRD-007-turso-migration/STORY-016-two-instance-smoke-test.report.md
 commit: null
 depends_on: [STORY-007, STORY-014]
 blocks: []
 skills: []
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # STORY-016: Prove two instances share one database: concurrent writes, cross-instance duplicate detection, no lost rows
