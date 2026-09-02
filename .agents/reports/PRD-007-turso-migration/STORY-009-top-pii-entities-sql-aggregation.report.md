@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: TBD
+commit: f60471c
 status: COMPLETE
 completed: 2026-09-01
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-01
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `TBD`
+**Commit**: `f60471c`
 
 ## Summary
 

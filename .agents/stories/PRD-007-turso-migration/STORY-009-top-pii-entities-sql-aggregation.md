@@ -12,7 +12,7 @@ labels: [backend, database, performance, pii]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-009-top-pii-entities-sql-aggregation.report.md
-commit: null
+commit: f60471c
 depends_on: [STORY-006]
 blocks: [STORY-010]
 skills: []

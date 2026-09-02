@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-007-turso-migration`. No per-sto
 | STORY-006 | Swap app/db/database.py onto a shared libSQL client, preserving all 22 public signatures | feature | ✅ done | large | [plan](../../plans/PRD-007-turso-migration/completed/STORY-006-libsql-connection-layer.plan.md) | `86ece73` |
 | STORY-007 | Make init_db() and _add_missing_columns() converge under concurrent multi-instance startup | technical | ✅ done | medium | [plan](../../plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md) | `efdb114` |
 | STORY-008 | Fail fast and legibly when the database is unreachable or the token is missing | feature | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md) | `c924b32` |
-| STORY-009 | Aggregate top_pii_entities() in SQL instead of transferring every PII-bearing row | enhancement | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md) | `SHAHERE` |
+| STORY-009 | Aggregate top_pii_entities() in SQL instead of transferring every PII-bearing row | enhancement | ✅ done | small | [plan](../../plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md) | `f60471c` |
 | STORY-010 | One batched database read returning all ten summary figures in a single round trip | feature | ⬜ todo | medium | — | — |
 | STORY-011 | GET /stats consumes the batched read instead of nine sequential calls | enhancement | ⬜ todo | small | — | — |
 | STORY-012 | AdminState._READS consumes the batched read, preserving per-figure failure attribution | enhancement | ⬜ todo | medium | — | — |
