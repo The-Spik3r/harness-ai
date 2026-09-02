@@ -12,7 +12,7 @@ labels: [tests, integration, concurrency, deployment]
 epic_branch: epic/PRD-007-turso-migration
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-016-two-instance-smoke-test.plan.md
 report: .agents/reports/PRD-007-turso-migration/STORY-016-two-instance-smoke-test.report.md
-commit: null
+commit: 153d2f3
 depends_on: [STORY-007, STORY-014]
 blocks: []
 skills: []

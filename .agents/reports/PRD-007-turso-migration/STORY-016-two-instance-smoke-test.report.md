@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-007
 plan: .agents/plans/PRD-007-turso-migration/completed/STORY-016-two-instance-smoke-test.plan.md
 epic_branch: epic/PRD-007-turso-migration
-commit: PENDING
+commit: 153d2f3
 status: COMPLETE
 completed: 2026-09-02
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-02
 
 **Plan**: `.agents/plans/PRD-007-turso-migration/completed/STORY-016-two-instance-smoke-test.plan.md`
 **Epic Branch**: `epic/PRD-007-turso-migration`
-**Commit**: `PENDING`
+**Commit**: `153d2f3`
 
 ## Summary
 
