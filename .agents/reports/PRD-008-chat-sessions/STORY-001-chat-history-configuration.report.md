@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: pending
+commit: 8830745
 status: COMPLETE
 completed: 2026-09-03
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-03
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `pending` (recorded by the follow-up chore commit, per the PRD-007 precedent `bb12176`)
+**Commit**: `8830745`
 
 ## Summary
 

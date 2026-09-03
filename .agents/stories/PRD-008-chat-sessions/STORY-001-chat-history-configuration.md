@@ -12,7 +12,7 @@ labels: [backend, config, security]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-001-chat-history-configuration.report.md
-commit: null
+commit: 8830745
 depends_on: []
 blocks: [STORY-006]
 skills: []

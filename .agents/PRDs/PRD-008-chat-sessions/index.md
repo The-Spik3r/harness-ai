@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | CHAT_HISTORY_ENABLED and CHAT_SESSION_LIMIT settings, with the off state documented as supported | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md) | `pending` |
+| STORY-001 | CHAT_HISTORY_ENABLED and CHAT_SESSION_LIMIT settings, with the off state documented as supported | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md) | `8830745` |
 | STORY-002 | chat_sessions and chat_messages DDL and dataclasses in app/db/models.py | feature | ⬜ todo | small | — | — |
 | STORY-003 | init_db() creates both transcript tables and converges the audit_logs.session_id column | technical | ⬜ todo | small | — | — |
 | STORY-004 | Six user-scoped chat_sessions functions in database.py, with delete as one transaction | feature | ⬜ todo | medium | — | — |
