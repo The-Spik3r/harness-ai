@@ -1,8 +1,10 @@
-"""The six chat_sessions functions from PRD-008 STORY-004.
+"""The chat store from PRD-008: STORY-004's six session functions and
+STORY-005's three message functions.
 
-STORY-005 extends **this file** with the message-store round trips
-(`append_chat_message`, `list_chat_messages`, `count_chat_sessions`) -- add to it
-rather than opening a third suite over the same two tables.
+STORY-005 extended **this file** with the message-store round trips
+(`append_chat_message`, `list_chat_messages`, `count_chat_sessions`) rather than
+opening a third suite over the same two tables, as the STORY-004 docstring here
+directed. The two stories' cases are kept in labelled sections below.
 
 What this file does not do is enumerate the ownership rule structurally for the
 whole surface. STORY-007 owns `tests/test_session_ownership.py`, which discovers
@@ -22,20 +24,24 @@ import pytest
 from app.db import database
 from app.db.database import (
     _TIMESTAMP_FORMAT,
+    append_chat_message,
     count_audit_logs,
+    count_chat_sessions,
     create_chat_session,
     delete_chat_session,
     get_chat_session,
     get_connection,
     insert_audit_log,
     insert_user,
+    list_chat_messages,
     list_chat_sessions,
     rename_chat_session,
     touch_chat_session,
 )
-from app.db.models import AuditLog, ChatSession, User
+from app.db.errors import StorageError
+from app.db.models import AuditLog, ChatSession, StoredMessage, User
 
-#: The surface this story adds, in the order PRD Section 4 lists it.
+#: The surface STORY-004 added, in the order PRD Section 4 lists it.
 THE_SIX = (
     "create_chat_session",
     "get_chat_session",
@@ -43,6 +49,30 @@ THE_SIX = (
     "rename_chat_session",
     "touch_chat_session",
     "delete_chat_session",
+)
+
+#: The surface STORY-005 adds, in the order the story lists it.
+THE_THREE = (
+    "append_chat_message",
+    "list_chat_messages",
+    "count_chat_sessions",
+)
+
+#: The seven bubble kinds `chat_ui/chat_ui/models.py` renders, each paired with
+#: the metadata PRD Section 6's table gives it. Named here rather than inline so
+#: that a kind added to the UI without a store round trip is one obvious edit.
+#:
+#: Deliberately a literal list and not an import from `chat_ui/`: `app/` has
+#: never imported the UI package and this story does not start (STORY-005
+#: technical notes). Keeping the kinds as strings is what preserves that.
+SEVEN_KINDS = (
+    ("user", {"prompt": "what is the retention policy?"}),
+    ("assistant", {"model_used": "anthropic/claude-3", "tokens_used": 412}),
+    ("duplicate", {"first_query_at": "2026-09-03T09:58:00Z"}),
+    ("injection", {"pattern": "ignore previous instructions"}),
+    ("forbidden", {"required_permission": "query:submit"}),
+    ("upstream_error", {"detail": "502 from openrouter"}),
+    ("internal_error", {"detail": "unhandled in run_query"}),
 )
 
 
@@ -88,9 +118,13 @@ def _set_updated_at(session_id: str, value: str) -> None:
 def _add_message(session_id: str, content: str) -> None:
     """One `chat_messages` row, written directly.
 
-    Deliberately not through `append_chat_message`: that function is STORY-005
-    and does not exist yet, and STORY-004's delete semantics must be verifiable
-    without it.
+    Deliberately not through `append_chat_message`. When STORY-004 wrote this
+    that function did not exist; now that it does, the helper is **kept** rather
+    than replaced, so STORY-004's delete semantics stay verifiable without
+    depending on STORY-005's write path. A test that used the new function to set
+    up the old one's fixtures would fail for two different reasons and say which
+    only by luck. `test_delete_chat_session_removes_messages_written_through_append`
+    below asserts the two paths agree.
     """
     with get_connection() as conn:
         conn.execute(
@@ -496,3 +530,433 @@ def test_two_users_see_nothing_of_each_others_sessions(temp_db):
     assert survivor is not None
     assert survivor.title == "Ana private"
     assert _count_messages(ana_session) == 1
+
+
+# ==========================================================================
+# STORY-005 -- append_chat_message, list_chat_messages, count_chat_sessions
+# ==========================================================================
+
+
+def _stored(session_id: str, kind: str = "user", **overrides) -> StoredMessage:
+    """One `StoredMessage` with sane defaults, so a round trip is one call.
+
+    `content` defaults off `kind` rather than to a constant, so a failure message
+    names the kind that broke without the test having to say so twice.
+    """
+    fields = {"session_id": session_id, "kind": kind, "content": f"{kind} content"}
+    fields.update(overrides)
+    return StoredMessage(**fields)
+
+
+def _seeded_session(user_id: str = "ana", title: str = "a chat") -> str:
+    """Two real users plus one session owned by `user_id`."""
+    _seed_users()
+    return create_chat_session(user_id, title)
+
+
+# --------------------------------------------------------------------------
+# AC 1, AC 2 and AC 3 -- statements about the module, no database needed
+# --------------------------------------------------------------------------
+
+
+def test_the_three_message_functions_are_declared():
+    """AC 1."""
+    for name in THE_THREE:
+        assert hasattr(database, name), name
+        assert callable(getattr(database, name)), name
+
+
+def test_every_message_signature_requires_an_undefaulted_user_id():
+    """AC 2, and PRD Risk 2's mitigation applied to this story's three: the rule
+    lives in the signature, so an omission is a `TypeError` at the call site
+    rather than a leak at runtime."""
+    for name in THE_THREE:
+        parameters = inspect.signature(getattr(database, name)).parameters
+        assert "user_id" in parameters, name
+        user_id = parameters["user_id"]
+        assert user_id.default is inspect.Parameter.empty, name
+        assert user_id.annotation is str, name
+        assert user_id.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD, name
+
+
+def test_omitting_user_id_is_a_type_error_on_the_message_functions():
+    """AC 2, exercised. The difference between a leak and a crash."""
+    for name in THE_THREE:
+        with pytest.raises(TypeError):
+            getattr(database, name)()
+
+
+def test_every_message_statement_scopes_on_user_id():
+    """AC 2, the SQL half.
+
+    **All three, `append_chat_message` included** -- unlike `create_chat_session`,
+    which `test_every_statement_over_existing_rows_scopes_on_user_id` above has to
+    exclude because a bare INSERT has no `WHERE` clause to put the owner in. This
+    story's INSERT carries a `WHERE EXISTS`, so it genuinely scopes and needs no
+    exemption. The difference between the two inserts is the point: one mints a
+    row it owns by construction, the other writes into a row someone else already
+    owns and must prove the caller is that someone.
+    """
+    for name in THE_THREE:
+        assert "user_id = ?" in _statements_of(name), name
+
+
+def test_list_chat_messages_orders_by_id_and_not_by_a_timestamp():
+    """AC 3, as a statement inspection.
+
+    The negative half is the one that catches the regression: an `ORDER BY
+    created_at` would still return rows, in an order that looks right in every
+    test whose messages land in distinct seconds.
+    """
+    statements = _statements_of("list_chat_messages")
+    assert "ORDER BY id ASC" in statements
+    assert "ORDER BY created_at" not in statements
+    assert "ORDER BY timestamp" not in statements
+
+
+def test_list_chat_messages_takes_no_limit_parameter():
+    """The story's "do not add a `limit`" note, pinned.
+
+    A partial transcript is a wrong transcript, and nothing on screen would say
+    it was partial. PRD Section 4 caps sessions, not messages within one.
+    """
+    parameters = inspect.signature(list_chat_messages).parameters
+    assert set(parameters) == {"session_id", "user_id"}
+    assert "LIMIT" not in _statements_of("list_chat_messages")
+
+
+# --------------------------------------------------------------------------
+# AC 4 -- order is the key, not the clock
+# --------------------------------------------------------------------------
+
+
+def test_twenty_messages_appended_in_one_second_read_back_in_order(temp_db):
+    """AC 4. Twenty messages sharing one `created_at` to the second.
+
+    This is the case a timestamp sort gets wrong, and the reason AC 3 is written
+    as a statement inspection *and* a behavioural test: a sort on a tied column
+    is not deterministic, so a passing run proves nothing on its own.
+    """
+    session_id = _seeded_session()
+    one_instant = "2026-09-03T10:00:00Z"
+    for index in range(20):
+        append_chat_message(
+            _stored(session_id, content=f"message {index:02d}", created_at=one_instant),
+            session_id,
+            "ana",
+        )
+
+    restored = list_chat_messages(session_id, "ana")
+
+    assert [message.content for message in restored] == [
+        f"message {index:02d}" for index in range(20)
+    ]
+    assert {message.created_at for message in restored} == {one_instant}
+
+
+def test_append_returns_the_new_row_id_and_ids_increase(temp_db):
+    """The `int` coming back is the row's key, and the key is the order."""
+    session_id = _seeded_session()
+
+    first = append_chat_message(_stored(session_id), session_id, "ana")
+    second = append_chat_message(_stored(session_id), session_id, "ana")
+
+    assert isinstance(first, int)
+    assert second > first
+    assert [message.id for message in list_chat_messages(session_id, "ana")] == [
+        first,
+        second,
+    ]
+
+
+# --------------------------------------------------------------------------
+# AC 7 and AC 8 -- every kind, every field
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind,metadata", SEVEN_KINDS, ids=[k for k, _ in SEVEN_KINDS])
+def test_each_of_the_seven_kinds_round_trips_unchanged(temp_db, kind, metadata):
+    """AC 7 and AC 8.
+
+    Parametrized rather than looped so that a failure names the kind that broke.
+    A single representative kind would pass while `pattern`, `required_permission`
+    or `first_query_at` were silently dropped -- each is carried by exactly one
+    kind, and a bubble that restores without its metadata renders through the same
+    `rx.match` with its evidence missing.
+    """
+    session_id = _seeded_session()
+    written = _stored(session_id, kind, created_at="2026-09-03T10:00:00Z", **metadata)
+
+    append_chat_message(written, session_id, "ana")
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    for field_name in (
+        "session_id",
+        "kind",
+        "content",
+        "prompt",
+        "model_used",
+        "tokens_used",
+        "audit_id",
+        "pii_redacted",
+        "pii_entities",
+        "pattern",
+        "required_permission",
+        "first_query_at",
+        "detail",
+        "created_at",
+    ):
+        assert getattr(restored, field_name) == getattr(written, field_name), field_name
+
+
+def test_tokens_used_and_audit_id_round_trip_as_integers(temp_db):
+    """AC 7. Integers, and `None` that stays `None`.
+
+    `isinstance` rather than `==` alone: a driver handing back `"412"` compares
+    unequal and would be caught, but one handing back `412.0` would not.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", tokens_used=1234, audit_id=99),
+        session_id,
+        "ana",
+    )
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.tokens_used == 1234
+    assert isinstance(restored.tokens_used, int)
+    assert restored.audit_id == 99
+    assert isinstance(restored.audit_id, int)
+
+
+def test_absent_tokens_used_and_audit_id_read_back_as_none_not_zero(temp_db):
+    """The half the previous test cannot cover.
+
+    An `int()` coercion in the row mapper would turn a genuine `NULL` into `0`,
+    which reads as "this turn used zero tokens" rather than "this turn never
+    called a model" -- and `0` is a legitimate value, so nothing downstream could
+    tell the two apart afterwards.
+    """
+    session_id = _seeded_session()
+    append_chat_message(_stored(session_id, "user"), session_id, "ana")
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.tokens_used is None
+    assert restored.audit_id is None
+
+
+@pytest.mark.parametrize(
+    "written,expected",
+    [(None, None), ("", None), ("EMAIL,PHONE", "EMAIL,PHONE")],
+    ids=["none", "empty-string", "two-entities"],
+)
+def test_empty_pii_entities_stores_null_and_reads_back_as_none(
+    temp_db, written, expected
+):
+    """AC 7's `pii_entities` clause, and the bug the story names by hand.
+
+    `",".join([])` is `""`, and `"".split(",")` is `[""]` -- one phantom entity on
+    a message that had none. It would surface in STORY-015, on the rehydration
+    into `ChatMessage`, as a PII badge on a clean bubble. `append_chat_message`
+    normalizes `""` to `NULL` so the split upstream is never handed an empty
+    string, which is the same guard `app/services/audit_logger.py:45` applies to
+    the audit row.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", pii_entities=written), session_id, "ana"
+    )
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.pii_entities == expected
+    assert restored.pii_entities != ""
+
+
+def test_pii_redacted_round_trips_as_a_bool(temp_db):
+    """The one column the row mapper coerces.
+
+    `is True` / `is False` rather than a truthiness check: the column is INTEGER,
+    so a mapper that forgot `bool()` would hand back `1` and pass every `assert
+    restored.pii_redacted` ever written.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", content="redacted", pii_redacted=True),
+        session_id,
+        "ana",
+    )
+    append_chat_message(
+        _stored(session_id, "assistant", content="clean", pii_redacted=False),
+        session_id,
+        "ana",
+    )
+
+    redacted, clean = list_chat_messages(session_id, "ana")
+
+    assert redacted.pii_redacted is True
+    assert clean.pii_redacted is False
+
+
+def test_append_stamps_created_at_when_omitted_and_keeps_it_when_given(temp_db):
+    """Both arms of `StoredMessage.created_at`'s "stamps it when omitted"."""
+    session_id = _seeded_session()
+    append_chat_message(_stored(session_id, content="stamped"), session_id, "ana")
+    append_chat_message(
+        _stored(session_id, content="given", created_at="2020-01-01T00:00:00Z"),
+        session_id,
+        "ana",
+    )
+
+    stamped, given = list_chat_messages(session_id, "ana")
+
+    assert given.created_at == "2020-01-01T00:00:00Z"
+    assert stamped.created_at is not None
+    # Parses under the module's own format, which is the claim that matters --
+    # a stamp in another shape would sort and display wrong everywhere else.
+    datetime.strptime(stamped.created_at, _TIMESTAMP_FORMAT)
+
+
+# --------------------------------------------------------------------------
+# AC 5 and AC 6 -- the ownership rule, exercised
+# --------------------------------------------------------------------------
+
+
+def test_list_chat_messages_returns_empty_for_a_foreign_owner(temp_db):
+    """AC 5. Empty list, not the rows, and not an exception.
+
+    `bob` is a real account (`_seed_users`), so this passes only because the
+    subselect scopes -- not because the id is unknown.
+    """
+    session_id = _seeded_session()
+    for index in range(3):
+        append_chat_message(
+            _stored(session_id, content=f"m{index}"), session_id, "ana"
+        )
+
+    assert list_chat_messages(session_id, "bob") == []
+    assert len(list_chat_messages(session_id, "ana")) == 3
+
+
+def test_append_for_a_foreign_owner_writes_nothing_and_raises(temp_db):
+    """AC 6. The failure is visible, and the table is untouched.
+
+    A silent no-op here would look like a working write in STORY-014's degraded
+    arm: the bubble stays on screen, no notice appears, and the turn is gone on
+    the next reload.
+    """
+    session_id = _seeded_session()
+
+    with pytest.raises(StorageError):
+        append_chat_message(_stored(session_id), session_id, "bob")
+
+    assert _count_messages(session_id) == 0
+    assert list_chat_messages(session_id, "ana") == []
+
+
+def test_append_to_an_unknown_session_raises_the_same_way(temp_db):
+    """The two refusals are not distinguishable, and that is deliberate.
+
+    A caller able to tell "no such session" from "someone else's session" has a
+    membership oracle over other people's session ids -- the same reason
+    `get_chat_session` returns `None` for both rather than raising two things.
+    AC 6 requires the failure to be *visible*; it does not require it to be
+    *informative*, and this test fails if someone later "improves" the message by
+    naming which case occurred.
+    """
+    session_id = _seeded_session()
+
+    with pytest.raises(StorageError) as foreign:
+        append_chat_message(_stored(session_id), session_id, "bob")
+    with pytest.raises(StorageError) as unknown:
+        append_chat_message(_stored("no-such-session"), "no-such-session", "ana")
+
+    assert type(unknown.value) is type(foreign.value)
+    assert str(unknown.value) == str(foreign.value)
+
+
+def test_append_ignores_the_session_id_on_the_message(temp_db):
+    """The `StoredMessage.session_id` field is never read.
+
+    Two candidate values, one winner. If the dataclass field were what got
+    written, the `WHERE EXISTS` would have checked ana's session while the row
+    landed in bob's -- an ownership check that passes and a row that goes
+    somewhere else entirely.
+    """
+    _seed_users()
+    ana_session = create_chat_session("ana", "ana's chat")
+    bob_session = create_chat_session("bob", "bob's chat")
+
+    append_chat_message(
+        _stored(bob_session, content="smuggled"), ana_session, "ana"
+    )
+
+    (landed,) = list_chat_messages(ana_session, "ana")
+    assert landed.content == "smuggled"
+    assert landed.session_id == ana_session
+    assert list_chat_messages(bob_session, "bob") == []
+
+
+def test_delete_chat_session_removes_messages_written_through_append(temp_db):
+    """STORY-004's delete and STORY-005's write agree.
+
+    `_add_message` above writes rows directly because `append_chat_message` did
+    not exist when STORY-004 was written. It does now, and a transcript written
+    through the real path must be just as deletable as one inserted by hand --
+    otherwise "delete removes the messages" is only true of the fixture.
+    """
+    session_id = _seeded_session()
+    for index in range(3):
+        append_chat_message(
+            _stored(session_id, content=f"m{index}"), session_id, "ana"
+        )
+    assert _count_messages(session_id) == 3
+
+    assert delete_chat_session(session_id, "ana") is True
+
+    assert _count_messages(session_id) == 0
+
+
+# --------------------------------------------------------------------------
+# count_chat_sessions -- a true total, so the rail can state its cap
+# --------------------------------------------------------------------------
+
+
+def test_count_chat_sessions_counts_only_the_callers_own(temp_db):
+    _seed_users()
+    for index in range(3):
+        create_chat_session("ana", f"ana {index}")
+    for index in range(2):
+        create_chat_session("bob", f"bob {index}")
+
+    assert count_chat_sessions("ana") == 3
+    assert count_chat_sessions("bob") == 2
+
+
+def test_count_chat_sessions_is_zero_for_an_unknown_user(temp_db):
+    """Zero, not an exception. An account with no chats is an ordinary state --
+    it is what every account looks like on its first visit."""
+    _seed_users()
+
+    assert count_chat_sessions("nobody") == 0
+
+
+def test_count_chat_sessions_ignores_the_list_limit(temp_db):
+    """The reason this function exists at all.
+
+    `len(list_chat_sessions(user_id))` can never exceed the limit it was called
+    with, so a capped list reports "50 of 50" for an account with fifty-two
+    sessions and for one with two hundred, identically. The rail needs the number
+    the cap is being stated *against*, the way PRD-006's register says "100 most
+    recent of 3,180".
+    """
+    _seed_users()
+    for index in range(52):
+        create_chat_session("ana", f"ana {index}")
+
+    listed = list_chat_sessions("ana")
+
+    assert len(listed) == 50
+    assert count_chat_sessions("ana") == 52

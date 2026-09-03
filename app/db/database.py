@@ -29,6 +29,7 @@ from app.db.models import (
     CREATE_USERS_TOKEN_HASH_INDEX,
     AuditLog,
     ChatSession,
+    StoredMessage,
     User,
 )
 
@@ -1398,3 +1399,202 @@ def delete_chat_session(session_id: str, user_id: str) -> bool:
             (session_id, user_id),
         )
         return cursor.rowcount == 1
+
+
+def _row_to_stored_message(row: _Row) -> StoredMessage:
+    """One `chat_messages` row as the dataclass STORY-002 declared.
+
+    **`pii_redacted` is the only coercion, and it is the only one that belongs
+    here.** It is `INTEGER NOT NULL DEFAULT 0` in the DDL against a `bool` field,
+    the same shape `users.active` has -- so it gets the same `bool()` that
+    `_row_to_user` gives that column, and for the same reason.
+
+    `tokens_used` and `audit_id` are pointedly *not* coerced. Both are `INTEGER`
+    columns against `Optional[int]` fields, and an `int()` around them would turn
+    a genuine `NULL` into `0` -- a lie on a bubble that never called a model, and
+    indistinguishable from a real zero-token response. The driver returns Python
+    integers for INTEGER columns already; there is nothing to convert and
+    everything to lose by converting.
+    """
+    return StoredMessage(
+        session_id=row["session_id"],
+        kind=row["kind"],
+        content=row["content"],
+        prompt=row["prompt"],
+        model_used=row["model_used"],
+        tokens_used=row["tokens_used"],
+        audit_id=row["audit_id"],
+        pii_redacted=bool(row["pii_redacted"]),
+        pii_entities=row["pii_entities"],
+        pattern=row["pattern"],
+        required_permission=row["required_permission"],
+        first_query_at=row["first_query_at"],
+        detail=row["detail"],
+        created_at=row["created_at"],
+        id=row["id"],
+    )
+
+
+def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -> int:
+    """Writes one message into an owned session and returns its new `id`.
+
+    **One statement, not two.** The ownership check is the `WHERE EXISTS` on the
+    INSERT itself, so the database decides "does this session exist and belong to
+    this caller" and "write the row" in a single evaluation. A `get_chat_session`
+    followed by an INSERT would be two statements over a table whose id comes
+    from `ChatState.active_session_id` -- a Reflex state var, serialized to the
+    client and mutable by client-originated events (PRD-008 Risk 3). Between the
+    read and the write the session can be deleted or, in a two-instance
+    deployment, re-created; one statement has no such window.
+
+    **`session_id` and `user_id` are the parameters, and `message.session_id` is
+    never read.** `StoredMessage` carries a `session_id` field of its own, so
+    there are two candidate values and only one may win. The parameter wins in
+    *both* places -- the column written and the `EXISTS` predicate -- because
+    reading one value twice is what makes it impossible to check ownership
+    against one session and file the row under another. A caller that hands in a
+    `StoredMessage` built for someone else's session gets it written to the
+    session they were authorized for, or gets an exception; never a row smuggled
+    sideways.
+
+    **A foreign session and an unknown session raise the same exception with the
+    same message.** `get_chat_session` returns `None` for both cases so that no
+    caller can tell "yours but missing" from "someone else's" -- a distinction
+    that is a membership oracle over other people's session ids. AC 6 requires a
+    *visible* failure here rather than a `None`, since the return type is the new
+    row id and a silent no-op would read as a successful write in STORY-014's
+    degraded arm. Visible is not the same as informative: it raises, and it says
+    the same thing either way.
+
+    `StorageError` and not a new exception type, and not a builtin: it is the
+    class every consumer of `app/db/` already catches, so STORY-014's degraded
+    arm reports "the turn was not saved" instead of taking the request down with
+    an unhandled `PermissionError`.
+
+    **`rowcount` is checked before `lastrowid` is read, and the order is load-
+    bearing.** `lastrowid` after an insert that matched nothing carries over from
+    whatever ran before it, so a caller reading it first gets a plausible integer
+    for a write that never happened. Raising inside the `with` block also rolls
+    the transaction back (`_Connection.__exit__`), so "no row is written" holds
+    twice over.
+
+    `created_at` is stamped here when the caller leaves it `None`, the way
+    `insert_user` stamps its own; `id` is always the column's, never the
+    dataclass's, because `AUTOINCREMENT` is what makes it the transcript's order.
+
+    `pii_entities` is normalized: `""` is stored as `NULL`, exactly as
+    `app/services/audit_logger.py:45` already stores an empty entity list. The
+    difference matters one layer up -- `"".split(",")` is `[""]`, a phantom
+    entity on a message that had none, which is what STORY-015 would render.
+    Normalizing at the layer that owns the column means no future caller has to
+    remember the rule.
+    """
+    created_at = message.created_at or datetime.now(timezone.utc).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    with _session() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO chat_messages (
+                session_id, kind, content, created_at, prompt, model_used,
+                tokens_used, audit_id, pii_redacted, pii_entities, pattern,
+                required_permission, first_query_at, detail
+            )
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (
+                 SELECT 1 FROM chat_sessions
+                  WHERE session_id = ? AND user_id = ?
+             )
+            """,
+            (
+                session_id,
+                message.kind,
+                message.content,
+                created_at,
+                message.prompt,
+                message.model_used,
+                message.tokens_used,
+                message.audit_id,
+                int(message.pii_redacted),
+                message.pii_entities or None,
+                message.pattern,
+                message.required_permission,
+                message.first_query_at,
+                message.detail,
+                session_id,
+                user_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise StorageError("chat session not available for this owner")
+        return cursor.lastrowid
+
+
+def list_chat_messages(session_id: str, user_id: str) -> list[StoredMessage]:
+    """One owned session's whole transcript, in the order it was written.
+
+    **`ORDER BY id ASC`, never by a timestamp.** `created_at` is a
+    second-resolution TEXT column, so two messages written inside one second tie
+    and order arbitrarily -- the defect PRD-006 Section 13 recorded for
+    `audit_logs`, and the one `list_chat_sessions` above accepts as cosmetic for
+    the rail. It is not cosmetic here: a transcript that reorders itself on
+    reload is the same conversation read wrong, which is precisely the bug this
+    PRD exists to remove. `AUTOINCREMENT` is the order; `created_at` is
+    displayed. `(session_id, id)` is `idx_chat_messages_session_id` read exactly,
+    which is why the index was declared with that column order.
+
+    **Ownership is a subselect, because `chat_messages` has no `user_id`
+    column.** The obvious `WHERE session_id = ?` would hand a foreign owner's
+    transcript to anyone who guessed an id. This is `delete_chat_session`'s
+    predicate, reused deliberately: one rule, expressed the same way in the two
+    places that reach this table.
+
+    A foreign or unknown session yields `[]` -- not an exception, and not a
+    special-cased branch. The empty list falls out of the predicate, which is why
+    there is no `if` here to forget. `append_chat_message` raises instead, and the
+    asymmetry is intended: a read that finds nothing is an ordinary outcome, a
+    write that silently lands nowhere is not.
+
+    **No `limit`, deliberately.** PRD Section 4 caps sessions, not messages
+    within one, and a partial transcript is a wrong transcript -- worse than a
+    slow one, because nothing on screen says it is partial. If message volume
+    ever forces the issue it is a paging design with a visible control, not a
+    default argument added here.
+    """
+    with _session() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM chat_messages
+             WHERE session_id = ?
+               AND session_id IN (
+                   SELECT session_id FROM chat_sessions
+                    WHERE session_id = ? AND user_id = ?
+               )
+             ORDER BY id ASC
+            """,
+            (session_id, session_id, user_id),
+        ).fetchall()
+        return [_row_to_stored_message(row) for row in rows]
+
+
+def count_chat_sessions(user_id: str) -> int:
+    """How many sessions this user has, in total.
+
+    Exists so the rail can state its cap against a true total, the way PRD-006's
+    register reports "100 most recent of 3,180". A count is the only honest way
+    to say that: `len(list_chat_sessions(...))` can never exceed the limit it was
+    called with, so a capped list can report "50 of 50" on an account with two
+    hundred sessions and be indistinguishable from one with exactly fifty.
+
+    It therefore ignores `CHAT_SESSION_LIMIT` entirely -- a count that respected
+    the display cap could not produce the one number worth printing.
+
+    Sessions, not messages. Nothing caps a transcript (`list_chat_messages`
+    above), so there is no second number to report.
+    """
+    with _session() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM chat_sessions WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return row["n"]

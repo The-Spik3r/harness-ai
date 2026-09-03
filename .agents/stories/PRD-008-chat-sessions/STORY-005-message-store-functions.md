@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Schema and store"
-status: todo
+status: done
 labels: [backend, database, security]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-005-message-store-functions.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-005-message-store-functions.report.md
 commit: null
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-006, STORY-007]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 ---
 
 # STORY-005: append_chat_message and list_chat_messages, ordered by id and scoped by owner
