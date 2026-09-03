@@ -1,6 +1,7 @@
 import json
 import re
 import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from app.db.models import (
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
     AuditLog,
+    ChatSession,
     User,
 )
 
@@ -1206,5 +1208,193 @@ def set_user_token_hash(user_id: str, token_hash: str) -> bool:
         cursor = conn.execute(
             "UPDATE users SET token_hash = ? WHERE user_id = ?",
             (token_hash, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def _row_to_chat_session(row: _Row) -> ChatSession:
+    """One `chat_sessions` row as the dataclass STORY-002 declared.
+
+    No coercion, unlike `_row_to_user` above: all five columns are TEXT NOT NULL
+    in the DDL, so there is no integer-as-boolean to translate back.
+    """
+    return ChatSession(
+        session_id=row["session_id"],
+        user_id=row["user_id"],
+        title=row["title"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def create_chat_session(user_id: str, title: str) -> str:
+    """Writes one owned session and returns its new id.
+
+    **The id is minted here, and the signature has no `session_id` parameter at
+    all.** A caller-supplied id is a caller-chosen id, and the caller furthest
+    up this path is `ChatState.active_session_id` -- a Reflex state var, which
+    PRD-008 Risk 3 records is serialized to the client and mutable by
+    client-originated events. Accepting one would let a client pick primary
+    keys. `uuid.uuid4()` is what PRD Section 4 spells in the schema.
+
+    `created_at` and `updated_at` are written from **one** `now`. Two calls to
+    `datetime.now()` can straddle a second boundary, and a brand-new session
+    whose two columns disagree would sort below itself in the rail's
+    `updated_at DESC` read for a reason no reader could ever reconstruct.
+
+    `user_id` is first and undefaulted, as on all six of these -- PRD Risk 2:
+    the rule lives in the signature, so an omission is a `TypeError` here rather
+    than a leak at runtime.
+    """
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    with _session() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_sessions
+                (session_id, user_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, user_id, title, now, now),
+        )
+    return session_id
+
+
+def get_chat_session(session_id: str, user_id: str) -> Optional[ChatSession]:
+    """The owner's session, or None.
+
+    **A session that exists but belongs to someone else returns `None`, exactly
+    as a session that does not exist does.** Not an exception, and not an
+    exception that tells the two apart: a caller able to distinguish "yours but
+    missing" from "someone else's" has a membership oracle over other people's
+    session ids. `find_user_by_token_hash` above refuses to be one for
+    credentials for the same reason.
+
+    It deliberately does *not* carry that function's `MissingRelationError` arm.
+    That arm exists because credential resolution needs a closed door rather
+    than a 500; a missing `chat_sessions` table is a broken boot, and folding it
+    into "no such session" would render an empty rail on a database that never
+    ran `init_db()`.
+    """
+    with _session() as conn:
+        row = conn.execute(
+            "SELECT * FROM chat_sessions WHERE session_id = ? AND user_id = ?",
+            (session_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_chat_session(row)
+
+
+def list_chat_sessions(user_id: str, limit: int = 50) -> list[ChatSession]:
+    """One user's sessions, newest activity first.
+
+    `WHERE user_id = ? ORDER BY updated_at DESC` is `idx_chat_sessions_user_updated`
+    read exactly (`app/db/models.py`), which is why the index was declared with
+    that column order.
+
+    The limit is a literal default rather than `settings.CHAT_SESSION_LIMIT`.
+    No function in this module reads a setting for a limit -- `list_users` and
+    `list_audit_logs` both default and let the caller pass one, which
+    `app/routers/admin.py` does -- and the flag-and-limit policy belongs to
+    `app/services/chat_sessions.py`, where PRD Section 6 also puts the
+    `CHAT_HISTORY_ENABLED` short-circuit.
+
+    **Known tie.** `updated_at` is a second-resolution TEXT timestamp, so two
+    sessions touched within the same second order arbitrarily -- the defect
+    PRD-006 Section 13 already recorded for `audit_logs`. For the rail a tie is
+    cosmetic. For a transcript it would not be, which is why `chat_messages` is
+    read by `id` and never by time.
+    """
+    with _session() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM chat_sessions
+             WHERE user_id = ?
+             ORDER BY updated_at DESC
+             LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        return [_row_to_chat_session(row) for row in rows]
+
+
+def rename_chat_session(session_id: str, user_id: str, title: str) -> bool:
+    """Retitles an owned session. False when there was no such owned row.
+
+    **`updated_at` is deliberately not touched.** Renaming is not activity: a
+    rename that bumped the timestamp would reorder the rail and move the row the
+    user was looking at while they were looking at it. The omission is a
+    decision, not an oversight.
+
+    The `False` arm covers "no such session" and "someone else's session"
+    without distinguishing them -- the zero-row case PRD-007 STORY-006 flagged
+    as the one that regresses silently. Note that `rowcount` counts matched rows
+    and not changed ones, so renaming to the identical title still returns True:
+    the same property `test_deactivate_user_is_idempotent` pins for
+    `deactivate_user`.
+    """
+    with _session() as conn:
+        cursor = conn.execute(
+            "UPDATE chat_sessions SET title = ? WHERE session_id = ? AND user_id = ?",
+            (title, session_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def touch_chat_session(session_id: str, user_id: str) -> bool:
+    """Moves an owned session's `updated_at` to now. False when not owned.
+
+    The send path's reorder, called after the transcript write in PRD Section
+    6's diagram, and the only function that writes `updated_at` after creation
+    -- `rename_chat_session` above pointedly does not.
+    """
+    now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    with _session() as conn:
+        cursor = conn.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
+            (now, session_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def delete_chat_session(session_id: str, user_id: str) -> bool:
+    """Removes an owned session and its messages in one transaction.
+
+    **The message delete is scoped by ownership, not by `session_id`.**
+    `chat_messages` carries no `user_id` column, so the obvious
+    `DELETE FROM chat_messages WHERE session_id = ?` would destroy a foreign
+    owner's transcript while the statement below correctly refused to delete
+    their session row -- this function would return False and the messages would
+    be gone anyway. The subselect makes both statements answer to one predicate,
+    and it is the whole of this story's AC 7.
+
+    **Messages first, session second, one `_session()` block.** One block is one
+    transaction (`_Connection.__exit__` commits on clean exit and rolls back on
+    exception), so there is no window in which the session is gone and its
+    messages are not. STORY-002 declared no foreign key on purpose; *this* is
+    the enforcement, and a later story that adds `ON DELETE CASCADE` has to
+    replace it rather than simply drop it.
+
+    **`audit_logs` is not touched, by any statement, ever.** PRD Section 9: the
+    orphaned `session_id` on those rows is expected, and it is what preserves
+    the evidence when a user tidies their list. Deleting a conversation deletes
+    a conversation; it does not edit the record of what was asked.
+    """
+    with _session() as conn:
+        conn.execute(
+            """
+            DELETE FROM chat_messages
+             WHERE session_id = ?
+               AND session_id IN (
+                   SELECT session_id FROM chat_sessions
+                    WHERE session_id = ? AND user_id = ?
+               )
+            """,
+            (session_id, session_id, user_id),
+        )
+        cursor = conn.execute(
+            "DELETE FROM chat_sessions WHERE session_id = ? AND user_id = ?",
+            (session_id, user_id),
         )
         return cursor.rowcount == 1
