@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-005-message-store-functions.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 1851c25
 status: COMPLETE
 completed: 2026-09-03
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-03
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-005-message-store-functions.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `1851c25`
 
 ## Summary
 

@@ -12,7 +12,7 @@ labels: [backend, database, security]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-005-message-store-functions.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-005-message-store-functions.report.md
-commit: null
+commit: 1851c25
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-006, STORY-007]
 skills: []
