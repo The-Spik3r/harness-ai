@@ -12,7 +12,7 @@ labels: [backend, database, security]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-004-session-crud-functions.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-004-session-crud-functions.report.md
-commit: null
+commit: fdbc538
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-006, STORY-007]
 skills: []
