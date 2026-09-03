@@ -20,6 +20,10 @@ from app.db.errors import (
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
     CREATE_AUDIT_LOGS_TABLE,
+    CREATE_CHAT_MESSAGES_SESSION_INDEX,
+    CREATE_CHAT_MESSAGES_TABLE,
+    CREATE_CHAT_SESSIONS_TABLE,
+    CREATE_CHAT_SESSIONS_USER_INDEX,
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
     AuditLog,
@@ -466,6 +470,18 @@ def init_db() -> None:
     lands here, and PRD Section 11 requires the build to succeed with no
     reachable database. See the setting's comment in `app/config.py` for why it
     gates the schema work too and not just the probe.
+
+    **One `_session()` block builds the whole schema** -- `audit_logs`, `users`
+    and, since PRD-008 STORY-003, the two transcript tables and their indexes.
+    One block is one transaction on one connection, so a boot either lands the
+    whole shape or none of it, and the added statements cost no extra round
+    trip. PRD-008 Risk 7 is about exactly that cost: this function runs at
+    import time on every Reflex hot reload, and what the transcript tables add
+    there is four `CREATE ... IF NOT EXISTS` no-ops, idempotent by construction.
+    The one thing PRD-008 adds that is *not* idempotent by construction is a
+    column, `audit_logs.session_id`, and it needed no new code here -- it rides
+    `_add_missing_columns()` below, which iterates the mapping it was already
+    iterating.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -476,6 +492,10 @@ def init_db() -> None:
         _add_missing_columns(conn)
         conn.execute(CREATE_USERS_TABLE)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
+        conn.execute(CREATE_CHAT_SESSIONS_TABLE)
+        conn.execute(CREATE_CHAT_SESSIONS_USER_INDEX)
+        conn.execute(CREATE_CHAT_MESSAGES_TABLE)
+        conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
 
 
 def _add_missing_columns(conn: _Connection) -> None:

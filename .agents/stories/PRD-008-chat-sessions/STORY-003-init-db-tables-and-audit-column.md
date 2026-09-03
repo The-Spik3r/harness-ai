@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Schema and store"
-status: todo
+status: done
 labels: [backend, database, migration]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-003-init-db-tables-and-audit-column.report.md
 commit: null
 depends_on: [STORY-002]
 blocks: [STORY-004, STORY-005, STORY-008]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 ---
 
 # STORY-003: init_db() creates both transcript tables and converges the audit_logs.session_id column

@@ -481,7 +481,14 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
     schemas = [instance.ready["schema"] for instance in instances]
 
     for instance, schema in zip(instances, schemas):
-        assert schema["tables"] == ["audit_logs", "users"], instance.name
+        # Four tables since PRD-008 STORY-003 taught init_db() to create the
+        # transcript pair; it was ["audit_logs", "users"] before.
+        assert schema["tables"] == [
+            "audit_logs",
+            "chat_messages",
+            "chat_sessions",
+            "users",
+        ], instance.name
         # Imported, not spelled out: a column added to the schema later must
         # make this test stronger rather than leave it quietly passing.
         assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(schema["columns"]["audit_logs"]), (
@@ -495,6 +502,22 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
             "token_hash",
             "user_id",
         ], instance.name
+        assert schema["columns"]["chat_sessions"] == [
+            "created_at",
+            "session_id",
+            "title",
+            "updated_at",
+            "user_id",
+        ], instance.name
+        # Containment, not the full fifteen: what this test is for is that two
+        # instances converged on the *same* schema, and `schemas[0] ==
+        # schemas[1]` below is what carries that. The exact chat_messages shape
+        # is pinned against the DDL in
+        # tests/test_db.py::test_chat_messages_table_matches_its_ddl, and a
+        # second fifteen-name literal here would only be a copy to drift.
+        assert {"id", "session_id", "kind", "content", "created_at"} <= set(
+            schema["columns"]["chat_messages"]
+        ), (instance.name, schema["columns"]["chat_messages"])
 
     # The failure AC 1 actually guards: two instances that each booted fine but
     # converged on different schemas. `_add_missing_columns()` treating

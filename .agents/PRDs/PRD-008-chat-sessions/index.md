@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/22 stories done — 9%
+3/22 stories done — 14%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | CHAT_HISTORY_ENABLED and CHAT_SESSION_LIMIT settings, with the off state documented as supported | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md) | `8830745` |
 | STORY-002 | chat_sessions and chat_messages DDL and dataclasses in app/db/models.py | feature | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-002-chat-session-schema.plan.md) | `e3bb0c7` |
-| STORY-003 | init_db() creates both transcript tables and converges the audit_logs.session_id column | technical | ⬜ todo | small | — | — |
+| STORY-003 | init_db() creates both transcript tables and converges the audit_logs.session_id column | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md) | `PENDING` |
 | STORY-004 | Six user-scoped chat_sessions functions in database.py, with delete as one transaction | feature | ⬜ todo | medium | — | — |
 | STORY-005 | append_chat_message and list_chat_messages, ordered by id and scoped by owner | feature | ⬜ todo | medium | — | — |
 | STORY-006 | app/services/chat_sessions.py: the ownership rule and the CHAT_HISTORY_ENABLED short-circuit in one place | feature | ⬜ todo | medium | — | — |
