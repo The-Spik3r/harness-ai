@@ -45,6 +45,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from chat_ui.chat_ui import admin_copy, theme  # noqa: E402
+from tests.conftest import child_db_env  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
@@ -693,11 +694,19 @@ print(json.dumps(result))
 
 
 @pytest.fixture(scope="module")
-def pages_probe(tmp_path_factory):
+def pages_probe(database_url_factory):
     # DATABASE_URL is pinned because importing chat_ui.chat_ui calls init_db() at
     # module scope; without it the probe writes harness_ai.db into chat_ui/ on
-    # every run. The file is gitignored, so it would go unnoticed.
-    db_path = tmp_path_factory.mktemp("admin_pages") / "probe.db"
+    # every run. The file is gitignored, so it would go unnoticed. The URL comes
+    # from conftest so the libSQL swap has one place to change; the factory is
+    # session-scoped because this fixture is module-scoped and could not request
+    # a function-scoped one.
+    # It travels in DATABASE_URL alone. It briefly took two variables: STORY-005
+    # made a `sqlite:///` value a startup error, and a child constructs its own
+    # Settings() where monkeypatch cannot reach, so the validating URL and the
+    # real one had to travel separately. STORY-006 made the fixtures hand out a
+    # real libSQL endpoint, which validates, so one variable carries it again.
+    db_url = database_url_factory("admin_pages")
     proc = subprocess.run(
         [sys.executable, "-c", _PAGES_CHECK_SCRIPT],
         cwd=str(REPO_ROOT / "chat_ui"),
@@ -706,7 +715,7 @@ def pages_probe(tmp_path_factory):
             "PYTHONPATH": os.pathsep.join(_PYTHONPATH),
             "ADMIN_TOKEN": os.environ.get("ADMIN_TOKEN", "test-token"),
             "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY", "test-key"),
-            "DATABASE_URL": f"sqlite:///{db_path}",
+            **child_db_env(db_url),
         },
         capture_output=True,
         text=True,

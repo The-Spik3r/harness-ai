@@ -6,12 +6,9 @@ services:
         PORT: ${PORT:-8000}
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
+    # DATABASE_URL and TURSO_AUTH_TOKEN come from .env, like OPENROUTER_API_KEY
+    # and ADMIN_TOKEN -- PRD-007 Section 9. No volume: the audit trail lives in
+    # Turso, so the container is stateless and `docker compose down -v` has
+    # nothing of ours to destroy (PRD Section 5, story 1).
     env_file:
       - .env
-    environment:
-      DATABASE_URL: sqlite:////app/data/harness_ai.db
-    volumes:
-      - harness_data:/app/data
-
-volumes:
-  harness_data:

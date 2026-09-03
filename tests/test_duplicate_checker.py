@@ -7,8 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.config import settings
-from app.db.database import init_db, insert_audit_log
+from app.db.database import insert_audit_log
 from app.db.models import AuditLog
 from app.services.duplicate_checker import (
     DuplicateCheckError,
@@ -34,21 +33,6 @@ def _seed(prompt_hash: str, hours_ago: float) -> str:
         )
     )
     return timestamp
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
-
-
-@pytest.fixture
-def uninitialized_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "malformed.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    return db_path
 
 
 def test_no_duplicate_when_no_matching_row(temp_db):

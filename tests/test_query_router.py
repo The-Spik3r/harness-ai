@@ -13,7 +13,6 @@ from app.config import settings
 from app.db.database import (
     get_audit_log,
     get_connection,
-    init_db,
     insert_audit_log,
     insert_user,
 )
@@ -36,14 +35,12 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
+def temp_db(temp_db):
+    """conftest's initialized database, plus this suite's authenticated user."""
     insert_user(
         User(user_id=_AUTH_USER_ID, role="user", token_hash=hash_token(_AUTH_TOKEN))
     )
-    return db_path
+    return temp_db
 
 
 def _count_audit_rows() -> int:
@@ -189,6 +186,36 @@ def test_duplicate_prompt_blocked_before_openrouter_call(temp_db, monkeypatch):
         "first_query_at": timestamp,
     }
     assert _count_audit_rows() == before + 1
+
+
+def test_duplicate_check_storage_failure_returns_500(temp_db, monkeypatch):
+    """PRD-007 STORY-002 characterization test, pinning the consequence of the
+    `except sqlite3.Error` arm at app/services/duplicate_checker.py:32.
+
+    NOTE -- the story's AC2 and PRD-007 Section 6 Pattern 6 both claim a
+    storage failure "degrades the duplicate check without failing the query".
+    That is not what this code does. duplicate_checker raises
+    DuplicateCheckError and app/routers/query.py:35 turns it into a 500. There
+    is no degradation path. This test pins the behavior that exists; STORY-004
+    must preserve the 500, and the two documents need their wording corrected.
+
+    The failure is induced by dropping the table the duplicate check reads --
+    a real storage failure -- rather than by monkeypatching a raise of
+    sqlite3.Error. That keeps the driver's exception types out of the test's
+    setup as well as its assertions, so the driver swap leaves this untouched.
+    The `users` table survives the drop, so authentication still succeeds and
+    the 500 is attributable to the duplicate lookup alone.
+    """
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    with get_connection() as conn:
+        conn.execute("DROP TABLE audit_logs")
+
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": "hello world"}
+    )
+
+    assert response.status_code == 500
+    assert "Duplicate lookup failed" in response.json()["detail"]
 
 
 def test_suspicious_pattern_blocked_before_openrouter_call(temp_db, monkeypatch):

@@ -19,7 +19,6 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.db.database import (
     count_audit_logs,
     get_audit_log,
@@ -51,14 +50,6 @@ from tests.test_db import _create_pre_rbac_database
 client = TestClient(app)
 
 _ROLES = ("admin", "auditor", "user")
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 def _count_audit_rows() -> int:
@@ -261,7 +252,7 @@ def test_unknown_role_denied_by_default_through_post_query(temp_db, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-def test_full_rbac_lifecycle_after_migrating_pre_rbac_database(tmp_path, monkeypatch):
+def test_full_rbac_lifecycle_after_migrating_pre_rbac_database(uninitialized_db, db_connect):
     """tests/test_db.py::test_init_db_migrates_pre_rbac_database already
     proves the ALTER TABLE mechanics in isolation. This test builds one
     level higher: a database created before PRD-005 migrates, a user
@@ -269,10 +260,7 @@ def test_full_rbac_lifecycle_after_migrating_pre_rbac_database(tmp_path, monkeyp
     verified Identity, is authorized, and completes a real query -- while
     the pre-existing (pre-RBAC) row is left untouched.
     """
-    db_path = tmp_path / "pre_rbac_lifecycle.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_rbac_database(db_path)
+    _create_pre_rbac_database(db_connect, uninitialized_db)
     init_db()
 
     token = "lifecycle-token"

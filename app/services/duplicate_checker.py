@@ -1,10 +1,10 @@
 import hashlib
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.db.database import find_duplicate_timestamp
+from app.db.errors import StorageError
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -29,7 +29,7 @@ def check_duplicate(prompt: str) -> DuplicateCheckResult:
 
     try:
         match = find_duplicate_timestamp(prompt_hash, cutoff)
-    except sqlite3.Error as exc:
+    except StorageError as exc:
         raise DuplicateCheckError(f"Duplicate lookup failed: {exc}") from exc
 
     if match is None:

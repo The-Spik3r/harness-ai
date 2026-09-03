@@ -6,17 +6,9 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import pytest
 
 from app.config import settings
-from app.db.database import find_user_by_token_hash, get_user, init_db
+from app.db.database import find_user_by_token_hash, get_user
 from app.services.identity import hash_token
 from scripts.manage_users import main
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 # --- create-user (AC1, AC2, AC3) ---
@@ -57,13 +49,66 @@ def test_create_user_invalid_role_exits_nonzero_and_lists_valid_roles(temp_db, c
 
 
 def test_create_user_duplicate_user_id_exits_nonzero(temp_db, capsys):
+    """Also a PRD-007 STORY-002 characterization test, pinning the
+    `except sqlite3.IntegrityError` arm at scripts/manage_users.py:37 by its
+    observable CLI surface -- exit code, stream, and message -- so STORY-004's
+    driver swap is measured against it rather than against memory.
+    """
     main(["create-user", "--user-id", "ana", "--role", "user"])
+    capsys.readouterr()  # drop the first create's token line
 
     exit_code = main(["create-user", "--user-id", "ana", "--role", "admin"])
 
+    captured = capsys.readouterr()
     assert exit_code == 1
-    assert "already exists" in capsys.readouterr().err
+    assert "already exists" in captured.err
+    assert "ana" in captured.err  # the message names the offending user_id
+    assert captured.out == ""  # the error goes to stderr, not stdout
+    # A failed create must not leak a credential.
+    assert "cannot be recovered" not in captured.out
     assert get_user("ana").role == "user"  # first row untouched
+
+
+def test_create_user_duplicate_token_hash_is_not_distinguished_from_duplicate_user_id(
+    temp_db, capsys, monkeypatch
+):
+    """PRD-007 STORY-002 characterization test -- pins a real gap, not a
+    desirable behavior.
+
+    scripts/manage_users.py:37 catches sqlite3.IntegrityError and prints one
+    message for both constraint violations, so a duplicate token_hash on a
+    *new* user_id reports "a user with user_id 'bob' already exists" -- the
+    wrong cause, and false, since bob does not exist. app/db/database.py's
+    insert_user() docstring says it deliberately leaves the exception uncaught
+    because the caller "needs to tell those two cases apart"; the caller then
+    does not.
+
+    The story's AC4 asks that the two cases be distinguishable. They are not.
+    This test pins what the CLI actually does so STORY-004's driver swap
+    cannot change it by accident. Making them distinguishable is a behavior
+    change and belongs in its own story.
+
+    _create_user() issues a random token, so a hash collision cannot occur
+    naturally -- hash_token is patched on the scripts.manage_users module (the
+    name it bound at import, scripts/manage_users.py:21) to force one.
+    """
+    import scripts.manage_users as manage_users
+
+    main(["create-user", "--user-id", "ana", "--role", "user"])
+    capsys.readouterr()
+    ana = get_user("ana")
+
+    monkeypatch.setattr(manage_users, "hash_token", lambda token: ana.token_hash)
+    exit_code = main(["create-user", "--user-id", "bob", "--role", "user"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    # Reported as a duplicate *user_id*, naming a user that was never created.
+    assert captured.err == "Error: a user with user_id 'bob' already exists.\n"
+    assert captured.out == ""
+    assert get_user("bob") is None
+    # The credential still resolves to its original owner.
+    assert find_user_by_token_hash(ana.token_hash).user_id == "ana"
 
 
 # --- list-users (AC4) ---

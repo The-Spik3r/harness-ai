@@ -7,7 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import count_active_users, init_db, insert_user
+from app.db import database
+from app.db.database import count_active_users, insert_user
+from app.db.errors import DatabaseUnreachableError
 from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
@@ -24,12 +26,19 @@ def test_health_returns_ok():
 
 
 @pytest.fixture
-def _small_model_and_reset(monkeypatch):
+def _small_model_and_reset(monkeypatch, temp_db):
     monkeypatch.setattr(settings, "PII_NLP_MODEL", "en_core_web_sm")
     monkeypatch.setattr(pii_redactor, "_analyzer", None)
     monkeypatch.setattr(pii_redactor, "_anonymizer", None)
-    # Unrelated to RBAC bootstrap; the real dev DATABASE_URL these tests run
-    # against has no seeded users, so STORY-016's guard would otherwise fire.
+    # `temp_db` because the lifespan calls init_db(): before STORY-005 these
+    # tests ran against whatever DATABASE_URL the developer had configured --
+    # the repo-root harness_ai.db -- which the comment below used to admit in
+    # passing. Now that a DATABASE_URL naming no reachable database is a real
+    # error rather than a file that springs into existence, the dependency has
+    # to be declared. Nothing about these assertions wanted a shared database.
+    #
+    # RBAC_ENABLED is unrelated to the bootstrap: the fixture database has no
+    # seeded users, so STORY-016's guard would otherwise fire.
     monkeypatch.setattr(settings, "RBAC_ENABLED", False)
     yield
 
@@ -66,12 +75,16 @@ def test_lifespan_skips_analyzer_when_redaction_disabled(_small_model_and_reset,
         assert response.status_code == 200
 
 
-def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch):
+def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch, temp_db):
     roles_file = tmp_path / "roles.json"
     roles_file.write_text('{"user": ["query:submit"]}')
     monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
-    # Unrelated to RBAC bootstrap; the real dev DATABASE_URL this test runs
-    # against has no seeded users, so STORY-016's guard would otherwise fire.
+    # `temp_db` for the same reason as `_small_model_and_reset` above: the
+    # lifespan calls init_db(), and this test used to lean on the developer's
+    # configured database rather than asking for one.
+    #
+    # RBAC_ENABLED is unrelated to the bootstrap: the fixture database has no
+    # seeded users, so STORY-016's guard would otherwise fire.
     monkeypatch.setattr(settings, "RBAC_ENABLED", False)
     original = authz.ROLE_PERMISSIONS
 
@@ -85,10 +98,11 @@ def test_lifespan_loads_roles_file_before_serving_requests(tmp_path, monkeypatch
 
 
 @pytest.fixture
-def _empty_users_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test_startup_guard.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
+def _empty_users_db(temp_db):
+    """conftest's initialized database, with no user seeded into it.
+
+    Requested for its side effect -- the startup guard reads the `users` table
+    through `settings.DATABASE_URL`, which `temp_db` has already patched."""
 
 
 def test_lifespan_fails_fast_when_rbac_enabled_and_no_active_users(
@@ -132,3 +146,28 @@ def test_lifespan_fails_fast_even_with_only_admin_token_configured(
     with pytest.raises(authz.RbacNotBootstrappedError):
         with TestClient(app):
             pass
+
+
+def test_lifespan_fails_when_the_database_is_unreachable(monkeypatch):
+    """STORY-008 AC1 and AC4 on the FastAPI path.
+
+    The distinction this test exists to make is *where* the failure happens.
+    tests/test_db.py already proves init_db() raises against a dead endpoint;
+    what matters here is that app.main's lifespan reaches it before the
+    application is serving, so uvicorn exits during startup instead of binding a
+    port and failing on the first POST /query -- the "boots, accepts queries,
+    drops audit rows" outcome the story was written against.
+    """
+    monkeypatch.setattr(settings, "DATABASE_URL", "http://127.0.0.1:1")
+    database._client = None
+    database._client_key = None
+
+    try:
+        with pytest.raises(DatabaseUnreachableError):
+            with TestClient(app):
+                pass
+    finally:
+        # The module-level `client` above shares this process's client; leaving
+        # it pointed at a dead endpoint would leak into every later test.
+        database._client = None
+        database._client_key = None
