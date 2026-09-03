@@ -12,7 +12,7 @@ labels: [backend, database, migration]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-003-init-db-tables-and-audit-column.report.md
-commit: null
+commit: e42eed9
 depends_on: [STORY-002]
 blocks: [STORY-004, STORY-005, STORY-008]
 skills: []

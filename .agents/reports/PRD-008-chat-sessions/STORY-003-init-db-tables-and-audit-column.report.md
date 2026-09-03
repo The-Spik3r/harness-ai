@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: e42eed9
 status: COMPLETE
 completed: 2026-09-03
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-03
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `e42eed9`
 
 ## Summary
 
