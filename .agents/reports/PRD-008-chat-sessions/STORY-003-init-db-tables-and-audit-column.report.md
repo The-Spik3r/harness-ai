@@ -48,6 +48,8 @@ Verified by direct inspection after a fresh `init_db()`: four tables (`audit_log
 
 All 7 live in `tests/test_untouched_app.py` and are the same 7 STORY-002 recorded. Established the same way rather than taken on trust: the three changed files were stashed with `git stash push -- app/db/database.py tests/test_db.py tests/test_two_instance_smoke.py`, `tests/test_untouched_app.py` was run against the clean tree, and it produced the identical 7 failures by name. The stash was then popped. The new-failure set is empty, and the full-suite pass count rose from STORY-002's 1170 to 1183 — exactly the 13 cases added here.
 
+One environment note for whoever runs this next, because it cost time here and is not written down anywhere in the repo. A repeated full-suite run against a long-lived `harness-libsql-dev` container degraded into 417 fixture errors -- every suite that touches storage, failing in conftest'''s reset. It is not a code failure: `tests/test_db.py` alone stayed green at 137 passed throughout, and `docker restart harness-libsql-dev` restored the full suite to 1183 passed / 7 failed exactly. The run recorded above is the post-restart one, reproduced twice.
+
 They are PRD-006-scoped guards asserting files are unchanged since PRD-006's baseline commit; PRD-007 and PRD-008 have legitimately changed those files since. As STORY-002 already flagged, one of them is `test_the_pinned_suites_are_byte_unmodified[tests/test_db.py]`, which pins the very file this story extends — it was failing before this story touched anything, so it hid no regression, but it can no longer detect an unintended edit to `tests/test_db.py`. That is PRD-006's guard to rescope, not this story's.
 
 ## Files Changed
