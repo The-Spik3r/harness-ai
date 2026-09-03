@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import dataclasses
 import inspect
 import re
 import sqlite3
@@ -46,7 +47,18 @@ from app.db.errors import (
     MissingRelationError,
     StorageError,
 )
-from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
+from app.db.models import (
+    AUDIT_LOGS_ADDED_COLUMNS,
+    CREATE_AUDIT_LOGS_TABLE,
+    CREATE_CHAT_MESSAGES_SESSION_INDEX,
+    CREATE_CHAT_MESSAGES_TABLE,
+    CREATE_CHAT_SESSIONS_TABLE,
+    CREATE_CHAT_SESSIONS_USER_INDEX,
+    AuditLog,
+    ChatSession,
+    StoredMessage,
+    User,
+)
 
 
 def test_init_db_creates_table(temp_db):
@@ -462,6 +474,7 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "pii_entities",
         "role",
         "denied_permission",
+        "session_id",  # PRD-008 STORY-002
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -1298,6 +1311,208 @@ def test_init_db_adds_users_table_to_pre_rbac_database(uninitialized_db, db_conn
     # The legacy audit row is untouched by the new table.
     assert count_audit_logs() == 1
     assert get_audit_log(1).user_id == "juan@empresa.com"
+
+
+# ---------------------------------------------------------------------------
+# Transcript schema (PRD-008 STORY-002)
+#
+# These assert the DDL **constants**, not PRAGMA table_info, and that is not an
+# oversight: STORY-002 declares the schema and STORY-003 is what teaches
+# init_db() to execute it, so there is no chat_sessions table to interrogate
+# yet. STORY-003 owns the PRAGMA assertions; these own the declarations, and
+# they keep holding afterwards.
+# ---------------------------------------------------------------------------
+
+#: The ChatMessage metadata a restored bubble needs, per PRD Section 6. Named
+#: here so a dropped column names itself in the failure rather than showing up
+#: as a bare `assert False`.
+_RESTORABLE_MESSAGE_FIELDS = (
+    "prompt",
+    "model_used",
+    "tokens_used",
+    "audit_id",
+    "pii_redacted",
+    "pii_entities",
+    "pattern",
+    "required_permission",
+    "first_query_at",
+    "detail",
+)
+
+
+def _declared_columns(ddl: str) -> list[str]:
+    """The column names of a CREATE TABLE, in declaration order."""
+    body = ddl.split("(", 1)[1].rsplit(")", 1)[0]
+    return [line.strip().split()[0] for line in body.splitlines() if line.strip()]
+
+
+@pytest.mark.parametrize(
+    "ddl",
+    [CREATE_CHAT_SESSIONS_TABLE, CREATE_CHAT_MESSAGES_TABLE],
+    ids=["chat_sessions", "chat_messages"],
+)
+def test_chat_table_ddl_declares_if_not_exists(ddl):
+    """init_db() runs at import time on every Reflex hot reload and on every
+    instance boot (PRD-008 Risk 7), so both CREATEs have to be no-ops the second
+    time. IF NOT EXISTS is what makes them idempotent by construction."""
+    assert "CREATE TABLE IF NOT EXISTS" in ddl
+
+
+def test_chat_sessions_key_columns_declare_not_null_explicitly():
+    """Outside INTEGER PRIMARY KEY, SQLite lets a PRIMARY KEY column hold NULL
+    -- and more than one row of them -- so dropping the explicit NOT NULL would
+    silently allow unowned, unaddressable conversations. Same reasoning as
+    test_users_schema_matches_expected_columns, one table over.
+    """
+    assert "session_id TEXT PRIMARY KEY NOT NULL" in CREATE_CHAT_SESSIONS_TABLE
+    assert "user_id TEXT NOT NULL" in CREATE_CHAT_SESSIONS_TABLE
+    assert _declared_columns(CREATE_CHAT_SESSIONS_TABLE) == [
+        "session_id",
+        "user_id",
+        "title",
+        "created_at",
+        "updated_at",
+    ]
+
+
+def test_chat_messages_ddl_orders_by_an_autoincrement_key():
+    """PRD Section 6, Ordering: messages are read ORDER BY id ASC and never by
+    timestamp, because a TEXT timestamp ties arbitrarily when two rows share a
+    second. The key is the order, so it has to be an autoincrement one."""
+    assert "id INTEGER PRIMARY KEY AUTOINCREMENT" in CREATE_CHAT_MESSAGES_TABLE
+
+
+@pytest.mark.parametrize("field", _RESTORABLE_MESSAGE_FIELDS)
+def test_chat_messages_ddl_carries_every_restorable_chat_message_field(field):
+    """A restored bubble renders through the same rx.match as a live one, so
+    every field that verdict rendering reads needs somewhere to live. A missing
+    column here is a bubble that comes back different after a reload."""
+    assert field in _declared_columns(CREATE_CHAT_MESSAGES_TABLE)
+
+
+def test_chat_messages_ddl_requires_the_columns_every_bubble_has():
+    for column in ("session_id", "kind", "content", "created_at"):
+        assert f"{column} TEXT NOT NULL" in CREATE_CHAT_MESSAGES_TABLE
+
+
+def test_chat_messages_pii_redacted_follows_the_boolean_convention():
+    """audit_logs stores booleans as INTEGER NOT NULL DEFAULT 0 throughout;
+    one table storing them differently is how a truthiness bug gets in."""
+    assert "pii_redacted INTEGER NOT NULL DEFAULT 0" in CREATE_CHAT_MESSAGES_TABLE
+
+
+@pytest.mark.parametrize(
+    "field", ["duplicate_relative_info", "duplicate_release_info"]
+)
+def test_chat_messages_ddl_stores_no_humanized_duplicate_copy(field):
+    """PRD Section 6: "the humanized copy is recomputed on load, not stored, so
+    it stays relative to *now*."
+
+    This test looks like it is asserting an omission, and it is -- deliberately.
+    A stored "2m ago" is wrong the moment it is read back, so these two fields
+    of ChatMessage are the only ones without a column, and someone adding one
+    to "finish the mapping" should fail here rather than ship a transcript that
+    lies about when things happened.
+    """
+    assert field not in CREATE_CHAT_MESSAGES_TABLE
+
+
+def test_chat_messages_declares_no_foreign_key():
+    """SQLite enforces foreign keys only under PRAGMA foreign_keys=ON per
+    connection, and the shared libSQL client gives no place to guarantee that on
+    every path. A declared-but-unenforced constraint reads as a guarantee it is
+    not; delete_chat_session()'s single transaction is the enforcement."""
+    assert "REFERENCES" not in CREATE_CHAT_MESSAGES_TABLE.upper()
+    assert "FOREIGN KEY" not in CREATE_CHAT_MESSAGES_TABLE.upper()
+
+
+def test_chat_indexes_cover_the_two_read_paths():
+    """The rail lists a user's sessions newest-activity-first, and a transcript
+    reads one session in key order. Those are the only two access paths the PRD
+    has, and these are their indexes."""
+    assert "CREATE INDEX IF NOT EXISTS" in CREATE_CHAT_SESSIONS_USER_INDEX
+    assert (
+        "idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at DESC)"
+        in CREATE_CHAT_SESSIONS_USER_INDEX
+    )
+
+    assert "CREATE INDEX IF NOT EXISTS" in CREATE_CHAT_MESSAGES_SESSION_INDEX
+    assert (
+        "idx_chat_messages_session_id ON chat_messages(session_id, id)"
+        in CREATE_CHAT_MESSAGES_SESSION_INDEX
+    )
+
+
+def test_chat_session_indexes_are_not_unique():
+    """Unlike idx_users_token_hash, these order and filter rather than claim
+    uniqueness -- one user has many sessions, one session has many messages."""
+    assert "UNIQUE" not in CREATE_CHAT_SESSIONS_USER_INDEX.upper()
+    assert "UNIQUE" not in CREATE_CHAT_MESSAGES_SESSION_INDEX.upper()
+
+
+def test_audit_logs_added_columns_carries_a_nullable_session_id():
+    """Nullable with no default is what lets a request that omits session_id
+    write NULL (PRD Section 10), and it is what keeps
+    test_added_columns_declaring_not_null_also_declare_a_default satisfied.
+
+    Declared in both places, like every other migrated column: the mapping
+    upgrades an old database, the CREATE is what a fresh one is built to.
+    """
+    assert AUDIT_LOGS_ADDED_COLUMNS["session_id"] == "TEXT"
+    assert "session_id TEXT" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_every_added_column_is_also_declared_in_the_create():
+    """The pair is the invariant, not a coincidence of this one column: a column
+    in only the mapping means every fresh deployment ALTERs its own brand-new
+    table on first boot."""
+    declared = _declared_columns(CREATE_AUDIT_LOGS_TABLE)
+    for name in AUDIT_LOGS_ADDED_COLUMNS:
+        assert name in declared, f"{name} is migrated in but never created"
+
+
+def test_audit_log_carries_session_id_without_breaking_construction():
+    """session_id sits before id so the surrogate key stays the trailing field,
+    matching AuditLog's and User's existing shape."""
+    assert AuditLog(
+        timestamp="2026-09-03T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc"
+    ).session_id is None
+
+    carried = AuditLog(
+        timestamp="2026-09-03T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+    )
+    assert carried.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+    names = [field.name for field in dataclasses.fields(AuditLog)]
+    assert names[-2:] == ["session_id", "id"]
+
+
+def test_stored_message_mirrors_the_chat_messages_columns():
+    """The real long-run risk in this file is the dataclass and the table
+    drifting apart as later stories add fields. Compared mechanically here so
+    the drift fails a test rather than a reading."""
+    assert {field.name for field in dataclasses.fields(StoredMessage)} == set(
+        _declared_columns(CREATE_CHAT_MESSAGES_TABLE)
+    )
+
+
+def test_chat_session_mirrors_the_chat_sessions_columns():
+    assert {field.name for field in dataclasses.fields(ChatSession)} == set(
+        _declared_columns(CREATE_CHAT_SESSIONS_TABLE)
+    )
+
+
+def test_chat_dataclasses_require_their_identifying_fields():
+    """No defaults on the fields that say which conversation this is: a
+    StoredMessage without a session_id is a message belonging to nobody, and it
+    should fail at the call site rather than reach the insert."""
+    with pytest.raises(TypeError):
+        StoredMessage()  # noqa -- session_id, kind and content are required
+    with pytest.raises(TypeError):
+        ChatSession()  # noqa -- session_id, user_id and title are required
 
 
 def test_find_user_by_token_hash_returns_active_user(temp_db):

@@ -73,6 +73,17 @@ class Settings(BaseSettings):
     PII_ENTITIES: str = "PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION"
     PII_NLP_MODEL: str = "en_core_web_lg"
 
+    # Chat sessions (PRD-008). CHAT_HISTORY_ENABLED is the master switch for
+    # transcript persistence: false means no chat_sessions or chat_messages row
+    # is written, none is read, no rail is shown, and the chat behaves exactly
+    # as it did before this PRD (PRD-008 Section 9, Risk 1) -- the supported
+    # configuration for a deployment that must not hold prompt text at rest.
+    # CHAT_SESSION_LIMIT caps how many sessions the rail lists per user.
+    # Nothing reads either setting yet: app/services/chat_sessions.py, added by
+    # STORY-006, is the only consumer.
+    CHAT_HISTORY_ENABLED: bool = True
+    CHAT_SESSION_LIMIT: int = 50
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -111,6 +122,24 @@ class Settings(BaseSettings):
                 "http:// takes no token."
             )
         return self
+
+    @field_validator("CHAT_SESSION_LIMIT")
+    @classmethod
+    def _validate_chat_session_limit(cls, value: int) -> int:
+        """At least one session listed, or a startup error (PRD-008).
+
+        A limit of 0 renders an empty rail on a user who has sessions, which is
+        a silent lie rather than a small list -- so it fails at startup the way
+        a bad DATABASE_URL does, rather than being defaulted away.
+        """
+        if value < 1:
+            raise ValueError(
+                f"CHAT_SESSION_LIMIT must be at least 1, got {value}. It is the "
+                "number of sessions the rail lists per user; 0 would render an "
+                "empty rail for a user who has sessions. To turn transcript "
+                "persistence off, set CHAT_HISTORY_ENABLED=false instead."
+            )
+        return value
 
     @property
     def pii_entities_list(self) -> list[str]:
