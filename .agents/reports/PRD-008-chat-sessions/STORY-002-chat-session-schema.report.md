@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-002-chat-session-schema.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: null
+commit: e3bb0c7
 status: COMPLETE
 completed: 2026-09-03
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-03
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-002-chat-session-schema.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: recorded by the follow-up chore commit, as STORY-001 did
+**Commit**: `e3bb0c7`
 
 ## Summary
 

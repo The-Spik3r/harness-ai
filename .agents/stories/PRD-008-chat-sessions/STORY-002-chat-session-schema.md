@@ -12,7 +12,7 @@ labels: [backend, database, schema]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-002-chat-session-schema.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-002-chat-session-schema.report.md
-commit: null
+commit: e3bb0c7
 depends_on: []
 blocks: [STORY-003, STORY-004, STORY-005]
 skills: []
