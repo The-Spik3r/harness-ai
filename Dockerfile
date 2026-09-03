@@ -12,9 +12,22 @@ COPY . .
 # app.main, which imports app.config.settings) doesn't fail Pydantic's
 # required-field validation. Real secrets come from docker-compose's env_file
 # at runtime; none of these ENV values are present in the final stage below.
+#
+# DATABASE_URL is the local-dev-server scheme rather than a libsql:// URL on
+# purpose: app/config.py's _require_token_for_remote_endpoint would demand a
+# TURSO_AUTH_TOKEN beside a remote endpoint, and a fake credential baked into an
+# image layer is worse than a placeholder host. Nothing ever dials it.
+#
+# DB_BOOTSTRAP_ENABLED=false is what makes that true, and it is the only
+# sanctioned use of the flag (app/config.py:45-58, STORY-008). `reflex export`
+# below imports chat_ui.chat_ui, which calls init_db() at import time; without
+# this the build would need a live database, which PRD-007 Section 11 forbids.
+# Builder stage only -- a running deployment must boot with the reachability
+# guard and the schema migration on.
 ENV OPENROUTER_API_KEY=build-placeholder \
     ADMIN_TOKEN=build-placeholder \
-    DATABASE_URL=sqlite:///:memory:
+    DATABASE_URL=http://127.0.0.1:8080 \
+    DB_BOOTSTRAP_ENABLED=false
 
 WORKDIR /app/chat_ui
 RUN reflex init --no-agents

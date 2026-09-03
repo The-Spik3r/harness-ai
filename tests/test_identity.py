@@ -10,18 +10,10 @@ import inspect
 import pytest
 
 from app.config import settings
-from app.db.database import deactivate_user, init_db, insert_user
+from app.db.database import deactivate_user, insert_user
 from app.db.models import User
 from app.services import identity as identity_module
 from app.services.identity import Identity, hash_token, issue_token, resolve
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 # --- AC1 / AC2: valid, unknown, malformed, empty, deactivated tokens ---
@@ -92,10 +84,7 @@ def test_resolve_wrong_token_is_not_treated_as_admin(temp_db):
     assert resolve("close-but-wrong") is None
 
 
-def test_resolve_admin_token_works_without_users_table(tmp_path, monkeypatch):
-    db_path = tmp_path / "never-initialized.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
+def test_resolve_admin_token_works_without_users_table(uninitialized_db):
     result = resolve(settings.ADMIN_TOKEN)
 
     assert result == Identity(user_id="admin", role="admin")

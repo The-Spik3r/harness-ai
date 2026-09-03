@@ -52,6 +52,7 @@ import pytest
 import reflex as rx
 
 from app.config import settings
+from app.db.database import SummarySnapshot
 from app.db.models import AuditLog
 import chat_ui.chat_ui.admin_state as _admin_state_module
 from chat_ui.chat_ui.admin_formatting import (
@@ -92,6 +93,7 @@ from chat_ui.chat_ui.admin_models import AuditRow, SummaryFigure
 from chat_ui.chat_ui.admin_state import (
     GATE_REFUSED_MESSAGE,
     RANKED_LIMIT,
+    REGISTER_ROW_LIMIT,
     REGISTER_STATE_EMPTY,
     REGISTER_STATE_FAULT,
     REGISTER_STATE_NO_MATCHES,
@@ -420,6 +422,14 @@ class _Reads:
 
     The thread is the point. AC 1 says "never on the event loop", and no static
     check can show that — only the ident recorded inside the call can.
+
+    Since STORY-012 the stubs are not awaited by `load()` directly: `load()`
+    makes one call to `summary_snapshot()`, so this also installs a fake
+    `summary_snapshot` that stands in for the database. The fake is what keeps
+    every assertion in this file meaning what it meant — it walks `_READS` and
+    genuinely calls each stub, in the worker thread `load()` offloaded it to, so
+    `calls`, `threads` and `kwargs` are still records of reads that happened
+    rather than numbers the fake invents.
     """
 
     def __init__(self, monkeypatch, failing=None, on_call=None, *, logs=None):
@@ -447,7 +457,52 @@ class _Reads:
             for field, label, fn, kwargs in _ORIGINAL_READS
         )
         self._monkeypatch.setattr(admin_state_mod, "_READS", stubbed)
+        self._monkeypatch.setattr(
+            admin_state_mod, "summary_snapshot", self._snapshot
+        )
         return self
+
+    def _snapshot(self, row_limit, ranked_limit):
+        """The database, as `load()` now reaches it: one call, ten figures.
+
+        Reads the *installed* `_READS` — the stubbed table — and calls each
+        entry's function, so the third slot is exercised rather than decorative
+        and a test that replaces one read still replaces it.
+
+        The limits are threaded through from the arguments `load()` actually
+        passed, not copied from the table's literals: that is what leaves
+        `assert reads.kwargs["rows"] == {"limit": 100}` with teeth, since a
+        `load()` that stopped forwarding REGISTER_ROW_LIMIT would show up here.
+
+        It stops at the first stub that raises, and records that field and every
+        field after it as failed. Stopping is not decoration — it is what the
+        sequential loop did, and it is why `len(failing.calls) == 8` remains a
+        statement about how far the read got rather than a number this fake
+        chose. The real `summary_snapshot()` fails the same shape: one broken
+        column, or a dead statement, arrives as entries in `errors` keyed by
+        these same field names.
+        """
+        import chat_ui.chat_ui.admin_state as admin_state_mod
+
+        limits = {
+            "rows": {"limit": row_limit},
+            "top_models": {"limit": ranked_limit},
+            "top_users": {"limit": ranked_limit},
+            "top_pii_entities": {"limit": ranked_limit},
+        }
+        figures = {}
+        errors = {}
+        failed = False
+        for field, _label, read, _kwargs in admin_state_mod._READS:
+            if failed:
+                errors[field] = RuntimeError("not read: the batch already failed")
+                continue
+            try:
+                figures[field] = read(**limits.get(field, {}))
+            except Exception as exc:  # noqa: BLE001 — attribution is the point
+                errors[field] = exc
+                failed = True
+        return SummarySnapshot(figures=figures, errors=errors)
 
     def _stub(self, field, name, returns):
         def stub(**kwargs):
@@ -665,6 +720,157 @@ async def test_a_recovered_read_clears_the_fault(configured_token, monkeypatch):
     assert state.last_refreshed.endswith(" UTC")
 
 
+# --- The batched read (STORY-012) ----------------------------------------
+# `load()` no longer awaits ten reads; it awaits one `summary_snapshot()` that
+# returns all ten figures, plus a per-figure `errors` map. The tests above pin
+# the behaviour that must not change. These four pin what changed: that it is
+# genuinely one call, and that the attribution the batch carries in place of ten
+# separate exceptions still reaches the fault panel with the right label on it.
+
+
+def _snapshot_values(logs=None) -> dict:
+    """The ten figures as `summary_snapshot()` would return them, keyed by field.
+
+    Built from `_ORIGINAL_READS` and `_READ_RETURNS` — the same values the stub
+    table serves — so a figure renamed in one place cannot quietly disagree here.
+    """
+    returns = dict(_READ_RETURNS)
+    returns["list_audit_logs"] = _logs() if logs is None else list(logs)
+    return {field: returns[fn.__name__] for field, _, fn, _ in _ORIGINAL_READS}
+
+
+def _label_for(field: str) -> str:
+    """The `READ_LABEL_*` copy for one figure, read from the table rather than
+    retyped: the point of admin_copy is that a reworded label is one edit."""
+    return next(label for name, label, _, _ in _ORIGINAL_READS if name == field)
+
+
+def _fixed_snapshot(monkeypatch, figures, errors):
+    """Installs a `summary_snapshot()` that returns exactly this partition, and
+    records the limits it was handed."""
+    calls = []
+
+    def fake(row_limit, ranked_limit):
+        calls.append((row_limit, ranked_limit))
+        return SummarySnapshot(figures=dict(figures), errors=dict(errors))
+
+    monkeypatch.setattr(_admin_state_module, "summary_snapshot", fake)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_the_ten_figures_arrive_in_one_round_trip(configured_token, monkeypatch):
+    """AC 1, counted rather than asserted in prose — the same way
+    `tests/test_db.py::test_summary_snapshot_issues_one_round_trip` counts it.
+
+    The limits are checked here too: `load()` owns the cap the register states
+    and the "top 5" the sheet states, and a `load()` that dropped them would
+    leave the copy claiming a cut nothing enforces.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    calls = _fixed_snapshot(monkeypatch, _snapshot_values(), {})
+
+    await _load(state)
+
+    assert calls == [(REGISTER_ROW_LIMIT, RANKED_LIMIT)]
+    assert [row.audit_id for row in state.rows] == [3, 2, 1]
+    assert state.total_recorded == 3180
+    assert state.top_pii_entities == ["EMAIL_ADDRESS"]
+    assert state.error == ""
+
+
+@pytest.mark.asyncio
+async def test_a_figure_that_failed_to_decode_is_named_by_its_own_label(
+    configured_token, monkeypatch
+):
+    """PRD-007 Risk 6, at the layer only batching can reach.
+
+    Nine figures arrived and one did not — the shape a single statement produces
+    when one column fails to decode, which no ten-sequential-reads test could
+    express. The fault must still name *that* figure. The record staying whole is
+    PRD-006 STORY-004's guarantee, unchanged: what an admin was looking at is
+    still there under the panel.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    _Reads(monkeypatch).install()
+    await _load(state)
+    before = _loaded_record(state)
+
+    figures = _snapshot_values()
+    figures.pop("top_users")
+    _fixed_snapshot(
+        monkeypatch, figures, {"top_users": ValueError("top_users is not a list")}
+    )
+    await _load(state)
+
+    assert _label_for("top_users") in state.error
+    assert "top_users is not a list" in state.error
+    assert _loaded_record(state) == before
+    assert state.loading is False
+
+
+@pytest.mark.asyncio
+async def test_the_first_failing_figure_in_read_order_names_the_fault(
+    configured_token, monkeypatch
+):
+    """One statement can report several broken figures at once, where ten
+    sequential reads always stopped at the first. Which one gets named is
+    therefore a choice, and it is `_READS`' order — not the decode order the
+    errors dict happens to carry, which is why the two are seeded here in the
+    opposite order to the table.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    figures = _snapshot_values()
+    figures.pop("total_recorded")
+    figures.pop("top_models")
+    _fixed_snapshot(
+        monkeypatch,
+        figures,
+        {
+            "top_models": RuntimeError("eighth"),
+            "total_recorded": RuntimeError("second"),
+        },
+    )
+
+    await _load(state)
+
+    assert _label_for("total_recorded") in state.error
+    assert _label_for("top_models") not in state.error
+    assert state.rows == []
+    assert state.last_refreshed == ""
+    assert state.loading is False
+
+
+@pytest.mark.asyncio
+async def test_a_batched_read_that_raises_outright_still_names_a_read(
+    configured_token, monkeypatch
+):
+    """The arm with no partition to walk: the call itself failed, so there are no
+    columns and no per-figure errors to attribute anything to. A fault panel
+    naming nothing is the blank page Risk 6 forbids, so the first read's label
+    stands — what a total outage read as before, when the rows were the first of
+    ten sequential reads to fail.
+    """
+
+    def fake(row_limit, ranked_limit):
+        raise RuntimeError("the endpoint is unreachable")
+
+    state = _state()
+    _authenticate(state, configured_token)
+    monkeypatch.setattr(_admin_state_module, "summary_snapshot", fake)
+
+    await _load(state)
+
+    assert _label_for("rows") in state.error
+    assert "the endpoint is unreachable" in state.error
+    assert state.rows == []
+    assert state.last_refreshed == ""
+    assert state.loading is False
+
+
 # --- The refreshed stamp (STORY-017) -------------------------------------
 # The line the Refresh control produces. Asserted against the constants, never
 # against a retyped literal: the point of the copy module is that a reworded
@@ -842,6 +1048,9 @@ async def test_an_unauthenticated_load_calls_none_of_the_ten(monkeypatch):
 # the three rankings are imported aliased, so this is not `_READ_RETURNS`' key
 # set. Used to prove a negative: that none of them is reachable from the var.
 _READ_ATTRIBUTES = (
+    # The batched read `load()` actually calls, first: a stub table alone would
+    # no longer stop a read from reaching the database.
+    "summary_snapshot",
     "list_audit_logs",
     "count_audit_logs",
     "count_blocked_duplicates",

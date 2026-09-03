@@ -3,8 +3,10 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import inspect
 import re
 import sqlite3
+import threading
 from datetime import datetime
 
 import pytest
@@ -12,6 +14,8 @@ import pytest
 from app.config import settings
 from app.db import database
 from app.db.database import (
+    SUMMARY_FIGURES,
+    check_database_reachable,
     count_active_users,
     count_audit_logs,
     count_blocked_duplicates,
@@ -30,19 +34,19 @@ from app.db.database import (
     list_audit_logs,
     list_users,
     set_user_token_hash,
+    summary_snapshot,
     top_models,
     top_pii_entities,
     top_users,
 )
+from app.db.errors import (
+    DatabaseAuthError,
+    DatabaseUnreachableError,
+    IntegrityError,
+    MissingRelationError,
+    StorageError,
+)
 from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
-    return db_path
 
 
 def test_init_db_creates_table(temp_db):
@@ -74,11 +78,9 @@ def test_added_columns_declaring_not_null_also_declare_a_default():
             )
 
 
-def test_add_missing_columns_applies_any_declared_column(tmp_path, monkeypatch):
+def test_add_missing_columns_applies_any_declared_column(uninitialized_db, monkeypatch):
     """The mechanism is proven independently of whichever columns the mapping
     happens to hold today, so this stays meaningful after STORY-009 adds more."""
-    db_path = tmp_path / "synthetic.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
     init_db()
     insert_audit_log(
         AuditLog(
@@ -113,26 +115,53 @@ def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
     statements: list[str] = []
     real_get_connection = database.get_connection
 
-    def traced() -> sqlite3.Connection:
-        conn = real_get_connection()
-        conn.set_trace_callback(statements.append)
-        return conn
+    class _RecordingConnection:
+        """Records the SQL passed through, and delegates everything else.
 
-    monkeypatch.setattr(database, "get_connection", traced)
+        PRD-007 STORY-006 replaced `sqlite3`'s `set_trace_callback` with this:
+        the libSQL connection has no tracing hook (its whole surface is
+        close/commit/cursor/execute/executemany/executescript/in_transaction/
+        isolation_level/rollback/sync). The claim below is unchanged; only the
+        instrument moved, onto the same proxy idiom
+        `test_find_user_by_token_hash_raises_when_the_failure_is_not_a_missing_table`
+        already uses.
+        """
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    monkeypatch.setattr(
+        database,
+        "get_connection",
+        lambda: _RecordingConnection(real_get_connection()),
+    )
 
     init_db()  # temp_db already migrated this database to the current schema
 
-    assert statements, "trace callback captured nothing -- the patch did not take"
+    assert statements, "the proxy captured nothing -- the patch did not take"
     assert not any("ALTER" in sql.upper() for sql in statements), statements
 
 
-def _create_pre_pii_database(db_path) -> None:
+def _create_pre_pii_database(connect, url) -> None:
     """Builds the 14-column audit_logs table exactly as it shipped before PRD-003.
 
-    Uses raw sqlite3.connect rather than get_connection() so the fixture is the
-    genuine pre-migration shape, unaffected by whatever init_db() does today.
+    Takes conftest's `db_connect` rather than calling get_connection() so the
+    fixture is the genuine pre-migration shape, unaffected by whatever init_db()
+    does today -- and rather than a path, so the database it builds is named the
+    same way every other test names one.
     """
-    legacy = sqlite3.connect(db_path)
+    legacy = connect(url)
     legacy.execute(
         """
         CREATE TABLE audit_logs (
@@ -161,17 +190,14 @@ def _create_pre_pii_database(db_path) -> None:
     legacy.close()
 
 
-def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
+def test_init_db_migrates_pre_pii_database(uninitialized_db, db_connect):
     """A database created before PRD-003 gains the PII columns and keeps its rows.
 
     CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so without the
     additive migration an upgraded deployment fails every insert with
     "table audit_logs has no column named pii_detected_input".
     """
-    db_path = tmp_path / "legacy.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_pii_database(db_path)
+    _create_pre_pii_database(db_connect, uninitialized_db)
 
     init_db()
 
@@ -199,13 +225,13 @@ def test_init_db_migrates_pre_pii_database(tmp_path, monkeypatch):
     assert count_audit_logs() == 2
 
 
-def _create_pre_rbac_database(db_path) -> None:
+def _create_pre_rbac_database(connect, url) -> None:
     """Builds the 17-column audit_logs table exactly as it ships on `main`
     today -- i.e. after PRD-003's PII columns, before this story's role /
     denied_permission columns. This is the correct "pre-RBAC" baseline;
     _create_pre_pii_database fixtures an older, pre-PII shape instead.
     """
-    legacy = sqlite3.connect(db_path)
+    legacy = connect(url)
     legacy.execute(
         """
         CREATE TABLE audit_logs (
@@ -237,14 +263,11 @@ def _create_pre_rbac_database(db_path) -> None:
     legacy.close()
 
 
-def test_init_db_migrates_pre_rbac_database(tmp_path, monkeypatch):
+def test_init_db_migrates_pre_rbac_database(uninitialized_db, db_connect):
     """A database created before PRD-005 gains role/denied_permission and
     keeps its rows, with NULL in both new fields (AC2).
     """
-    db_path = tmp_path / "pre_rbac_audit.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_rbac_database(db_path)
+    _create_pre_rbac_database(db_connect, uninitialized_db)
 
     init_db()
 
@@ -270,12 +293,10 @@ def test_init_db_migrates_pre_rbac_database(tmp_path, monkeypatch):
     assert count_audit_logs() == 2
 
 
-def test_init_db_migration_is_idempotent_across_repeated_calls(tmp_path, monkeypatch):
+def test_init_db_migration_is_idempotent_across_repeated_calls(uninitialized_db, db_connect):
     """Reflex calls init_db() on every hot reload; a second ADD COLUMN for an
     existing column raises sqlite3.OperationalError: duplicate column name."""
-    db_path = tmp_path / "legacy.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    _create_pre_pii_database(db_path)
+    _create_pre_pii_database(db_connect, uninitialized_db)
 
     init_db()
     init_db()
@@ -789,6 +810,407 @@ def test_top_pii_entities_respects_limit(temp_db):
     assert top_pii_entities(limit=2) == ["EMAIL_ADDRESS", "PERSON"]
 
 
+def test_top_pii_entities_counts_each_entity_in_a_multi_entity_value(temp_db):
+    """One row holding three entities contributes one to each of the three.
+
+    STORY-009 moved this count from a Python loop into a recursive CTE. The
+    split is now the database's job, so the case that proves the split happens
+    at all is a value with commas in it.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="m1",
+            pii_entities="EMAIL_ADDRESS,PERSON,LOCATION",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-02T10:00:00Z",
+            user_id="a",
+            prompt_hash="m2",
+            pii_entities="PERSON",
+        )
+    )
+
+    # PERSON: 2, EMAIL_ADDRESS: 1, LOCATION: 1 -- the two 1s tie and sort by name
+    assert top_pii_entities() == ["PERSON", "EMAIL_ADDRESS", "LOCATION"]
+
+
+def test_top_pii_entities_breaks_ties_by_entity_name(temp_db):
+    """Equal counts order by entity name -- a chosen rule, not an inherited one.
+
+    The implementation this replaced sorted a dict by count alone, which Python
+    resolves stably over insertion order, so ties fell out as "whichever row the
+    database returned first". That was incidental and not reproducible across
+    instances. STORY-009 pins `ORDER BY COUNT(*) DESC, entity ASC` instead.
+
+    The rows are inserted in a deliberately non-alphabetical order: under the old
+    behavior this would have returned them as inserted, so the test fails if row
+    order ever decides the outcome again.
+    """
+    for index, entity in enumerate(("PERSON", "LOCATION", "EMAIL_ADDRESS")):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{index + 1}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"t{index}",
+                pii_entities=entity,
+            )
+        )
+
+    # All three tie at 1, so entity name alone decides.
+    assert top_pii_entities() == ["EMAIL_ADDRESS", "LOCATION", "PERSON"]
+
+
+def test_top_pii_entities_counts_repeats_within_one_value(temp_db):
+    """A value repeating an entity counts it twice, from that one row.
+
+    The count is over entities, not over rows -- the case a `DISTINCT` or a
+    row-counting rewrite would quietly get wrong.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="r1",
+            pii_entities="PERSON,PERSON,EMAIL_ADDRESS",
+        )
+    )
+
+    # PERSON: 2 and EMAIL_ADDRESS: 1, both out of a single row.
+    assert top_pii_entities() == ["PERSON", "EMAIL_ADDRESS"]
+
+
+def test_top_pii_entities_ignores_rows_without_pii(temp_db):
+    """Rows leaving `pii_entities` at NULL contribute nothing -- not None, not "".
+
+    A table with rows but no PII-bearing ones is the other half of the empty
+    case; the empty *table* is covered by
+    `test_aggregates_on_empty_db_return_zero_or_empty` above.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="a",
+            prompt_hash="n1",
+            pii_entities="PERSON",
+        )
+    )
+    for index in range(2):
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-07-0{index + 2}T10:00:00Z",
+                user_id="a",
+                prompt_hash=f"n{index + 2}",
+            )
+        )
+
+    assert top_pii_entities() == ["PERSON"]
+
+
+# --------------------------------------------------------------------------
+# PRD-007 STORY-010: the batched summary read
+# --------------------------------------------------------------------------
+
+
+def _seed_summary_fixture() -> None:
+    """A table with something to say about every one of the ten figures.
+
+    Deliberately includes two rows sharing a timestamp: `list_audit_logs`
+    orders by `timestamp DESC` alone, so a tie is where the batched read's
+    `json_group_array` over an ordered subquery would diverge first if it did
+    not preserve order.
+    """
+    rows = [
+        # (timestamp, user, model, duplicate, suspicious, success, pii)
+        ("2026-07-09T10:00:00Z", "alice", "gpt-4", 0, None, 1, "PERSON,EMAIL_ADDRESS"),
+        ("2026-07-09T10:00:00Z", "bob", "gpt-4", 1, None, 1, None),
+        ("2026-07-08T10:00:00Z", "alice", "claude-3", 0, "injection", 0, "PERSON"),
+        ("2026-07-07T10:00:00Z", "carol", "gpt-4", 0, None, 1, "EMAIL_ADDRESS"),
+        ("2026-07-06T10:00:00Z", "alice", "claude-3", 1, "leak", 1, None),
+        ("2026-07-05T10:00:00Z", "bob", None, 0, None, 0, "PHONE_NUMBER"),
+    ]
+    for index, (ts, user, model, dup, suspicious, success, pii) in enumerate(rows):
+        insert_audit_log(
+            AuditLog(
+                timestamp=ts,
+                user_id=user,
+                prompt_hash=f"h{index}",
+                model_used=model,
+                was_duplicate_blocked=bool(dup),
+                suspicious_pattern=suspicious,
+                success=bool(success),
+                pii_detected_input=bool(pii),
+                pii_entities=pii,
+            )
+        )
+
+
+def _individually(row_limit: int = 100, ranked_limit: int = 5) -> dict:
+    """The same ten figures, read the old way — the batched read's oracle."""
+    return {
+        "rows": list_audit_logs(limit=row_limit),
+        "total_recorded": count_audit_logs(),
+        "blocked_duplicates": count_blocked_duplicates(),
+        "blocked_suspicious": count_blocked_suspicious(),
+        "unique_users": count_unique_users(),
+        "successful_queries": count_successful_queries(),
+        "pii_detected_queries": count_pii_detected_queries(),
+        "top_models": top_models(limit=ranked_limit),
+        "top_users": top_users(limit=ranked_limit),
+        "top_pii_entities": top_pii_entities(limit=ranked_limit),
+    }
+
+
+class _RecordingConnection:
+    """Counts the statements that reach the database, and delegates the rest.
+
+    The same proxy idiom `test_init_db_issues_no_alter_when_schema_is_current`
+    uses: the libSQL connection has no tracing hook, so the instrument is a
+    wrapper rather than `set_trace_callback`.
+    """
+
+    def __init__(self, conn, statements):
+        self._conn = conn
+        self._statements = statements
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._conn.__exit__(*exc_info)
+
+    def execute(self, sql, *parameters):
+        self._statements.append(sql)
+        return self._conn.execute(sql, *parameters)
+
+    def cursor(self):
+        return self._conn.cursor()
+
+
+def _count_statements(monkeypatch) -> list:
+    statements: list = []
+    real_get_connection = database.get_connection
+    monkeypatch.setattr(
+        database,
+        "get_connection",
+        lambda: _RecordingConnection(real_get_connection(), statements),
+    )
+    return statements
+
+
+def test_summary_snapshot_agrees_with_the_individual_reads(temp_db):
+    """AC 5. Every figure identical to the function it replaces a call to.
+
+    `rows` is compared as a whole ordered list of AuditLog objects, not a
+    field subset: the batched path carries them through `json_object`, where
+    the INTEGER columns arrive as 0/1 and would quietly stop being bools.
+    """
+    _seed_summary_fixture()
+
+    snapshot = summary_snapshot()
+    expected = _individually()
+
+    assert snapshot.errors == {}
+    assert set(snapshot.figures) == set(SUMMARY_FIGURES)
+    for name in SUMMARY_FIGURES:
+        assert snapshot.figures[name] == expected[name], name
+
+
+def test_summary_snapshot_types_match_the_standalone_functions(temp_db):
+    """AC 2. Each figure individually addressable, with today's type."""
+    _seed_summary_fixture()
+
+    snapshot = summary_snapshot()
+
+    assert isinstance(snapshot.rows, list)
+    assert all(isinstance(entry, AuditLog) for entry in snapshot.rows)
+    assert isinstance(snapshot.rows[0].was_duplicate_blocked, bool)
+    assert isinstance(snapshot.rows[0].success, bool)
+    for name in (
+        "total_recorded",
+        "blocked_duplicates",
+        "blocked_suspicious",
+        "unique_users",
+        "successful_queries",
+        "pii_detected_queries",
+    ):
+        assert isinstance(snapshot.figures[name], int), name
+    for name in ("top_models", "top_users", "top_pii_entities"):
+        assert isinstance(snapshot.figures[name], list), name
+        assert all(isinstance(item, str) for item in snapshot.figures[name]), name
+
+
+def test_summary_snapshot_on_an_empty_database(temp_db):
+    """Six zeros and four empty lists — no figure missing, no error."""
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.figures == {
+        "rows": [],
+        "total_recorded": 0,
+        "blocked_duplicates": 0,
+        "blocked_suspicious": 0,
+        "unique_users": 0,
+        "successful_queries": 0,
+        "pii_detected_queries": 0,
+        "top_models": [],
+        "top_users": [],
+        "top_pii_entities": [],
+    }
+    assert snapshot.figures == _individually()
+
+
+def test_summary_snapshot_isolation_of_one_bad_decode(temp_db, monkeypatch):
+    """AC 3, decode layer: one figure fails, the other nine still arrive."""
+    _seed_summary_fixture()
+
+    def boom(value):
+        raise ValueError("decode exploded")
+
+    monkeypatch.setitem(database._SUMMARY_DECODERS, "top_users", boom)
+
+    snapshot = summary_snapshot()
+
+    assert set(snapshot.errors) == {"top_users"}
+    assert str(snapshot.errors["top_users"]) == "decode exploded"
+    expected = _individually()
+    for name in SUMMARY_FIGURES:
+        if name == "top_users":
+            continue
+        assert snapshot.figures[name] == expected[name], name
+    # The partition holds: no figure silently in neither.
+    assert set(snapshot.figures) | set(snapshot.errors) == set(SUMMARY_FIGURES)
+
+
+def test_summary_snapshot_isolation_names_the_one_broken_figure(temp_db, monkeypatch):
+    """AC 3, the case Risk 6 is about.
+
+    The statement is broken, so there are no columns to attribute anything to,
+    and exactly one of the standalone reads is broken behind it. The caller
+    must still learn *which* figure failed and still receive the other nine —
+    which is what a naive all-or-nothing collapse would have destroyed.
+    """
+    _seed_summary_fixture()
+    monkeypatch.setattr(
+        database, "_SUMMARY_SQL", "SELECT * FROM no_such_table_at_all"
+    )
+
+    def boom():
+        raise StorageError("this one figure is broken")
+
+    monkeypatch.setattr(database, "count_unique_users", boom)
+
+    snapshot = summary_snapshot()
+
+    assert set(snapshot.errors) == {"unique_users"}
+    assert "this one figure is broken" in str(snapshot.errors["unique_users"])
+    expected = _individually()
+    for name in SUMMARY_FIGURES:
+        if name == "unique_users":
+            continue
+        assert snapshot.figures[name] == expected[name], name
+
+
+def test_summary_snapshot_reports_every_figure_when_the_table_is_gone(
+    temp_db, monkeypatch
+):
+    """An outage reads as an outage: ten named errors, not one blank result."""
+    _seed_summary_fixture()
+    with get_connection() as conn:
+        conn.execute("DROP TABLE audit_logs")
+
+    snapshot = summary_snapshot()
+
+    assert set(snapshot.errors) == set(SUMMARY_FIGURES)
+    assert snapshot.figures == {}
+    assert all(isinstance(exc, StorageError) for exc in snapshot.errors.values())
+    # Accessing a failed figure raises its own error rather than returning None.
+    with pytest.raises(StorageError):
+        snapshot.total_recorded
+
+
+def test_summary_snapshot_issues_one_round_trip(temp_db, monkeypatch):
+    """AC 1, proved rather than asserted in prose.
+
+    The evidence PRD-007 Section 12 Phase 3 asks for — a measured round-trip
+    count — and the contrast that makes it mean something: the same ten figures
+    read the old way issue ten statements.
+    """
+    _seed_summary_fixture()
+
+    statements = _count_statements(monkeypatch)
+    summary_snapshot()
+
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert len(statements) == 1, statements
+
+    statements.clear()
+    _individually()
+    assert len(statements) == 10, statements
+
+
+def test_summary_snapshot_limits_are_parameters(temp_db):
+    """AC 6. Both limits are arguments, and they are not the same argument.
+
+    row_limit and ranked_limit differ deliberately: if the four positional
+    parameters were ever bound in the wrong order, equal values would hide it.
+    """
+    _seed_summary_fixture()
+
+    snapshot = summary_snapshot(row_limit=2, ranked_limit=1)
+
+    assert len(snapshot.rows) == 2
+    assert snapshot.rows == list_audit_logs(limit=2)
+    assert len(snapshot.top_models) == 1
+    assert len(snapshot.top_users) == 1
+    assert len(snapshot.top_pii_entities) == 1
+    assert snapshot.top_models == top_models(limit=1)
+    assert snapshot.top_users == top_users(limit=1)
+    assert snapshot.top_pii_entities == top_pii_entities(limit=1)
+    # The counts are whole-table figures and no limit touches them.
+    assert snapshot.total_recorded == count_audit_logs()
+
+
+def test_summary_snapshot_leaves_the_ten_standalone_signatures_unchanged(temp_db):
+    """AC 4. The ten are public surface STORY-006 promised not to change — and
+    the fallback in `summary_snapshot()` is built out of them."""
+    # Return annotations included: AC 2 requires the batched read to hand back
+    # `int`, `list[str]` and `list[AuditLog]`, and these are where those types
+    # are declared.
+    expected = {
+        "list_audit_logs": (
+            "(limit: int = 100, user_id: Optional[str] = None)"
+            " -> list[app.db.models.AuditLog]"
+        ),
+        "count_audit_logs": "(user_id: Optional[str] = None) -> int",
+        "count_blocked_duplicates": "() -> int",
+        "count_blocked_suspicious": "() -> int",
+        "count_unique_users": "() -> int",
+        "count_successful_queries": "() -> int",
+        "count_pii_detected_queries": "() -> int",
+        "top_models": "(limit: int = 5) -> list[str]",
+        "top_users": "(limit: int = 5) -> list[str]",
+        "top_pii_entities": "(limit: int = 5) -> list[str]",
+    }
+    for name, signature in expected.items():
+        assert str(inspect.signature(getattr(database, name))) == signature, name
+
+
+def test_count_audit_logs_still_scopes_by_user(temp_db):
+    """AC 4, the one the story calls out: `GET /audit` scopes with this, so it
+    is not the summary's to fold away."""
+    _seed_summary_fixture()
+
+    assert count_audit_logs() == 6
+    assert count_audit_logs(user_id="alice") == 3
+    assert count_audit_logs(user_id="bob") == 2
+    assert count_audit_logs(user_id="nobody") == 0
+
+
 # --------------------------------------------------------------------------
 # PRD-005 STORY-002: users table + CRUD helpers
 # --------------------------------------------------------------------------
@@ -857,14 +1279,11 @@ def test_init_db_is_idempotent_for_users_table(temp_db):
     assert index is not None
 
 
-def test_init_db_adds_users_table_to_pre_rbac_database(tmp_path, monkeypatch):
+def test_init_db_adds_users_table_to_pre_rbac_database(uninitialized_db, db_connect):
     """A new *table* needs no ALTER-based migration: CREATE TABLE IF NOT EXISTS
     reaches an existing database file, unlike a new column. This is why
     _add_missing_columns stays audit_logs-specific."""
-    db_path = tmp_path / "pre_rbac.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-
-    _create_pre_pii_database(db_path)  # audit_logs only -- no users table
+    _create_pre_pii_database(db_connect, uninitialized_db)  # audit_logs only -- no users table
 
     init_db()
 
@@ -915,6 +1334,22 @@ def test_find_user_by_token_hash_ignores_deactivated_user(temp_db):
 
 def test_find_user_by_token_hash_unknown_returns_none(temp_db):
     assert find_user_by_token_hash("nope") is None
+
+
+def test_find_user_by_token_hash_returns_none_when_users_table_does_not_exist(
+    uninitialized_db,
+):
+    """PRD-007 STORY-002 characterization test.
+
+    Pins the `except sqlite3.OperationalError` arm at app/db/database.py:289:
+    a missing `users` table is folded into the same "no match" outcome as an
+    unknown credential, rather than escaping to the caller.
+
+    Asserted by return value, never by exception type -- STORY-004 replaces
+    the driver's exception with a module-owned one, and this test must keep
+    passing across that swap untouched.
+    """
+    assert find_user_by_token_hash("any-hash") is None
 
 
 def test_find_user_by_token_hash_is_exact_not_prefix(temp_db):
@@ -1029,8 +1464,12 @@ def test_insert_user_defaults_created_at_to_utc_now(temp_db):
 def test_insert_user_rejects_duplicate_user_id(temp_db):
     insert_user(User(user_id="ana", role="user", token_hash="h-1"))
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError) as exc_info:
         insert_user(User(user_id="ana", role="admin", token_hash="h-2"))
+
+    # The module-owned type carries which constraint failed, so a caller can tell
+    # this apart from a duplicate token_hash (PRD-007 STORY-004 AC1).
+    assert exc_info.value.constraint == "users.user_id"
 
 
 def test_insert_user_rejects_duplicate_token_hash(temp_db):
@@ -1038,8 +1477,78 @@ def test_insert_user_rejects_duplicate_token_hash(temp_db):
     credential and the lookup would return an arbitrary winner."""
     insert_user(User(user_id="ana", role="user", token_hash="shared-hash"))
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError) as exc_info:
         insert_user(User(user_id="bob", role="user", token_hash="shared-hash"))
+
+    assert exc_info.value.constraint == "users.token_hash"
+
+
+def test_no_driver_exception_escapes_app_db(temp_db):
+    """PRD-007 STORY-004 AC2: every driver exception is translated at the
+    module boundary, so no caller ever sees a sqlite3 type."""
+    with get_connection() as conn:
+        conn.execute("DROP TABLE audit_logs")
+
+    with pytest.raises(MissingRelationError) as exc_info:
+        count_audit_logs()
+
+    raised = exc_info.value
+    assert raised.relation == "audit_logs"
+    # A subclass of the general failure on purpose: duplicate_checker catches
+    # StorageError and must keep catching a missing table, exactly as
+    # `except sqlite3.Error` did before the translation existed.
+    assert isinstance(raised, StorageError)
+    assert not isinstance(raised, sqlite3.Error)
+
+
+def test_find_user_by_token_hash_raises_when_the_failure_is_not_a_missing_table(
+    temp_db, monkeypatch
+):
+    """The 401 arm is narrow by design (PRD-007 STORY-004, Design Note 3).
+
+    Before the translation it caught every sqlite3.OperationalError, so a locked
+    or unreadable database resolved as "no match" -- a real storage outage
+    reported as a bad credential. Only a missing `users` table folds into None
+    now; anything else must surface. The induced failure is the libSQL driver's
+    own shape since STORY-006, which is the point: the arm has to stay narrow
+    across a driver swap, not merely across a refactor.
+
+    Mirrors the connection-patching idiom at test_init_db_issues_no_alter... --
+    a proxy stands in for the connection so the failure is induced at execute
+    time rather than by writing a broken database to disk.
+    """
+
+    class _LockedConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, *args, **kwargs):
+            # The driver's real failure shape, captured from the live endpoint by
+            # PRD-007 STORY-006: libSQL raises a bare `builtins.ValueError` whose
+            # message is Hrana-wrapped, and `_translated()` recognises it by that
+            # wrapper rather than by an exception type there is none of.
+            raise ValueError(
+                "Hrana: `stream error: `Error { message: \"SQLite error: database "
+                'is locked", code: "SQLITE_BUSY" }``'
+            )
+
+    real_get_connection = database.get_connection
+    monkeypatch.setattr(
+        database, "get_connection", lambda: _LockedConnection(real_get_connection())
+    )
+
+    with pytest.raises(StorageError) as exc_info:
+        find_user_by_token_hash("any-hash")
+
+    assert not isinstance(exc_info.value, MissingRelationError)
+    assert "locked" in str(exc_info.value)
 
 
 def test_get_user_missing_returns_none(temp_db):
@@ -1068,3 +1577,571 @@ def test_set_user_token_hash_rotates_the_credential(temp_db):
 
 def test_set_user_token_hash_unknown_returns_false(temp_db):
     assert set_user_token_hash("ghost", "hash") is False
+
+
+# PRD-007 STORY-006: the shared client itself
+# ---------------------------------------------------------------------------
+
+
+def test_the_shared_client_is_reused_across_calls(temp_db):
+    """PRD-007 Section 6 Pattern 1. Against a remote endpoint every construction
+    is a TCP + TLS handshake, so a client built per call would make a single
+    admin console load pay ten of them. Asserted by identity, because "it is
+    reused" is the whole claim -- a correct-looking module that quietly rebuilds
+    passes every other test in this file."""
+    first = database._shared_client()
+
+    count_audit_logs()
+
+    assert database._shared_client() is first
+
+
+def test_the_shared_client_is_rebuilt_when_the_database_url_changes(
+    temp_db, monkeypatch
+):
+    """The cache is keyed on the URL, and it has to be.
+
+    Every fixture in `tests/conftest.py` repoints `settings.DATABASE_URL` on the
+    constructed `Settings` instance. A client cached without regard to that
+    would keep serving the endpoint it was first built against -- so one test's
+    reads would come from another's database, and the whole suite would report
+    green while testing one thing.
+    """
+    first = database._shared_client()
+
+    monkeypatch.setattr(settings, "DATABASE_URL", "http://127.0.0.1:59999")
+
+    assert database._shared_client() is not first
+
+
+# PRD-007 STORY-007: concurrent init_db()
+# ---------------------------------------------------------------------------
+#
+# The race is the read-then-ALTER pair in `_add_missing_columns()`: two
+# instances can both read a column as missing, and the loser's ALTER fails with
+# `duplicate column name`. Because init_db() runs at import time, the loser is a
+# container that will not boot.
+#
+# Four of the six tests below are *deterministic* -- they reproduce the loser's
+# condition directly rather than hoping an interleave occurs. The two N-thread
+# tests at the end are realism, and say so in their own docstrings: on their own
+# they would pass whether or not the race ever happened, which is exactly the
+# kind of evidence AC7 rejects.
+
+
+class _DelegatingConnection:
+    """Base for the connection proxies below: passes everything through.
+
+    Same idiom as `_RecordingConnection` and `_LockedConnection` above, which
+    STORY-006 introduced because the libSQL connection has no
+    `set_trace_callback` equivalent to hook instead.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._conn.__exit__(*exc_info)
+
+    def execute(self, sql, *parameters):
+        return self._conn.execute(sql, *parameters)
+
+
+class _StaleReadConnection(_DelegatingConnection):
+    """Reports `audit_logs` as having no columns; everything else is real."""
+
+    def execute(self, sql, *parameters):
+        if _is_table_info(sql):
+            return []
+        return self._conn.execute(sql, *parameters)
+
+
+class _GatedConnection(_DelegatingConnection):
+    """Holds the caller at `gate` once its PRAGMA table_info has returned."""
+
+    def __init__(self, conn, gate):
+        super().__init__(conn)
+        self._gate = gate
+
+    def execute(self, sql, *parameters):
+        result = self._conn.execute(sql, *parameters)
+        if _is_table_info(sql):
+            # Materialise before waiting: the caller must already hold its stale
+            # view, and no cursor may stay open across the barrier.
+            result = result.fetchall()
+            self._gate.wait()
+        return result
+
+
+class _FailingAlterConnection(_DelegatingConnection):
+    """Passes everything through but fails every ADD COLUMN."""
+
+    def __init__(self, conn, message):
+        super().__init__(conn)
+        self._message = message
+
+    def execute(self, sql, *parameters):
+        if _is_add_column(sql):
+            raise _driver_error(self._message)
+        return self._conn.execute(sql, *parameters)
+
+
+def _is_table_info(sql: str) -> bool:
+    return sql.strip().upper().startswith("PRAGMA TABLE_INFO")
+
+
+def _is_add_column(sql: str) -> bool:
+    return "ADD COLUMN" in sql.upper()
+
+
+def _install(monkeypatch, make_proxy) -> None:
+    """Points `database.get_connection` at a proxy over the real connection."""
+    real_get_connection = database.get_connection
+    monkeypatch.setattr(
+        database, "get_connection", lambda: make_proxy(real_get_connection())
+    )
+
+
+def _driver_error(message: str) -> ValueError:
+    """The driver's real failure shape, captured from the live endpoint.
+
+    libSQL raises a bare `builtins.ValueError` whose message is Hrana-wrapped,
+    and `_translated()` recognises it by that wrapper rather than by an
+    exception type there is none of (STORY-001 3.5).
+    """
+    return ValueError(
+        'Hrana: `stream error: `Error { message: "SQLite error: '
+        + message
+        + '", code: "SQLITE_UNKNOWN" }`'
+    )
+
+
+def _run_concurrently(count, work):
+    """Runs `work` in `count` threads released together, and returns failures.
+
+    The barrier is the point: started sequentially the threads would finish one
+    after another and the interleave under test would never occur.
+
+    The workers reach the database through `database.get_connection()` like
+    everything else. STORY-006 measured a client per thread losing 169 of 200
+    writes to TRANSACTION_TIMEOUT, so a test that built its own client would be
+    testing a configuration the application does not use.
+    """
+    start = threading.Barrier(count, timeout=30)
+    failures: list = []
+    lock = threading.Lock()
+
+    def worker():
+        try:
+            start.wait()
+            work()
+        except BaseException as exc:  # noqa: BLE001 -- reported, never swallowed
+            with lock:
+                failures.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert not any(thread.is_alive() for thread in threads), "a worker hung"
+    return failures
+
+
+def test_add_missing_columns_treats_an_existing_column_as_success(
+    temp_db, monkeypatch
+):
+    """The losing instance's exact condition, without needing a race to occur.
+
+    This is the deterministic half of AC7. `temp_db` leaves the schema current,
+    and the proxy reports `audit_logs` as having no columns at all -- the stale
+    read a loser gets when another instance ALTERs between its PRAGMA and its
+    own ALTER. All five ADD COLUMNs therefore fire against a table that already
+    has them, and every one of them fails. init_db() must still return.
+
+    The users-table assertion is not incidental: it proves the statements
+    *after* the swallowed failures still landed, i.e. that a converging instance
+    finishes its migration rather than committing a half-built schema.
+    """
+    _install(monkeypatch, _StaleReadConnection)
+
+    init_db()  # must not raise
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+        users = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+
+    for name in AUDIT_LOGS_ADDED_COLUMNS:
+        assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
+    assert users is not None, "the statements after the swallowed failures were lost"
+
+
+def test_two_init_db_calls_interleaved_between_read_and_alter_both_succeed(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The race itself, forced rather than hoped for -- the other half of AC7.
+
+    Both threads are held at a barrier *after* their PRAGMA returns and before
+    either ALTERs, so both are guaranteed to act on the same stale view. That is
+    precisely the interleave PRAGMA(A) -> PRAGMA(B) -> ALTER(A) -> ALTER(B) that
+    Section 6 Pattern 5 describes, and here it happens on every run.
+
+    Two details that keep this safe. The barrier is released only after
+    `execute()` has returned, so no thread blocks while the driver holds
+    anything -- `_client_lock` guards client *construction*, never execution.
+    And the barrier carries a timeout, so a deadlock fails the test instead of
+    hanging the suite.
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+    gate = threading.Barrier(2, timeout=30)
+    _install(monkeypatch, lambda conn: _GatedConnection(conn, gate))
+
+    failures = _run_concurrently(2, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert count_audit_logs() == 1
+    assert get_audit_log(1).user_id == "juan@empresa.com"
+
+
+def test_add_missing_columns_propagates_a_failure_that_is_not_a_duplicate_column(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """AC3's second half. "Column already exists" is one specific condition.
+
+    A locked or unreachable database failing an ALTER must still reach the
+    caller: a migration that reports success without having run would hide a
+    broken schema behind a healthy-looking boot, which is a worse failure than
+    the crash this story removes.
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+    _install(
+        monkeypatch, lambda conn: _FailingAlterConnection(conn, "database is locked")
+    )
+
+    with pytest.raises(StorageError) as exc_info:
+        init_db()
+
+    assert not isinstance(exc_info.value, MissingRelationError)
+    assert "locked" in str(exc_info.value)
+
+
+def test_add_missing_columns_propagates_a_duplicate_naming_a_different_column(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The predicate checks the column name, not merely the phrase.
+
+    A duplicate reported for a column we did not ask for means the statement
+    that failed was not the one we think it was. That is why
+    `_is_duplicate_column()` takes `name` at all, and this is the test that
+    keeps it from decaying into a substring match on "duplicate column name".
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+    _install(
+        monkeypatch,
+        lambda conn: _FailingAlterConnection(
+            conn, "duplicate column name: some_other_column"
+        ),
+    )
+
+    with pytest.raises(StorageError) as exc_info:
+        init_db()
+
+    assert "some_other_column" in str(exc_info.value)
+
+
+def test_concurrent_init_db_on_an_empty_database_converges(database_url):
+    """AC1: N instances booting together on an empty database all return.
+
+    Honest about what it proves, and measured rather than guessed: run against
+    the pre-STORY-007 `_add_missing_columns()` this test still passes. On an
+    *empty* database `CREATE TABLE IF NOT EXISTS` builds the current schema
+    outright, so no ALTER is ever needed and there is no race to lose. It is
+    therefore realism, not evidence -- which is the standard AC7 sets. The
+    deterministic proof is
+    `test_add_missing_columns_treats_an_existing_column_as_success` and
+    `test_two_init_db_calls_interleaved_between_read_and_alter_both_succeed`
+    above. This one is here because "the whole of init_db(), under real
+    concurrency, end to end" is a different claim from either of those, and it
+    is the claim the PRD's Risk 3 mitigation names.
+    """
+    failures = _run_concurrently(8, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+        users = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+        index = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='idx_users_token_hash'"
+        ).fetchone()
+
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert users is not None
+    assert index is not None
+
+
+def test_concurrent_init_db_on_a_partially_migrated_database_converges(
+    uninitialized_db, db_connect
+):
+    """AC2: the same, against a table missing a subset of the added columns.
+
+    The pre-PII fixture is the case with real migration work in it -- five
+    ALTERs that must each run exactly once across eight instances -- and the
+    surviving row is what keeps "additive only" honest under concurrency.
+
+    Same caveat as the test above: realism, not deterministic evidence.
+    """
+    _create_pre_pii_database(db_connect, uninitialized_db)
+
+    failures = _run_concurrently(8, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "juan@empresa.com"
+    assert preserved.pii_detected_input is False
+
+
+# --------------------------------------------------------------------------
+# STORY-008 -- the startup guard: fail fast, legibly, and without the token.
+# --------------------------------------------------------------------------
+
+#: A closed port on loopback. No DNS lookup and no route to wait on -- the
+#: connection is refused immediately, which is the unreachable case the guard is
+#: written against, at the lowest wall-clock cost available.
+_UNREACHABLE_URL = "http://127.0.0.1:1"
+
+#: Stands in for a real credential the way `tests/test_config.py`'s sentinel
+#: does. If it ever reaches a failure message, PRD Section 9 has been broken.
+_TOKEN_SENTINEL = "s3cret-turso-token-value"
+
+#: The unreachable message the driver actually produces, recorded verbatim by
+#: STORY-006 (report, error-surface table). Note the absent `code:` field, which
+#: is why the classifier reads message text and not a code.
+_REAL_UNREACHABLE_TEXT = (
+    "Hrana: `http error: error sending request for url "
+    "(http://127.0.0.1:1/v2/pipeline): client error (Connect): "
+    "tcp connect error: Connection refused (os error 111)`"
+)
+
+
+@pytest.fixture
+def _restore_shared_client():
+    """Drops the process-wide client after a test repoints DATABASE_URL.
+
+    `_shared_client()` keys on `(URL, token)` and rebuilds when either changes,
+    so this is belt and braces -- but a test that deliberately points the module
+    at a dead endpoint is the last place to rely on a cache invalidating itself.
+    """
+    yield
+    database._client = None
+    database._client_key = None
+
+
+@pytest.mark.parametrize(
+    "url, must_not_contain",
+    [
+        (f"libsql://db-org.turso.io?authToken={_TOKEN_SENTINEL}", _TOKEN_SENTINEL),
+        ("https://user:pw@db-org.turso.io/some/path", "pw"),
+        ("http://127.0.0.1:8080", "@"),
+    ],
+)
+def test_safe_endpoint_drops_query_userinfo_and_path(url, must_not_contain):
+    """AC3, structurally: the only part of DATABASE_URL a message may quote."""
+    safe = database._safe_endpoint(url)
+
+    assert must_not_contain not in safe
+    assert "?" not in safe and "@" not in safe
+    assert "db-org.turso.io" in safe or "127.0.0.1" in safe
+
+
+def test_safe_endpoint_keeps_the_port_so_the_message_identifies_the_database():
+    """AC1 wants the endpoint named. A scheme alone would not tell two apart."""
+    assert database._safe_endpoint("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+
+
+def test_safe_endpoint_degrades_rather_than_echoing_an_unparseable_url():
+    assert "not a url at all" not in database._safe_endpoint("not a url at all")
+
+
+def test_redacted_removes_a_token_carried_in_driver_text(monkeypatch):
+    """Both forms: the query-string parameter and the configured value itself."""
+    monkeypatch.setattr(settings, "TURSO_AUTH_TOKEN", _TOKEN_SENTINEL)
+    message = (
+        f"Hrana: `http error: url (libsql://db.turso.io?authToken={_TOKEN_SENTINEL}) "
+        f"rejected the credential {_TOKEN_SENTINEL}`"
+    )
+
+    scrubbed = database._redacted(message)
+
+    assert _TOKEN_SENTINEL not in scrubbed
+    assert "authToken=***" in scrubbed
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["401", "Unauthorized", "authentication failed", "invalid token", "expired token"],
+)
+def test_classify_names_the_token_setting_for_an_auth_failure(marker):
+    """AC2: an operator sent to the credential, not to the network."""
+    error = database._classify_startup_failure(
+        ValueError(f"Hrana: `api error: {marker}`"), "libsql://db-org.turso.io"
+    )
+
+    assert isinstance(error, DatabaseAuthError)
+    assert "TURSO_AUTH_TOKEN" in str(error)
+    assert error.endpoint == "libsql://db-org.turso.io"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [_REAL_UNREACHABLE_TEXT, "Hrana: `something nobody has seen before`"],
+)
+def test_classify_falls_back_to_unreachable(message):
+    """The real driver text, and an unrecognized failure.
+
+    The fallback direction is the assertion: an unclassifiable failure must not
+    accuse a credential that may be perfectly good.
+    """
+    error = database._classify_startup_failure(ValueError(message), "http://127.0.0.1:1")
+
+    assert isinstance(error, DatabaseUnreachableError)
+    assert "DATABASE_URL" in str(error)
+    assert "http://127.0.0.1:1" in str(error)
+
+
+@pytest.mark.parametrize("marker", ["401 Unauthorized", "Connection refused"])
+def test_no_guard_message_ever_echoes_the_token(marker, monkeypatch):
+    """AC3 on both branches, with the token in all three places it can hide: the
+    setting, the URL the driver quotes back, and the driver's own text."""
+    monkeypatch.setattr(settings, "TURSO_AUTH_TOKEN", _TOKEN_SENTINEL)
+    url = f"libsql://db-org.turso.io?authToken={_TOKEN_SENTINEL}"
+    driver_text = f"Hrana: `http error: url ({url}) {marker} for {_TOKEN_SENTINEL}`"
+
+    error = database._classify_startup_failure(
+        ValueError(driver_text), database._safe_endpoint(url)
+    )
+
+    assert _TOKEN_SENTINEL not in str(error)
+    assert _TOKEN_SENTINEL not in error.endpoint
+
+
+def test_init_db_fails_fast_against_an_unreachable_endpoint(
+    monkeypatch, _restore_shared_client
+):
+    """AC1: the boot path raises rather than returning and failing later.
+
+    `http://` passes STORY-005's validator (it is the local-dev scheme), so what
+    fails here is this story's guard and not the configuration check -- the
+    exception type is the proof.
+    """
+    monkeypatch.setattr(settings, "DATABASE_URL", _UNREACHABLE_URL)
+    database._client = None
+    database._client_key = None
+
+    with pytest.raises(DatabaseUnreachableError) as exc_info:
+        init_db()
+
+    assert "DATABASE_URL" in str(exc_info.value)
+    assert "127.0.0.1:1" in str(exc_info.value)
+
+
+def test_guard_issues_exactly_one_extra_statement(temp_db, monkeypatch):
+    """AC5: one round trip, not a handshake-plus-retry loop.
+
+    Same recording-proxy idiom as
+    `test_init_db_issues_no_alter_when_schema_is_current`.
+    """
+    statements: list[str] = []
+    real_get_connection = database.get_connection
+
+    class _RecordingConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    monkeypatch.setattr(
+        database,
+        "get_connection",
+        lambda: _RecordingConnection(real_get_connection()),
+    )
+
+    check_database_reachable()
+
+    assert statements == ["SELECT 1"]
+
+
+def test_guard_does_not_run_outside_init_db(temp_db, monkeypatch):
+    """AC7: startup, not liveness.
+
+    After a successful start the guard must never fire again -- if a later
+    version wired a reachability check into the operational path, this booby
+    trap would spring on the first ordinary write or read.
+    """
+
+    def _explode() -> None:
+        raise AssertionError("the guard re-fired outside init_db()")
+
+    monkeypatch.setattr(database, "check_database_reachable", _explode)
+
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-01T10:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="abc123",
+            prompt_preview="hola",
+            model_used="gpt-4",
+        )
+    )
+
+    assert count_audit_logs() == 1
+
+
+def test_bootstrap_disabled_skips_the_guard_and_the_schema(
+    monkeypatch, _restore_shared_client
+):
+    """The Docker builder stage's case: import the app with no database at all.
+
+    PRD Section 11 requires the build to succeed without a reachable database,
+    and `reflex export` imports `chat_ui.chat_ui`, which calls `init_db()`.
+    """
+    monkeypatch.setattr(settings, "DATABASE_URL", _UNREACHABLE_URL)
+    monkeypatch.setattr(settings, "DB_BOOTSTRAP_ENABLED", False)
+    database._client = None
+    database._client_key = None
+
+    init_db()  # must not raise, and must not have reached the network

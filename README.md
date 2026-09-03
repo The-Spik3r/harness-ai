@@ -24,6 +24,7 @@
 - [Quickstart — Local](#quickstart--local)
 - [Quickstart — Docker](#quickstart--docker)
 - [Chat UI](#chat-ui)
+- [Persistence & Deployment](#persistence--deployment)
 - [Environment Variables](#environment-variables)
 - [API Reference](#api-reference)
 - [Running Tests](#running-tests)
@@ -71,11 +72,11 @@ If either check fails, the request is rejected **before** it reaches the model p
         ┌───────────────────────┐
         │   Harness IA (FastAPI)│
         │                       │
-        │  0. Resolve identity  │◄──── SQLite (users)
+        │  0. Resolve identity  │◄──── Turso (users)
         │     + authorize       │
         │  1. Validate request  │
         │  2. Hash prompt       │
-        │  3. Duplicate check   │◄──── SQLite (audit_logs)
+        │  3. Duplicate check   │◄──── Turso (audit_logs)
         │     (24h window)      │
         │  4. Pattern check     │
         │     (prompt injection)│
@@ -118,7 +119,7 @@ Blocked requests (missing/invalid credential, missing permission, duplicate, or 
 | **Duplicate blocking** | Exact-match (word-for-word) detection of repeated prompts within a rolling 24-hour window. |
 | **Prompt-injection blocking** | Case-insensitive substring match against a maintained pattern list. |
 | **PII redaction** | [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt before it reaches OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a request, and the audit log keeps the raw text. English-only in this release. |
-| **Full audit logging** | Every request — success or blocked — writes one row to SQLite: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
+| **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
 | **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
 | **Model-agnostic** | Works with any model OpenRouter serves — Claude, GPT, or others — with no code changes. |
@@ -127,9 +128,11 @@ Blocked requests (missing/invalid credential, missing permission, duplicate, or 
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.9+. The pinned `libsql==0.1.11` publishes wheels for CPython 3.9–3.13 on Windows, 3.10–3.13 on macOS, and 3.8–3.14 on Linux; on any other interpreter `pip install` falls back to building the Rust source distribution, which needs a working toolchain. The Docker image is `python:3.11`.
 - Docker & Docker Compose (optional, for containerized deployment)
 - An [OpenRouter](https://openrouter.ai) API key
+- A Turso database, or any libSQL endpoint — `DATABASE_URL` has no default and the application will not start without one (see [Persistence & Deployment](#persistence--deployment))
+- For running the test suite only: a local libSQL server (see [Running Tests](#running-tests)) — no Turso account needed
 - ~500 MB of disk for the English spaCy NLP model (`en_core_web_lg`) used by PII redaction
 - Network access at install/build time to download that model — or at first startup, if you skip the download step and let Presidio fetch it
 
@@ -141,12 +144,15 @@ Blocked requests (missing/invalid credential, missing permission, duplicate, or 
 pip install -r requirements.txt
 python -m spacy download en_core_web_lg   # English NLP model used by PII redaction (~425 MB)
 cp .env.example .env
-# edit .env: set OPENROUTER_API_KEY and ADMIN_TOKEN to real values
+# edit .env: set OPENROUTER_API_KEY, ADMIN_TOKEN, DATABASE_URL and
+# TURSO_AUTH_TOKEN to real values
 python scripts/manage_users.py create-user --user-id admin --role admin
 # copy the printed token now -- it cannot be recovered later; this is
 # your bearer token for POST /query, /audit, and /stats
 python app.py
 ```
+
+`DATABASE_URL` has no default: without it the process exits on a configuration error before it serves anything. A local libSQL server is enough for a first run — set `DATABASE_URL=http://127.0.0.1:8080` and leave `TURSO_AUTH_TOKEN` empty (see [Running Tests](#running-tests) for the one-line `docker run`). A Turso database needs both values, and a `sqlite:` URL is a startup error rather than a file. See [Persistence & Deployment](#persistence--deployment).
 
 The model is a separate download — `requirements.txt` installs Presidio and spaCy but not the model itself. If you skip this step, Presidio fetches the model automatically the first time the service starts: the first boot then stalls on a ~400 MB download and needs network access at runtime. To run without redaction entirely, set `PII_REDACTION_ENABLED=false` in `.env`.
 
@@ -161,10 +167,12 @@ curl http://localhost:8000/health
 
 ```bash
 cp .env.example .env
-# edit .env: set OPENROUTER_API_KEY and ADMIN_TOKEN to real values
+# edit .env: set OPENROUTER_API_KEY, ADMIN_TOKEN, DATABASE_URL and
+# TURSO_AUTH_TOKEN to real values
 docker-compose up -d --build
 docker-compose run --rm harness-ai python scripts/manage_users.py create-user --user-id admin --role admin
 # copy the printed token now -- it cannot be recovered later
+docker-compose up -d   # see the note below: the first boot exits before this user exists
 ```
 
 ```bash
@@ -174,7 +182,15 @@ curl http://localhost:8000/health
 
 Skipping the `create-user` step makes the service fail at startup with `RbacNotBootstrappedError` (see Troubleshooting) — `ADMIN_TOKEN` alone is not sufficient, by design.
 
-The SQLite database persists across container restarts via a named volume — audit history is not lost on redeploy.
+**On a brand-new database the first `up` is expected to exit.** The bootstrap guard runs at startup, before you have had any chance to create a user, so the container stops with `RbacNotBootstrappedError`; `create-user` then runs in a throwaway container of its own, which is why it still works. The second `docker-compose up -d` starts the service now that a user exists. Against a database that already has one, the first `up` is enough.
+
+All four values reach the container through `env_file: .env`, the same way `OPENROUTER_API_KEY` and `ADMIN_TOKEN` always have — `docker-compose.yml` names no environment variables of its own.
+
+If you point this stack at a libSQL dev server running on your own machine rather than at Turso, use `http://host.docker.internal:8080` — inside the container `127.0.0.1` is the container itself.
+
+`--build` is not optional after pulling changes. Compose reuses an existing image rather than rebuilding, and an image built before the Turso migration will now fail at boot rather than silently writing to a file.
+
+The audit trail lives in Turso, reached over the network, so the container holds no database and no volume is involved. Restarting, rebuilding, or tearing the stack down — `docker compose down -v` included — does not touch the audit history. See [Persistence & Deployment](#persistence--deployment).
 
 The image bakes `en_core_web_lg` in at build time, so no model download happens at container start — without it, a fresh container would pull ~400 MB before serving its first request. This makes the image substantially larger: measured with `docker image inspect`, the pre-PII image was 131 MB and the current one is 628 MB (of which ~446 MB is the model layer), and the first build spends ~40 s downloading it. Accepted tradeoff — see PRD-003 Risk 5. (`docker images` reports larger figures for the same images on containerd-backed installs; the numbers above use `docker image inspect`.)
 
@@ -205,13 +221,59 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 
 ---
 
+## Persistence & Deployment
+
+### Where state lives
+
+Both tables the harness owns — `audit_logs` and `users` — live in a [Turso](https://turso.tech) (libSQL) database, reached over the network. There is no database file in the repository, in the image, or in the compose stack, and there is no local-file fallback: a `sqlite:` `DATABASE_URL` is a startup error rather than a file, deliberately, because a local database written to an ephemeral container layer is read by nobody and backed up by nobody.
+
+To provision one: create a database, take its `libsql://<database>-<org>.turso.io` URL and an auth token, and put both in `.env` as `DATABASE_URL` and `TURSO_AUTH_TOKEN`. Any libSQL endpoint works — the local dev server on `http://` is the same contract without the token.
+
+### Multiple instances
+
+Several application instances may now share one database. That is what this migration bought: the audit trail is no longer an artifact of one container's filesystem, and `init_db()` converges correctly when instances start against the same database simultaneously, rather than racing each other through the schema migration.
+
+**What is not included.** The database blocker is gone; the deployment topology is not built:
+
+- **No load balancer or health-check configuration** is provided or documented here.
+- **No Reflex websocket session affinity.** The chat UI holds a websocket per session, so placing instances behind a round-robin balancer without sticky sessions is not a supported configuration today.
+- **No production two-instance validation yet.** Running two instances against one database is designed for and expected to work, but the end-to-end proof is still outstanding work, not a completed test.
+
+Treat multi-instance as *unblocked*, not *delivered*.
+
+### The database is a hard dependency of every request
+
+With the local file gone, every `POST /query` makes network round trips it never used to — one for the duplicate check, one for the audit write. Retry, circuit-breaker, and offline-buffering behavior are deliberately outside the current scope, which has a consequence worth knowing before you size a deployment rather than during an incident: **a transient database outage fails requests instead of degrading them.** Endpoints that previously could not fail on storage now can.
+
+There is one existing exception, preserved on purpose: duplicate checking still degrades gracefully — a storage failure there lets the query through rather than rejecting it, because a failed duplicate check is not a reason to deny a user. Resilience work is the first item on the roadmap beyond this migration.
+
+### Migrating an existing SQLite deployment
+
+If you are upgrading a deployment that still holds a legacy `harness_ai.db`, `scripts/migrate_to_turso.py` copies `audit_logs` and `users` out of that file and into the database `DATABASE_URL` names.
+
+```bash
+python scripts/migrate_to_turso.py --source harness_ai.db --dry-run   # reports counts, writes nothing
+python scripts/migrate_to_turso.py --source harness_ai.db             # copies, then verifies
+```
+
+Four properties matter when you run it:
+
+- **The source file is opened read-only and is never modified.** It stays authoritative until verification passes, and the script never deletes it — that is your decision, afterwards.
+- **A non-empty destination is refused, and there is no `--force`.** One file, one run. If your rows are spread across several files, only one of them can be copied.
+- **Verification is not optional.** The script checks per-table counts, compares every row by column name, confirms `audit_logs.id` values are preserved rather than regenerated, and reads a sample back through the application's own accessors. Any mismatch exits non-zero.
+- **Delete the source only after a clean run.** If the live database is inside a Docker volume rather than in the repository, extract it from the volume first — the file in your working tree may not be the one your deployment has been writing to.
+
+---
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `OPENROUTER_API_KEY` | Yes | — | API key used to call the upstream LLM provider via OpenRouter. |
 | `ADMIN_TOKEN` | Yes | — | Break-glass bearer token that always resolves to the `admin` role, independent of the `users` table. Not the primary auth mechanism — issue individual tokens with `scripts/manage_users.py` instead. |
-| `DATABASE_URL` | No | `sqlite:///harness_ai.db` | SQLite connection string for the `audit_logs` database. |
+| `DATABASE_URL` | Yes | — | libSQL endpoint for the `audit_logs` and `users` database: `libsql://<database>-<org>.turso.io`, `https://...`, or `http://127.0.0.1:8080` for the local dev server. No default, and a `sqlite:` value is a startup error — the local-file path was removed deliberately, not deprecated. |
+| `TURSO_AUTH_TOKEN` | Yes for remote | — | Bearer token for the database. Required whenever `DATABASE_URL` is `libsql://` or `https://`; unused by the local `http://` dev server, which takes no token. Never logged — configuration errors quote the URL's scheme only, never the URL itself. |
+| `DB_BOOTSTRAP_ENABLED` | No | `true` | Whether startup probes the database and applies the schema. The only sanctioned `false` is the Docker builder stage, where the image must build with no database reachable. `false` in a running deployment boots an application whose schema was never created. |
 | `PORT` | No | `8000` | Port the FastAPI server listens on. |
 | `HOST` | No | `0.0.0.0` | Host/interface the server binds to. |
 | `LOG_LEVEL` | No | `INFO` | Log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
@@ -374,6 +436,15 @@ A missing or invalid credential on any endpoint returns `401`. An authenticated 
 
 The PII tests load the real `en_core_web_lg` model, so run the `spacy download` step from [Quickstart — Local](#quickstart--local) first — otherwise the first test run spends several minutes downloading it. The in-container run needs nothing extra (the image already has it).
 
+The suite needs a libSQL server to run against. **No Turso account is required** — the tests use a local server that runs offline, takes no token, and never touches a hosted database:
+
+```bash
+docker run -d --name harness-libsql-dev -p 8080:8080 -e SQLD_NODE=primary \
+  ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+```
+
+The tests default to `http://127.0.0.1:8080`; set `HARNESS_TEST_LIBSQL_URL` to point them somewhere else if that port is taken (`tests/conftest.py`).
+
 Locally:
 
 ```bash
@@ -383,8 +454,22 @@ pytest tests/ -v
 Inside the Docker container:
 
 ```bash
-docker-compose run --rm harness-ai pytest tests/ -v
+docker-compose run --rm \
+  -e HARNESS_TEST_LIBSQL_URL=http://host.docker.internal:8080 \
+  -e DATABASE_URL=http://host.docker.internal:8080 \
+  -e TURSO_AUTH_TOKEN= \
+  harness-ai pytest tests/ -v
 ```
+
+All three overrides are required, for three different reasons. The container inherits its environment from `.env` through `env_file`, so without them each of these would be the deployment's value rather than a test value:
+
+- `HARNESS_TEST_LIBSQL_URL` points the test fixtures at a server they can actually reach. Inside a container, `127.0.0.1` is the container's own loopback, not your host — without this the run fails immediately with a connection error.
+- `DATABASE_URL` overrides the value `env_file: .env` injects into the container. The test suite's own default is applied with `setdefault`, which cannot override a variable the process already inherited, and one test in `tests/test_db.py` calls `monkeypatch.undo()` — which also reverts the autouse fixture that redirects each test at an isolated database. Everything after that line runs against whatever `DATABASE_URL` the container was started with. **Without this override, an in-container test run can reach the database named in your `.env` — including a production one.** Always pass it.
+- `TURSO_AUTH_TOKEN=` (deliberately empty) keeps the deployment's real credential out of the test process. `tests/test_config.py` asserts that a local `http://` endpoint is accepted *without* a token and that an `https://` endpoint is rejected *for lacking* one; an inherited token makes both assertions false and produces two failures that have nothing to do with your change.
+
+On Linux, `host.docker.internal` is not resolvable by default; add `--add-host=host.docker.internal:host-gateway` to the command above.
+
+**A known collection error, and when it does *not* apply.** Running `tests/test_pii_badge.py` or `tests/test_success_metadata_footer.py` **on their own** fails at collection with `ModuleNotFoundError: No module named 'chat_ui.chat_ui.models'; 'chat_ui.chat_ui' is not a package`. This is a packaging problem, not a database one, and it does not affect a whole-suite run: collecting the full `tests/` directory imports `chat_ui.chat_ui` as a package first, and both modules then pass. If you need to run either file in isolation, expect this error until the packaging is fixed.
 
 ---
 
@@ -396,8 +481,17 @@ Run `pip install -r requirements.txt`.
 **`OPENROUTER_API_KEY not found` on startup**
 Copy `.env.example` to `.env` and fill in a real key.
 
+**`DATABASE_URL must name a libSQL endpoint, not a file` at startup**
+Your `.env` still carries a `sqlite:` URL from before the Turso migration. `DATABASE_URL` now names a network endpoint (`libsql://...`, `https://...`, or `http://127.0.0.1:8080` for the local dev server), and a file path is rejected rather than quietly created — see the [Environment Variables](#environment-variables) table. The full message names the replacement to use.
+
+**`TURSO_AUTH_TOKEN is required when DATABASE_URL names a remote endpoint` at startup**
+A `libsql://` or `https://` endpoint needs its token; the check fires before anything is dialled, so this is a configuration error rather than a connection failure. The local `http://` dev server takes no token — leave `TURSO_AUTH_TOKEN` empty for it.
+
+**`DatabaseUnreachableError: Cannot reach the database at <endpoint>`**
+The endpoint is not reachable from this host, and the application refuses to start rather than boot into a broken state. There is deliberately no local-file fallback to degrade to. Check `DATABASE_URL`, network reachability, and — if the endpoint answers but the credential is refused — expect `DatabaseAuthError` instead, which means `TURSO_AUTH_TOKEN` is wrong or expired rather than the host being down. The message quotes the driver's own reason at the end.
+
 **Docker container exits immediately**
-Check logs with `docker-compose logs harness-ai`.
+Check logs with `docker-compose logs harness-ai`. If the traceback ends in `sqlite3.connect` — a call the current code no longer contains — you are running an image built before the Turso migration: `docker-compose up` reuses an existing image rather than rebuilding it. Rebuild with `docker-compose up -d --build`.
 
 **First startup stalls while downloading several hundred MB**
 That is spaCy fetching `en_core_web_lg` because it was never installed — Presidio downloads a missing model on first use rather than failing. Run `python -m spacy download en_core_web_lg` up front (see [Quickstart — Local](#quickstart--local)) to keep it out of the startup path, or set `PII_REDACTION_ENABLED=false` to skip redaction entirely.
@@ -425,7 +519,7 @@ The credential is valid, but the role lacks the permission that endpoint require
 
 - [x] Duplicate detection (24h, exact match)
 - [x] Prompt-injection blocking (pattern list)
-- [x] Full audit logging (SQLite)
+- [x] Full audit logging (Turso / libSQL)
 - [x] Chat UI
 - [x] PII redaction on input/output
 - [x] Role-based access control (RBAC)

@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.database import get_connection, init_db, insert_user
+from app.db.database import get_connection, insert_user
 from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
@@ -23,17 +23,15 @@ client = TestClient(app)
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
+def temp_db(temp_db):
+    """conftest's initialized database, plus this suite's two authenticated users."""
     insert_user(
         User(user_id="juan@empresa.com", role="user", token_hash=hash_token(_JUAN_TOKEN))
     )
     insert_user(
         User(user_id="maria@empresa.com", role="user", token_hash=hash_token(_MARIA_TOKEN))
     )
-    return db_path
+    return temp_db
 
 
 def _count_audit_rows() -> int:

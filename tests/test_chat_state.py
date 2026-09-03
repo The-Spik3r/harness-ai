@@ -9,12 +9,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.db.database import (
     deactivate_user,
     get_audit_log,
     get_connection,
-    init_db,
     insert_audit_log,
     insert_user,
 )
@@ -47,14 +45,12 @@ _AUTH_TOKEN = "test-user-token"
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{db_path}")
-    init_db()
+def temp_db(temp_db):
+    """conftest's initialized database, plus this suite's authenticated user."""
     insert_user(
         User(user_id=_AUTH_USER_ID, role="user", token_hash=hash_token(_AUTH_TOKEN))
     )
-    return db_path
+    return temp_db
 
 
 def _count_audit_rows() -> int:

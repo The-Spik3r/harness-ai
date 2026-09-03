@@ -1,5 +1,4 @@
 import argparse
-import sqlite3
 import sys
 from pathlib import Path
 from typing import Optional, Sequence
@@ -17,6 +16,7 @@ from app.db.database import (
     list_users,
     set_user_token_hash,
 )
+from app.db.errors import IntegrityError
 from app.db.models import User
 from app.services.identity import hash_token, issue_token
 
@@ -34,7 +34,10 @@ def _create_user(args: argparse.Namespace) -> int:
     token = issue_token()
     try:
         insert_user(User(user_id=args.user_id, role=role, token_hash=hash_token(token)))
-    except sqlite3.IntegrityError:
+    # IntegrityError.constraint distinguishes users.user_id from users.token_hash.
+    # The CLI deliberately does not branch on it yet -- one message for both cases is
+    # pinned by tests/test_manage_users_cli.py:948, and changing it is its own story.
+    except IntegrityError:
         print(f"Error: a user with user_id '{args.user_id}' already exists.", file=sys.stderr)
         return 1
 
