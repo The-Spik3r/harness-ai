@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Schema and store"
-status: todo
+status: done
 labels: [tests, security, backend]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-007-ownership-signature-guard.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-007-ownership-signature-guard.report.md
 commit: null
 depends_on: [STORY-004, STORY-005, STORY-006]
 blocks: [STORY-021]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 ---
 
 # STORY-007: tests/test_session_ownership.py: the ownership rule asserted against signatures, not against memory
