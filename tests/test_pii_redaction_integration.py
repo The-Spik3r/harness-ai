@@ -335,6 +335,24 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_chat_state_reset_user_id_clears_error -> folded into
 #     test_chat_state_logout_clears_session_and_credential
 #   - test_reset_user_id_clears_the_transcript -> test_logout_clears_the_transcript
+#
+# PRD-008 STORY-023 retires the four provenance guards in
+# `tests/test_untouched_app.py` that diffed a pinned baseline against the *working
+# tree*. That comparison answered "what changed since PRD-006 began", never "what
+# did PRD-006 change", and the two stopped being the same question at the `main`
+# merge `0f77203` -- so the guards had been unmeasurable since before PRD-007 and
+# were failing CI on every branch cut from `main`. PRD-006's containment claim was
+# verified true before they were removed (40 commits, `577a285`..`99afc9f`, touched
+# nothing under any pinned path) and is preserved in STORY-023's report; what was
+# discarded is the broken instrument, not the claim. The fifth name is a rename,
+# not a deletion: the byte-equality pin became a name census that permits extending
+# a suite and still fails on deleting a case.
+#   - test_no_file_under_app_changed_since_prd_006_began -> retired
+#   - test_no_new_dependency_in_either_requirements_file -> retired
+#   - test_the_caddyfile_and_rxconfig_are_unchanged -> retired
+#   - test_the_chat_modules_are_unchanged_since_prd_006_began -> retired
+#   - test_the_pinned_suites_are_byte_unmodified ->
+#     test_no_test_was_removed_from_the_six_pinned_suites
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_schemas.py": {"test_query_request_missing_user_id_raises"},
     "tests/test_query_router.py": {
@@ -346,6 +364,13 @@ _DELIBERATELY_SUPERSEDED_TESTS = {
         "test_chat_state_submit_valid_user_id_clears_error_and_sets_user",
         "test_chat_state_reset_user_id_clears_error",
         "test_reset_user_id_clears_the_transcript",
+    },
+    "tests/test_untouched_app.py": {
+        "test_no_file_under_app_changed_since_prd_006_began",
+        "test_no_new_dependency_in_either_requirements_file",
+        "test_the_caddyfile_and_rxconfig_are_unchanged",
+        "test_the_chat_modules_are_unchanged_since_prd_006_began",
+        "test_the_pinned_suites_are_byte_unmodified",
     },
 }
 

@@ -6,29 +6,47 @@ and no change to the chat PRD-004 shipped. That proof was a document, and a
 document does not fail when someone adds a database function next month. This
 file is the same proof, re-run on every suite.
 
-**Why the baseline is a pinned SHA and not `merge-base main HEAD`.**
-`tests/test_pii_redaction_integration.py` wrote this guard first, for PRD-003,
-and derived its base with `git merge-base main HEAD`. That answers the right
-question only while the branch carries one PRD's work. It no longer does:
-`epic/PRD-006-admin-console` carries **both** PRD-004 and PRD-006, because
-`main` is still at the PRD-003 merge (`56a3781`) and PRD-004 was never merged
-into it. Deriving the base here would therefore measure two PRDs at once and
-report PRD-004's work as PRD-006's.
+**Why the provenance guards were retired (PRD-008 STORY-023).**
+Four guards here once asserted "this path has not changed since `_BASE`" by
+diffing the pinned baseline against the **working tree**. That comparison
+answers "what changed since PRD-006 began"; it never answered "what did PRD-006
+change". The two are the same question only while PRD-006 is the last thing on
+the branch, and they stopped being the same at `0f77203` ("Merge branch 'main'
+into epic/PRD-006-admin-console"), which pulled PRD-005's work under `app/` into
+the diff range. The guards were therefore already unmeasurable before PRD-007
+existed; PRD-007 and PRD-008 only widened a gap that was already open. By
+PRD-008 they reported fifteen files under `app/`, a requirements file and six
+chat modules, none of it PRD-006's doing, and took CI down with them.
 
-That distinction is not academic. Commit `3f553f2` ("feat(chat-ui): implement
-PII column migration…", a different author, 2026-08-28) changed
-`app/db/database.py` and `app/db/models.py`. It landed **after** PRD-004's own
-STORY-019 regression pass certified `app/` clean and **before** PRD-006's first
-commit, so `git diff main -- app/` is not empty on this branch and never will
-be — through no act of PRD-006's. PRD-006 Section 4 puts every change under
-`app/` out of scope, which also forbids *reverting* one; STORY-020 recorded the
-attribution and left the code alone. The assertions below are therefore scoped
-to what PRD-006 itself did, which is the only claim the evidence supports and
-the only one this PRD is accountable for.
+**The claim itself was true; only the instrument was broken.** The 40 commits
+from `577a285` (STORY-001) to `99afc9f` (STORY-020) touched zero files under
+`app/`, zero lines of either requirements file, neither `Caddyfile` nor
+`rxconfig.py`, none of the six chat modules and none of the six pinned suites —
+the only `components/` files they added are the console's own `admin_shell.py`,
+`register.py` and `summary.py`. `git diff --name-only d3e6279 99afc9f -- app/`
+is empty, and stays empty forever. That is exactly why the assertion is gone
+rather than repaired: pinned between two immutable commits it could never fail
+again, and a test that can only pass is not a test. The evidence is preserved as
+a finding in STORY-023's report, which is where a settled historical fact
+belongs.
+
+`_BASE` is deliberately **not** re-baselined to a newer commit. Doing so would
+turn the suite green today and break it again at the next PRD, which is the
+cycle STORY-023 exists to end.
+
+What survives is what is still falsifiable: that no test disappeared from the
+suites PRD-006 promised to leave alone, that no shared theme token was retuned,
+and that the chat's own relative-time wording still renders what PRD-004
+shipped. Each compares *values or names* rather than file bytes, because that is
+the claim that actually matters — the argument
+`test_no_theme_token_was_retuned_or_removed` already made for itself, now
+applied to the whole module.
 
 The guards skip rather than fail when git or the history is unavailable — a
 shallow clone or an exported tree should not turn a provenance check into a red
-suite. That concession is inherited from the PRD-003 guard deliberately.
+suite. That concession is inherited from the PRD-003 guard deliberately, and it
+is load-bearing in CI, where `actions/checkout@v4` fetches depth 1 and `_BASE`
+does not resolve at all.
 """
 
 import ast
@@ -46,40 +64,10 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 # contain".
 _BASE = "d3e6279"
 
-# PRD-006 Section 4, out of scope: "Any change under `app/` — no new database
-# functions, no query parameters on `GET /audit`, no schema migration, no change
-# to `AuditQueryEntry` or `StatsResponse`."
-_APP_TREE = "app/"
-
-# PRD-006 Section 8: "No new dependencies in either `requirements.txt`."
-_REQUIREMENTS = ("requirements.txt", "chat_ui/requirements.txt")
-
-# PRD-006 Section 9: `/admin/*` is not in the Caddyfile's @backend_routes
-# matcher and falls through to the static file_server, so no deployment change
-# is required and none was made.
-_DEPLOYMENT = ("Caddyfile", "chat_ui/rxconfig.py")
-
-# PRD-006 Section 4, out of scope: "Changes to the chat surface — PRD-004 ships
-# as-is." `formatting.py` is deliberately absent: STORY-002 extended it with
-# `humanize_compact` for the register's fixed-width time column, sharing one
-# bucket table with the chat's `_humanize` so the two spellings cannot drift
-# into different ideas of when an hour becomes a day. The chat's own rendering
-# is unchanged, and `test_the_chat_humanizer_still_renders_what_it_did` below
-# is what holds that — a stricter claim than "the file was not touched".
-_CHAT_MODULES = (
-    "chat_ui/chat_ui/state.py",
-    "chat_ui/chat_ui/copy.py",
-    "chat_ui/chat_ui/models.py",
-    "chat_ui/chat_ui/components/chat.py",
-    "chat_ui/chat_ui/components/bubbles.py",
-    "chat_ui/chat_ui/components/shell.py",
-)
-
-# PRD-006 Section 15, "Tests that must pass unmodified". Six of the eight are
-# byte-unmodified; `test_copy.py` and `test_contrast.py` are the two this PRD's
-# own stories were allowed to extend, so they are asserted by census instead
-# (see below) — byte-equality would be the wrong assertion and would have to be
-# deleted the first time it fired, which is how a guard becomes decoration.
+# PRD-006 Section 15, "Tests that must pass unmodified". These six were once
+# pinned byte-for-byte; STORY-023 asserts them by census instead, for the reason
+# the module docstring gives. Extending one of them passes, deleting a case from
+# one fails.
 _UNMODIFIED_SUITES = (
     "tests/test_admin_auth.py",
     "tests/test_audit_router.py",
@@ -89,9 +77,42 @@ _UNMODIFIED_SUITES = (
     "tests/test_chat_state.py",
 )
 
+# The two suites PRD-006's own stories were allowed to extend. Now that both
+# lists are asserted by census, the two could collapse into one -- they stay
+# separate because `test_no_assertion_was_removed_from_the_two_extendable_suites`
+# reads this name, and STORY-023 requires that guard to stay byte-unmodified.
+# The distinction they record is also still real: these two were expected to
+# grow, the six above were expected never to be opened at all.
 _EXTENDED_SUITES = ("tests/test_copy.py", "tests/test_contrast.py")
 
 _TEST_DEF = re.compile(r"^def (test_\w+)", re.MULTILINE)
+
+# Test functions removed from a pinned suite on purpose, by a later PRD that
+# reached this branch through `main` -- not by PRD-006, and not by accident.
+#
+# `a38f38b` is PRD-005 STORY-014, "chat UI login replaces the free-text user_id
+# prompt": `ChatState.submit_user_id()`/`reset_user_id()` became
+# `login()`/`logout()`, so the tests whose entire premise was the free-text
+# prompt had nothing left to assert. Each was replaced in the same file:
+#   - test_chat_state_submit_empty_or_whitespace_user_id_shows_error ->
+#     test_chat_state_login_empty_token_shows_error
+#   - test_chat_state_submit_valid_user_id_clears_error_and_sets_user ->
+#     test_chat_state_login_valid_token_sets_user_id_and_clears_error
+#   - test_chat_state_reset_user_id_clears_error -> folded into
+#     test_chat_state_logout_clears_session_and_credential
+#   - test_reset_user_id_clears_the_transcript -> test_logout_clears_the_transcript
+#
+# `tests/test_pii_redaction_integration.py` carries the identical allowlist, for
+# the identical four names and the identical reason, in
+# `_DELIBERATELY_SUPERSEDED_TESTS`. This is that mechanism, not a new one.
+_DELIBERATELY_SUPERSEDED_TESTS = {
+    "tests/test_chat_state.py": {
+        "test_chat_state_submit_empty_or_whitespace_user_id_shows_error",
+        "test_chat_state_submit_valid_user_id_clears_error_and_sets_user",
+        "test_chat_state_reset_user_id_clears_error",
+        "test_reset_user_id_clears_the_transcript",
+    },
+}
 
 
 def _git(*args):
@@ -111,43 +132,34 @@ def _base():
     return resolved.strip() if resolved and resolved.strip() else None
 
 
-def _changed_since_base(*paths):
+@pytest.mark.parametrize("path", _UNMODIFIED_SUITES)
+def test_no_test_was_removed_from_the_six_pinned_suites(path):
+    """AC 1: the six suites PRD-006 promised never to open, asserted by census.
+
+    Byte-equality was the wrong instrument for the same reason it was wrong for
+    `theme.py`: it fires on any edit, including the ones that add coverage.
+    Four of these six have since been extended -- `test_db.py` alone went from
+    23 test functions to 118 -- and every one of those additions would have to
+    be argued with a guard that only knows about bytes, which is how a guard
+    becomes decoration and then gets deleted.
+
+    What is worth protecting is the coverage, so that is what is asserted:
+    every test function present at the baseline is still present by name.
+    Extending a suite passes. Deleting a case fails.
+    """
     base = _base()
     if base is None:
         pytest.skip(f"baseline {_BASE} not resolvable; provenance unverifiable here")
-    out = _git("diff", "--name-only", base, "--", *paths)
-    assert out is not None, f"git diff failed for {paths}"
-    return [line for line in out.splitlines() if line.strip()]
 
+    base_source = _git("show", f"{base}:{path}")
+    assert base_source is not None, f"git show failed for {path}"
+    current = _REPO_ROOT / path
+    current_source = current.read_text(encoding="utf-8") if current.exists() else ""
 
-def test_no_file_under_app_changed_since_prd_006_began():
-    """AC 2: the console added no database function, query parameter or migration.
+    gone = set(_TEST_DEF.findall(base_source)) - set(_TEST_DEF.findall(current_source))
+    gone -= _DELIBERATELY_SUPERSEDED_TESTS.get(path, set())
 
-    Scoped to PRD-006's own baseline, not to `main` — see the module docstring
-    for the commit that makes those two questions different.
-    """
-    assert _changed_since_base(_APP_TREE) == []
-
-
-def test_no_new_dependency_in_either_requirements_file():
-    """AC 3: neither requirements file gained a line."""
-    assert _changed_since_base(*_REQUIREMENTS) == []
-
-
-def test_the_caddyfile_and_rxconfig_are_unchanged():
-    """AC 4: `/admin/*` needed no deployment or Reflex config change."""
-    assert _changed_since_base(*_DEPLOYMENT) == []
-
-
-def test_the_chat_modules_are_unchanged_since_prd_006_began():
-    """AC 6, structural half: no chat module was edited to serve the console."""
-    assert _changed_since_base(*_CHAT_MODULES) == []
-
-
-@pytest.mark.parametrize("path", _UNMODIFIED_SUITES)
-def test_the_pinned_suites_are_byte_unmodified(path):
-    """AC 1: the six suites PRD-006 promised never to open."""
-    assert _changed_since_base(path) == []
+    assert sorted(gone) == [], f"{path} lost test functions present at {_BASE}: {sorted(gone)}"
 
 
 def test_no_assertion_was_removed_from_the_two_extendable_suites():
