@@ -12,7 +12,7 @@ labels: [backend, pipeline, audit]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-009-pipeline-session-passthrough.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-009-pipeline-session-passthrough.report.md
-commit: null
+commit: 9ffb083
 depends_on: [STORY-008]
 blocks: [STORY-010, STORY-013]
 skills: []
