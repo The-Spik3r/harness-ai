@@ -176,9 +176,9 @@ class AuditLog:
     pii_entities: Optional[str] = None
     role: Optional[str] = None
     denied_permission: Optional[str] = None
-    # PRD-008. The field only: insert_audit_log() and _row_to_audit_log() learn
-    # about it in STORY-008, so until then a read leaves this None whatever the
-    # column holds.
+    # PRD-008. Wired end to end as of STORY-008: insert_audit_log() writes it,
+    # and _row_to_audit_log() maps it back on both read shapes -- the `SELECT *`
+    # row and the json_object(...) the summary snapshot decodes.
     session_id: Optional[str] = None
     id: Optional[int] = None
 

@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "2 - Pipeline and API"
-status: todo
+status: done
 labels: [backend, audit, database]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-008-audit-log-session-id.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-008-audit-log-session-id.report.md
 commit: null
 depends_on: [STORY-003]
 blocks: [STORY-009, STORY-011]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-04
 ---
 
 # STORY-008: session_id on AuditLog, log_query and insert_audit_log

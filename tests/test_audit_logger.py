@@ -232,3 +232,31 @@ def test_role_and_denied_permission_default_to_none_when_omitted(temp_db):
 
     assert fetched.role is None
     assert fetched.denied_permission is None
+
+
+def test_session_id_persisted_when_supplied(temp_db):
+    audit_id = log_query(
+        user_id="ana@empresa.com",
+        prompt="hello",
+        response="hi there",
+        session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched is not None
+    assert fetched.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+
+def test_session_id_defaults_to_none_when_omitted(temp_db):
+    """PRD-008 STORY-008 AC 4: every caller that predates the parameter -- the
+    seven in query_pipeline.py included -- keeps writing NULL, unchanged."""
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        response="hi there",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.session_id is None

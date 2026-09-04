@@ -25,6 +25,7 @@ def log_query(
     pii_entities: Optional[list[str]] = None,
     role: Optional[str] = None,
     denied_permission: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -45,5 +46,6 @@ def log_query(
         pii_entities=",".join(pii_entities) if pii_entities else None,
         role=role,
         denied_permission=denied_permission,
+        session_id=session_id,
     )
     return insert_audit_log(entry)

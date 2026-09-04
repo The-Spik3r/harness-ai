@@ -77,7 +77,7 @@ class _Row:
     libSQL returns plain tuples and offers no `row_factory` hook (STORY-001
     §2.1), but `cursor.description` is populated -- for `SELECT *`, for aliased
     aggregates like `COUNT(*) AS n`, and for `PRAGMA table_info` alike. Mapping
-    those names back on is what lets `_row_to_audit_log()`'s 19 named reads, the
+    those names back on is what lets `_row_to_audit_log()`'s 20 named reads, the
     seven `row["n"]` counters and `_add_missing_columns()`'s `row["name"]` stay
     exactly as they were.
 
@@ -554,8 +554,8 @@ def insert_audit_log(entry: AuditLog) -> int:
                 response_hash, response_preview, model_used, tokens_used,
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
-                role, denied_permission
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                role, denied_permission, session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -576,6 +576,7 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.pii_entities,
                 entry.role,
                 entry.denied_permission,
+                entry.session_id,
             ),
         )
         return cursor.lastrowid
@@ -628,6 +629,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         pii_entities=row["pii_entities"],
         role=row["role"],
         denied_permission=row["denied_permission"],
+        session_id=row["session_id"],
     )
 
 
@@ -952,7 +954,8 @@ SELECT
               'pii_detected_output', pii_detected_output,
               'pii_entities', pii_entities,
               'role', role,
-              'denied_permission', denied_permission))
+              'denied_permission', denied_permission,
+              'session_id', session_id))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

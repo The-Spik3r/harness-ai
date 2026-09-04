@@ -522,6 +522,83 @@ def test_role_and_denied_permission_round_trip(temp_db):
     assert entries[0].denied_permission == "query:byok"
 
 
+def test_session_id_defaults_to_none_when_not_supplied(temp_db):
+    """PRD-008 STORY-008 AC 4 at the store level: a row written without a
+    session is indistinguishable from one written before the column existed."""
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:00:00Z",
+            user_id="a",
+            prompt_hash="h5",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.session_id is None
+
+
+def test_session_id_round_trips(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h6",
+            role="user",
+            denied_permission=None,
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    # The neighbours too: a miscount in insert_audit_log's column list shifts
+    # every later value, which shows up here as a wrong neighbour rather than
+    # only as a missing session.
+    assert fetched.prompt_hash == "h6"
+    assert fetched.role == "user"
+    assert fetched.denied_permission is None
+
+    # And via list_audit_logs, the other read path (AuditQueryEntry's future source).
+    entries = list_audit_logs()
+    assert entries[0].session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+
+def test_session_id_survives_the_batched_read(temp_db):
+    """`_row_to_audit_log` serves two row shapes: the `SELECT *` row and the
+    plain dict decoded out of `_SUMMARY_SQL`'s hand-written `json_object(...)`.
+    A column added to the mapper but not to that column list makes the batched
+    `rows` figure fail on every call, so the agreement is asserted rather than
+    assumed -- with one row carrying a session and one not."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:10:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h7",
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:15:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="h8",
+        )
+    )
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    assert [row.session_id for row in snapshot.rows] == [
+        None,
+        "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+    ]
+
+
 def test_get_audit_log_missing_id_returns_none(temp_db):
     assert get_audit_log(999) is None
 
@@ -1777,11 +1854,12 @@ def test_init_db_migrates_a_pre_chat_sessions_database(uninitialized_db, db_conn
     # And inserts still work against the upgraded table -- the failure this
     # migration exists to prevent is "table audit_logs has no column named ...".
     #
-    # The new row's session_id is None because `insert_audit_log()` does not
-    # write the column yet: STORY-008 adds it to the INSERT. This story creates
-    # the column and nothing more, and asserting a value here would be asserting
-    # the next story's work. Pinned as None rather than left unasserted so that
-    # STORY-008 has to come back and change this line deliberately.
+    # The new row carries its session_id as of STORY-008, which added the column
+    # to the INSERT. STORY-003 pinned this as None and said in as many words that
+    # STORY-008 would have to come back and change the line deliberately -- this
+    # is that change, and it is what makes the migrated table demonstrably
+    # writable through the *current* write path, not merely through the one that
+    # existed when the migration was written.
     insert_audit_log(
         AuditLog(
             timestamp="2026-09-01T09:30:00Z",
@@ -1792,7 +1870,7 @@ def test_init_db_migrates_a_pre_chat_sessions_database(uninitialized_db, db_conn
     )
     assert count_audit_logs() == 2
     assert get_audit_log(2).user_id == "bob@empresa.com"
-    assert get_audit_log(2).session_id is None  # STORY-008 makes this the UUID
+    assert get_audit_log(2).session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
 
 
 def test_bootstrap_disabled_creates_no_chat_tables(database_url, monkeypatch):
