@@ -12,7 +12,7 @@ labels: [backend, api, security]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-010-query-request-session-id.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-010-query-request-session-id.report.md
-commit: null
+commit: 27c7716
 depends_on: [STORY-006, STORY-009]
 blocks: [STORY-021, STORY-022]
 skills: []
