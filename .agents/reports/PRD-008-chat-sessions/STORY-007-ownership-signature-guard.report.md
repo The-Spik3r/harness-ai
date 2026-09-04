@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-007-ownership-signature-guard.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: c2b093b
 status: COMPLETE
 completed: 2026-09-03
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-03
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-007-ownership-signature-guard.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `c2b093b`
 
 ## Summary
 

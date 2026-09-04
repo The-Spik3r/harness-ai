@@ -12,7 +12,7 @@ labels: [tests, security, backend]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-007-ownership-signature-guard.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-007-ownership-signature-guard.report.md
-commit: null
+commit: c2b093b
 depends_on: [STORY-004, STORY-005, STORY-006]
 blocks: [STORY-021]
 skills: []
