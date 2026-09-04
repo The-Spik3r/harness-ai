@@ -1,5 +1,6 @@
-"""The chat store from PRD-008: STORY-004's six session functions and
-STORY-005's three message functions.
+"""The chat store from PRD-008, and the service over it: STORY-004's six
+session functions, STORY-005's three message functions, and STORY-006's eight
+service functions.
 
 STORY-005 extended **this file** with the message-store round trips
 (`append_chat_message`, `list_chat_messages`, `count_chat_sessions`) rather than
@@ -12,15 +13,23 @@ every `*_chat_session*` / `*_chat_message*` callable and asserts the rule agains
 whatever it finds; the signature assertions here are STORY-004's own six, named,
 so that this story is verifiable before that one exists. One rule, two scopes,
 deliberately not one copy-paste.
+
+STORY-006 extended this file a third time, for the same reason STORY-005 did and
+because its own AC 9 names this path: the service's cases are about the same two
+tables and read against the same fixtures. Its section is labelled below and its
+imports come from `app.services.chat_sessions`, so what is being exercised is
+never ambiguous.
 """
 
 import ast
 import inspect
+import pathlib
 import uuid
 from datetime import datetime
 
 import pytest
 
+from app.config import settings
 from app.db import database
 from app.db.database import (
     _TIMESTAMP_FORMAT,
@@ -40,6 +49,9 @@ from app.db.database import (
 )
 from app.db.errors import StorageError
 from app.db.models import AuditLog, ChatSession, StoredMessage, User
+from app.services import chat_sessions
+from app.services.chat_sessions import ChatSessionError
+from app.services.identity import Identity
 
 #: The surface STORY-004 added, in the order PRD Section 4 lists it.
 THE_SIX = (
@@ -960,3 +972,645 @@ def test_count_chat_sessions_ignores_the_list_limit(temp_db):
 
     assert len(listed) == 50
     assert count_chat_sessions("ana") == 52
+
+
+# ==========================================================================
+# STORY-006 -- app/services/chat_sessions.py, the service over the store
+# ==========================================================================
+
+#: The surface STORY-006 adds, in the order the story lists it.
+THE_EIGHT = (
+    "create",
+    "list_for",
+    "get",
+    "rename",
+    "touch",
+    "delete",
+    "append_message",
+    "messages_for",
+)
+
+
+def _identity(user_id: str) -> Identity:
+    """An `Identity` the way `resolve()` would have produced one.
+
+    Constructed directly rather than resolved through a token: the subject here
+    is what the service does with `identity.user_id`, and going through
+    `resolve()` would make every case below depend on credential verification
+    working, which `tests/test_identity.py` already owns.
+    """
+    return Identity(user_id=user_id, role="user")
+
+
+class _Tripwire:
+    """A stand-in for `app.db.database` on which every access is a failure.
+
+    AC 4 asks for more than an empty result: "asserted by patching the database
+    module and observing that nothing on it was called, not merely by observing
+    an empty result". An empty list is what an empty database returns too, so a
+    test that only checked the value would pass on a service that issued the
+    statement and found nothing.
+
+    `__getattr__` fires on the attribute lookup, which is *before* the call, so
+    this catches `database.list_chat_sessions` even if the result were never
+    used. Deliberately not a Mock: a Mock records and returns another Mock, so
+    the test would have to remember to assert `not called` afterwards, and a
+    forgotten assertion is a green test. Here forgetting is impossible.
+    """
+
+    def __getattr__(self, name: str):
+        raise AssertionError(
+            f"chat_sessions reached database.{name} with CHAT_HISTORY_ENABLED off"
+        )
+
+
+def _service_functions() -> dict:
+    """Every public function *defined* in the service module.
+
+    Discovered, not enumerated -- STORY-007's point, applied one story early so
+    that the surface assertions here cannot go stale. `__module__` is what
+    excludes `contextmanager`, a public callable in the module's namespace
+    because it was imported there and no part of its surface.
+    """
+    return {
+        name: obj
+        for name, obj in vars(chat_sessions).items()
+        if inspect.isfunction(obj)
+        and not name.startswith("_")
+        and obj.__module__ == chat_sessions.__name__
+    }
+
+
+def _service_statements_of(name: str) -> str:
+    """One service function's body with its docstring removed.
+
+    `_statements_of` above does this for `database`; this is the same move over
+    the other module. Kept separate rather than parametrized by module because
+    the STORY-004 helper is part of that story's own assertions and widening it
+    would make two stories' tests fail together for one story's reason.
+    """
+    tree = ast.parse(inspect.getsource(getattr(chat_sessions, name)))
+    body = tree.body[0].body
+    if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    return "\n".join(ast.unparse(node) for node in body)
+
+
+def _call(name: str, identity: Identity, session_id: str, **overrides):
+    """Calls one service function with arguments valid for its signature.
+
+    One table of call shapes, so the flag-off, foreign-identity and
+    error-wrapping cases below can drive all eight without any of them
+    enumerating arguments a second time -- and so a signature change breaks one
+    place rather than three.
+    """
+    title = overrides.get("title", "renamed")
+    prompt = overrides.get("prompt", "what is the retention policy?")
+    derive = overrides.get("derive_title", lambda text: text[:20])
+    shapes = {
+        "create": lambda: chat_sessions.create(identity, prompt, derive),
+        "list_for": lambda: chat_sessions.list_for(identity),
+        "get": lambda: chat_sessions.get(identity, session_id),
+        "rename": lambda: chat_sessions.rename(identity, session_id, title),
+        "touch": lambda: chat_sessions.touch(identity, session_id),
+        "delete": lambda: chat_sessions.delete(identity, session_id),
+        "append_message": lambda: chat_sessions.append_message(
+            identity, session_id, _stored(session_id)
+        ),
+        "messages_for": lambda: chat_sessions.messages_for(identity, session_id),
+    }
+    return shapes[name]()
+
+
+def _count_sessions_rows() -> int:
+    with get_connection() as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM chat_sessions").fetchone()["n"]
+
+
+def _count_messages_rows() -> int:
+    with get_connection() as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM chat_messages").fetchone()["n"]
+
+
+# --------------------------------------------------------------------------
+# AC 1 and AC 2 -- the surface, and the Identity that is the only way in
+# --------------------------------------------------------------------------
+
+
+def test_the_eight_service_functions_are_declared():
+    """AC 1. A statement about the module; no database needed."""
+    for name in THE_EIGHT:
+        assert hasattr(chat_sessions, name), name
+        assert callable(getattr(chat_sessions, name)), name
+
+
+def test_the_service_exposes_exactly_those_eight():
+    """AC 1, the other direction. `count_chat_sessions` is deliberately not
+    re-exported here, so a later story that exposes a ninth function has to say
+    so by editing this tuple rather than by nobody noticing."""
+    assert sorted(_service_functions()) == sorted(THE_EIGHT)
+
+
+def test_every_service_function_takes_an_identity_first():
+    """AC 1, and STORY-007's AC 3 one story early. Discovered from the module
+    rather than listed, so the rule outlives this story's function names."""
+    for name, function in _service_functions().items():
+        parameters = list(inspect.signature(function).parameters.values())
+        assert parameters, name
+        assert parameters[0].name == "identity", name
+        assert parameters[0].annotation is Identity, name
+        assert parameters[0].default is inspect.Parameter.empty, name
+
+
+def test_no_service_function_accepts_a_bare_user_id():
+    """AC 1's "rather than a bare `user_id` string". The store's nine functions
+    all require one; the point of this layer is that its callers cannot supply
+    one, so a `user_id` parameter up here would mean the conversion leaked back
+    out."""
+    for name, function in _service_functions().items():
+        assert "user_id" not in inspect.signature(function).parameters, name
+
+
+def test_every_service_function_passes_identity_user_id_to_the_store():
+    """AC 2, structurally. A function that takes an `Identity` and then reads
+    something else off it -- or nothing at all -- satisfies the signature tests
+    above and still queries the wrong owner.
+
+    `identity.role` is asserted absent in the same pass: PRD Section 9 divides
+    the two questions, and a service consulting the role would be RBAC
+    substituting for ownership, which Section 6 forbids.
+    """
+    for name in THE_EIGHT:
+        statements = _service_statements_of(name)
+        assert "identity.user_id" in statements, name
+        assert "identity.role" not in statements, name
+
+
+def test_no_module_outside_the_service_calls_the_store_session_functions():
+    """AC 2's second half: "no caller outside it reaches `database.py`'s session
+    functions". Structural, because the rule is about what future code may do --
+    `ChatState` calling `list_chat_sessions` directly would work perfectly and
+    quietly bypass both the ownership conversion and the flag."""
+    root = pathlib.Path(__file__).resolve().parents[1]
+    surface = {name for name in dir(database) if "_chat_session" in name or "_chat_message" in name}
+    allowed = {root / "app" / "db" / "database.py", root / "app" / "services" / "chat_sessions.py"}
+
+    offenders = []
+    for path in sorted(list((root / "app").rglob("*.py")) + list((root / "chat_ui").rglob("*.py"))):
+        if path in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+                if called in surface:
+                    offenders.append(f"{path.relative_to(root)}:{node.lineno} {called}")
+
+    assert offenders == [], f"the store's session functions are called outside the service: {offenders}"
+
+
+# --------------------------------------------------------------------------
+# AC 3 and AC 4 -- CHAT_HISTORY_ENABLED off issues no statement at all
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def history_off(monkeypatch):
+    """The flag off, and a database module that fails on contact.
+
+    Both halves matter. The flag alone would let a passing test prove only that
+    the return value was empty; the tripwire is what makes "no statement is
+    issued" the thing actually asserted.
+    """
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
+    monkeypatch.setattr(chat_sessions, "database", _Tripwire())
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("create", None),
+        ("append_message", None),
+        ("touch", False),
+        ("rename", False),
+        ("delete", False),
+    ],
+)
+def test_writes_return_a_usable_value_and_issue_nothing_when_history_is_off(
+    history_off, name, expected
+):
+    """AC 3. Each write returns the value the story names, and the tripwire
+    proves the store was never reached to produce it.
+
+    Values a caller can proceed with rather than an exception, which is the whole
+    of "no caller branches on the flag": a caller that had to catch a
+    `HistoryDisabled` would be branching on the flag with extra steps.
+    """
+    assert _call(name, _identity("ana"), str(uuid.uuid4())) is expected
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("list_for", []),
+        ("get", None),
+        ("messages_for", []),
+    ],
+)
+def test_reads_return_empty_and_issue_nothing_when_history_is_off(
+    history_off, name, expected
+):
+    """AC 4, including its "not merely by observing an empty result" clause --
+    `_Tripwire` raises on the attribute lookup, so reaching the store at all is
+    a failure here rather than a different return value."""
+    assert _call(name, _identity("ana"), str(uuid.uuid4())) == expected
+
+
+def test_history_off_reaches_the_database_for_none_of_the_eight(history_off):
+    """AC 3 and AC 4 over the whole surface at once. The parametrized cases above
+    assert the values; this asserts the property for all eight together, so a
+    ninth function that forgot its guard fails here even if nobody remembered to
+    add it to the tables above."""
+    for name in THE_EIGHT:
+        _call(name, _identity("ana"), str(uuid.uuid4()))
+
+
+def test_the_flag_is_read_at_call_time_not_captured_at_import(monkeypatch, temp_db):
+    """The story's technical note, verbatim: "A flag captured at import cannot be
+    flipped by a test without reloading the module." The module was imported at
+    collection with the flag on, so flipping it now must change behaviour without
+    a reload -- which is what every other test in this section depends on.
+
+    `authz.load()` is the deliberate counter-example, reading its setting once at
+    startup and saying so, which is why this is asserted rather than assumed to
+    be the house style.
+    """
+    _seed_users()
+    assert chat_sessions.create(_identity("ana"), "hello", lambda text: text) is not None
+
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
+    assert chat_sessions.create(_identity("ana"), "hello", lambda text: text) is None
+
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", True)
+    assert chat_sessions.create(_identity("ana"), "hello", lambda text: text) is not None
+
+
+def test_no_module_outside_the_service_branches_on_chat_history_enabled():
+    """PRD Section 6, verbatim: "**No caller branches on the flag.**"
+
+    The story makes preventing that this module's job, and a rule stated only in
+    prose is a rule that lasts one story -- the argument
+    `tests/test_untouched_app.py` makes for PRD-006's containment: "That proof
+    was a document, and a document does not fail when someone adds a database
+    function next month."
+
+    Read through `ast` rather than by grepping text, so the paragraphs of comment
+    in `app/config.py` and in the service that discuss the setting by name are
+    not what is measured -- only a real reference to the identifier in code is.
+    """
+    root = pathlib.Path(__file__).resolve().parents[1]
+    allowed = {root / "app" / "config.py", root / "app" / "services" / "chat_sessions.py"}
+
+    offenders = []
+    for path in sorted(list((root / "app").rglob("*.py")) + list((root / "chat_ui").rglob("*.py"))):
+        if path in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            named = (
+                isinstance(node, ast.Attribute) and node.attr == "CHAT_HISTORY_ENABLED"
+            ) or (isinstance(node, ast.Name) and node.id == "CHAT_HISTORY_ENABLED")
+            if named:
+                offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+
+    assert offenders == [], (
+        "CHAT_HISTORY_ENABLED is referenced outside app/config.py and "
+        f"app/services/chat_sessions.py: {offenders}"
+    )
+
+
+# --------------------------------------------------------------------------
+# AC 5 -- CHAT_SESSION_LIMIT is the service's to apply, and nobody else's
+# --------------------------------------------------------------------------
+
+
+def test_list_for_takes_no_limit_parameter():
+    """AC 5's "no caller supplies its own". `list_chat_sessions` one layer down
+    does take one and defaults it; the cap being a deployment decision is
+    expressed here by there being nothing to pass."""
+    assert list(inspect.signature(chat_sessions.list_for).parameters) == ["identity"]
+
+
+def test_list_for_applies_the_configured_limit(monkeypatch, temp_db):
+    """AC 5. Three sessions, a limit of two, two returned -- and the two are the
+    most recently active, so the cap drops the oldest rather than an arbitrary
+    pair."""
+    _seed_users()
+    monkeypatch.setattr(settings, "CHAT_SESSION_LIMIT", 2)
+
+    oldest = create_chat_session("ana", "oldest")
+    middle = create_chat_session("ana", "middle")
+    newest = create_chat_session("ana", "newest")
+    _set_updated_at(oldest, "2026-09-01T10:00:00Z")
+    _set_updated_at(middle, "2026-09-02T10:00:00Z")
+    _set_updated_at(newest, "2026-09-03T10:00:00Z")
+
+    listed = chat_sessions.list_for(_identity("ana"))
+
+    assert [s.session_id for s in listed] == [newest, middle]
+
+
+def test_list_for_reflects_a_changed_limit_without_a_reload(monkeypatch, temp_db):
+    """AC 5, and the call-time read again -- a limit captured at import would
+    make `CHAT_SESSION_LIMIT` a build-time constant rather than configuration."""
+    _seed_users()
+    for index in range(3):
+        _set_updated_at(
+            create_chat_session("ana", f"session {index}"),
+            f"2026-09-0{index + 1}T10:00:00Z",
+        )
+
+    monkeypatch.setattr(settings, "CHAT_SESSION_LIMIT", 1)
+    assert len(chat_sessions.list_for(_identity("ana"))) == 1
+
+    monkeypatch.setattr(settings, "CHAT_SESSION_LIMIT", 3)
+    assert len(chat_sessions.list_for(_identity("ana"))) == 3
+
+
+def test_messages_for_is_not_capped_by_the_session_limit(monkeypatch, temp_db):
+    """The cap is on the rail, not on a transcript. Applying `CHAT_SESSION_LIMIT`
+    to messages would silently truncate a conversation at the number of
+    *conversations* a user may list -- a partial transcript with nothing on
+    screen saying it is partial (STORY-005's `list_chat_messages` docstring)."""
+    _seed_users()
+    monkeypatch.setattr(settings, "CHAT_SESSION_LIMIT", 2)
+    session_id = create_chat_session("ana", "a chat")
+    for index in range(5):
+        append_chat_message(_stored(session_id, content=f"m{index}"), session_id, "ana")
+
+    assert len(chat_sessions.messages_for(_identity("ana"), session_id)) == 5
+
+
+# --------------------------------------------------------------------------
+# AC 6 -- the title is derived, and the derivation is delegated
+# --------------------------------------------------------------------------
+
+
+def test_create_delegates_the_title_derivation_and_stores_its_result(temp_db):
+    """AC 6. The deriver returns a sentinel no truncation rule would produce, so
+    a service that derived the title itself could not pass: the stored title is
+    whatever the injected function returned, unmodified."""
+    _seed_users()
+    calls = []
+
+    def derive(prompt: str) -> str:
+        calls.append(prompt)
+        return "<<derived>>"
+
+    session_id = chat_sessions.create(
+        _identity("ana"), "what is the retention policy?", derive
+    )
+
+    assert calls == ["what is the retention policy?"]
+    stored = chat_sessions.get(_identity("ana"), session_id)
+    assert stored.title == "<<derived>>"
+
+
+def test_create_calls_the_deriver_exactly_once(temp_db):
+    """AC 6, and STORY-012's note that a title is derived once and never again --
+    "`derive_title` is called once, by STORY-006's `create`, and never again for
+    that session." Two calls would be harmless today and wrong the moment the
+    derivation stops being pure."""
+    _seed_users()
+    calls = []
+    chat_sessions.create(_identity("ana"), "a prompt", lambda p: calls.append(p) or "t")
+    assert calls == ["a prompt"]
+
+
+def test_create_does_not_call_the_deriver_when_history_is_off(history_off):
+    """AC 3 and AC 6 together. History off means no work at all, and deriving a
+    title for a session that will not exist is work."""
+    calls = []
+    result = chat_sessions.create(
+        _identity("ana"), "a prompt", lambda p: calls.append(p) or "t"
+    )
+    assert result is None
+    assert calls == []
+
+
+def test_the_service_reimplements_no_title_rule():
+    """AC 6's "delegated, not reimplemented". `create`'s body may call the
+    injected function; what it may not do is contain a derivation of its own, so
+    neither shape a truncation takes -- a slice or a split -- may appear in it."""
+    body = _service_statements_of("create")
+    assert "derive_title(" in body
+    for reimplementation in ("[:", ".split(", ".rsplit(", "..."):
+        assert reimplementation not in body, reimplementation
+
+
+def test_derive_title_has_no_default(temp_db):
+    """AC 6. A default would have to be a derivation living in this module, which
+    is what "not reimplemented" forbids -- so omitting it is a `TypeError` at the
+    call site, the shape PRD Risk 2 asks for on `user_id`."""
+    parameters = inspect.signature(chat_sessions.create).parameters
+    assert parameters["derive_title"].default is inspect.Parameter.empty
+    with pytest.raises(TypeError):
+        chat_sessions.create(_identity("ana"), "a prompt")
+
+
+def test_the_service_imports_nothing_from_chat_ui():
+    """The story's technical note: it "imports nothing from `chat_ui/`". This is
+    what the injected deriver buys, and without an assertion the next change that
+    wants a UI helper would simply import one."""
+    tree = ast.parse(pathlib.Path(chat_sessions.__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("chat_ui"), alias.name
+        if isinstance(node, ast.ImportFrom):
+            assert not (node.module or "").startswith("chat_ui"), node.module
+
+
+# --------------------------------------------------------------------------
+# AC 7 -- a foreign session is indistinguishable from one that never existed
+# --------------------------------------------------------------------------
+
+
+def test_every_read_returns_nothing_for_a_foreign_identity(temp_db):
+    """AC 7, reads. Bob is a real account, so a pass here means the ownership
+    predicate scoped -- not merely that the id was unknown."""
+    _seed_users()
+    ana_session = create_chat_session("ana", "Ana private")
+    append_chat_message(_stored(ana_session), ana_session, "ana")
+
+    bob = _identity("bob")
+    assert chat_sessions.get(bob, ana_session) is None
+    assert chat_sessions.messages_for(bob, ana_session) == []
+    assert chat_sessions.list_for(bob) == []
+
+
+def test_a_foreign_session_is_indistinguishable_from_an_unknown_one(temp_db):
+    """AC 7, stated as the equality it actually is. `identity.py`'s `resolve()`
+    is the precedent the story cites: "None covers every failure case alike ...
+    so the caller cannot distinguish them." A caller able to tell these apart
+    would have a membership oracle over other people's session ids."""
+    _seed_users()
+    ana_session = create_chat_session("ana", "Ana private")
+    bob = _identity("bob")
+    unknown = str(uuid.uuid4())
+
+    assert chat_sessions.get(bob, ana_session) == chat_sessions.get(bob, unknown)
+    assert chat_sessions.messages_for(bob, ana_session) == chat_sessions.messages_for(
+        bob, unknown
+    )
+    assert chat_sessions.rename(bob, ana_session, "x") == chat_sessions.rename(
+        bob, unknown, "x"
+    )
+    assert chat_sessions.touch(bob, ana_session) == chat_sessions.touch(bob, unknown)
+    assert chat_sessions.delete(bob, ana_session) == chat_sessions.delete(bob, unknown)
+
+
+def test_every_write_driven_by_a_foreign_identity_changes_no_row(temp_db):
+    """AC 7, writes -- asserted by counting rows in both tables rather than by
+    trusting the return value, which is STORY-007's AC 5 applied here early. A
+    function that returned `False` and deleted the row anyway would pass a
+    return-value test and fail this one."""
+    _seed_users()
+    ana_session = create_chat_session("ana", "Ana private")
+    append_chat_message(_stored(ana_session), ana_session, "ana")
+    before = (_count_sessions_rows(), _count_messages_rows(), count_audit_logs())
+
+    bob = _identity("bob")
+    assert chat_sessions.rename(bob, ana_session, "Bob was here") is False
+    assert chat_sessions.touch(bob, ana_session) is False
+    assert chat_sessions.delete(bob, ana_session) is False
+    with pytest.raises(ChatSessionError):
+        chat_sessions.append_message(bob, ana_session, _stored(ana_session))
+
+    assert (_count_sessions_rows(), _count_messages_rows(), count_audit_logs()) == before
+    survivor = chat_sessions.get(_identity("ana"), ana_session)
+    assert survivor.title == "Ana private"
+
+
+def test_the_break_glass_admin_identity_gets_no_special_case(temp_db):
+    """PRD Section 9, verbatim: the admin identity "owns its own sessions like
+    any other user and gains no read access to anyone else's". The role here is
+    `admin`, the role `authz` grants everything to -- so a service that consulted
+    the role rather than the owner would fail exactly here."""
+    _seed_users()
+    insert_user(User(user_id="admin", role="admin", token_hash="hash-admin"))
+    ana_session = create_chat_session("ana", "Ana private")
+    admin = Identity(user_id="admin", role="admin")
+
+    assert chat_sessions.get(admin, ana_session) is None
+    assert chat_sessions.messages_for(admin, ana_session) == []
+    assert chat_sessions.list_for(admin) == []
+    assert chat_sessions.delete(admin, ana_session) is False
+
+
+def test_two_identities_round_trip_without_seeing_each_other(temp_db):
+    """AC 7 end to end: both users do real work through the service alone, and
+    each sees exactly their own."""
+    _seed_users()
+    ana, bob = _identity("ana"), _identity("bob")
+
+    ana_session = chat_sessions.create(ana, "ana's question", lambda p: p)
+    bob_session = chat_sessions.create(bob, "bob's question", lambda p: p)
+    chat_sessions.append_message(ana, ana_session, _stored(ana_session, content="ana said"))
+    chat_sessions.append_message(bob, bob_session, _stored(bob_session, content="bob said"))
+
+    assert [s.session_id for s in chat_sessions.list_for(ana)] == [ana_session]
+    assert [s.session_id for s in chat_sessions.list_for(bob)] == [bob_session]
+    assert [m.content for m in chat_sessions.messages_for(ana, ana_session)] == ["ana said"]
+    assert [m.content for m in chat_sessions.messages_for(bob, bob_session)] == ["bob said"]
+
+
+# --------------------------------------------------------------------------
+# AC 8 -- StorageError never leaves this layer
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", THE_EIGHT)
+def test_every_function_wraps_storage_failure_in_chat_session_error(
+    uninitialized_db, name
+):
+    """AC 8. No table exists, so every one of the eight fails at the store -- and
+    each must surface it as this module's own type, the way
+    `duplicate_checker.check_duplicate` turns a `StorageError` into a
+    `DuplicateCheckError`. A caller importing `app.db.errors` to catch storage
+    failures is the coupling this layer exists to remove."""
+    with pytest.raises(ChatSessionError):
+        _call(name, _identity("ana"), str(uuid.uuid4()))
+
+
+@pytest.mark.parametrize("name", THE_EIGHT)
+def test_the_wrapped_error_keeps_the_storage_error_as_its_cause(uninitialized_db, name):
+    """AC 8. `from exc` rather than a bare `raise`: the storage detail stays
+    reachable for a log line, it just is not the type callers catch."""
+    with pytest.raises(ChatSessionError) as caught:
+        _call(name, _identity("ana"), str(uuid.uuid4()))
+    assert isinstance(caught.value.__cause__, StorageError)
+
+
+@pytest.mark.parametrize("name", THE_EIGHT)
+def test_the_wrapped_error_names_the_service_operation(uninitialized_db, name):
+    """AC 8. The message reads in the caller's vocabulary -- "append_message
+    failed" and not "append_chat_message failed" -- so a report reaching a user
+    names the thing they asked for."""
+    with pytest.raises(ChatSessionError) as caught:
+        _call(name, _identity("ana"), str(uuid.uuid4()))
+    assert str(caught.value).startswith(f"{name} failed: ")
+
+
+def test_a_storage_error_never_escapes_as_itself(uninitialized_db):
+    """AC 8, stated negatively. `ChatSessionError` does not inherit from
+    `StorageError`, so this is a real assertion rather than a tautology."""
+    assert not issubclass(ChatSessionError, StorageError)
+    for name in THE_EIGHT:
+        try:
+            _call(name, _identity("ana"), str(uuid.uuid4()))
+        except ChatSessionError:
+            pass
+        except StorageError as exc:  # pragma: no cover -- the failure this pins
+            pytest.fail(f"{name} let a StorageError escape: {exc}")
+
+
+def test_append_message_fails_identically_for_foreign_and_unknown_sessions(temp_db):
+    """AC 7 and AC 8 at once, and the one place the two could contradict.
+
+    `append_chat_message` raises rather than returning `None` for both cases --
+    STORY-005's reasoning, verbatim: "a read that finds nothing is an ordinary
+    outcome, a write that silently lands nowhere is not." AC 7 requires that the
+    caller cannot *distinguish* the two, not that they are silent, so the two
+    must raise with byte-identical messages. Anything more specific -- a message
+    quoting the session id, say -- would be a membership oracle written into an
+    error string.
+    """
+    _seed_users()
+    ana_session = create_chat_session("ana", "Ana private")
+    bob = _identity("bob")
+
+    with pytest.raises(ChatSessionError) as foreign:
+        chat_sessions.append_message(bob, ana_session, _stored(ana_session))
+    with pytest.raises(ChatSessionError) as unknown:
+        chat_sessions.append_message(bob, str(uuid.uuid4()), _stored(ana_session))
+
+    assert str(foreign.value) == str(unknown.value)
+
+
+def test_a_working_database_raises_nothing(temp_db):
+    """The other half of AC 8: the wrap must not turn ordinary outcomes into
+    errors. Every one of the eight against a healthy database, ending on a
+    session that is genuinely absent because it was just deleted."""
+    _seed_users()
+    ana = _identity("ana")
+    session_id = chat_sessions.create(ana, "a prompt", lambda p: p)
+
+    assert chat_sessions.get(ana, session_id) is not None
+    assert chat_sessions.rename(ana, session_id, "renamed") is True
+    assert chat_sessions.touch(ana, session_id) is True
+    assert chat_sessions.append_message(ana, session_id, _stored(session_id)) > 0
+    assert len(chat_sessions.messages_for(ana, session_id)) == 1
+    assert len(chat_sessions.list_for(ana)) == 1
+    assert chat_sessions.delete(ana, session_id) is True
+    assert chat_sessions.get(ana, session_id) is None

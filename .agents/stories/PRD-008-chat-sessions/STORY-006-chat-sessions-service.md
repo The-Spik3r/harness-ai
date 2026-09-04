@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Schema and store"
-status: todo
+status: done
 labels: [backend, service, security, config]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-006-chat-sessions-service.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-006-chat-sessions-service.report.md
 commit: null
 depends_on: [STORY-001, STORY-004, STORY-005]
 blocks: [STORY-007, STORY-010, STORY-013]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 ---
 
 # STORY-006: app/services/chat_sessions.py: the ownership rule and the CHAT_HISTORY_ENABLED short-circuit in one place

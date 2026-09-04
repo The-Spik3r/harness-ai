@@ -6,7 +6,7 @@
 
 ## Progress
 
-5/22 stories done — 23%
+6/22 stories done — 27%
 
 ## Stories
 
@@ -19,7 +19,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-003 | init_db() creates both transcript tables and converges the audit_logs.session_id column | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md) | `e42eed9` |
 | STORY-004 | Six user-scoped chat_sessions functions in database.py, with delete as one transaction | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-004-session-crud-functions.plan.md) | `fdbc538` |
 | STORY-005 | append_chat_message and list_chat_messages, ordered by id and scoped by owner | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-005-message-store-functions.plan.md) | `1851c25` |
-| STORY-006 | app/services/chat_sessions.py: the ownership rule and the CHAT_HISTORY_ENABLED short-circuit in one place | feature | ⬜ todo | medium | — | — |
+| STORY-006 | app/services/chat_sessions.py: the ownership rule and the CHAT_HISTORY_ENABLED short-circuit in one place | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-006-chat-sessions-service.plan.md) | `pending` |
 | STORY-007 | tests/test_session_ownership.py: the ownership rule asserted against signatures, not against memory | technical | ⬜ todo | small | — | — |
 | STORY-008 | session_id on AuditLog, log_query and insert_audit_log | feature | ⬜ todo | small | — | — |
 | STORY-009 | run_query threads session_id to all seven log_query call sites, blocked and failed included | feature | ⬜ todo | medium | — | — |
