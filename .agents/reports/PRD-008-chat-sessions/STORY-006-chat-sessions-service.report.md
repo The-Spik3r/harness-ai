@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-006-chat-sessions-service.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: pending
+commit: 1f529d3
 status: COMPLETE
 completed: 2026-09-03
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-03
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-006-chat-sessions-service.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `pending`
+**Commit**: `1f529d3`
 
 ## Summary
 
