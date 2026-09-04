@@ -12,7 +12,7 @@ labels: [tests, ci, tech-debt]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-023-untouched-app-guard-rescope.report.md
-commit: null
+commit: acc3a08
 depends_on: []
 blocks: []
 skills: []

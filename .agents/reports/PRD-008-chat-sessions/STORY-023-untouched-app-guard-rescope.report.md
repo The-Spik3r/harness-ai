@@ -3,7 +3,7 @@ story: STORY-023
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: acc3a08
 status: COMPLETE
 completed: 2026-09-04
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-04
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `acc3a08`
 
 ## Summary
 

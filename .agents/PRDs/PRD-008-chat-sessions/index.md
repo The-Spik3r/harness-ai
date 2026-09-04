@@ -36,7 +36,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-020 | Palette-drift and contrast assertions so the sidebar default fails a test, not a review | technical | ⬜ todo | small | — | — |
 | STORY-021 | Two instances serve one session, and CHAT_HISTORY_ENABLED=false writes nothing — proven, not assumed | technical | ⬜ todo | medium | — | — |
 | STORY-022 | README and .env: document the persistence model the code actually has, including what is now at rest | technical | ⬜ todo | small | — | — |
-| STORY-023 | test_untouched_app.py: retire the provenance guards whose question is closed, and convert the pinned suites to a coverage census | technical | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md) | `PENDING` |
+| STORY-023 | test_untouched_app.py: retire the provenance guards whose question is closed, and convert the pinned suites to a coverage census | technical | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md) | `acc3a08` |
 
 ## Status Icons
 - ⬜ todo
