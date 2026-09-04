@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline and API"
-status: todo
+status: done
 labels: [backend, pipeline, audit]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-009-pipeline-session-passthrough.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-009-pipeline-session-passthrough.report.md
 commit: null
 depends_on: [STORY-008]
 blocks: [STORY-010, STORY-013]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-04
 ---
 
 # STORY-009: run_query threads session_id to all seven log_query call sites, blocked and failed included
