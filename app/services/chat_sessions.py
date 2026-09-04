@@ -167,6 +167,42 @@ def get(identity: Identity, session_id: str) -> Optional[ChatSession]:
         return database.get_chat_session(session_id, identity.user_id)
 
 
+def owns(identity: Identity, session_id: str) -> bool:
+    """Whether a `session_id` this identity supplied is grounds to refuse it.
+
+    **Why this exists beside `get`.** `get` answers "which row is this", and its
+    `None` conflates two situations the caller must treat differently: the
+    session is not this identity's, and transcript persistence is off entirely.
+    A caller resolving that conflation would be a caller branching on
+    `CHAT_HISTORY_ENABLED`, which PRD Section 6 forbids in one sentence -- "**No
+    caller branches on the flag.**" -- and which
+    `tests/test_chat_sessions.py::test_no_module_outside_the_service_branches_on_chat_history_enabled`
+    fails on by walking the AST of every module under `app/` and `chat_ui/`. So
+    the router asks its question here instead, and the branch stays in this file
+    with the other one.
+
+    **`True` when history is off does not mean "this identity owns that row".**
+    It means *nothing about this id is grounds to refuse the send*. With
+    persistence off there are no `chat_sessions` rows for anybody, so there is
+    no ownership to assert and nothing to refuse; the id is then only a label on
+    the audit row. STORY-010 AC 7 states the rule and its boundary: "the
+    ownership check is a no-op and the id is written to the audit row as
+    supplied -- the flag governs the transcript, not the audit column."
+
+    **`False` covers the foreign session and the unknown one alike**, because
+    `database.get_chat_session` already refuses both with one `None` and nothing
+    here separates them. Anything that could tell them apart would be a
+    membership oracle over other people's session ids -- the rule `get` above
+    inherits from `app/services/identity.py`'s `resolve()`, whose `None` "covers
+    every failure case alike ... so the caller cannot distinguish them."
+    """
+    if not settings.CHAT_HISTORY_ENABLED:
+        return True
+
+    with _wrapped("owns"):
+        return database.get_chat_session(session_id, identity.user_id) is not None
+
+
 def rename(identity: Identity, session_id: str, title: str) -> bool:
     """Retitles this identity's session. `False` when there is no such owned row.
 

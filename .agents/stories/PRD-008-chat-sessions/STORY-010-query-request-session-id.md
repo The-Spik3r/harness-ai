@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline and API"
-status: todo
+status: done
 labels: [backend, api, security]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-010-query-request-session-id.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-010-query-request-session-id.report.md
 commit: null
 depends_on: [STORY-006, STORY-009]
 blocks: [STORY-021, STORY-022]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-04
 ---
 
 # STORY-010: QueryRequest.session_id with UUID validation and a 403 on a foreign session

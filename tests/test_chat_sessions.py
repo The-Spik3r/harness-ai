@@ -978,11 +978,14 @@ def test_count_chat_sessions_ignores_the_list_limit(temp_db):
 # STORY-006 -- app/services/chat_sessions.py, the service over the store
 # ==========================================================================
 
-#: The surface STORY-006 adds, in the order the story lists it.
-THE_EIGHT = (
+#: The surface STORY-006 adds, in the order the story lists it, plus the ninth
+#: STORY-010 added: `owns`, which answers `app/routers/query.py`'s question
+#: without handing it the flag branch that `get` would have forced.
+THE_NINE = (
     "create",
     "list_for",
     "get",
+    "owns",
     "rename",
     "touch",
     "delete",
@@ -1071,6 +1074,7 @@ def _call(name: str, identity: Identity, session_id: str, **overrides):
         "create": lambda: chat_sessions.create(identity, prompt, derive),
         "list_for": lambda: chat_sessions.list_for(identity),
         "get": lambda: chat_sessions.get(identity, session_id),
+        "owns": lambda: chat_sessions.owns(identity, session_id),
         "rename": lambda: chat_sessions.rename(identity, session_id, title),
         "touch": lambda: chat_sessions.touch(identity, session_id),
         "delete": lambda: chat_sessions.delete(identity, session_id),
@@ -1097,18 +1101,23 @@ def _count_messages_rows() -> int:
 # --------------------------------------------------------------------------
 
 
-def test_the_eight_service_functions_are_declared():
+def test_the_nine_service_functions_are_declared():
     """AC 1. A statement about the module; no database needed."""
-    for name in THE_EIGHT:
+    for name in THE_NINE:
         assert hasattr(chat_sessions, name), name
         assert callable(getattr(chat_sessions, name)), name
 
 
-def test_the_service_exposes_exactly_those_eight():
+def test_the_service_exposes_exactly_those_nine():
     """AC 1, the other direction. `count_chat_sessions` is deliberately not
-    re-exported here, so a later story that exposes a ninth function has to say
-    so by editing this tuple rather than by nobody noticing."""
-    assert sorted(_service_functions()) == sorted(THE_EIGHT)
+    re-exported here, so a later story that exposes a tenth function has to say
+    so by editing this tuple rather than by nobody noticing.
+
+    STORY-010 is the first story to take that path: `owns` is the ninth, and it
+    is here because the router's ownership refusal needed an answer `get` could
+    not give without the caller branching on `CHAT_HISTORY_ENABLED`.
+    """
+    assert sorted(_service_functions()) == sorted(THE_NINE)
 
 
 def test_every_service_function_takes_an_identity_first():
@@ -1140,7 +1149,7 @@ def test_every_service_function_passes_identity_user_id_to_the_store():
     the two questions, and a service consulting the role would be RBAC
     substituting for ownership, which Section 6 forbids.
     """
-    for name in THE_EIGHT:
+    for name in THE_NINE:
         statements = _service_statements_of(name)
         assert "identity.user_id" in statements, name
         assert "identity.role" not in statements, name
@@ -1209,6 +1218,20 @@ def test_writes_return_a_usable_value_and_issue_nothing_when_history_is_off(
     assert _call(name, _identity("ana"), str(uuid.uuid4())) is expected
 
 
+def test_owns_answers_true_and_issues_nothing_when_history_is_off(history_off):
+    """PRD-008 STORY-010 AC 7, and the one return value on this surface that is
+    not "empty".
+
+    `True` here does not claim the identity owns the row. It says *nothing about
+    this id is grounds to refuse the send*: with persistence off there are no
+    `chat_sessions` rows for anybody, so there is no ownership to assert, and
+    the id is only a label on the audit row -- "the flag governs the transcript,
+    not the audit column". The tripwire proves the store was never consulted to
+    produce the answer.
+    """
+    assert _call("owns", _identity("ana"), str(uuid.uuid4())) is True
+
+
 @pytest.mark.parametrize(
     "name, expected",
     [
@@ -1226,12 +1249,12 @@ def test_reads_return_empty_and_issue_nothing_when_history_is_off(
     assert _call(name, _identity("ana"), str(uuid.uuid4())) == expected
 
 
-def test_history_off_reaches_the_database_for_none_of_the_eight(history_off):
+def test_history_off_reaches_the_database_for_none_of_the_nine(history_off):
     """AC 3 and AC 4 over the whole surface at once. The parametrized cases above
-    assert the values; this asserts the property for all eight together, so a
-    ninth function that forgot its guard fails here even if nobody remembered to
+    assert the values; this asserts the property for all nine together, so a
+    tenth function that forgot its guard fails here even if nobody remembered to
     add it to the tables above."""
-    for name in THE_EIGHT:
+    for name in THE_NINE:
         _call(name, _identity("ana"), str(uuid.uuid4()))
 
 
@@ -1530,7 +1553,7 @@ def test_two_identities_round_trip_without_seeing_each_other(temp_db):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", THE_EIGHT)
+@pytest.mark.parametrize("name", THE_NINE)
 def test_every_function_wraps_storage_failure_in_chat_session_error(
     uninitialized_db, name
 ):
@@ -1543,7 +1566,7 @@ def test_every_function_wraps_storage_failure_in_chat_session_error(
         _call(name, _identity("ana"), str(uuid.uuid4()))
 
 
-@pytest.mark.parametrize("name", THE_EIGHT)
+@pytest.mark.parametrize("name", THE_NINE)
 def test_the_wrapped_error_keeps_the_storage_error_as_its_cause(uninitialized_db, name):
     """AC 8. `from exc` rather than a bare `raise`: the storage detail stays
     reachable for a log line, it just is not the type callers catch."""
@@ -1552,7 +1575,7 @@ def test_the_wrapped_error_keeps_the_storage_error_as_its_cause(uninitialized_db
     assert isinstance(caught.value.__cause__, StorageError)
 
 
-@pytest.mark.parametrize("name", THE_EIGHT)
+@pytest.mark.parametrize("name", THE_NINE)
 def test_the_wrapped_error_names_the_service_operation(uninitialized_db, name):
     """AC 8. The message reads in the caller's vocabulary -- "append_message
     failed" and not "append_chat_message failed" -- so a report reaching a user
@@ -1566,7 +1589,7 @@ def test_a_storage_error_never_escapes_as_itself(uninitialized_db):
     """AC 8, stated negatively. `ChatSessionError` does not inherit from
     `StorageError`, so this is a real assertion rather than a tautology."""
     assert not issubclass(ChatSessionError, StorageError)
-    for name in THE_EIGHT:
+    for name in THE_NINE:
         try:
             _call(name, _identity("ana"), str(uuid.uuid4()))
         except ChatSessionError:

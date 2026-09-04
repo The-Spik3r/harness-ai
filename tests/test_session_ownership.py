@@ -93,6 +93,7 @@ _KNOWN_SERVICE = frozenset(
         "create",
         "list_for",
         "get",
+        "owns",
         "rename",
         "touch",
         "delete",
@@ -300,6 +301,7 @@ _SERVICE_SHAPES = {
     ),
     "list_for": lambda identity, session_id: chat_sessions.list_for(identity),
     "get": lambda identity, session_id: chat_sessions.get(identity, session_id),
+    "owns": lambda identity, session_id: chat_sessions.owns(identity, session_id),
     "rename": lambda identity, session_id: chat_sessions.rename(
         identity, session_id, "renamed by a stranger"
     ),
@@ -373,7 +375,10 @@ def test_the_service_call_table_covers_every_discovered_function():
 #: not by name: AC 4 asks for "empty, `None` or `False`" and AC 5 asks for an
 #: unchanged database, and those are different assertions over the same drive.
 _STORE_READS = ("get_chat_session", "list_chat_sessions", "list_chat_messages", "count_chat_sessions")
-_SERVICE_READS = ("get", "list_for", "messages_for")
+# `owns` is a read: it issues one SELECT and changes nothing. Its answer for a
+# foreign credential is `False`, which is what AC 4 asks of a function whose
+# answer is a boolean -- `_assert_returns_nothing` already accepts it.
+_SERVICE_READS = ("get", "list_for", "messages_for", "owns")
 
 _STORE_WRITES = ("rename_chat_session", "touch_chat_session", "delete_chat_session", "append_chat_message")
 _SERVICE_WRITES = ("rename", "touch", "delete", "append_message")
@@ -446,6 +451,7 @@ def test_the_owner_still_reads_everything_a_stranger_could_not(temp_db):
     assert len(database.list_chat_messages(session_id, ana.user_id)) == 2
     assert database.count_chat_sessions(ana.user_id) == 1
     assert chat_sessions.get(ana, session_id) is not None
+    assert chat_sessions.owns(ana, session_id) is True
     assert [s.session_id for s in chat_sessions.list_for(ana)] == [session_id]
     assert len(chat_sessions.messages_for(ana, session_id)) == 2
 
