@@ -121,6 +121,22 @@ class AuditQueryEntry(BaseModel):
     pii_entities: List[str] = []
     role: Optional[str] = None
     denied_permission: Optional[str] = None
+    # The conversation this row came from (PRD-008 Section 5, story 8). The
+    # column has been written since STORY-008 and threaded since STORY-009;
+    # this is where it becomes readable, so that three rows that were one
+    # conversation are visibly one conversation instead of a guess.
+    #
+    # Optional and defaulted because `None` is the honest answer for two whole
+    # classes of row: everything written before this PRD, and every send that
+    # carried no session (`POST /query` without the field, which PRD Section 3
+    # promises keeps working). A required field here would break every existing
+    # constructor, this file's tests included.
+    #
+    # No validator, deliberately. This is a *read* model: the value was already
+    # checked as a canonical UUID4 at the write end by `QueryRequest`
+    # (STORY-010), and revalidating on the way out would refuse to report rows
+    # the database legitimately holds.
+    session_id: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

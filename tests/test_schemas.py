@@ -113,9 +113,28 @@ def test_audit_response_shape():
                 "pii_entities": [],
                 "role": None,
                 "denied_permission": None,
+                # PRD-008 STORY-011. The entry above is constructed without
+                # `session_id`, so `None` here is the default being asserted
+                # rather than merely accommodated.
+                "session_id": None,
             }
         ],
     }
+
+
+def test_audit_query_entry_session_id_is_optional_with_a_none_default():
+    """STORY-011 AC 6, asserted on the field rather than on a serialized row.
+
+    `test_audit_response_shape` above shows what an omitted `session_id`
+    serializes to; this shows *why* omitting it is allowed at all. A required
+    field here would break every existing constructor -- the one in that test,
+    and the projection in `app/routers/admin.py` for as long as any row
+    predates the column.
+    """
+    field = AuditQueryEntry.model_fields["session_id"]
+
+    assert field.is_required() is False
+    assert field.default is None
 
 
 def test_stats_response_shape():

@@ -181,6 +181,12 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
     new leak surface", and PRD-001 Section 10's /audit contract never carried
     previews. If a future story adds them, this test fails -- forcing that to be a
     deliberate, reviewed decision rather than a drift.
+
+    PRD-008 STORY-011 is one such decision, made in the open: `session_id` joins
+    the list below so `GET /audit` can report which conversation a row came from.
+    What this test defends is unchanged -- no `prompt_preview`, no
+    `response_preview`, no `response_hash` -- and an opaque UUID is not prompt
+    text, so the leak surface the PRD-003 assertion guards is no wider.
     """
     _post_pii_query(monkeypatch)
 
@@ -196,6 +202,7 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "pii_entities",
         "prompt_hash",
         "role",
+        "session_id",
         "suspicious_pattern_detected",
         "timestamp",
         "user_id",

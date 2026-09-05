@@ -40,6 +40,11 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             user_id=log.user_id,
             role=log.role,
             denied_permission=log.denied_permission,
+            # A verbatim passthrough (PRD-008 STORY-011). `list_audit_logs`
+            # builds its rows through `_row_to_audit_log`, which has mapped
+            # this column since STORY-008 -- the value was already in hand
+            # here and merely went unprojected.
+            session_id=log.session_id,
             timestamp=log.timestamp,
             model=log.model_used,
             prompt_hash=log.prompt_hash,
