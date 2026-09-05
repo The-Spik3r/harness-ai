@@ -19,9 +19,11 @@ from app.db.database import (
     get_connection,
     insert_audit_log,
     insert_user,
+    list_chat_messages,
     list_chat_sessions,
     touch_chat_session,
 )
+from app.db.errors import StorageError
 from app.db.models import AuditLog, User
 from app.main import app
 from app.models.schemas import (
@@ -42,7 +44,12 @@ from app.services.query_pipeline import run_query
 
 import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
-from chat_ui.chat_ui.copy import LOGIN_INVALID_TOKEN_ERROR, LOGIN_TOKEN_REQUIRED_ERROR
+from chat_ui.chat_ui.copy import (
+    LOGIN_INVALID_TOKEN_ERROR,
+    LOGIN_TOKEN_REQUIRED_ERROR,
+    SESSION_ORDER_STALE_NOTICE,
+    TRANSCRIPT_NOT_SAVED_NOTICE,
+)
 from chat_ui.chat_ui.formatting import derive_title
 from chat_ui.chat_ui.models import ChatMessage, ChatSessionSummary
 
@@ -1224,3 +1231,392 @@ async def test_pending_clears_when_session_creation_raises(temp_db, monkeypatch)
     # And the composer is genuinely usable again, not merely flagged so.
     await _send(state, "another prompt")
     assert len([m for m in state.messages if m.kind == "user"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Transcript persistence (STORY-014)
+# ---------------------------------------------------------------------------
+
+
+def _stored_messages(session_id: str, user_id: str = _AUTH_USER_ID):
+    """The session's rows, read straight from the store rather than through
+    app/services/chat_sessions.py -- asserting the service's writes against the
+    service would be asserting it against itself, the rule `_session_rows`
+    above already states for STORY-013."""
+    return list_chat_messages(session_id, user_id)
+
+
+def _raise_chat_session_error(*args, **kwargs):
+    raise ChatSessionError("append_message failed: store is down")
+
+
+@pytest.mark.asyncio
+async def test_a_send_persists_the_user_bubble_and_the_assistant_bubble(
+    temp_db, monkeypatch
+):
+    """AC 1 and AC 2. The second send of a chat is the one that writes both
+    bubbles: the first send opens the session *after* the user bubble is
+    already on screen, so that bubble has no session to be filed under (see the
+    plan's Deviations)."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    rows = _stored_messages(state.active_session_id)
+    assert [r.kind for r in rows] == ["assistant", "user", "assistant"]
+    assert [r.id for r in rows] == sorted(r.id for r in rows)
+
+    second_turn = rows[1:]
+    assert second_turn[0].content == "second prompt"
+    assert second_turn[0].prompt == "second prompt"
+    assert second_turn[1].content == "ok"
+
+
+@pytest.mark.asyncio
+async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch):
+    """AC 1's ordering half: "after the append, not before and not instead".
+
+    The only assertion that distinguishes the two orderings -- both leave the
+    same row behind, and only this one fails if the write moves ahead of the
+    append."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    observed = []
+    real_append = chat_sessions.append_message
+
+    def _observing_append(identity, session_id, message):
+        # The bubble being written is already the last one on screen.
+        observed.append((message.kind, state.messages[-1].kind))
+        return real_append(identity, session_id, message)
+
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions, "append_message", _observing_append
+    )
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    assert observed, "append_message was never called"
+    for written_kind, on_screen_kind in observed:
+        assert written_kind == on_screen_kind
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome,expected_kind",
+    [
+        (
+            QuerySuccessResponse(
+                response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+            ),
+            "assistant",
+        ),
+        (
+            QueryBlockedDuplicateResponse(
+                reason="Duplicate", first_query_at="2026-09-04T10:00:00Z"
+            ),
+            "duplicate",
+        ),
+        (
+            QueryBlockedSuspiciousResponse(
+                reason="Suspicious", pattern="ignore previous"
+            ),
+            "injection",
+        ),
+        (
+            QueryBlockedForbiddenResponse(
+                reason="Forbidden", required_permission=PERMISSION_QUERY_SUBMIT
+            ),
+            "forbidden",
+        ),
+        (OpenRouterError("upstream timeout"), "upstream_error"),
+        (PiiRedactorError("redactor down"), "internal_error"),
+    ],
+    ids=[
+        "assistant",
+        "duplicate",
+        "injection",
+        "forbidden",
+        "upstream_error",
+        "internal_error",
+    ],
+)
+async def test_every_bubble_kind_is_persisted(
+    temp_db, monkeypatch, outcome, expected_kind
+):
+    """AC 2: all seven kinds, including the four non-success outcomes and the
+    two error kinds. `user` is the seventh and rides along on every case.
+
+    Asserted on the stored `kind` rather than on a row count -- a count passes
+    even when every row is filed under the wrong verdict."""
+    if isinstance(outcome, Exception):
+
+        def _fake(*args, **kwargs):
+            raise outcome
+
+    else:
+        _fake = _capturing_run_query(outcome)
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake)
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    rows = _stored_messages(state.active_session_id)
+    assert [r.kind for r in rows[-2:]] == ["user", expected_kind]
+
+
+@pytest.mark.asyncio
+async def test_the_assistant_row_stores_the_redacted_response(temp_db, monkeypatch):
+    """AC 3 and PRD Section 9: "The raw upstream text is never written to
+    `chat_messages`." Asserted as an absence across every row, not merely as
+    the presence of the redacted string in this one."""
+    raw = "reach me at juan@empresa.com"
+    redacted = "reach me at <EMAIL>"
+    monkeypatch.setattr(
+        chat_state_mod,
+        "run_query",
+        _capturing_run_query(
+            QuerySuccessResponse(
+                response=redacted, audit_id=1, model_used="gpt-4", tokens_used=1
+            )
+        ),
+    )
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    rows = _stored_messages(state.active_session_id)
+    assert rows[-1].kind == "assistant"
+    assert rows[-1].content == redacted
+    assert all(raw not in (r.content or "") for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_a_successful_write_touches_the_session_and_moves_it_to_the_front(
+    temp_db, monkeypatch
+):
+    """AC 4. `updated_at` moves and the in-state rail reorders so the active
+    chat is first."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    older = create_chat_session(_AUTH_USER_ID, "Older chat")
+    newer = create_chat_session(_AUTH_USER_ID, "Newer chat")
+    _backdate_session(older, hours_ago=3)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+    assert [s.session_id for s in state.sessions] == [newer, older]
+
+    before = {r.session_id: r.updated_at for r in _session_rows()}
+    state.active_session_id = older
+    await _send(state, "a prompt")
+
+    after = {r.session_id: r.updated_at for r in _session_rows()}
+    assert after[older] > before[older]
+    assert after[newer] == before[newer]
+
+    assert [s.session_id for s in state.sessions] == [older, newer]
+    assert state.sessions[0].title == "Older chat"
+    assert state.sessions[0].activity_info
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_the_first_send_puts_the_new_chat_at_the_front_of_the_rail(
+    temp_db, monkeypatch
+):
+    """AC 4's insert half. STORY-013's create leaves the new session out of
+    `sessions`, so the reorder has to add it -- carrying the *stored* title,
+    never one re-derived here (`derive_title` runs exactly once per session)."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    existing = create_chat_session(_AUTH_USER_ID, "Older chat")
+    _backdate_session(existing, hours_ago=3)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    await _send(state, "summarise the Q3 vendor spend")
+
+    assert state.sessions[0].session_id == state.active_session_id
+    assert state.sessions[0].title == derive_title("summarise the Q3 vendor spend")
+    assert [s.session_id for s in state.sessions[1:]] == [existing]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_append_keeps_the_turn_on_screen_and_reports_it(
+    temp_db, monkeypatch
+):
+    """AC 5 and AC 8, and PRD Risk 5 in one test: "the model answered, the
+    audit row is written, and then the transcript insert fails -- a naive
+    implementation raises and the user loses a paid, logged answer."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions, "append_message", _raise_chat_session_error
+    )
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    assert [m.kind for m in state.messages] == ["user", "assistant"]
+    assert state.messages[-1].content == "ok"
+    assert state.transcript_error == TRANSCRIPT_NOT_SAVED_NOTICE
+    assert state.pending is False
+
+    # And the composer is genuinely usable again, not merely flagged so.
+    await _send(state, "another prompt")
+    assert len([m for m in state.messages if m.kind == "user"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_storage_error_that_escaped_wrapping_still_does_not_lose_the_turn(
+    temp_db, monkeypatch
+):
+    """AC 5's structural half, and the reason the catch is a bare
+    `except Exception`. The story: "A `ChatSessionError`-only catch would let a
+    `StorageError` that escaped wrapping take the turn down."
+
+    Patches `append_chat_message` -- the function AC 8 names -- so the service's
+    own `_wrapped` arm is exercised end to end rather than bypassed."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    def _raise_storage_error(*args, **kwargs):
+        raise StorageError("connection reset")
+
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions.database,
+        "append_chat_message",
+        _raise_storage_error,
+    )
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    assert [m.kind for m in state.messages] == ["user", "assistant"]
+    assert state.transcript_error == TRANSCRIPT_NOT_SAVED_NOTICE
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_a_failed_touch_does_not_report_a_lost_turn(temp_db, monkeypatch):
+    """AC 6: "a failed reorder is cosmetic and must not surface as a lost
+    turn." The row *is* in the database, so the transcript notice must stay
+    empty -- claiming "not saved" here would be a falsehood in the interface."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    def _raise(*args, **kwargs):
+        raise ChatSessionError("touch failed: store is down")
+
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "touch", _raise)
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    rows = _stored_messages(state.active_session_id)
+    assert [r.kind for r in rows[-2:]] == ["user", "assistant"]
+    assert state.transcript_error == ""
+    assert state.sessions_error == SESSION_ORDER_STALE_NOTICE
+    assert [m.kind for m in state.messages] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_history_off_writes_nothing_and_says_nothing(temp_db, monkeypatch):
+    """AC 7: "no write is attempted, no notice appears, and the chat behaves
+    exactly as it does today." Reached without this class naming the flag --
+    the service returns None and the helper's guard falls through."""
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    def _refuse(*args, **kwargs):
+        raise AssertionError("no transcript write may be attempted")
+
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions.database, "append_chat_message", _refuse
+    )
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM chat_messages").fetchone()
+    assert row["n"] == 0
+    assert state.transcript_error == ""
+    assert state.sessions_error == ""
+    assert [m.kind for m in state.messages] == ["user", "assistant"]
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_the_audit_row_survives_a_failed_transcript_write(temp_db, monkeypatch):
+    """AC 9: "the two writes are independent and the evidence one already
+    happened inside `run_query`." The real pipeline runs here -- a faked
+    run_query would write no audit row and the test would prove nothing."""
+
+    def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr(chat_state_mod, "call_openrouter", _fake_call_openrouter)
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions, "append_message", _raise_chat_session_error
+    )
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert _count_audit_rows() == 1
+    audit_row = get_audit_log(_last_audit_id())
+    assert audit_row.session_id == state.active_session_id
+    assert state.messages[-1].kind == "assistant"
+    assert state.transcript_error == TRANSCRIPT_NOT_SAVED_NOTICE
+
+
+def test_every_bubble_append_in_do_send_goes_through_the_helper():
+    """The structural half of the story's "a ninth outcome added later cannot
+    be persisted-by-forgetting".
+
+    `_do_send` must contain no `self.messages.append(...)` of its own: every
+    bubble is the helper's, so a branch added later persists by default rather
+    than by remembering. The AST walk is the shape
+    `test_chat_state_never_names_the_history_flag` above already uses -- the
+    drift fails a test rather than a review.
+    """
+    tree = ast.parse(pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8"))
+    do_send = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_do_send"
+    )
+    appends = [
+        node
+        for node in ast.walk(do_send)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "append"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "messages"
+    ]
+    assert appends == [], "_do_send appends a bubble without persisting it"
+
+    helper_calls = [
+        node
+        for node in ast.walk(do_send)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_append_and_persist"
+    ]
+    # The eight append sites the story enumerates, collapsed to six calls: the
+    # four isinstance branches already share one.
+    assert len(helper_calls) == 6

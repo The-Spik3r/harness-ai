@@ -111,3 +111,22 @@ SESSION_UNTITLED_TITLE = "Untitled chat"
 # The counterpart of DUPLICATE_UNPARSEABLE_TEMPLATE above: a timestamp that
 # will not parse costs the relative reading, not the row.
 SESSION_ACTIVITY_UNKNOWN = "no recent activity"
+
+# --- Transcript persistence ----------------------------------------------
+# PRD-008 Risk 5: the model answered and the audit row is already written --
+# only the saving failed, and the notice says exactly that much. It names the
+# consequence the reader can act on (the turn is here until they reload)
+# rather than the mechanism that produced it, and it does not apologize
+# (frontend-design: "errors don't apologize, and they are never vague about
+# what happened").
+TRANSCRIPT_NOT_SAVED_NOTICE = (
+    "This turn was not saved to your history. It stays on screen until you "
+    "reload the page."
+)
+# The counterpart for a failed touch, and deliberately a different string.
+# The write landed; only the ordering did not. Saying "not saved" here would
+# be false, and STORY-014 AC 6 is explicit that a failed reorder "must not
+# surface as a lost turn".
+SESSION_ORDER_STALE_NOTICE = (
+    "This chat is saved. The list order is out of date until you reload."
+)

@@ -30,6 +30,9 @@ from chat_ui.chat_ui.copy import (
     # constant above, so a rename fails at collection rather than at render.
     SESSION_UNTITLED_TITLE,
     SESSION_ACTIVITY_UNKNOWN,
+    # STORY-014: the two transcript-persistence notices, same rule.
+    TRANSCRIPT_NOT_SAVED_NOTICE,
+    SESSION_ORDER_STALE_NOTICE,
 )
 from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
@@ -572,3 +575,29 @@ def test_the_untitled_fallback_is_the_string_derive_title_actually_returns():
     """
     assert derive_title("   ") == SESSION_UNTITLED_TITLE
     assert derive_title("") == SESSION_UNTITLED_TITLE
+
+
+def test_transcript_notices_name_the_saving_and_never_the_answer():
+    """STORY-014 AC 5 and AC 6, as copy rather than as behaviour.
+
+    Both notices are full sentences in the interface's voice (frontend-design:
+    "explain what went wrong and how to fix it... errors don't apologize"), and
+    the two are *different strings* on purpose: only one of them may claim a
+    turn was not saved, because only one of the two failures means that.
+    """
+    assert TRANSCRIPT_NOT_SAVED_NOTICE
+    assert SESSION_ORDER_STALE_NOTICE
+    assert TRANSCRIPT_NOT_SAVED_NOTICE != SESSION_ORDER_STALE_NOTICE
+
+    for text in (TRANSCRIPT_NOT_SAVED_NOTICE, SESSION_ORDER_STALE_NOTICE):
+        assert text[0].isupper() and text.endswith(".")
+        for word in ("sorry", "apologise", "apologize", "oops", "unfortunately"):
+            assert word not in text.lower()
+        # No mechanism: the reader does not run the database.
+        for word in ("sql", "database", "exception", "storageerror", "insert"):
+            assert word not in text.lower()
+
+    assert "not saved" in TRANSCRIPT_NOT_SAVED_NOTICE.lower()
+    # The stale-order notice must not read as a lost turn -- AC 6.
+    assert "not saved" not in SESSION_ORDER_STALE_NOTICE.lower()
+    assert "saved" in SESSION_ORDER_STALE_NOTICE.lower()

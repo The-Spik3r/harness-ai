@@ -1,8 +1,10 @@
 import asyncio
 from datetime import datetime, timezone
+from typing import Optional
 
 import reflex as rx
 
+from app.db.models import ChatSession, StoredMessage
 from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
@@ -12,7 +14,7 @@ from app.models.schemas import (
 from app.services import chat_sessions
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
-from app.services.identity import resolve
+from app.services.identity import Identity, resolve
 from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
@@ -21,9 +23,46 @@ from .copy import (
     LOGIN_INVALID_TOKEN_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
+    SESSION_ORDER_STALE_NOTICE,
+    TRANSCRIPT_NOT_SAVED_NOTICE,
 )
 from .formatting import derive_title, format_activity, format_duplicate_info
 from .config import DEFAULT_MODEL
+
+def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
+    """One bubble as one `chat_messages` row.
+
+    `ChatMessage` defaults its optional fields to "" and 0 because a Reflex Var
+    cannot be None on the wire; every matching column is nullable and means
+    *absent*. So every optional field is converted with `or None` -- a
+    transcript full of empty strings would restore into bubbles that render an
+    empty "Matched pattern" label instead of no label at all.
+
+    `pii_entities` is comma-joined, matching how `app/services/audit_logger.py`
+    already persists the same data and what `StoredMessage`'s own docstring asks
+    for: "one encoding serves one concept."
+
+    `duplicate_relative_info` and `duplicate_release_info` are dropped, and
+    their absence is the schema's decision rather than an oversight --
+    `app/db/models.py`: "a stored '2m ago' is wrong the moment it is read back."
+    STORY-015 recomputes them from `first_query_at` on load.
+    """
+    return StoredMessage(
+        session_id=session_id,
+        kind=bubble.kind,
+        content=bubble.content,
+        prompt=bubble.prompt or None,
+        model_used=bubble.model_used or None,
+        tokens_used=bubble.tokens_used or None,
+        audit_id=bubble.audit_id or None,
+        pii_redacted=bubble.pii_redacted,
+        pii_entities=",".join(bubble.pii_entities) or None,
+        pattern=bubble.pattern or None,
+        required_permission=bubble.required_permission or None,
+        first_query_at=bubble.first_query_at or None,
+        detail=bubble.detail or None,
+    )
+
 
 class ChatState(rx.State):
     """Session state for the chat surface: the transcript, the composer, and
@@ -66,6 +105,13 @@ class ChatState(rx.State):
     sessions: list[ChatSessionSummary] = []
     active_session_id: str = ""
     sessions_error: str = ""
+    # The *turn's* notice slot, and deliberately not `sessions_error` above,
+    # which is the *rail's*. One says a bubble is not in the database; the other
+    # says the list is stale. Conflating them would make one of the two messages
+    # a lie on every failure of the other -- see `_append_and_persist`. Nothing
+    # renders it yet, exactly as nothing rendered `sessions_error` when
+    # STORY-013 introduced it; STORY-018/019 own the surface.
+    transcript_error: str = ""
 
     _token: str = ""
 
@@ -148,6 +194,12 @@ class ChatState(rx.State):
         self.login_error = ""
         self.messages = []
         self.input_text = ""
+        # The notice is *about* the transcript being cleared on the line above,
+        # so leaving it standing would report a lost turn for a conversation
+        # that is no longer on screen. STORY-016 clears `sessions`,
+        # `active_session_id` and `sessions_error`; this one belongs with
+        # `messages`.
+        self.transcript_error = ""
 
     @rx.event
     def edit_and_resend(self, prompt: str):
@@ -155,6 +207,111 @@ class ChatState(rx.State):
             return
         self.input_text = prompt
         return rx.set_focus("chat_input")
+
+    def _promote_session(self, row: ChatSession, now: datetime) -> None:
+        """Moves this session to the front of the rail, inserting it if new.
+
+        Called under the lock, from `_append_and_persist` only. Sync on purpose:
+        it touches no database and its one caller is already inside
+        `async with self`.
+
+        The row is the store's, not a locally built one. The title in particular
+        must not be re-derived here -- `formatting.derive_title` is "called
+        exactly once per session" and "a renamed session must never drift back
+        to its first prompt", so the rail shows the title that is stored.
+        """
+        remaining = [s for s in self.sessions if s.session_id != row.session_id]
+        self.sessions = [
+            ChatSessionSummary(
+                session_id=row.session_id,
+                title=row.title,
+                activity_info=format_activity(row.updated_at, now),
+            ),
+            *remaining,
+        ]
+
+    async def _append_and_persist(
+        self,
+        bubble: ChatMessage,
+        identity: Optional[Identity],
+        session_id: Optional[str],
+    ) -> None:
+        """Puts one bubble on screen, then tries to record it. In that order.
+
+        **The order is the story.** PRD-008 Section 6: "the transcript write
+        happens after, in the UI layer, and is allowed to fail without taking
+        the turn with it." PRD Risk 5 is the failure it is written against: "the
+        model answered, the audit row is written, and then the transcript insert
+        fails -- a naive implementation raises and the user loses a paid, logged
+        answer."
+
+        **Every bubble in `_do_send` goes through here, including the ones that
+        cannot be written.** The guard below returns for a send with no
+        resolvable identity and for one with no session -- history off, or a
+        create that failed. Routing those through the same helper rather than
+        leaving them as hand-rolled appends is what makes a ninth outcome added
+        later persist by default instead of by remembering.
+
+        **It must not be called from inside `async with self`.** `_do_send` is a
+        background task, so `self` is a `StateProxy`, and nesting the context
+        raises ImmutableStateError ("Do not nest `async with self` blocks",
+        reflex/istate/proxy.py). The lock is opened here, around short
+        mutations, with both database calls offloaded between them.
+
+        **Two guarded arms, not one, because one notice cannot be true for
+        both.** A failed `append_message` means the turn is not in the database.
+        A failed `touch` means it is, and only the ordering is stale. AC 6
+        requires the second not to "surface as a lost turn", so it gets its own
+        quieter notice on the rail's own error slot instead of borrowing the
+        transcript's.
+
+        Both arms catch bare `Exception` rather than `ChatSessionError`. The
+        story is explicit: a `StorageError` that escaped wrapping would
+        otherwise take the turn down, which is the one outcome this helper
+        exists to prevent.
+        """
+        async with self:
+            self.messages.append(bubble)
+
+        if identity is None or not session_id:
+            # Nothing to record against: the credential did not resolve, the
+            # create failed, or persistence is off. No write, and no notice --
+            # AC 7's "no write is attempted, no notice appears", reached without
+            # this class ever naming the flag.
+            return
+
+        try:
+            await asyncio.to_thread(
+                chat_sessions.append_message,
+                identity,
+                session_id,
+                _to_stored_message(bubble, session_id),
+            )
+        except Exception:
+            async with self:
+                self.transcript_error = TRANSCRIPT_NOT_SAVED_NOTICE
+            return
+
+        async with self:
+            self.transcript_error = ""
+
+        try:
+            await asyncio.to_thread(chat_sessions.touch, identity, session_id)
+            # Re-read rather than stamp a timestamp here: `touch` returns a
+            # bool, and the row carries both the authoritative `updated_at` and
+            # the authoritative title -- which the rail needs on the first send
+            # of a new chat, when STORY-013's create left no summary behind. One
+            # primary-key read on a path that has just made two writes and a
+            # model round trip.
+            row = await asyncio.to_thread(chat_sessions.get, identity, session_id)
+            if row is not None:
+                now = datetime.now(timezone.utc)
+                async with self:
+                    self._promote_session(row, now)
+                    self.sessions_error = ""
+        except Exception:
+            async with self:
+                self.sessions_error = SESSION_ORDER_STALE_NOTICE
 
     async def _do_send(self, text: str):
         # Claim the in-flight slot first and on its own, so everything that can
@@ -175,23 +332,25 @@ class ChatState(rx.State):
         # there is no role field anywhere on this class to read one from.
         identity = resolve(token)
         if identity is None:
+            # Through the same helper as every other bubble, even though its
+            # guard will return before any write: there is no Identity here, so
+            # there is no owner to file a row under. One append path, not two.
+            await self._append_and_persist(
+                ChatMessage(
+                    kind="internal_error",
+                    content="internal_error",
+                    prompt=text,
+                    detail=SESSION_INVALIDATED_ERROR,
+                ),
+                None,
+                None,
+            )
             async with self:
-                self.messages.append(
-                    ChatMessage(
-                        kind="internal_error",
-                        content="internal_error",
-                        prompt=text,
-                        detail=SESSION_INVALIDATED_ERROR,
-                    )
-                )
                 self.pending = False
             return
 
         try:
             async with self:
-                self.messages.append(
-                    ChatMessage(kind="user", content=text, prompt=text)
-                )
                 self.input_text = ""
                 model = self.selected_model
                 # Read through the lock into a local, like `model` above: a
@@ -207,6 +366,19 @@ class ChatState(rx.State):
                         device = self.router.headers.raw_headers.get("user-agent")
                 except Exception:
                     device = None
+
+            # After the lock is released, not inside it: `_append_and_persist`
+            # opens its own and the proxy refuses a nested one. `session_id` is
+            # "" on the first send of a new chat -- the create below has not run
+            # yet, deliberately, so that a slow create never hides what the user
+            # typed -- and the helper's guard skips the write for it. STORY-015
+            # inherits that: a restored first turn starts at the assistant
+            # bubble.
+            await self._append_and_persist(
+                ChatMessage(kind="user", content=text, prompt=text),
+                identity,
+                session_id,
+            )
 
             # Lazily, and only on the first send of a chat: PRD-008 Section 4,
             # "a session row is written on the first send, never on page load
@@ -254,42 +426,48 @@ class ChatState(rx.State):
                     session_id=session_id or None,
                 )
             except OpenRouterError as exc:
-                async with self:
-                    self.messages.append(
-                        ChatMessage(
-                            kind="upstream_error",
-                            content="upstream_error",
-                            prompt=text,
-                            detail=str(exc),
-                        )
-                    )
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="upstream_error",
+                        content="upstream_error",
+                        prompt=text,
+                        detail=str(exc),
+                    ),
+                    identity,
+                    session_id,
+                )
                 return
             except (DuplicateCheckError, PiiRedactorError) as exc:
-                async with self:
-                    self.messages.append(
-                        ChatMessage(
-                            kind="internal_error",
-                            content="internal_error",
-                            prompt=text,
-                            detail=str(exc),
-                        )
-                    )
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=str(exc),
+                    ),
+                    identity,
+                    session_id,
+                )
                 return
             except Exception as exc:
-                async with self:
-                    self.messages.append(
-                        ChatMessage(
-                            kind="internal_error",
-                            content="internal_error",
-                            prompt=text,
-                            detail=str(exc),
-                        )
-                    )
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=str(exc),
+                    ),
+                    identity,
+                    session_id,
+                )
                 return
 
             if isinstance(result, QuerySuccessResponse):
                 bubble = ChatMessage(
                     kind="assistant",
+                    # The redacted text the pipeline released, and the reason
+                    # this field is safe to persist. PRD-008 Section 9: "The raw
+                    # upstream text is never written to `chat_messages`."
                     content=result.response,
                     prompt=text,
                     model_used=result.model_used,
@@ -335,8 +513,7 @@ class ChatState(rx.State):
                     detail=f"Unhandled response type: {type(result).__name__}",
                 )
 
-            async with self:
-                self.messages.append(bubble)
+            await self._append_and_persist(bubble, identity, session_id)
         finally:
             async with self:
                 self.pending = False
