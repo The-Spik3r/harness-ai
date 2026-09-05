@@ -12,7 +12,7 @@ labels: [backend, api, audit]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-011-audit-entry-session-id.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-011-audit-entry-session-id.report.md
-commit: null
+commit: c69055e
 depends_on: [STORY-008]
 blocks: [STORY-022]
 skills: []
