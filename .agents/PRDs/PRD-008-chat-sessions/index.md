@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/23 stories done — 52%
+13/23 stories done — 57%
 
 ## Stories
 
@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-009 | run_query threads session_id to all seven log_query call sites, blocked and failed included | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-009-pipeline-session-passthrough.plan.md) | `9ffb083` |
 | STORY-010 | QueryRequest.session_id with UUID validation and a 403 on a foreign session | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-010-query-request-session-id.plan.md) | `27c7716` |
 | STORY-011 | AuditQueryEntry.session_id so GET /audit reports the conversation | feature | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-011-audit-entry-session-id.plan.md) | `c69055e` |
-| STORY-012 | ChatSessionSummary plus auto-title derivation and relative activity time in formatting.py | feature | ⬜ todo | small | — | — |
+| STORY-012 | ChatSessionSummary plus auto-title derivation and relative activity time in formatting.py | feature | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-012-session-summary-and-formatting.plan.md) | `pending` |
 | STORY-013 | ChatState holds the session list, creates lazily on first send, and passes session_id to run_query | feature | ⬜ todo | large | — | — |
 | STORY-014 | Persist each bubble after it is appended, touch the session, and degrade without losing the turn | feature | ⬜ todo | medium | — | — |
 | STORY-015 | Restore a transcript on sign-in and on switch, rehydrating all seven bubble kinds | feature | ⬜ todo | large | — | — |

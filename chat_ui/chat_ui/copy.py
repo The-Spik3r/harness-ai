@@ -101,3 +101,13 @@ UPSTREAM_ERROR_HEADLINE = "OpenRouter did not answer."
 INTERNAL_ERROR_PREFIX = "The harness failed before the model"
 INTERNAL_ERROR_HEADLINE = "The harness failed before reaching the model."
 DETAIL_LABEL = "Detail"
+
+# --- Session fallbacks ---------------------------------------------------
+# The two strings a session row falls back to. Both are failures of the
+# *input*, not of the reader, so neither apologizes and neither explains the
+# mechanism: a blank row in the rail is unclickable and unnameable, and that
+# is the whole problem being solved. The rail's own strings are STORY-017's.
+SESSION_UNTITLED_TITLE = "Untitled chat"
+# The counterpart of DUPLICATE_UNPARSEABLE_TEMPLATE above: a timestamp that
+# will not parse costs the relative reading, not the row.
+SESSION_ACTIVITY_UNKNOWN = "no recent activity"

@@ -26,8 +26,12 @@ from chat_ui.chat_ui.copy import (
     EMPTY_STATE_PII_FEATURE,
     EMPTY_STATE_SECURITY_FEATURE,
     EMPTY_STATE_DEDUP_FEATURE,
+    # STORY-012: the two session fallbacks. Imported by name like every
+    # constant above, so a rename fails at collection rather than at render.
+    SESSION_UNTITLED_TITLE,
+    SESSION_ACTIVITY_UNKNOWN,
 )
-from chat_ui.chat_ui.formatting import format_duplicate_info
+from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
 # STORY-008: the console's own copy module. Imported by name, as the chat
 # constants above are, so a deleted or renamed constant fails at collection
@@ -518,3 +522,53 @@ def test_admin_copy_states_one_refusal_and_says_nothing_about_why():
     # from malformed, and no advice that implies one.
     forbidden = ("empty", "invalid", "incorrect", "wrong", "length", "expired", "format")
     assert not [word for word in forbidden if word in GATE_REFUSED_MESSAGE.lower()]
+
+
+# --------------------------------------------------------------------------
+# STORY-012 -- the session rail's two fallback strings.
+#
+# Appended, never edited above: `tests/test_copy.py` is one of the two suites
+# `tests/test_untouched_app.py` pins by census, and every test above this line
+# is untouched.
+# --------------------------------------------------------------------------
+
+
+def test_session_fallback_copy_names_the_thing_rather_than_the_failure():
+    """STORY-012: both fallbacks are user-facing sentences, so both live here.
+
+    Neither may report a parse failure or apologize (frontend-design: "errors
+    don't apologize, and they are never vague about what happened"), and the
+    untitled fallback must be non-empty -- a blank row in the rail is
+    unclickable and unnameable.
+    """
+    assert SESSION_UNTITLED_TITLE
+    assert SESSION_ACTIVITY_UNKNOWN
+
+    for text in (SESSION_UNTITLED_TITLE, SESSION_ACTIVITY_UNKNOWN):
+        # Sentence case: the copy module's own register throughout.
+        assert text == text[0].upper() + text[1:] or text == text.lower()
+        assert not text.endswith("."), "a rail row is a label, not a sentence"
+        lowered = text.lower()
+        for word in (
+            "error",
+            "invalid",
+            "failed",
+            "failure",
+            "sorry",
+            "unparseable",
+            "none",
+            "null",
+            "unknown",
+        ):
+            assert word not in lowered, f"{text!r} names the mechanism: {word!r}"
+
+
+def test_the_untitled_fallback_is_the_string_derive_title_actually_returns():
+    """The constant is proven to be wired, not merely present.
+
+    A copy constant that nothing returns is a string in a file. This asserts
+    the whitespace arm of `derive_title` reaches for this one, so renaming the
+    constant without updating `formatting.py` fails here.
+    """
+    assert derive_title("   ") == SESSION_UNTITLED_TITLE
+    assert derive_title("") == SESSION_UNTITLED_TITLE
