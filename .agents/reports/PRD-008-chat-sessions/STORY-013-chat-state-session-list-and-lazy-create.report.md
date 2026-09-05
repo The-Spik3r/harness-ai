@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-013-chat-state-session-list-and-lazy-create.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: ba43c5c
 status: COMPLETE
 completed: 2026-09-05
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-05
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-013-chat-state-session-list-and-lazy-create.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `ba43c5c`
 
 ## Summary
 

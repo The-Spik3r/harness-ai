@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - State and restore"
-status: todo
+status: done
 labels: [ui, reflex, state, backend]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-013-chat-state-session-list-and-lazy-create.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-013-chat-state-session-list-and-lazy-create.report.md
+commit: ba43c5c
 depends_on: [STORY-006, STORY-009, STORY-012]
 blocks: [STORY-014, STORY-016, STORY-018]
 skills: [reflex-docs, reflex-process-management]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-05
 ---
 
 # STORY-013: ChatState holds the session list, creates lazily on first send, and passes session_id to run_query
