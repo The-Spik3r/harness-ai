@@ -288,7 +288,12 @@ _PRE_EPIC_UNTOUCHED_TESTS = [
 # change to the pre-RBAC contract. tests/test_integration.py posts as two different
 # users in a single test (PRD-001 Section 5's happy-path/dup/pattern coverage), so it
 # had to gain per-request Authorization headers rather than staying untouched.
-_TEST_DEF = re.compile(r"^def (test_\w+)", re.MULTILINE)
+# `async def` counts: most of tests/test_chat_state.py is async, and a
+# regex that only saw `def` was blind to those cases entirely -- it could
+# not have caught their deletion, and it read a sync test converted to
+# async as a removal. PRD-008 STORY-013 converted the five login tests
+# when ChatState.login() became a coroutine.
+_TEST_DEF = re.compile(r"^(?:async )?def (test_\w+)", re.MULTILINE)
 
 
 def _git(*args):

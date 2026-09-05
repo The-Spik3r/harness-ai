@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime, timezone
+
 import reflex as rx
 
 from app.models.schemas import (
@@ -7,18 +9,20 @@ from app.models.schemas import (
     QueryBlockedSuspiciousResponse,
     QuerySuccessResponse,
 )
+from app.services import chat_sessions
+from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import resolve
 from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
-from .models import ChatMessage
+from .models import ChatMessage, ChatSessionSummary
 from .copy import (
     LOGIN_INVALID_TOKEN_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
 )
-from .formatting import format_duplicate_info
+from .formatting import derive_title, format_activity, format_duplicate_info
 from .config import DEFAULT_MODEL
 
 class ChatState(rx.State):
@@ -40,6 +44,16 @@ class ChatState(rx.State):
     login() is the only place that writes it or `user_id`; every send()
     re-derives the Identity -- and so the role -- from `_token` via
     resolve(), fresh, on every call.
+
+    `active_session_id` below is client-visible, and that is deliberate rather
+    than an oversight of the paragraph above: the rail has to render which row
+    is the active one, which a backend-only var cannot do. It is safe only
+    because nothing trusts it. PRD-008 Risk 3: it is untrusted input, so
+    `app/services/chat_sessions.py` re-checks ownership on every read against
+    the Identity resolved fresh from `_token`, never against the var, and
+    POST /query refuses a foreign session with a 403 (STORY-010). Making it a
+    backend var would break the rail without adding a boundary; trusting it
+    would remove one.
     """
 
     messages: list[ChatMessage] = []
@@ -49,6 +63,9 @@ class ChatState(rx.State):
     login_error: str = ""
     pending: bool = False
     selected_model: str = DEFAULT_MODEL
+    sessions: list[ChatSessionSummary] = []
+    active_session_id: str = ""
+    sessions_error: str = ""
 
     _token: str = ""
 
@@ -69,7 +86,20 @@ class ChatState(rx.State):
         self.selected_model = model
 
     @rx.event
-    def login(self):
+    async def login(self):
+        """Signs in, then loads this identity's session list.
+
+        Async but *not* `background=True`, and the difference is the whole
+        reason the rail is populated when the gate clears. A background task
+        cannot be called from another handler at all -- Reflex installs
+        `_no_chain_background_task` and it must be returned as a follow-up
+        event, which lands after this handler has already finished. A plain
+        async handler holds the exclusive state lock for its entire duration,
+        including across the `await` below, so `self` here is the real state
+        and not a StateProxy: mutations are direct and an `async with self`
+        would deadlock on a lock this handler already holds. That is the
+        opposite of the rule in `_do_send`, which *is* a background task.
+        """
         token = self.token_input.strip()
         if not token:
             self.login_error = LOGIN_TOKEN_REQUIRED_ERROR
@@ -84,6 +114,28 @@ class ChatState(rx.State):
         self.token_input = ""
         self._token = token
         self.user_id = identity.user_id
+
+        self.sessions_error = ""
+        try:
+            rows = await asyncio.to_thread(chat_sessions.list_for, identity)
+        except ChatSessionError as exc:
+            # A rail that will not load is not a failed sign-in. The user is
+            # already authenticated by this point and the composer works
+            # without a session; only the list is missing.
+            self.sessions = []
+            self.sessions_error = str(exc)
+        else:
+            # One clock read for the whole list, per format_activity's own
+            # docstring: "a rail of thirty rows shares one clock read".
+            now = datetime.now(timezone.utc)
+            self.sessions = [
+                ChatSessionSummary(
+                    session_id=row.session_id,
+                    title=row.title,
+                    activity_info=format_activity(row.updated_at, now),
+                )
+                for row in rows
+            ]
 
     @rx.event
     def logout(self):
@@ -142,6 +194,9 @@ class ChatState(rx.State):
                 )
                 self.input_text = ""
                 model = self.selected_model
+                # Read through the lock into a local, like `model` above: a
+                # background task has no exclusive access outside the block.
+                session_id = self.active_session_id
                 device = None
                 try:
                     if (
@@ -153,6 +208,32 @@ class ChatState(rx.State):
                 except Exception:
                     device = None
 
+            # Lazily, and only on the first send of a chat: PRD-008 Section 4,
+            # "a session row is written on the first send, never on page load
+            # -- an opened-and-abandoned tab leaves nothing behind." Inside the
+            # try/finally opened above, so the new failure mode cannot leave
+            # `pending` stuck (PRD-004 Risk 3), and after the user's bubble is
+            # on screen, so a slow create never hides what they typed.
+            if not session_id:
+                try:
+                    session_id = await asyncio.to_thread(
+                        chat_sessions.create, identity, text, derive_title
+                    )
+                except ChatSessionError as exc:
+                    # A broken rail does not block the composer: the turn is
+                    # sent unattached rather than refused.
+                    session_id = None
+                    async with self:
+                        self.sessions_error = str(exc)
+                else:
+                    # None when history is off -- a value to proceed with, not a
+                    # failure, which is how this class stays free of any branch
+                    # on CHAT_HISTORY_ENABLED.
+                    if session_id:
+                        async with self:
+                            self.active_session_id = session_id
+                            self.sessions_error = ""
+
             try:
                 result = await asyncio.to_thread(
                     run_query,
@@ -162,6 +243,15 @@ class ChatState(rx.State):
                     model=model,
                     openrouter_api_key=None,
                     call_openrouter=call_openrouter,
+                    # `or None` is defensive, not currently reachable: the
+                    # branch above always replaces an empty active_session_id
+                    # with either a real id or None. It is kept because
+                    # active_session_id is a str var whose unset value is ""
+                    # while log_query takes Optional[str], so any future edit
+                    # that lets "" through here would silently write an
+                    # empty-string conversation id onto audit rows instead of
+                    # NULL -- a value that reads as a session but joins to none.
+                    session_id=session_id or None,
                 )
             except OpenRouterError as exc:
                 async with self:

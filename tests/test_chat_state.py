@@ -1,5 +1,7 @@
+import ast
 import asyncio
 import os
+import pathlib
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
@@ -10,11 +12,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db.database import (
+    count_chat_sessions,
+    create_chat_session,
     deactivate_user,
     get_audit_log,
     get_connection,
     insert_audit_log,
     insert_user,
+    list_chat_sessions,
+    touch_chat_session,
 )
 from app.db.models import AuditLog, User
 from app.main import app
@@ -24,6 +30,9 @@ from app.models.schemas import (
     QueryBlockedSuspiciousResponse,
     QuerySuccessResponse,
 )
+from app.config import settings
+from app.services import chat_sessions
+from app.services.chat_sessions import ChatSessionError
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError, hash_prompt
 from app.services.identity import Identity, hash_token
@@ -34,7 +43,8 @@ from app.services.query_pipeline import run_query
 import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
 from chat_ui.chat_ui.copy import LOGIN_INVALID_TOKEN_ERROR, LOGIN_TOKEN_REQUIRED_ERROR
-from chat_ui.chat_ui.models import ChatMessage
+from chat_ui.chat_ui.formatting import derive_title
+from chat_ui.chat_ui.models import ChatMessage, ChatSessionSummary
 
 client = TestClient(app)
 
@@ -249,7 +259,7 @@ async def test_chat_state_send_forbidden_response_renders_its_own_bubble_not_inj
     """AC5: a QueryBlockedForbiddenResponse must hit its own isinstance branch,
     not fall through to the injection bubble the old catch-all `else` used."""
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         return QueryBlockedForbiddenResponse(
             reason="Model not permitted for this role",
             required_permission="query:model:gpt-4",
@@ -274,7 +284,7 @@ async def test_chat_state_send_reresolves_role_on_every_call(temp_db, monkeypatc
     send()."""
     recorded_roles = []
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         recorded_roles.append(identity.role)
         return QuerySuccessResponse(response="ok", audit_id=1, model_used=model, tokens_used=1)
 
@@ -388,7 +398,7 @@ async def test_chat_state_send_passes_resolved_identity_and_prompt_to_run_query(
 ):
     recorded = {}
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         recorded["identity"] = identity
         recorded["prompt"] = prompt
         return QuerySuccessResponse(
@@ -532,11 +542,20 @@ async def test_chat_state_pending_resets_on_all_outcomes(temp_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_state_concurrent_send_guard(temp_db, monkeypatch):
     called_count = 0
-    async def _slow_to_thread(*args, **kwargs):
+    async def _slow_to_thread(fn, *args, **kwargs):
+        # _do_send offloads two different callables now: the lazy session
+        # create and the pipeline call. Count only the pipeline, so
+        # `called_count` keeps meaning "run_query ran once" rather than
+        # "something was offloaded once", and hand each caller the return
+        # type it actually expects.
         nonlocal called_count
-        called_count += 1
         await asyncio.sleep(0.05)
-        return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
+        if fn is chat_state_mod.run_query:
+            called_count += 1
+            return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
+        return await asyncio.get_running_loop().run_in_executor(
+            None, lambda: fn(*args, **kwargs)
+        )
 
     monkeypatch.setattr(chat_state_mod.asyncio, "to_thread", _slow_to_thread)
 
@@ -568,54 +587,59 @@ def test_chat_state_empty_and_reset_user_id():
     assert state.token_input == ""
 
 
-def test_chat_state_login_empty_token_shows_error():
+@pytest.mark.asyncio
+async def test_chat_state_login_empty_token_shows_error():
     state = ChatState(_reflex_internal_init=True)
     state.token_input = "   "
-    state.login()
+    await state.login()
     assert state.user_id == ""
     assert state.login_error == LOGIN_TOKEN_REQUIRED_ERROR
 
     state.token_input = ""
-    state.login()
+    await state.login()
     assert state.user_id == ""
     assert state.login_error == LOGIN_TOKEN_REQUIRED_ERROR
 
 
-def test_chat_state_login_invalid_token_shows_error_and_stays_locked(temp_db):
+@pytest.mark.asyncio
+async def test_chat_state_login_invalid_token_shows_error_and_stays_locked(temp_db):
     state = ChatState(_reflex_internal_init=True)
     state.token_input = "not-a-real-token"
-    state.login()
+    await state.login()
     assert state.user_id == ""
     assert state.login_error == LOGIN_INVALID_TOKEN_ERROR
 
 
-def test_chat_state_login_deactivated_token_rejected(temp_db):
+@pytest.mark.asyncio
+async def test_chat_state_login_deactivated_token_rejected(temp_db):
     deactivate_user(_AUTH_USER_ID)
     state = ChatState(_reflex_internal_init=True)
     state.token_input = _AUTH_TOKEN
-    state.login()
+    await state.login()
     assert state.user_id == ""
     assert state.login_error == LOGIN_INVALID_TOKEN_ERROR
 
 
-def test_chat_state_login_valid_token_sets_user_id_and_clears_error(temp_db):
+@pytest.mark.asyncio
+async def test_chat_state_login_valid_token_sets_user_id_and_clears_error(temp_db):
     state = ChatState(_reflex_internal_init=True)
     state.token_input = "   "
-    state.login()
+    await state.login()
     assert state.login_error == LOGIN_TOKEN_REQUIRED_ERROR
 
     state.token_input = _AUTH_TOKEN
-    state.login()
+    await state.login()
     assert state.user_id == _AUTH_USER_ID
     assert state.login_error == ""
     assert state.token_input == ""
     assert state._token == _AUTH_TOKEN
 
 
-def test_chat_state_logout_clears_session_and_credential(temp_db):
+@pytest.mark.asyncio
+async def test_chat_state_logout_clears_session_and_credential(temp_db):
     state = ChatState(_reflex_internal_init=True)
     state.token_input = _AUTH_TOKEN
-    state.login()
+    await state.login()
     assert state.user_id == _AUTH_USER_ID
 
     state.logout()
@@ -651,7 +675,7 @@ def test_chat_state_model_selection():
 async def test_chat_state_send_passes_selected_model(temp_db, monkeypatch):
     captured_model = []
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         captured_model.append(model)
         return QuerySuccessResponse(
             response="ok",
@@ -674,7 +698,7 @@ async def test_chat_state_send_passes_selected_model(temp_db, monkeypatch):
 async def test_chat_state_send_populates_device_from_router_headers(temp_db, monkeypatch):
     captured_device = []
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         captured_device.append(device)
         return QuerySuccessResponse(
             response="ok",
@@ -701,7 +725,7 @@ async def test_chat_state_send_populates_device_from_router_headers(temp_db, mon
 async def test_chat_state_send_device_fallback_when_headers_missing(temp_db, monkeypatch):
     captured_device = []
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         captured_device.append(device)
         return QuerySuccessResponse(
             response="ok",
@@ -872,3 +896,331 @@ async def test_query_submit_denial_decision_parity_across_ingresses_with_documen
     # this request before run_query() ever runs, so no second audit row is
     # written -- the count stays at 1, not 2.
     assert _count_audit_rows() == 1
+
+
+# ---------------------------------------------------------------------------
+# Session list and lazy creation (STORY-013)
+# ---------------------------------------------------------------------------
+
+
+def _session_rows(user_id: str = _AUTH_USER_ID):
+    """The user's session rows, read straight from the store.
+
+    Deliberately not through app/services/chat_sessions.py: AC 3 says "when the
+    database is inspected", and asserting the service's own emptiness against
+    the service would be asserting it against itself. The AST guard in
+    tests/test_chat_sessions.py scans app/ and chat_ui/, not tests/.
+    """
+    return list_chat_sessions(user_id, limit=100)
+
+
+def _backdate_session(session_id: str, hours_ago: float) -> None:
+    """Move a session's updated_at into the past, so rail ordering is a fact
+    rather than a tie-break."""
+    stamp = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ?",
+            (stamp, session_id),
+        )
+
+
+def _capturing_run_query(result=None, captured=None):
+    """A run_query stand-in that records the session_id it was handed."""
+    if result is None:
+        result = QuerySuccessResponse(
+            response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+        )
+
+    def _fake(identity, prompt, device, model, openrouter_api_key,
+              call_openrouter, session_id=None):
+        if captured is not None:
+            captured["session_id"] = session_id
+            captured["called"] = captured.get("called", 0) + 1
+        return result
+
+    return _fake
+
+
+def test_chat_state_declares_the_three_session_vars():
+    """AC 1. Asserted against __annotations__ rather than an instance, the way
+    test_chat_state_holds_no_token_or_role_var pins the absence of a role var:
+    the declaration is the thing the story is about."""
+    annotations = ChatState.__annotations__
+    assert annotations["sessions"] == list[ChatSessionSummary]
+    assert annotations["active_session_id"] is str
+    assert annotations["sessions_error"] is str
+
+    state = ChatState(_reflex_internal_init=True)
+    assert state.sessions == []
+    assert state.active_session_id == ""
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_login_loads_the_session_list_into_state(temp_db):
+    """AC 2. Two owned sessions come back newest-activity-first, each carrying
+    a title and a recomputed relative activity time."""
+    older = create_chat_session(_AUTH_USER_ID, "Older chat")
+    newer = create_chat_session(_AUTH_USER_ID, "Newer chat")
+    # Backdate the first row rather than touching the second. Both are created
+    # inside the same second, and `updated_at` is a TEXT timestamp: relying on
+    # a touch to separate them would be relying on a tie that PRD-006 Section
+    # 13 already records as breaking arbitrarily.
+    _backdate_session(older, hours_ago=3)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.sessions_error == ""
+    assert [s.session_id for s in state.sessions] == [newer, older]
+    assert [s.title for s in state.sessions] == ["Newer chat", "Older chat"]
+    # Recomputed on load, never stored: a persisted "2m ago" is wrong the
+    # moment it is read back (PRD Section 6).
+    assert all(s.activity_info for s in state.sessions)
+
+
+@pytest.mark.asyncio
+async def test_login_offloads_the_session_read_to_a_thread(temp_db, monkeypatch):
+    """AC 2's second half: the read is offloaded via asyncio.to_thread, not run
+    on the event loop. Pins the function actually handed to it, so replacing the
+    offload with a direct call fails here."""
+    create_chat_session(_AUTH_USER_ID, "A chat")
+    offloaded = []
+    real_to_thread = chat_state_mod.asyncio.to_thread
+
+    async def _recording_to_thread(fn, *args, **kwargs):
+        offloaded.append(fn)
+        return await real_to_thread(fn, *args, **kwargs)
+
+    monkeypatch.setattr(chat_state_mod.asyncio, "to_thread", _recording_to_thread)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert chat_sessions.list_for in offloaded
+    assert len(state.sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_idle_mount_creates_no_session_row(temp_db):
+    """AC 3, the PRD's headline behavioural claim: "a session row is written on
+    the first send, never on page load -- an opened-and-abandoned tab leaves
+    nothing behind." Sign in, send nothing, inspect the database."""
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.user_id == _AUTH_USER_ID
+    assert count_chat_sessions(_AUTH_USER_ID) == 0
+    assert state.active_session_id == ""
+    assert state.sessions == []
+
+
+@pytest.mark.asyncio
+async def test_first_send_creates_exactly_one_session_titled_from_the_prompt(
+    temp_db, monkeypatch
+):
+    """AC 4. One session, titled by formatting.derive_title through the
+    service's injected-callable seam, and active_session_id names its row."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "summarise the Q3 vendor spend")
+
+    rows = _session_rows()
+    assert len(rows) == 1
+    assert rows[0].title == derive_title("summarise the Q3 vendor spend")
+    assert state.active_session_id == rows[0].session_id
+
+
+@pytest.mark.asyncio
+async def test_active_session_id_is_set_before_run_query_is_called(
+    temp_db, monkeypatch
+):
+    """AC 4's ordering half, and the only assertion that distinguishes a create
+    placed before the pipeline call from one placed after it: both leave the
+    same row behind, but only the former puts the id on the audit row."""
+    captured = {}
+    monkeypatch.setattr(
+        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
+    )
+
+    state = _make_state()
+    await _send(state, "first prompt")
+
+    rows = _session_rows()
+    assert len(rows) == 1
+    assert captured["session_id"] == rows[0].session_id
+    assert captured["session_id"] == state.active_session_id
+
+
+@pytest.mark.asyncio
+async def test_second_send_reuses_the_session_and_creates_no_second_row(
+    temp_db, monkeypatch
+):
+    """AC 5. Lazy means once per chat, not once per send."""
+    captured = {}
+    monkeypatch.setattr(
+        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
+    )
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    first_id = state.active_session_id
+
+    await _send(state, "second prompt")
+
+    assert count_chat_sessions(_AUTH_USER_ID) == 1
+    assert state.active_session_id == first_id
+    assert captured["session_id"] == first_id
+    assert captured["called"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "result",
+    [
+        QuerySuccessResponse(
+            response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+        ),
+        QueryBlockedDuplicateResponse(
+            reason="Duplicate", first_query_at="2026-09-04T10:00:00Z"
+        ),
+        QueryBlockedSuspiciousResponse(reason="Suspicious", pattern="ignore previous"),
+        QueryBlockedForbiddenResponse(
+            reason="Forbidden", required_permission=PERMISSION_QUERY_SUBMIT
+        ),
+    ],
+    ids=["success", "duplicate", "injection", "forbidden"],
+)
+async def test_run_query_receives_the_active_session_id_on_every_outcome(
+    temp_db, monkeypatch, result
+):
+    """AC 6: "so the audit row carries it on every outcome, including the
+    blocked and failed ones from STORY-009." The session is claimed before the
+    pipeline runs, so which verdict comes back cannot change whether the record
+    names the conversation."""
+    captured = {}
+    monkeypatch.setattr(
+        chat_state_mod, "run_query", _capturing_run_query(result, captured)
+    )
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    assert state.active_session_id != ""
+    assert captured["session_id"] == state.active_session_id
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_history_off_creates_no_session_and_passes_none_to_run_query(
+    temp_db, monkeypatch
+):
+    """AC 7. The flag-off path is reached without this class branching on the
+    flag: the service returns None, which is a value to proceed with. Note the
+    `is None` -- an empty string would be falsy but would still write "" onto
+    every audit row instead of NULL."""
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
+    captured = {}
+    monkeypatch.setattr(
+        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
+    )
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    assert count_chat_sessions(_AUTH_USER_ID) == 0
+    assert state.active_session_id == ""
+    assert captured["session_id"] is None
+    # "the send otherwise behaves exactly as it does today"
+    assert [m.kind for m in state.messages] == ["user", "assistant"]
+    assert state.pending is False
+
+
+def test_chat_state_never_names_the_history_flag():
+    """AC 7's structural half. PRD Section 6, verbatim: "No caller branches on
+    the flag." tests/test_chat_sessions.py asserts this across every module
+    under app/ and chat_ui/; this pins it for the one module this story edits,
+    where the temptation is highest."""
+    tree = ast.parse(
+        pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8")
+    )
+    named = [
+        node
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Attribute) and node.attr == "CHAT_HISTORY_ENABLED")
+        or (isinstance(node, ast.Name) and node.id == "CHAT_HISTORY_ENABLED")
+    ]
+    assert named == [], "ChatState branches on the flag"
+
+
+@pytest.mark.asyncio
+async def test_a_session_error_while_creating_sets_the_error_and_still_sends(
+    temp_db, monkeypatch
+):
+    """AC 8: "a broken rail does not block the composer". The turn is sent
+    unattached rather than refused, and the answer still reaches the screen."""
+    def _raise(*args, **kwargs):
+        raise ChatSessionError("create failed: store is down")
+
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "create", _raise)
+    captured = {}
+    monkeypatch.setattr(
+        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
+    )
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    assert "store is down" in state.sessions_error
+    assert state.active_session_id == ""
+    assert captured["session_id"] is None
+    assert [m.kind for m in state.messages] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_a_session_error_while_loading_sets_the_error_and_still_signs_in(
+    temp_db, monkeypatch
+):
+    """AC 8's load half. A rail that will not load is not a failed sign-in:
+    the credential is good and the composer works without a session list."""
+    def _raise(*args, **kwargs):
+        raise ChatSessionError("list_for failed: store is down")
+
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "list_for", _raise)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.user_id == _AUTH_USER_ID
+    assert state.login_error == ""
+    assert state.sessions == []
+    assert "store is down" in state.sessions_error
+
+
+@pytest.mark.asyncio
+async def test_pending_clears_when_session_creation_raises(temp_db, monkeypatch):
+    """AC 9. PRD-004 Risk 3 -- "a stuck flag locks the composer permanently".
+    The lazy create is a new way for the send path to fail, and it sits inside
+    the existing try/finally rather than beside it, so the guard still holds."""
+    def _raise(*args, **kwargs):
+        raise ChatSessionError("create failed: store is down")
+
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "create", _raise)
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "a prompt")
+
+    assert state.pending is False
+
+    # And the composer is genuinely usable again, not merely flagged so.
+    await _send(state, "another prompt")
+    assert len([m for m in state.messages if m.kind == "user"]) == 2
