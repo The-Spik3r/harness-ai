@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-014-transcript-persistence-write.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 36da168
 status: COMPLETE
 completed: 2026-09-05
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-05
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-014-transcript-persistence-write.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `36da168`
 
 ## Summary
 

@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - State and restore"
-status: todo
+status: done
 labels: [ui, reflex, state, reliability]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-014-transcript-persistence-write.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-014-transcript-persistence-write.report.md
+commit: 36da168
 depends_on: [STORY-013]
 blocks: [STORY-015]
 skills: [reflex-docs]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-05
 ---
 
 # STORY-014: Persist each bubble after it is appended, touch the session, and degrade without losing the turn

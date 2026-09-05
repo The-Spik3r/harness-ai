@@ -6,7 +6,7 @@
 
 ## Progress
 
-14/23 stories done — 61%
+15/23 stories done — 65%
 
 ## Stories
 
@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-011 | AuditQueryEntry.session_id so GET /audit reports the conversation | feature | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-011-audit-entry-session-id.plan.md) | `c69055e` |
 | STORY-012 | ChatSessionSummary plus auto-title derivation and relative activity time in formatting.py | feature | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-012-session-summary-and-formatting.plan.md) | `543922c` |
 | STORY-013 | ChatState holds the session list, creates lazily on first send, and passes session_id to run_query | feature | ✅ done | large | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-013-chat-state-session-list-and-lazy-create.plan.md) | `ba43c5c` |
-| STORY-014 | Persist each bubble after it is appended, touch the session, and degrade without losing the turn | feature | ⬜ todo | medium | — | — |
+| STORY-014 | Persist each bubble after it is appended, touch the session, and degrade without losing the turn | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-014-transcript-persistence-write.plan.md) | `36da168` |
 | STORY-015 | Restore a transcript on sign-in and on switch, rehydrating all seven bubble kinds | feature | ⬜ todo | large | — | — |
 | STORY-016 | New chat, rename, delete, and a logout that clears state without deleting rows | feature | ⬜ todo | medium | — | — |
 | STORY-017 | Rail tokens in theme.py and every rail string in copy.py, adding no new ink | technical | ⬜ todo | small | — | — |
