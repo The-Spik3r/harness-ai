@@ -12,7 +12,7 @@ labels: [ui, reflex, models, formatting]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-012-session-summary-and-formatting.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-012-session-summary-and-formatting.report.md
-commit: pending
+commit: 543922c
 depends_on: []
 blocks: [STORY-013, STORY-018]
 skills: [reflex-docs]
