@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "4 - Surface and hardening"
-status: todo
+status: done
 labels: [ui, design, theme, copy]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-017-rail-tokens-and-copy.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-017-rail-tokens-and-copy.report.md
+commit: 9df2a39
 depends_on: []
 blocks: [STORY-018]
 skills: [frontend-design]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-06
 ---
 
 # STORY-017: Rail tokens in theme.py and every rail string in copy.py, adding no new ink

@@ -6,7 +6,7 @@
 
 ## Progress
 
-18/24 stories done — 75%
+19/24 stories done — 79%
 
 ## Stories
 
@@ -30,7 +30,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-014 | Persist each bubble after it is appended, touch the session, and degrade without losing the turn | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-014-transcript-persistence-write.plan.md) | `36da168` |
 | STORY-015 | Restore a transcript on sign-in and on switch, rehydrating all seven bubble kinds | feature | ✅ done | large | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-015-transcript-restore.plan.md) | `f096f2f` |
 | STORY-016 | New chat, rename, delete, and a logout that clears state without deleting rows | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-016-session-rename-delete-logout.plan.md) | `310ac02` |
-| STORY-017 | Rail tokens in theme.py and every rail string in copy.py, adding no new ink | technical | ⬜ todo | small | — | — |
+| STORY-017 | Rail tokens in theme.py and every rail string in copy.py, adding no new ink | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-017-rail-tokens-and-copy.plan.md) | `9df2a39` |
 | STORY-018 | session_rail.py: the spine as the active mark, three states, no fill and no pill | feature | ⬜ todo | large | — | — |
 | STORY-019 | The rail in the shell: full-width masthead kept, collapse at a narrow viewport, one transition | feature | ⬜ todo | medium | — | — |
 | STORY-020 | Palette-drift and contrast assertions so the sidebar default fails a test, not a review | technical | ⬜ todo | small | — | — |
