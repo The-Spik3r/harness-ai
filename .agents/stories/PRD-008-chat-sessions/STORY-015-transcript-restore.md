@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - State and restore"
-status: todo
+status: done
 labels: [ui, reflex, state]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-015-transcript-restore.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-015-transcript-restore.report.md
+commit: f096f2f
 depends_on: [STORY-014]
 blocks: [STORY-016, STORY-021]
 skills: [reflex-docs]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-06
 ---
 
 # STORY-015: Restore a transcript on sign-in and on switch, rehydrating all seven bubble kinds
