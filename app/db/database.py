@@ -1,6 +1,7 @@
 import json
 import re
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -39,6 +40,34 @@ _client_lock = threading.Lock()
 _client_key: Optional[tuple[str, str]] = None
 _client: Optional[Any] = None
 
+#: `time.monotonic()` when the client was last handed out, for the idle gate
+#: below. Stamped at acquire rather than when the last statement finished, so a
+#: long transaction makes the next call look idler than it really was -- that
+#: over-probes slightly and can never under-probe. `monotonic()` and not
+#: `time.time()`, so a clock adjustment cannot suppress the probe indefinitely.
+_client_used_at: float = 0.0
+
+# PRD-008 STORY-024. How long the client may go without being handed out before
+# it is proved rather than trusted. A **floor on how often we check**, not a
+# model of the server's timeout, which libSQL publishes no constant for and
+# which this repo cannot measure against a hosted endpoint.
+#
+# Against the local dev server the window was measured rather than guessed: a
+# raw client survives a 10 s pause and is dead at 12 s. Five seconds is half of
+# that, which is the property worth having -- any pause long enough to kill the
+# stream is necessarily long enough to have opened the gate, so an expired
+# stream is caught by the probe and never by the caller's statement. A hosted
+# endpoint whose window is shorter would not break this: the `_translated()`
+# arm still drops the dead client, and the call after it recovers.
+#
+# The cost is bounded: one extra `SELECT 1` -- ~1-4 ms against the local
+# endpoint -- on a call that follows a pause, and nothing at all on a busy path,
+# where the gate never opens.
+#
+# A module constant rather than a setting on purpose: a deployment knob whose
+# wrong value silently restores the defect is not a knob worth having.
+_IDLE_PROBE_AFTER_SECONDS = 5.0
+
 
 def _shared_client() -> Any:
     """The process-wide libSQL client, constructed once and reused.
@@ -59,8 +88,26 @@ def _shared_client() -> Any:
     Keyed by URL and token: every test repoints `settings.DATABASE_URL` on the
     constructed `Settings` instance, and a client cached without regard to it
     would serve one test's reads from another test's endpoint.
+
+    **Cached forever is not the same as usable forever (STORY-024).** The stream
+    behind this client is server-side state the server expires when it goes
+    quiet, and before this story nothing ever set `_client = None` -- so the
+    first request after an idle period failed, and so did every request after
+    it, until the process was restarted. An idle process was a dead one.
+
+    So a client that has not been handed out for `_IDLE_PROBE_AFTER_SECONDS` is
+    **proved before it is lent**, and a dead one is replaced once (`_proved()`).
+    Validating here rather than around the caller's statement is what makes the
+    recovery safe: it happens before `_session()` opens its transaction, so
+    there is no partial work any of this could replay (AC 6). A statement that
+    dies mid-transaction is handled the other way, by `_translated()`, which
+    invalidates the cache and re-raises without retrying anything.
+
+    A newly built client is not probed -- it has just opened its stream, and
+    probing it would put a second statement on the boot path `init_db()`'s guard
+    deliberately keeps at one.
     """
-    global _client_key, _client
+    global _client_key, _client, _client_used_at
     key = (settings.DATABASE_URL, settings.TURSO_AUTH_TOKEN)
     with _client_lock:
         if _client is None or _client_key != key:
@@ -68,7 +115,77 @@ def _shared_client() -> Any:
             # (STORY-001 §2.2) and the key only changes under test.
             _client = libsql.connect(key[0], auth_token=key[1])
             _client_key = key
+        elif time.monotonic() - _client_used_at >= _IDLE_PROBE_AFTER_SECONDS:
+            _client = _proved(_client, key)
+        _client_used_at = time.monotonic()
         return _client
+
+
+def _proved(client: Any, key: tuple[str, str]) -> Any:
+    """`client` if its stream still answers, otherwise one replacement.
+
+    **Called with `_client_lock` already held, and it must stay that way.** Two
+    threads that discovered a dead client together and rebuilt independently
+    would produce the client-per-thread configuration STORY-006 measured losing
+    169 of 200 writes to `TRANSACTION_TIMEOUT`. The cost is that the lock is held
+    across one round trip on the idle path; those callers would serialize on the
+    single client regardless.
+
+    **The statement, not the function.** It issues `SELECT 1` on the raw client
+    it was handed -- never through `get_connection()`, which re-enters
+    `_shared_client()` and would deadlock on the non-reentrant `_client_lock`,
+    and never through `check_database_reachable()`, which is a *boot-time*
+    classifier that must keep failing loudly and which
+    `tests/test_db.py::test_guard_does_not_run_outside_init_db` pins out of the
+    operational path.
+
+    **Any driver failure condemns the client here, which is broader than
+    `_is_dead_stream()` on purpose.** A `SELECT 1` cannot fail for a statement
+    reason: there is no table to be missing and no constraint to violate. So
+    whatever the driver is complaining about, this client is not usable -- and
+    a third way of saying "the stream is gone" would still be caught. A
+    `ValueError` without the driver's prefix is our own code's and is re-raised
+    untouched, exactly as `_translated()` treats one.
+
+    **One replacement, never a loop.** The new client is not probed in turn, so
+    an endpoint that is genuinely down surfaces through the caller's own
+    statement as a `StorageError` (AC 2) instead of becoming a retry loop
+    against a database nobody has fixed yet.
+    """
+    try:
+        client.execute("SELECT 1").fetchone()
+    except ValueError as exc:
+        if _DRIVER_ERROR not in str(exc):
+            raise
+        # Dropped, not closed: close() discards uncommitted work rather than
+        # flushing it (STORY-001 §2.2), and a dead stream has none to flush.
+        return libsql.connect(key[0], auth_token=key[1])
+    return client
+
+
+def _invalidate_client(stale: Optional[Any] = None) -> None:
+    """Drops the cached client so the next `_shared_client()` builds a fresh one.
+
+    The recovery half that cannot live in `_shared_client()`: a stream can die
+    between the probe and the statement, or during a long transaction, and
+    without this the dead client stays cached and the *next* caller fails too.
+
+    Takes `_client_lock` itself, because every mutation of `_client` happens
+    under it. `stale` is an identity guard for callers that hold the client they
+    found dead -- if another thread has already replaced it, this must not throw
+    the good one away. `_translated()` has no client reference to pass (it is
+    used standalone in `_add_missing_columns()` and `find_user_by_token_hash()`),
+    so it drops whatever is cached; the cost of that rare over-drop is one extra
+    construction on the next call, and construction stays serialized under the
+    lock, so it is not the client-per-thread configuration either.
+
+    It does not close what it drops, for the reason `_shared_client()` gives.
+    """
+    global _client_key, _client
+    with _client_lock:
+        if stale is None or _client is stale:
+            _client = None
+            _client_key = None
 
 
 class _Row:
@@ -264,6 +381,46 @@ _DUPLICATE_COLUMN = re.compile(r"duplicate column name: (\w+)")
 # genuine ValueError raised by our own code, which must not be swallowed.
 _DRIVER_ERROR = "Hrana:"
 
+# PRD-008 STORY-024. The stream is **server-side** state: HRANA_3_SPEC states
+# that HTTP is stateless, so a stream lives on the server and is addressed by a
+# baton the client presents on every request. `libsql-server`'s
+# `hrana/http/stream.rs` returns `StreamExpired` for a handle it has expired and
+# `BatonInvalid` for one it no longer has at all -- which is the same server code
+# a hosted Turso endpoint runs, so this is Hrana's behaviour and not the local
+# container's. Both mean the same thing operationally: no client holding that
+# baton can be talked back into a working stream, and only a new client, which
+# opens one with `baton: null`, recovers.
+#
+#   idle expiry, captured live (PRD-007 STORY-009 report, PRD-008 STORY-014):
+#     Hrana: `api error: `status=400 Bad Request,
+#       body={"message":"The stream has expired due to inactivity","code":"STREAM_EXPIRED"}``
+#   after the server restarts, captured by restarting libSQL under a live
+#   process (STORY-024) -- note the plain-text body, with no JSON and no `code`
+#   field, which is a second reason the classifier reads message text:
+#     Hrana: `api error: `status=400 Bad Request, body=Received an invalid baton``
+#
+# Pinned as literals for the same reason `_MISSING_RELATION` and `_CONSTRAINT`
+# are: libSQL raises a bare `ValueError` and there is no type and no code to
+# branch on (STORY-001 §3.5). Both spellings of the expiry are listed because
+# the message carries the prose and the JSON body carries the code, and a driver
+# that stopped quoting one would still quote the other.
+_DEAD_STREAM = ("stream has expired", "stream_expired", "invalid baton")
+
+
+def _is_dead_stream(message: str) -> bool:
+    """True when the driver is reporting that the server no longer has the stream.
+
+    Deliberately **narrow**, and narrower than the rule the probe in
+    `_shared_client()` applies. This predicate decides whether a *statement*
+    failure should discard the process-wide client, and a statement fails for
+    statement reasons far more often than for connection ones: a
+    `UNIQUE constraint failed` or a `no such table` must leave the client exactly
+    where it is (STORY-024 AC 3), because throwing away a working client on a
+    constraint violation would turn a correctly refused write into a reconnect.
+    """
+    haystack = message.lower()
+    return any(marker in haystack for marker in _DEAD_STREAM)
+
 
 def _constraint_of(exc: ValueError) -> Optional[str]:
     match = _CONSTRAINT.search(str(exc))
@@ -428,6 +585,20 @@ def _translated() -> Iterator[None]:
     The single seam in the codebase where the driver's failure shape is known.
     STORY-004 wrote this to be rewritten here, and `app/db/errors.py` did not
     have to change.
+
+    **It invalidates a dead stream, and it does not retry one (STORY-024).** By
+    the time a statement fails, this generator has already yielded: the caller's
+    body has run, possibly inside `_session()`'s open transaction, and a retry
+    from here could replay half of it. A partial transaction replayed is a worse
+    defect than the one STORY-024 fixes, so the recovery is split -- the *retry*
+    lives in `_shared_client()`, before any transaction opens, and what happens
+    here is only that the dead client is dropped so the next call rebuilds. This
+    call still raises `StorageError`, exactly as it did before.
+
+    **The order of the branches is load-bearing.** Constraint and missing-relation
+    are classified first, so a statement-level failure can never reach the
+    dead-stream arm and be reclassified: a `UNIQUE constraint failed` is still an
+    `IntegrityError` and still leaves the client cached (AC 3).
     """
     try:
         yield
@@ -441,6 +612,8 @@ def _translated() -> Iterator[None]:
         relation = _MISSING_RELATION.search(message)
         if relation is not None:
             raise MissingRelationError(relation.group(1), message) from exc
+        if _is_dead_stream(message):
+            _invalidate_client()
         raise StorageError(message) from exc
 
 

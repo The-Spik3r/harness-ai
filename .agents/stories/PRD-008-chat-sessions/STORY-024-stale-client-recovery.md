@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Surface and hardening"
-status: todo
+status: done
 labels: [database, reliability, tech-debt, deployment]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-024-stale-client-recovery.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-024-stale-client-recovery.report.md
 commit: null
 depends_on: []
 blocks: []

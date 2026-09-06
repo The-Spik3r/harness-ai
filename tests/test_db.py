@@ -8,6 +8,7 @@ import inspect
 import re
 import sqlite3
 import threading
+import time
 from datetime import datetime
 
 import pytest
@@ -2203,6 +2204,304 @@ def test_the_shared_client_is_rebuilt_when_the_database_url_changes(
     monkeypatch.setattr(settings, "DATABASE_URL", "http://127.0.0.1:59999")
 
     assert database._shared_client() is not first
+
+
+# PRD-008 STORY-024: recovering a dead stream
+# ---------------------------------------------------------------------------
+#
+# The client above is cached for the life of the process, and the stream behind
+# it is server-side state the server expires when it goes quiet. Before this
+# story nothing ever set `_client = None`, so an idle process was a dead one:
+# the first request after the pause failed and so did every one after it.
+#
+# **None of this can be reached by waiting.** Every pytest run is a fresh
+# process that queries continuously, so the stream is never idle long enough to
+# expire -- which is exactly why the defect survived 1472 passing tests. The
+# dead stream is therefore simulated, and the one assertion that needs a wall
+# clock is the manual boot in the story's AC 9.
+
+#: The idle-expiry message, captured verbatim from the live driver twice: the
+#: PRD-007 STORY-009 report and the PRD-008 STORY-014 report record the same
+#: text. Pinned as a literal for the reason `_MISSING_RELATION` is -- libSQL
+#: raises a bare ValueError, so message text is the only thing to branch on.
+_STREAM_EXPIRED_TEXT = (
+    "Hrana: `api error: `status=400 Bad Request, "
+    'body={"message":"The stream has expired due to inactivity",'
+    '"code":"STREAM_EXPIRED"}``'
+)
+
+#: The post-restart message, captured verbatim during STORY-024 by restarting
+#: the libSQL server under a live process. Worth noting that it is **not** shaped
+#: like the one above: the body is plain text, with no JSON and no `code` field
+#: to branch on even if this module wanted to -- which is the second reason the
+#: classifier reads message text. `libsql-server` raises it from
+#: `ProtocolError::BatonInvalid`, for a stream handle the server no longer has.
+_INVALID_BATON_TEXT = (
+    "Hrana: `api error: `status=400 Bad Request, "
+    "body=Received an invalid baton``"
+)
+
+
+@pytest.fixture
+def _restore_client_cache():
+    """Drops all three pieces of client cache state after the test.
+
+    Separate from `_restore_shared_client` below, which these tests could
+    otherwise have borrowed: the tests in this section stub `_client` outright
+    and force the idle gate open by rewinding `_client_used_at`, so a stale
+    timestamp left behind would make the *next* test probe, or decline to, for
+    reasons that have nothing to do with it.
+    """
+    yield
+    database._client = None
+    database._client_key = None
+    database._client_used_at = 0.0
+
+
+class _StandInClient:
+    """A client that fails its first `execute()` and delegates afterwards.
+
+    Everything but `execute` is delegated, so the object is a usable client for
+    `_Connection`'s `commit()` / `rollback()` as well -- the same
+    proxy-over-the-real-thing idiom as `_LockedConnection` and the recording
+    connections elsewhere in this file, one level lower down.
+    """
+
+    def __init__(self, real, message: str, failures: int = 1) -> None:
+        self._real = real
+        self._message = message
+        self._remaining = failures
+        self.statements: list = []
+
+    def execute(self, sql, *parameters):
+        self.statements.append(sql)
+        if self._remaining > 0:
+            self._remaining -= 1
+            raise ValueError(self._message)
+        return self._real.execute(sql, *parameters)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _counting_connect(monkeypatch, result) -> list:
+    """Points `libsql.connect` at `result` and records every construction.
+
+    Construction count is the assertion these tests turn on: "the dead client
+    was discarded and a new one was built" is a claim about `libsql.connect`
+    being called, and "the reconnect happens at most once" is a claim about how
+    many times.
+    """
+    built: list = []
+
+    def _connect(url, auth_token=None):
+        built.append(url)
+        return result
+
+    monkeypatch.setattr(database.libsql, "connect", _connect)
+    return built
+
+
+def test_a_dead_stream_is_discarded_and_the_call_is_served(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 1 and AC 4: the caller sees a result, not a StorageError.
+
+    The stand-in raises the captured expiry text on its first call and serves
+    the second, and `libsql.connect` hands the recovery that same object back --
+    so both of its arms are exercised by one call, and the construction counter
+    is what proves the dead client was actually discarded rather than retried
+    in place. Retrying in place cannot work: the baton the client holds is for a
+    stream the server has already dropped.
+    """
+    real = database._shared_client()
+    stand_in = _StandInClient(real, _STREAM_EXPIRED_TEXT)
+    database._client = stand_in
+    database._client_used_at = 0.0  # past the idle gate, so the probe fires
+    built = _counting_connect(monkeypatch, stand_in)
+
+    total = count_audit_logs()
+
+    assert total == 0
+    assert len(built) == 1
+    assert stand_in.statements[0] == "SELECT 1"
+    assert len(stand_in.statements) == 2
+
+
+def test_a_second_connection_failure_surfaces_rather_than_looping(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 2. A database that is genuinely down must stay visible.
+
+    The replacement client is dead too, and the failure it raises has to reach
+    the caller as a `StorageError`. Asserting the construction count is what
+    makes a retry loop fail this test rather than hang it -- a loop would build
+    a third client, and a fourth.
+    """
+    real = database._shared_client()
+    dead = _StandInClient(real, _STREAM_EXPIRED_TEXT, failures=99)
+    database._client = dead
+    database._client_used_at = 0.0
+    built = _counting_connect(monkeypatch, dead)
+
+    with pytest.raises(StorageError) as exc_info:
+        count_audit_logs()
+
+    assert not isinstance(exc_info.value, (IntegrityError, MissingRelationError))
+    assert len(built) == 1
+    assert database._client is None  # dropped, so the next call rebuilds
+
+
+@pytest.mark.parametrize(
+    "message, recognised",
+    [
+        (_STREAM_EXPIRED_TEXT, True),
+        (_INVALID_BATON_TEXT, True),
+        ("Received an invalid baton", True),
+        ('Hrana: `... "SQLite error: UNIQUE constraint failed: users.token_hash"', False),
+        ('Hrana: `... "SQLite error: no such table: users"', False),
+    ],
+)
+def test_the_captured_dead_stream_messages_are_told_from_statement_failures(
+    message, recognised
+):
+    """AC 5, and the negative half of AC 3.
+
+    The two messages this defect actually produces are recognised, and the two
+    the schema produces are not -- a classifier that could not tell them apart
+    would reconnect on a constraint violation, which is a write the database
+    correctly refused.
+    """
+    assert database._is_dead_stream(message) is recognised
+
+
+def test_a_constraint_violation_does_not_discard_the_client(
+    temp_db, _restore_client_cache
+):
+    """AC 3, against the real driver rather than a stand-in.
+
+    A duplicate `user_id` is the constraint this schema actually violates, so
+    the message is the driver's own and not a literal this file composed.
+    """
+    insert_user(User(user_id="ana", role="user", token_hash="h-ana"))
+    before = database._shared_client()
+
+    with pytest.raises(IntegrityError):
+        insert_user(User(user_id="ana", role="user", token_hash="h-otro"))
+
+    assert database._client is before
+
+
+def test_a_missing_table_does_not_discard_the_client(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 3's other half. `no such table` is a schema fault, not a dead stream."""
+    before = database._shared_client()
+
+    class _NoSuchTable:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, *args, **kwargs):
+            raise _driver_error("no such table: audit_logs")
+
+    _install(monkeypatch, _NoSuchTable)
+
+    with pytest.raises(MissingRelationError):
+        count_audit_logs()
+
+    assert database._client is before
+
+
+def test_a_dead_stream_mid_statement_invalidates_without_retrying(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 6, which is the constraint the whole design is shaped around.
+
+    A stream can die after the probe has passed -- inside the transaction
+    `_session()` has already opened. `_translated()` may therefore *invalidate*
+    but must never *retry*: the caller's body has run, and replaying half a
+    transaction is a worse defect than the one this story fixes. So the count of
+    executes must be exactly one, the caller must still see a `StorageError`,
+    and the recovery must be deferred to the next call, which finds no cached
+    client and builds one.
+    """
+    executes: list = []
+
+    class _DyingStream:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, sql, *parameters):
+            executes.append(sql)
+            raise ValueError(_STREAM_EXPIRED_TEXT)
+
+    _install(monkeypatch, _DyingStream)
+
+    with pytest.raises(StorageError):
+        count_audit_logs()
+
+    assert executes == ["SELECT COUNT(*) AS n FROM audit_logs"]
+    assert database._client is None
+
+
+def test_many_threads_finding_the_stream_dead_together_build_one_client(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """The recovery must not undo STORY-006's central measurement.
+
+    Eight threads writing through a client *per thread* lost 169 of 200 writes
+    to `TRANSACTION_TIMEOUT`; one shared client lost none. A recovery that let
+    every thread that discovered the dead stream build its own replacement would
+    reconstruct that configuration at exactly the worst moment -- the first
+    burst of traffic after a quiet period, which is when the whole rebuild
+    happens. So the probe and the rebuild both run under `_client_lock`, and the
+    proof is arithmetic: eight threads, **one** construction.
+    """
+    real = database._shared_client()
+    stand_in = _StandInClient(real, _STREAM_EXPIRED_TEXT)
+    database._client = stand_in
+    database._client_used_at = 0.0
+    built = _counting_connect(monkeypatch, stand_in)
+
+    failures = _run_concurrently(8, count_audit_logs)
+
+    assert failures == []
+    assert len(built) == 1
+
+
+def test_a_busy_client_is_not_probed(temp_db, _restore_client_cache):
+    """The cost bound, made falsifiable.
+
+    The probe is gated on idle time precisely so an active process never pays
+    for it. Two reads issued back to back must put two statements on the wire
+    and nothing else -- if the gate were ever removed, or the threshold set to
+    zero, this test is what fails.
+    """
+    real = database._shared_client()
+    recorder = _StandInClient(real, _STREAM_EXPIRED_TEXT, failures=0)
+    database._client = recorder
+    database._client_used_at = time.monotonic()
+
+    count_audit_logs()
+    count_audit_logs()
+
+    assert "SELECT 1" not in recorder.statements
+    assert len(recorder.statements) == 2
 
 
 # PRD-007 STORY-007: concurrent init_db()
