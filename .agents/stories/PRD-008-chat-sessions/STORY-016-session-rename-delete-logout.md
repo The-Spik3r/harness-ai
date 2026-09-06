@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - State and restore"
-status: todo
+status: done
 labels: [ui, reflex, state, security]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-016-session-rename-delete-logout.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-016-session-rename-delete-logout.report.md
+commit: 310ac02
 depends_on: [STORY-013, STORY-015]
 blocks: [STORY-018, STORY-021]
 skills: [reflex-docs]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-06
 ---
 
 # STORY-016: New chat, rename, delete, and a logout that clears state without deleting rows
