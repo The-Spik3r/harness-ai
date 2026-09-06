@@ -12,7 +12,7 @@ labels: [database, reliability, tech-debt, deployment]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-024-stale-client-recovery.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-024-stale-client-recovery.report.md
-commit: null
+commit: 9fa2e67
 depends_on: []
 blocks: []
 skills: []

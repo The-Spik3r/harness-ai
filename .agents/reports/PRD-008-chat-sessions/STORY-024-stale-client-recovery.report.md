@@ -3,7 +3,7 @@ story: STORY-024
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-024-stale-client-recovery.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 9fa2e67
 status: COMPLETE
 completed: 2026-09-06
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-06
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-024-stale-client-recovery.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `9fa2e67`
 
 ## Summary
 
