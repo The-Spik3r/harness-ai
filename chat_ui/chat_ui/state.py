@@ -24,6 +24,7 @@ from .copy import (
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
     SESSION_ORDER_STALE_NOTICE,
+    SESSION_RAIL_SCOPE_TEMPLATE,
     TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
 )
@@ -153,6 +154,31 @@ class ChatState(rx.State):
     sessions: list[ChatSessionSummary] = []
     active_session_id: str = ""
     sessions_error: str = ""
+    # The whole count, and deliberately not `len(self.sessions)`: `list_for`
+    # caps at `CHAT_SESSION_LIMIT`, so its length can never exceed the limit it
+    # was called with and "50 of 50" would be indistinguishable from an account
+    # with exactly fifty. `chat_sessions.count` ignores the cap for precisely
+    # this reason, and `rail_scope` below is the only reader.
+    sessions_total: int = 0
+
+    # --- The rail's presentation state (STORY-018) -----------------------
+    # Three vars the rail needs and the database does not: which row is being
+    # renamed, what is being typed into it, and which row has asked to be
+    # deleted. Reflex has no component-local state, so they live here -- but
+    # they are the surface's, not the session's, and nothing outside
+    # `session_rail.py` reads them.
+    #
+    # **Keyed on `session_id`, never on list position.** `rx.foreach` compiles
+    # to a `.map()` keyed by index and `_promote_session` reorders this list on
+    # every send, so an index-held "row 2 is renaming" would follow whichever
+    # chat landed in slot 2. `register.py`'s `open_rows` records the same
+    # reasoning; here the list actually reorders, so it bites harder.
+    #
+    # One `str` rather than a set, because only one row may be in either mode
+    # at a time: `begin_rename` and `ask_delete` each clear the other.
+    renaming_session_id: str = ""
+    rename_draft: str = ""
+    confirming_delete_id: str = ""
     # The *turn's* notice slot, and deliberately not `sessions_error` above,
     # which is the *rail's*. One says a bubble is not in the database; the other
     # says the list is stale. Conflating them would make one of the two messages
@@ -166,6 +192,35 @@ class ChatState(rx.State):
     @rx.var
     def has_messages(self) -> bool:
         return len(self.messages) > 0
+
+    @rx.var
+    def rail_scope(self) -> str:
+        """"50 most recent of 212" -- the window, stated against the whole list.
+
+        Empty when nothing is being withheld, and that emptiness is the point:
+        PRD-006 Risk 4 is why a cap is never silent, but a scope line on a
+        complete list states a window that is not a window. `copy.py` records
+        the same rule for the constant -- "a rail that quietly stops at
+        CHAT_SESSION_LIMIT would read as a complete list of the user's chats"
+        -- and the converse holds, so the line appears only when the two
+        numbers actually differ.
+
+        `>=` rather than `!=`: `sessions_total` is read once per load and the
+        list is rebuilt on every rename and delete, so the two can disagree by
+        a row without the list being capped. Only "more exist than are shown"
+        is worth a line.
+
+        The thousands separator is applied here rather than in the component,
+        for `admin_state.register_scope`'s reason: components read Vars, and
+        formatting a number is Python's job.
+        """
+        shown = len(self.sessions)
+        if self.sessions_total <= shown:
+            return ""
+        return SESSION_RAIL_SCOPE_TEMPLATE.format(
+            shown=f"{shown:,}", total=f"{self.sessions_total:,}"
+        )
+
 
     @rx.event
     def set_input_text(self, text: str):
@@ -209,44 +264,67 @@ class ChatState(rx.State):
         self._token = token
         self.user_id = identity.user_id
 
+        # The list is ORDER BY updated_at DESC, so the first row is the most
+        # recently active chat. Opening it is what makes a reload cost nothing:
+        # this handler *is* the page load for a signed-in user, because `_token`
+        # is a backend var and no signed-in state survives a refresh. An
+        # `on_load` on the chat page would fire with `user_id == ""` every time
+        # and have nothing to read.
+        await self._load_sessions(identity)
+        if self.sessions:
+            self.active_session_id = self.sessions[0].session_id
+            try:
+                self.messages = await self._read_transcript(
+                    identity, self.active_session_id
+                )
+            except Exception:
+                # A transcript that will not load is not a failed sign-in,
+                # exactly as a rail that will not load is not -- the arm inside
+                # `_load_sessions`. The chat opens empty and the composer works.
+                self.sessions_error = TRANSCRIPT_NOT_LOADED_NOTICE
+
+    async def _load_sessions(self, identity: Identity) -> None:
+        """Reads the rail: the capped list, and the true total beside it.
+
+        Extracted from `login` so `retry_sessions` cannot drift from it. A
+        retry that rebuilt the list slightly differently from the sign-in that
+        preceded it would be the rail's own version of the two-notice
+        conflation `transcript_error` exists to avoid.
+
+        Not an `@rx.event`: it is called by handlers that already hold the
+        exclusive state lock, and an event handler awaited from another handler
+        is the mistake `login`'s docstring spells out for background tasks.
+
+        Both arms assign, and that is the contract: on failure the list is
+        emptied and `sessions_error` is set, so a caller never has to guess
+        which of the two states it is in. `sessions_total` goes to 0 on that
+        arm because a count that could not be read is not a count.
+        """
         self.sessions_error = ""
         try:
             rows = await asyncio.to_thread(chat_sessions.list_for, identity)
+            total = await asyncio.to_thread(chat_sessions.count, identity)
         except ChatSessionError as exc:
             # A rail that will not load is not a failed sign-in. The user is
             # already authenticated by this point and the composer works
             # without a session; only the list is missing.
             self.sessions = []
+            self.sessions_total = 0
             self.sessions_error = str(exc)
-        else:
-            # One clock read for the whole list, per format_activity's own
-            # docstring: "a rail of thirty rows shares one clock read".
-            now = datetime.now(timezone.utc)
-            self.sessions = [
-                ChatSessionSummary(
-                    session_id=row.session_id,
-                    title=row.title,
-                    activity_info=format_activity(row.updated_at, now),
-                )
-                for row in rows
-            ]
-            # The list is ORDER BY updated_at DESC, so the first row is the
-            # most recently active chat. Opening it is what makes a reload cost
-            # nothing: this handler *is* the page load for a signed-in user,
-            # because `_token` is a backend var and no signed-in state survives
-            # a refresh. An `on_load` on the chat page would fire with
-            # `user_id == ""` every time and have nothing to read.
-            if self.sessions:
-                self.active_session_id = self.sessions[0].session_id
-                try:
-                    self.messages = await self._read_transcript(
-                        identity, self.active_session_id
-                    )
-                except Exception:
-                    # A transcript that will not load is not a failed sign-in,
-                    # exactly as a rail that will not load is not -- the arm
-                    # above. The chat opens empty and the composer works.
-                    self.sessions_error = TRANSCRIPT_NOT_LOADED_NOTICE
+            return
+
+        # One clock read for the whole list, per format_activity's own
+        # docstring: "a rail of thirty rows shares one clock read".
+        now = datetime.now(timezone.utc)
+        self.sessions = [
+            ChatSessionSummary(
+                session_id=row.session_id,
+                title=row.title,
+                activity_info=format_activity(row.updated_at, now),
+            )
+            for row in rows
+        ]
+        self.sessions_total = total
 
     @rx.event
     def logout(self):
@@ -278,11 +356,45 @@ class ChatState(rx.State):
         self.sessions = []
         self.active_session_id = ""
         self.sessions_error = ""
+        self.sessions_total = 0
+        # The rail's presentation state goes with the rail. A half-typed rename
+        # is one person's words about one person's chat, and an armed delete
+        # confirmation naming a chat the next reader cannot see would be the
+        # rail's version of the misattribution the docstring above refuses.
+        self.renaming_session_id = ""
+        self.rename_draft = ""
+        self.confirming_delete_id = ""
         # The notice is *about* the transcript being cleared above, so leaving
         # it standing would report a lost turn for a conversation that is no
         # longer on screen. Its rail counterpart, `sessions_error`, clears with
         # `sessions` for the same reason.
         self.transcript_error = ""
+
+    @rx.event
+    async def retry_sessions(self):
+        """Reads the rail again after a read that failed. AC 6's second half.
+
+        The fault state offers an action rather than only naming the failure
+        (frontend-design: "errors don't apologize, and they are never vague
+        about what happened"), and this is that action.
+
+        **It re-reads the list and nothing else.** `messages` and
+        `active_session_id` are untouched, because the transcript on screen is
+        still a real conversation the reader can see -- the distinction
+        `select_session` already draws on its own failure arm. A retry that
+        also reloaded the transcript would make a failed rail read cost the
+        chat, which is the coupling `login` refuses too.
+
+        Plain async, per `select_session`: it holds the exclusive state lock
+        across its awaits, so the read and the swap cannot interleave with a
+        send.
+        """
+        identity = resolve(self._token)
+        if identity is None:
+            self.sessions_error = SESSION_INVALIDATED_ERROR
+            return
+
+        await self._load_sessions(identity)
 
     @rx.event
     def new_chat(self):
@@ -314,6 +426,91 @@ class ChatState(rx.State):
         # About the transcript cleared on the line above, so it cannot outlive
         # it -- the reasoning `logout` and `select_session` both record.
         self.transcript_error = ""
+
+    # --- The rail's modes (STORY-018) ------------------------------------
+    # Six handlers that write no rows and read no database. They move the rail
+    # between its three per-row modes -- reading, renaming, confirming a delete
+    # -- and exist because Reflex has no component-local state for
+    # `session_rail.py` to hold them in.
+    #
+    # The two that *open* a mode carry the `pending` guard `new_chat` and
+    # `edit_and_resend` carry, and for the milder half of its reason: a rename
+    # committed under an in-flight send is fine, but a confirmation armed
+    # against a rail that is about to reorder invites a click on the wrong row.
+    # The three that close a mode are unguarded, because getting *out* of a
+    # mode must never be refused.
+
+    @rx.event
+    def begin_rename(self, session_id: str, title: str):
+        """Opens the rename field on one row, seeded with its current title.
+
+        Seeded rather than blank: the reader is editing a name, not supplying
+        one, and an empty field would read as "type a new name" while the
+        thing it is about to replace has scrolled out of view.
+
+        Clears any armed delete, because a row is in one mode or none. The two
+        vars are separate rather than one mode enum so that neither can be read
+        as the other by a component that forgot to check which.
+        """
+        if self.pending:
+            return
+        self.confirming_delete_id = ""
+        self.renaming_session_id = session_id
+        self.rename_draft = title
+
+    @rx.event
+    def set_rename_draft(self, text: str):
+        """The field's keystrokes. `set_input_text`'s shape exactly."""
+        self.rename_draft = text
+
+    @rx.event
+    def commit_rename(self):
+        """Closes the field and hands the title to `rename_session`.
+
+        **It validates nothing and writes nothing itself.** `rename_session`
+        already owns the empty-title refusal, the ownership re-check against a
+        freshly resolved Identity, and the in-place list rebuild that keeps the
+        row from moving. Re-checking any of that here would be a second copy of
+        a rule that is only correct in one place.
+
+        The field closes before the write is dispatched, not after it lands: a
+        rename that fails reports on the rail's own slot, and holding an open
+        input over it would leave the reader editing a value the screen has
+        already replaced.
+        """
+        session_id, title = self.renaming_session_id, self.rename_draft
+        self.renaming_session_id = ""
+        self.rename_draft = ""
+        if not session_id:
+            return
+        return ChatState.rename_session(session_id, title)
+
+    @rx.event
+    def cancel_rename(self):
+        """Closes the field, discarding the draft. Writes nothing."""
+        self.renaming_session_id = ""
+        self.rename_draft = ""
+
+    @rx.event
+    def ask_delete(self, session_id: str):
+        """Arms the confirmation on one row. **Nothing is deleted here.**
+
+        `delete_session` is the confirmed branch and its docstring says so:
+        this handler is the question, that one is the answer. Splitting them is
+        what lets the confirmation live in the component, where PRD Section 6.1
+        can govern how it looks, rather than in an `rx.window_alert` the design
+        cannot reach.
+        """
+        if self.pending:
+            return
+        self.renaming_session_id = ""
+        self.rename_draft = ""
+        self.confirming_delete_id = session_id
+
+    @rx.event
+    def cancel_delete(self):
+        """Walks away from the confirmation. The chat is kept, untouched."""
+        self.confirming_delete_id = ""
 
     @rx.event
     def edit_and_resend(self, prompt: str):
@@ -504,6 +701,15 @@ class ChatState(rx.State):
         remaining = [row for row in self.sessions if row.session_id != session_id]
         self.sessions = remaining
         self.sessions_error = ""
+        # The scope line counts the whole account, not the page, so a delete
+        # has to move it or "50 most recent of 212" survives the row it
+        # counted. Floored at zero rather than trusted: the total is read once
+        # per load and a second tab deleting the same chat would otherwise
+        # drive it negative.
+        self.sessions_total = max(0, self.sessions_total - 1)
+        # The confirmation was about a row that no longer exists. Leaving it
+        # set would arm the next chat that lands in the deleted one's place.
+        self.confirming_delete_id = ""
 
         if self.active_session_id != session_id:
             # A chat the reader is not looking at: the rail changes and the
@@ -756,6 +962,12 @@ class ChatState(rx.State):
                         async with self:
                             self.active_session_id = session_id
                             self.sessions_error = ""
+                            # A chat that did not exist before this send now
+                            # does, and the scope line counts the account
+                            # rather than the page -- so the total moves with
+                            # the create, exactly as it moves with a delete.
+                            # `_promote_session` adds the row itself.
+                            self.sessions_total += 1
 
             try:
                 result = await asyncio.to_thread(

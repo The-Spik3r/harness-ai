@@ -149,6 +149,33 @@ def list_for(identity: Identity) -> list[ChatSession]:
         return database.list_chat_sessions(identity.user_id, limit=settings.CHAT_SESSION_LIMIT)
 
 
+def count(identity: Identity) -> int:
+    """How many sessions this identity has in total -- cap or no cap.
+
+    The companion `list_for` above needs to state its own window honestly, and
+    it cannot do that from its own output. `database.count_chat_sessions` puts
+    the reason plainly: "`len(list_chat_sessions(...))` can never exceed the
+    limit it was called with, so a capped list can report '50 of 50' on an
+    account with two hundred sessions and be indistinguishable from one with
+    exactly fifty." So this **ignores `CHAT_SESSION_LIMIT` entirely** -- a count
+    that respected the display cap could not produce the one number worth
+    printing.
+
+    `0` when history is off, and `0` for an identity with no sessions --
+    the same deliberate sameness `list_for` keeps, and for the same reason: a
+    caller that could tell those apart would be a caller branching on the flag.
+
+    `identity` is required and undefaulted, per PRD Risk 2: the ownership rule
+    lives in the signature, so an omission is a `TypeError` at the call site
+    rather than a leak at runtime.
+    """
+    if not settings.CHAT_HISTORY_ENABLED:
+        return 0
+
+    with _wrapped("count"):
+        return database.count_chat_sessions(identity.user_id)
+
+
 def get(identity: Identity, session_id: str) -> Optional[ChatSession]:
     """This identity's session, or `None`.
 

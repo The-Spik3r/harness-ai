@@ -48,6 +48,7 @@ from chat_ui.chat_ui.state import ChatState
 from chat_ui.chat_ui.copy import (
     LOGIN_INVALID_TOKEN_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
+    SESSION_INVALIDATED_ERROR,
     SESSION_ORDER_STALE_NOTICE,
     TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
@@ -2702,3 +2703,276 @@ def test_logout_calls_no_service_and_can_write_nothing():
     assert "chat_sessions" not in names
     assert "asyncio" not in names
     assert "resolve" not in names
+
+
+# ---------------------------------------------------------------------------
+# The rail's data and its modes (STORY-018)
+#
+# Everything below is state the *component* needs and the database does not:
+# the true total behind the scope line, the retry behind the fault state, and
+# the three per-row modes. `tests/test_session_rail.py` covers the rendering;
+# these cover the behaviour it renders.
+# ---------------------------------------------------------------------------
+
+
+def _handler(state: ChatState, name: str):
+    return type(state).event_handlers[name].fn
+
+
+def test_rail_scope_is_silent_when_nothing_is_withheld():
+    """A scope line on a complete list would state a window that is not a
+    window. `copy.py` makes the cap's silence the thing to avoid, and the
+    converse is this: only "more exist than are shown" is worth a line."""
+    state = _make_state()
+    state.sessions = [ChatSessionSummary(session_id="a", title="A")]
+    state.sessions_total = 1
+
+    assert state.rail_scope == ""
+
+
+def test_rail_scope_states_the_window_against_the_true_total():
+    """AC 11, "in the manner PRD-006's register states '100 most recent of
+    3,180'" -- including the thousands separator, which is applied Python-side
+    because a component reads Vars and cannot format a number."""
+    state = _make_state()
+    state.sessions = [
+        ChatSessionSummary(session_id=str(n), title=str(n)) for n in range(50)
+    ]
+    state.sessions_total = 3180
+
+    assert state.rail_scope == "50 most recent of 3,180"
+
+
+@pytest.mark.asyncio
+async def test_login_records_the_true_total_not_the_capped_length(
+    temp_db, monkeypatch
+):
+    """The whole reason `chat_sessions.count` exists, driven through the state.
+
+    Three sessions, a limit of two: the rail lists two and must still know there
+    are three. `len(self.sessions)` could never produce the 3.
+    """
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    state = _make_state()
+    for text in ("first", "second", "third"):
+        _new_chat(state)
+        await _send(state, text)
+
+    monkeypatch.setattr(settings, "CHAT_SESSION_LIMIT", 2)
+    fresh = ChatState(_reflex_internal_init=True)
+    fresh.token_input = _AUTH_TOKEN
+    await _handler(fresh, "login")(fresh)
+
+    assert len(fresh.sessions) == 2
+    assert fresh.sessions_total == 3
+    assert fresh.rail_scope == "2 most recent of 3"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_empties_the_list_and_zeroes_the_total(
+    temp_db, monkeypatch
+):
+    """The fault arm's contract: both are assigned, so the component never has
+    to guess which of the three states it is in. A total left standing beside an
+    emptied list would render "0 most recent of 12" over the fault panel."""
+    def _raise(*args, **kwargs):
+        raise ChatSessionError("list_for failed: store is down")
+
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "list_for", _raise)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await _handler(state, "login")(state)
+
+    assert state.sessions == []
+    assert state.sessions_total == 0
+    assert "store is down" in state.sessions_error
+
+
+@pytest.mark.asyncio
+async def test_retry_sessions_reloads_the_list_and_clears_the_fault(
+    temp_db, monkeypatch
+):
+    """AC 6's second half. The fault state offers an action, and this is it."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    seeded = _make_state()
+    await _send(seeded, "a real chat")
+
+    state = _make_state()
+    state.sessions_error = "list_for failed: store is down"
+
+    await _handler(state, "retry_sessions")(state)
+
+    assert state.sessions_error == ""
+    assert [s.title for s in state.sessions] == ["a real chat"]
+    assert state.sessions_total == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_sessions_leaves_the_transcript_alone(temp_db, monkeypatch):
+    """It re-reads the list and nothing else: the transcript on screen is still
+    a real conversation, so a failed *rail* read must not cost the chat."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    state = _make_state()
+    await _send(state, "a real chat")
+    active, messages = state.active_session_id, list(state.messages)
+    state.sessions_error = "list_for failed: store is down"
+
+    await _handler(state, "retry_sessions")(state)
+
+    assert state.active_session_id == active
+    assert [m.content for m in state.messages] == [m.content for m in messages]
+
+
+@pytest.mark.asyncio
+async def test_retry_sessions_reports_a_credential_that_went_bad(temp_db):
+    """The prologue every session handler shares: a credential deactivated while
+    the tab was open is named, not retried into a silent empty list."""
+    state = _make_state(token="not-a-real-token")
+
+    await _handler(state, "retry_sessions")(state)
+
+    assert state.sessions_error == SESSION_INVALIDATED_ERROR
+
+
+def test_begin_rename_seeds_the_draft_and_closes_any_confirmation():
+    """A row is in one mode or none."""
+    state = _make_state()
+    state.confirming_delete_id = "other"
+
+    _handler(state, "begin_rename")(state, "abc", "Quarterly close")
+
+    assert state.renaming_session_id == "abc"
+    assert state.rename_draft == "Quarterly close"
+    assert state.confirming_delete_id == ""
+
+
+def test_ask_delete_arms_one_row_and_closes_any_rename():
+    state = _make_state()
+    state.renaming_session_id = "other"
+    state.rename_draft = "half typed"
+
+    _handler(state, "ask_delete")(state, "abc")
+
+    assert state.confirming_delete_id == "abc"
+    assert state.renaming_session_id == ""
+    assert state.rename_draft == ""
+
+
+def test_opening_a_mode_is_refused_while_a_send_is_in_flight():
+    """The guard `new_chat` and `edit_and_resend` already carry. A confirmation
+    armed against a rail that is about to reorder invites a click on the wrong
+    row."""
+    state = _make_state()
+    state.pending = True
+
+    _handler(state, "begin_rename")(state, "abc", "Quarterly close")
+    _handler(state, "ask_delete")(state, "abc")
+
+    assert state.renaming_session_id == ""
+    assert state.confirming_delete_id == ""
+
+
+def test_closing_a_mode_is_never_refused():
+    """Getting *out* of a mode is unguarded: a reader who opened a rename before
+    a send started must still be able to abandon it."""
+    state = _make_state()
+    state.pending = True
+    state.renaming_session_id = "abc"
+    state.rename_draft = "half typed"
+    state.confirming_delete_id = "abc"
+
+    _handler(state, "cancel_rename")(state)
+    _handler(state, "cancel_delete")(state)
+
+    assert state.renaming_session_id == ""
+    assert state.rename_draft == ""
+    assert state.confirming_delete_id == ""
+
+
+def test_commit_rename_closes_the_field_and_delegates_the_write():
+    """It validates nothing and writes nothing itself: `rename_session` owns the
+    empty-title refusal and the ownership re-check, and a second copy of either
+    would only be correct in one of the two places."""
+    state = _make_state()
+    _handler(state, "begin_rename")(state, "abc", "Quarterly close")
+    _handler(state, "set_rename_draft")(state, "Q3 vendor spend")
+
+    returned = _handler(state, "commit_rename")(state)
+
+    assert state.renaming_session_id == ""
+    assert state.rename_draft == ""
+    assert returned is not None
+
+
+def test_commit_rename_with_no_row_open_dispatches_nothing():
+    """A blur arriving after the field has already closed must not rename
+    whatever `rename_draft` last held."""
+    state = _make_state()
+
+    assert _handler(state, "commit_rename")(state) is None
+
+
+def test_cancel_rename_discards_the_draft_without_dispatching():
+    state = _make_state()
+    _handler(state, "begin_rename")(state, "abc", "Quarterly close")
+    _handler(state, "set_rename_draft")(state, "typed then abandoned")
+
+    assert _handler(state, "cancel_rename")(state) is None
+    assert state.rename_draft == ""
+
+
+@pytest.mark.asyncio
+async def test_a_landed_delete_moves_the_total_and_disarms_the_confirmation(
+    temp_db, monkeypatch
+):
+    """The scope line counts the account, not the page, so a delete has to move
+    it -- and the confirmation was about a row that no longer exists, so leaving
+    it armed would arm whichever chat lands in its place."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    state = _make_state()
+    await _send(state, "first chat")
+    first = state.active_session_id
+    _new_chat(state)
+    await _send(state, "second chat")
+
+    assert state.sessions_total == 2
+    _handler(state, "ask_delete")(state, first)
+
+    await _delete(state, first)
+
+    assert state.sessions_total == 1
+    assert state.confirming_delete_id == ""
+
+
+@pytest.mark.asyncio
+async def test_a_send_that_creates_a_session_moves_the_total(temp_db, monkeypatch):
+    """The other half: lazy creation adds a chat that did not exist, so the
+    total moves with the create exactly as it moves with a delete."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    state = _make_state()
+    assert state.sessions_total == 0
+
+    await _send(state, "first chat")
+    assert state.sessions_total == 1
+
+    await _send(state, "same chat, second turn")
+    assert state.sessions_total == 1
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_the_rails_modes_and_its_total(temp_db, monkeypatch):
+    """A half-typed rename is one person's words about one person's chat, and an
+    armed confirmation naming a chat the next reader cannot see is the rail's
+    version of the misattribution `logout` already refuses for the bubbles."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    state = _make_state()
+    await _send(state, "first chat")
+    _handler(state, "begin_rename")(state, state.active_session_id, "Quarterly close")
+
+    state.logout()
+
+    assert state.sessions_total == 0
+    assert state.renaming_session_id == ""
+    assert state.rename_draft == ""
+    assert state.confirming_delete_id == ""

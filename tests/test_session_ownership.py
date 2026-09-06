@@ -300,6 +300,11 @@ _SERVICE_SHAPES = {
         identity, "what is the retention policy?", lambda text: text[:20]
     ),
     "list_for": lambda identity, session_id: chat_sessions.list_for(identity),
+    # Takes no session_id: like `list_for`, its whole answer is scoped by the
+    # identity. A stranger's count of another account's sessions is 0, which
+    # `_assert_returns_nothing` already treats as the count-shaped spelling of
+    # "no rows" -- the arm it grew for `count_chat_sessions` in the store.
+    "count": lambda identity, session_id: chat_sessions.count(identity),
     "get": lambda identity, session_id: chat_sessions.get(identity, session_id),
     "owns": lambda identity, session_id: chat_sessions.owns(identity, session_id),
     "rename": lambda identity, session_id: chat_sessions.rename(
@@ -378,7 +383,7 @@ _STORE_READS = ("get_chat_session", "list_chat_sessions", "list_chat_messages", 
 # `owns` is a read: it issues one SELECT and changes nothing. Its answer for a
 # foreign credential is `False`, which is what AC 4 asks of a function whose
 # answer is a boolean -- `_assert_returns_nothing` already accepts it.
-_SERVICE_READS = ("get", "list_for", "messages_for", "owns")
+_SERVICE_READS = ("get", "list_for", "messages_for", "owns", "count")
 
 _STORE_WRITES = ("rename_chat_session", "touch_chat_session", "delete_chat_session", "append_chat_message")
 _SERVICE_WRITES = ("rename", "touch", "delete", "append_message")

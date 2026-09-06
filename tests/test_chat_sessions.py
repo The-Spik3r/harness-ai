@@ -979,11 +979,14 @@ def test_count_chat_sessions_ignores_the_list_limit(temp_db):
 # ==========================================================================
 
 #: The surface STORY-006 adds, in the order the story lists it, plus the ninth
-#: STORY-010 added: `owns`, which answers `app/routers/query.py`'s question
-#: without handing it the flag branch that `get` would have forced.
-THE_NINE = (
+#: STORY-010 added -- `owns`, which answers `app/routers/query.py`'s question
+#: without handing it the flag branch that `get` would have forced -- and the
+#: tenth STORY-018 added: `count`, which the rail needs to state its cap against
+#: a true total, since a capped list's own length can never exceed that cap.
+THE_TEN = (
     "create",
     "list_for",
+    "count",
     "get",
     "owns",
     "rename",
@@ -1073,6 +1076,7 @@ def _call(name: str, identity: Identity, session_id: str, **overrides):
     shapes = {
         "create": lambda: chat_sessions.create(identity, prompt, derive),
         "list_for": lambda: chat_sessions.list_for(identity),
+        "count": lambda: chat_sessions.count(identity),
         "get": lambda: chat_sessions.get(identity, session_id),
         "owns": lambda: chat_sessions.owns(identity, session_id),
         "rename": lambda: chat_sessions.rename(identity, session_id, title),
@@ -1101,23 +1105,27 @@ def _count_messages_rows() -> int:
 # --------------------------------------------------------------------------
 
 
-def test_the_nine_service_functions_are_declared():
+def test_the_ten_service_functions_are_declared():
     """AC 1. A statement about the module; no database needed."""
-    for name in THE_NINE:
+    for name in THE_TEN:
         assert hasattr(chat_sessions, name), name
         assert callable(getattr(chat_sessions, name)), name
 
 
-def test_the_service_exposes_exactly_those_nine():
-    """AC 1, the other direction. `count_chat_sessions` is deliberately not
-    re-exported here, so a later story that exposes a tenth function has to say
-    so by editing this tuple rather than by nobody noticing.
+def test_the_service_exposes_exactly_those_ten():
+    """AC 1, the other direction. A story that exposes a further function has to
+    say so by editing this tuple rather than by nobody noticing.
 
-    STORY-010 is the first story to take that path: `owns` is the ninth, and it
+    STORY-010 was the first story to take that path: `owns` is the ninth, and it
     is here because the router's ownership refusal needed an answer `get` could
     not give without the caller branching on `CHAT_HISTORY_ENABLED`.
+
+    STORY-018 is the second. `count` wraps `database.count_chat_sessions`, which
+    this test previously noted was "deliberately not re-exported": the rail now
+    needs it, and it comes through the service rather than around it so that the
+    flag short-circuit and the `_wrapped` error contract still apply.
     """
-    assert sorted(_service_functions()) == sorted(THE_NINE)
+    assert sorted(_service_functions()) == sorted(THE_TEN)
 
 
 def test_every_service_function_takes_an_identity_first():
@@ -1132,7 +1140,7 @@ def test_every_service_function_takes_an_identity_first():
 
 
 def test_no_service_function_accepts_a_bare_user_id():
-    """AC 1's "rather than a bare `user_id` string". The store's nine functions
+    """AC 1's "rather than a bare `user_id` string". The store's own functions
     all require one; the point of this layer is that its callers cannot supply
     one, so a `user_id` parameter up here would mean the conversion leaked back
     out."""
@@ -1149,7 +1157,7 @@ def test_every_service_function_passes_identity_user_id_to_the_store():
     the two questions, and a service consulting the role would be RBAC
     substituting for ownership, which Section 6 forbids.
     """
-    for name in THE_NINE:
+    for name in THE_TEN:
         statements = _service_statements_of(name)
         assert "identity.user_id" in statements, name
         assert "identity.role" not in statements, name
@@ -1238,6 +1246,10 @@ def test_owns_answers_true_and_issues_nothing_when_history_is_off(history_off):
         ("list_for", []),
         ("get", None),
         ("messages_for", []),
+        # 0 is the count-shaped spelling of "empty", and the same deliberate
+        # sameness the three above keep: with history off there are no rows for
+        # anybody, so "none yet" and "disabled" answer identically here too.
+        ("count", 0),
     ],
 )
 def test_reads_return_empty_and_issue_nothing_when_history_is_off(
@@ -1249,12 +1261,12 @@ def test_reads_return_empty_and_issue_nothing_when_history_is_off(
     assert _call(name, _identity("ana"), str(uuid.uuid4())) == expected
 
 
-def test_history_off_reaches_the_database_for_none_of_the_nine(history_off):
+def test_history_off_reaches_the_database_for_none_of_the_ten(history_off):
     """AC 3 and AC 4 over the whole surface at once. The parametrized cases above
-    assert the values; this asserts the property for all nine together, so a
-    tenth function that forgot its guard fails here even if nobody remembered to
-    add it to the tables above."""
-    for name in THE_NINE:
+    assert the values; this asserts the property for all ten together, so a
+    further function that forgot its guard fails here even if nobody remembered
+    to add it to the tables above."""
+    for name in THE_TEN:
         _call(name, _identity("ana"), str(uuid.uuid4()))
 
 
@@ -1341,6 +1353,37 @@ def test_list_for_applies_the_configured_limit(monkeypatch, temp_db):
     listed = chat_sessions.list_for(_identity("ana"))
 
     assert [s.session_id for s in listed] == [newest, middle]
+
+
+def test_count_ignores_the_limit_that_caps_the_list(monkeypatch, temp_db):
+    """STORY-018's reason for existing, in one assertion.
+
+    The rail states its window as "2 most recent of 3", and it can only get the
+    3 from here: `len(list_for(...))` can never exceed the limit it was called
+    with, so a capped list reports "2 of 2" on an account with three sessions and
+    is indistinguishable from one with exactly two. A count that respected the
+    display cap could not produce the one number worth printing.
+    """
+    _seed_users()
+    monkeypatch.setattr(settings, "CHAT_SESSION_LIMIT", 2)
+    for title in ("oldest", "middle", "newest"):
+        create_chat_session("ana", title)
+
+    assert len(chat_sessions.list_for(_identity("ana"))) == 2
+    assert chat_sessions.count(_identity("ana")) == 3
+
+
+def test_count_counts_only_the_callers_own_sessions(temp_db):
+    """PRD Risk 2 over the one function whose answer is a number rather than a
+    row: a missing `WHERE user_id = ?` here would not leak a title, but it would
+    tell every user how many conversations everyone else is having."""
+    _seed_users()
+    create_chat_session("ana", "hers")
+    create_chat_session("ana", "hers too")
+    create_chat_session("bob", "his")
+
+    assert chat_sessions.count(_identity("ana")) == 2
+    assert chat_sessions.count(_identity("bob")) == 1
 
 
 def test_list_for_reflects_a_changed_limit_without_a_reload(monkeypatch, temp_db):
@@ -1553,7 +1596,7 @@ def test_two_identities_round_trip_without_seeing_each_other(temp_db):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", THE_NINE)
+@pytest.mark.parametrize("name", THE_TEN)
 def test_every_function_wraps_storage_failure_in_chat_session_error(
     uninitialized_db, name
 ):
@@ -1566,7 +1609,7 @@ def test_every_function_wraps_storage_failure_in_chat_session_error(
         _call(name, _identity("ana"), str(uuid.uuid4()))
 
 
-@pytest.mark.parametrize("name", THE_NINE)
+@pytest.mark.parametrize("name", THE_TEN)
 def test_the_wrapped_error_keeps_the_storage_error_as_its_cause(uninitialized_db, name):
     """AC 8. `from exc` rather than a bare `raise`: the storage detail stays
     reachable for a log line, it just is not the type callers catch."""
@@ -1575,7 +1618,7 @@ def test_the_wrapped_error_keeps_the_storage_error_as_its_cause(uninitialized_db
     assert isinstance(caught.value.__cause__, StorageError)
 
 
-@pytest.mark.parametrize("name", THE_NINE)
+@pytest.mark.parametrize("name", THE_TEN)
 def test_the_wrapped_error_names_the_service_operation(uninitialized_db, name):
     """AC 8. The message reads in the caller's vocabulary -- "append_message
     failed" and not "append_chat_message failed" -- so a report reaching a user
@@ -1589,7 +1632,7 @@ def test_a_storage_error_never_escapes_as_itself(uninitialized_db):
     """AC 8, stated negatively. `ChatSessionError` does not inherit from
     `StorageError`, so this is a real assertion rather than a tautology."""
     assert not issubclass(ChatSessionError, StorageError)
-    for name in THE_NINE:
+    for name in THE_TEN:
         try:
             _call(name, _identity("ana"), str(uuid.uuid4()))
         except ChatSessionError:
