@@ -59,6 +59,7 @@ below and which no local `outline` or `box_shadow` may take back.
 
 import reflex as rx
 
+from app.config import settings
 from chat_ui import copy, theme
 from chat_ui.state import ChatState
 
@@ -524,18 +525,55 @@ def _body() -> rx.Component:
 
 
 def session_rail() -> rx.Component:
-    """The rail, whole: the control, the window it states, and the shelf.
+    """The rail — or nothing at all, when this deployment keeps no history.
 
-    `PAPER` against the transcript's `CARD`, separated by one `RULE` hairline —
-    PRD Section 6.1's palette for this surface, and no new ink of any kind. The
-    grounds do the separating that a panel would otherwise do.
+    **The one place in `chat_ui/` that names `CHAT_HISTORY_ENABLED`, and the
+    reason it is allowed to.** PRD Section 6 asks for two things in one
+    sentence: "the service returns empty lists and writes nothing, and the rail
+    renders as absent. No caller branches on the flag." The second clause
+    governs the *data* path, and nothing here violates it — every read still
+    goes through `app/services/chat_sessions.py` and still cannot tell "off"
+    from "none yet", which is what `list_for`'s docstring protects.
+
+    But absence is not a data answer, and no empty list can produce it. With
+    the flag off the service returns `[]`, which is the *invitation* state —
+    so a rail that did not ask this question told a user with thirty saved
+    chats "Start your first chat", and promised that the next prompt would
+    appear here when nothing would ever be written. That was observed on
+    screen, not theorised: it is the failure this branch exists to remove.
+
+    So the question is asked exactly once, here, at the surface, where absence
+    is the only thing a component can render. It is not asked per row, it is
+    not asked in `ChatState` (whose own guard,
+    `test_chat_state_never_names_the_history_flag`, still holds and is
+    untouched), and it is not laundered through a service accessor to dodge the
+    glob — `tests/test_chat_sessions.py`'s allowlist names this file
+    deliberately, with the same reasoning recorded beside it.
+
+    An accessor on `chat_sessions` was the first choice and was rejected: it
+    would have to take no `Identity`, which breaks
+    `test_every_service_function_takes_an_identity_first` — PRD Risk 2's
+    "the rule lives in the signature". Punching a hole in the ownership guard
+    to make room for a configuration helper is the worse trade.
+
+    Below the branch: `PAPER` against the transcript's `CARD`, separated by one
+    `RULE` hairline — PRD Section 6.1's palette for this surface, and no new ink
+    of any kind. The grounds do the separating that a panel would otherwise do.
 
     It scrolls in its own container rather than with the page, so thirty chats
     never push the composer off screen; `hx-scroll` is `theme.py`'s existing
     scrollbar treatment, reused so the rail's scrollbar matches the
-    transcript's. The layout around it — where this column sits, and its
-    collapse at a narrow viewport — is STORY-019's.
+    transcript's. The layout around it — where this column sits, its collapse at
+    a narrow viewport, and reclaiming its width when this function returns
+    nothing — is STORY-019's.
     """
+    if not settings.CHAT_HISTORY_ENABLED:
+        # Absent, not empty and not disabled. `rx.fragment()` renders no node,
+        # so the flex row STORY-019 builds has nothing to lay out and no gap to
+        # reserve. A `display: none` box would still be in the DOM for a screen
+        # reader to find.
+        return rx.fragment()
+
     return rx.box(
         _new_chat_control(),
         _scope_line(),

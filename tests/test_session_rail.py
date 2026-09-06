@@ -372,3 +372,131 @@ def test_the_rail_uses_no_dialog_component(source):
     assert "alert_dialog" not in called
     assert "window_alert" not in called
     assert "dialog" not in called
+
+
+# --------------------------------------------------------------------------
+# AC 10 -- the rail is absent when this deployment keeps no history
+#
+# These go through the subprocess probe like everything else above: the
+# component imports `from chat_ui import copy`, which only resolves with
+# `chat_ui/` on PYTHONPATH. The flag is supplied through the environment rather
+# than monkeypatched, because it has to be set before `app.config` is imported
+# in that process -- which is also the honest shape of the thing, since it is a
+# deployment setting and not a per-request one.
+# --------------------------------------------------------------------------
+
+
+_FLAG_SCRIPT = r"""
+import json, sys
+result = {}
+try:
+    from chat_ui import copy, theme
+    from chat_ui.components.session_rail import session_rail
+except Exception as exc:
+    print(json.dumps({"error": "{}: {}".format(type(exc).__name__, exc)}))
+    sys.exit(0)
+
+rendered = str(session_rail())
+result["new_chat"] = copy.SESSION_NEW_CHAT_LABEL in rendered
+result["empty_title"] = copy.SESSION_RAIL_EMPTY_TITLE in rendered
+result["empty_body"] = copy.SESSION_RAIL_EMPTY_BODY in rendered
+result["rail_width"] = theme.SESSION_RAIL_W in rendered
+result["spine"] = theme.SPINE in rendered
+result["length"] = len(rendered)
+print(json.dumps(result))
+"""
+
+
+def _render_with_flag(value: str) -> dict:
+    env = dict(
+        os.environ,
+        PYTHONPATH=os.pathsep.join(_PYTHONPATH),
+        CHAT_HISTORY_ENABLED=value,
+        DATABASE_URL=os.environ.get("DATABASE_URL", "http://127.0.0.1:8080"),
+        OPENROUTER_API_KEY=os.environ.get("OPENROUTER_API_KEY", "test-key"),
+        ADMIN_TOKEN=os.environ.get("ADMIN_TOKEN", "test-token"),
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", _FLAG_SCRIPT],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    assert proc.returncode == 0, f"probe crashed:\n{proc.stdout}\n{proc.stderr}"
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert "error" not in out, out["error"]
+    return out
+
+
+def test_the_rail_is_absent_when_history_is_off():
+    """AC 10, verbatim: "the rail is **absent** -- not empty, not disabled."
+
+    `rx.fragment()` renders no node, so there is nothing for STORY-019's flex
+    row to lay out and no width to reserve. A hidden box would still be in the
+    DOM for a screen reader to find, which is "disabled", not "absent".
+    """
+    off = _render_with_flag("false")
+
+    assert off["new_chat"] is False
+    assert off["rail_width"] is False
+    assert off["spine"] is False
+
+
+def test_the_absent_rail_does_not_render_the_invitation():
+    """The specific falsehood this branch exists to remove.
+
+    With the flag off the service returns `[]` for everyone, which is byte-for-
+    byte the "no sessions yet" answer -- so a rail that did not ask the question
+    rendered `SESSION_RAIL_EMPTY_TITLE` at a user whose chats exist and are
+    simply not being read, and `SESSION_RAIL_EMPTY_BODY` promised the next
+    prompt would appear in a rail nothing is ever written to.
+
+    Both were observed in a browser against a database holding four sessions,
+    which is why the invitation is asserted absent in its own right rather than
+    left implied by the assertions above.
+    """
+    off = _render_with_flag("false")
+
+    assert off["empty_title"] is False
+    assert off["empty_body"] is False
+
+
+def test_the_rail_is_present_when_history_is_on():
+    """The control. Every assertion above is satisfied by a function that
+    returns nothing to anybody, so the flag is driven the other way too and the
+    same markers must come back."""
+    on = _render_with_flag("true")
+
+    assert on["new_chat"] is True
+    assert on["rail_width"] is True
+    assert on["length"] > _render_with_flag("false")["length"]
+
+
+def test_the_flag_is_named_once_and_only_at_the_surface(source):
+    """The exemption is one question asked in one place, not a licence.
+
+    `tests/test_chat_sessions.py`'s allowlist admits this file; this pins what it
+    was admitted to do. A second reference -- per row, or inside a helper --
+    would be the flag leaking into the component's logic rather than gating its
+    existence, and the allowlist entry would then be sheltering something it was
+    not granted for.
+    """
+    tree = ast.parse(source)
+    named = [
+        node
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Attribute) and node.attr == "CHAT_HISTORY_ENABLED")
+        or (isinstance(node, ast.Name) and node.id == "CHAT_HISTORY_ENABLED")
+    ]
+    assert len(named) == 1, f"the flag is named {len(named)} times"
+
+    entry = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "session_rail"
+    )
+    assert any(
+        isinstance(n, ast.Attribute) and n.attr == "CHAT_HISTORY_ENABLED"
+        for n in ast.walk(entry)
+    ), "the flag is not read in session_rail() itself"

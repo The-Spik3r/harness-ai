@@ -1302,9 +1302,38 @@ def test_no_module_outside_the_service_branches_on_chat_history_enabled():
     Read through `ast` rather than by grepping text, so the paragraphs of comment
     in `app/config.py` and in the service that discuss the setting by name are
     not what is measured -- only a real reference to the identifier in code is.
+
+    **The third entry, added by STORY-018, and why it is not a hole.** Section 6
+    asks for "the rail renders as absent" in the same sentence as the rule
+    above, and the two pull against each other: absence is not a data answer, so
+    no amount of empty lists produces it. With the flag off the service returns
+    `[]`, which is the rail's *invitation* state -- a user with thirty saved
+    chats was shown "Start your first chat", and told the next prompt would
+    appear in a rail that would never receive one. That was observed in a
+    browser, and it is a screen stating two falsehoods rather than a cosmetic
+    miss.
+
+    So exactly one surface module may ask the question, and it asks it once, at
+    the top of `session_rail()`, where returning nothing is possible. The data
+    path is untouched: every read still goes through the service and still
+    cannot tell "off" from "none yet", which is the property `list_for`'s
+    docstring actually protects. `ChatState` remains barred entirely --
+    `tests/test_chat_state.py::test_chat_state_never_names_the_history_flag`
+    still holds, unmodified.
+
+    An accessor on `chat_sessions` was tried first and rejected: it would take
+    no `Identity`, breaking `test_every_service_function_takes_an_identity_first`
+    -- PRD Risk 2's "the rule lives in the signature". Widening the ownership
+    guard to shelter a configuration helper is the worse trade, and hiding the
+    same branch behind a service call to pass this glob unedited would be
+    dodging the tripwire rather than answering it.
     """
     root = pathlib.Path(__file__).resolve().parents[1]
-    allowed = {root / "app" / "config.py", root / "app" / "services" / "chat_sessions.py"}
+    allowed = {
+        root / "app" / "config.py",
+        root / "app" / "services" / "chat_sessions.py",
+        root / "chat_ui" / "chat_ui" / "components" / "session_rail.py",
+    }
 
     offenders = []
     for path in sorted(list((root / "app").rglob("*.py")) + list((root / "chat_ui").rglob("*.py"))):
