@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 117b2b3
 status: COMPLETE_WITH_ONE_AC_BLOCKED
 completed: 2026-09-06
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-06
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `117b2b3`
 
 ## Summary
 

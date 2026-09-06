@@ -12,7 +12,7 @@ labels: [ui, reflex, component, design]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-018-session-rail-component.report.md
-commit: null
+commit: 117b2b3
 depends_on: [STORY-012, STORY-013, STORY-016, STORY-017]
 blocks: [STORY-019, STORY-020]
 skills: [frontend-design, reflex-docs]
