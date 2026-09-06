@@ -6,7 +6,7 @@
 
 ## Progress
 
-15/23 stories done — 65%
+15/24 stories done — 63%
 
 ## Stories
 
@@ -37,6 +37,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-021 | Two instances serve one session, and CHAT_HISTORY_ENABLED=false writes nothing — proven, not assumed | technical | ⬜ todo | medium | — | — |
 | STORY-022 | README and .env: document the persistence model the code actually has, including what is now at rest | technical | ⬜ todo | small | — | — |
 | STORY-023 | test_untouched_app.py: retire the provenance guards whose question is closed, and convert the pinned suites to a coverage census | technical | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md) | `acc3a08` |
+| STORY-024 | Recover the shared libSQL client when its stream dies, so an idle process is not a dead one | technical | ⬜ todo | medium | — | — |
 
 ## Status Icons
 - ⬜ todo
@@ -51,7 +52,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | 1 — Schema and store | STORY-001 … STORY-007 |
 | 2 — Pipeline and API | STORY-008 … STORY-011 |
 | 3 — State and restore | STORY-012 … STORY-016 |
-| 4 — Surface and hardening | STORY-017 … STORY-023 |
+| 4 — Surface and hardening | STORY-017 … STORY-024 |
 
 ## Dependencies
 
@@ -74,5 +75,6 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 - STORY-021 blocked by STORY-007, STORY-010, STORY-015, STORY-016
 - STORY-022 blocked by STORY-010, STORY-011, STORY-019, STORY-021
 - STORY-023 blocked by nothing — lands before the PRD-008 → main PR so that PR's CI is green
+- STORY-024 blocked by nothing — lands before STORY-021, whose long-lived processes hit the same defect
 
 STORY-001, STORY-002, STORY-012 and STORY-017 have no blockers and can start immediately. STORY-008 through STORY-011 depend only on STORY-003, so Phase 2 can run in parallel with the rest of Phase 1 once the schema lands.
