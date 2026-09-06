@@ -38,6 +38,18 @@ from chat_ui.chat_ui.copy import (
     # STORY-016: the delete flow's two words.
     SESSION_DELETE_CONFIRM_TEMPLATE,
     SESSION_DELETE_CONFIRM_LABEL,
+    # STORY-017: the rail's remaining strings, imported by name like every
+    # constant above, so a rename fails at collection rather than at render.
+    SESSION_NEW_CHAT_LABEL,
+    SESSION_RAIL_EMPTY_TITLE,
+    SESSION_RAIL_EMPTY_BODY,
+    SESSION_RAIL_FAULT_TITLE,
+    SESSION_RAIL_FAULT_BODY,
+    SESSION_RAIL_SCOPE_TEMPLATE,
+    SESSION_RENAME_LABEL,
+    SESSION_RENAME_PLACEHOLDER,
+    SESSION_DELETE_CANCEL_LABEL,
+    SESSION_RAIL_SHOW_LABEL,
 )
 from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
@@ -713,3 +725,116 @@ def test_the_delete_confirmation_is_permanent_about_the_chat_and_only_the_chat()
     # And the record is kept in the same breath, so no reader confirms one
     # believing the other.
     assert "kept" in lowered
+
+
+# --------------------------------------------------------------------------
+# STORY-017 -- the rail's remaining strings.
+#
+# Appended, never edited above: `tests/test_copy.py` is one of the two suites
+# `tests/test_untouched_app.py` pins by census, and every test above this line
+# is untouched.
+# --------------------------------------------------------------------------
+
+
+def test_every_rail_string_exists_and_is_not_empty():
+    """AC 8: the whole rail vocabulary, asserted by name.
+
+    Existence is the cheap half; the point of listing them together is that
+    STORY-018 can be written against this tuple and find nothing missing. The
+    six constants STORY-012, STORY-014, STORY-015 and STORY-016 contributed are
+    included, because "every rail string" is the claim -- not "every string
+    this story happened to add".
+    """
+    rail_strings = (
+        SESSION_NEW_CHAT_LABEL,
+        SESSION_RAIL_EMPTY_TITLE,
+        SESSION_RAIL_EMPTY_BODY,
+        SESSION_RAIL_FAULT_TITLE,
+        SESSION_RAIL_FAULT_BODY,
+        SESSION_RAIL_SCOPE_TEMPLATE,
+        SESSION_RENAME_LABEL,
+        SESSION_RENAME_PLACEHOLDER,
+        SESSION_DELETE_CANCEL_LABEL,
+        SESSION_RAIL_SHOW_LABEL,
+        # Contributed early by the stories that needed them first.
+        SESSION_UNTITLED_TITLE,
+        SESSION_ACTIVITY_UNKNOWN,
+        SESSION_DELETE_CONFIRM_TEMPLATE,
+        SESSION_DELETE_CONFIRM_LABEL,
+        TRANSCRIPT_NOT_SAVED_NOTICE,
+        SESSION_ORDER_STALE_NOTICE,
+        TRANSCRIPT_NOT_LOADED_NOTICE,
+    )
+    for text in rail_strings:
+        assert isinstance(text, str)
+        assert text.strip(), f"empty rail string: {text!r}"
+
+    # PRD-008 Section 6.1 fixes these two words, and the control, the action
+    # and what it produces all carry them (frontend-design: "an action keeps
+    # the same name through the whole flow").
+    assert SESSION_NEW_CHAT_LABEL == "New chat"
+    # The scope line states both halves or it is not a scope line (PRD-006
+    # Risk 4), and it is the register's own wording rather than a second
+    # phrasing of one idea.
+    assert "{shown}" in SESSION_RAIL_SCOPE_TEMPLATE
+    assert "{total}" in SESSION_RAIL_SCOPE_TEMPLATE
+    assert SESSION_RAIL_SCOPE_TEMPLATE == admin_copy.REGISTER_SCOPE_TEMPLATE
+
+
+def test_the_empty_rail_invites_a_chat_rather_than_reporting_none():
+    """AC 6, and the skill verbatim: "an empty screen is an invitation to act".
+
+    PRD-008 Section 6.1: "the empty rail reads as an invitation to start one
+    rather than as a report that none exist." An invitation names an act and a
+    census does not, so both halves are checked -- a census sentence ("No chats
+    yet", "You have no chats") passes a non-emptiness check and fails this one,
+    which is the whole reason this test exists beside the one above.
+    """
+    assert SESSION_RAIL_EMPTY_TITLE
+    assert SESSION_RAIL_EMPTY_BODY
+
+    lowered = f"{SESSION_RAIL_EMPTY_TITLE} {SESSION_RAIL_EMPTY_BODY}".lower()
+    for absence in ("no chats", "nothing here", "empty", "none", "0 chats"):
+        assert absence not in lowered, f"the empty rail reports absence: {absence!r}"
+    # The invitation names the act. Both verbs are ones the surface actually
+    # offers: New chat above the rail, and the composer below it.
+    assert "start" in lowered or "send" in lowered
+
+    # Sentence case, not Title Case, and no mechanism words: the copy module's
+    # own register throughout (frontend-design: "plain verbs, sentence case, no
+    # filler").
+    for text in (SESSION_RAIL_EMPTY_TITLE, SESSION_RAIL_EMPTY_BODY):
+        assert text == text[0].upper() + text[1:]
+        assert not text.isupper()
+        for mechanism in ("session", "row", "record", "database", "null"):
+            assert mechanism not in text.lower(), f"{text!r} names the mechanism"
+
+
+def test_the_rail_read_failure_names_the_read_and_offers_the_retry():
+    """AC 7, and the skill verbatim: "errors don't apologize, and they are
+    never vague about what happened".
+
+    Three claims, and the third is the one that would rot silently. First, the
+    line names what failed -- the reader's chats, not "data". Second, it offers
+    the action, spelled with the same word its control carries, so RETRY_LABEL
+    is asserted *into* the sentence rather than beside it (the shape
+    admin_copy's REFRESH_LABEL / FAULT_MESSAGE_TEMPLATE pair uses). Third, it
+    states that the screen did not move: STORY-015 established that a failed
+    read leaves the transcript alone, and a fault line that omits that leaves
+    the reader unsure which chat the bubbles belong to.
+    """
+    assert "chats" in SESSION_RAIL_FAULT_TITLE.lower()
+    assert RETRY_LABEL.lower() in SESSION_RAIL_FAULT_BODY.lower()
+    assert "nothing on screen has changed" in SESSION_RAIL_FAULT_BODY.lower()
+
+    for text in (SESSION_RAIL_FAULT_TITLE, SESSION_RAIL_FAULT_BODY):
+        lowered = text.lower()
+        # No apology, in any of its usual disguises.
+        for apology in ("sorry", "apolog", "unfortunately", "oops"):
+            assert apology not in lowered, f"{text!r} apologizes"
+        # No vagueness, and no mechanism. "Something went wrong" is the
+        # sentence this loop exists to refuse.
+        for vague in ("something went wrong", "an error", "try again later"):
+            assert vague not in lowered, f"{text!r} is vague: {vague!r}"
+        for mechanism in ("session", "exception", "traceback", "null", "500"):
+            assert mechanism not in lowered, f"{text!r} names the mechanism"

@@ -166,3 +166,72 @@ SESSION_ORDER_STALE_NOTICE = (
 TRANSCRIPT_NOT_LOADED_NOTICE = (
     "This chat could not be loaded. The conversation on screen is unchanged."
 )
+
+# --- Session rail --------------------------------------------------------
+# The rest of the rail's words, and the last of them: the blocks above hold the
+# six strings STORY-012, STORY-014, STORY-015 and STORY-016 each needed early,
+# and each of those blocks names this one as the owner of the remainder. Every
+# constant below has a consumer in Phase 4 -- STORY-018's component for nine of
+# them, STORY-019's collapse for the tenth -- because a rail string with no
+# consumer is a string that should not have been added.
+
+# The control, and what it produces, share one name (frontend-design: "an
+# action keeps the same name through the whole flow"). PRD-008 Section 6.1
+# fixes the words: "The control is **New chat**, and what it produces is a
+# chat."
+SESSION_NEW_CHAT_LABEL = "New chat"
+
+# The empty rail. It is an invitation, never a census: PRD-008 Section 6.1,
+# "the empty rail reads as an invitation to start one rather than as a report
+# that none exist", which is the skill's "an empty screen is an invitation to
+# act" applied to this surface. "No chats yet." is the sentence this pair
+# exists to refuse. The body says *below* because creation is lazy -- PRD-008
+# Section 4, "a session row is written on the first send, never on page load"
+# -- so the first chat is made by sending, not by clicking New chat.
+SESSION_RAIL_EMPTY_TITLE = "Start your first chat."
+SESSION_RAIL_EMPTY_BODY = "Send a prompt below and this conversation appears here."
+
+# The read that failed, in the shape admin_copy.FAULT_TITLE and
+# FAULT_MESSAGE_TEMPLATE already solved for the register: name the read, state
+# that the screen did not move, give the action, and spell the action with the
+# same word its control carries -- RETRY_LABEL above, unchanged and not
+# re-declared.
+#
+# No {detail} placeholder, deliberately, and this is the one place this block
+# departs from the register's template. `ChatState.sessions_error` holds
+# `str(exc)` from a ChatSessionError raised as f"{operation} failed: {exc}"
+# (app/services/chat_sessions.py), so its text is the storage layer describing
+# itself, and the skill is explicit: "name things by what people control and
+# recognize, never by how the system is built." So STORY-018 renders these two
+# constants and treats `sessions_error` as the trigger, not as the text.
+SESSION_RAIL_FAULT_TITLE = "Could not read your chats."
+SESSION_RAIL_FAULT_BODY = "Nothing on screen has changed. Retry to read them again."
+
+# The window, stated the way the register states its own
+# (admin_copy.REGISTER_SCOPE_TEMPLATE, identical wording). PRD-006 Risk 4 is
+# the reason a cap is never silent: a truncated list beside no scope "invites a
+# wrong reading", and a rail that quietly stops at CHAT_SESSION_LIMIT would
+# read as a complete list of the user's chats. Re-declared rather than
+# imported: admin_copy's own docstring fixes that boundary -- "this module
+# imports nothing at all" -- and the two surfaces stay separately editable.
+SESSION_RAIL_SCOPE_TEMPLATE = "{shown} most recent of {total}"
+
+# Rename: the verb on the affordance, and the field's label. The placeholder
+# names the thing the reader is naming, not the operation being performed on it
+# -- a label labels (frontend-design: "let each element do exactly one job").
+# An empty title is refused silently by `ChatState.rename_session`, deliberately
+# per its own docstring, so there is no rename-failed string here to go unused.
+SESSION_RENAME_LABEL = "Rename"
+SESSION_RENAME_PLACEHOLDER = "Chat name"
+
+# The delete confirmation's other door. SESSION_DELETE_CONFIRM_LABEL above is
+# the affordance and the confirming button both; this is the one that walks
+# away, and it says what it does rather than "Cancel" -- the reader is choosing
+# between two outcomes for the chat, not between acting and aborting.
+SESSION_DELETE_CANCEL_LABEL = "Keep chat"
+
+# STORY-019's collapse control, declared here for the same reason that story
+# declares its breakpoint token in theme.py: one file for the words, one for
+# the sizes, and a literal in a component is the defect both rules exist to
+# prevent. Named for what it shows, which is what the rail is a list of.
+SESSION_RAIL_SHOW_LABEL = "Chats"
