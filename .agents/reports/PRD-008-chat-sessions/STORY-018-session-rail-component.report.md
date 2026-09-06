@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: 117b2b3
+commit: 117b2b3, 9080655
 status: COMPLETE
 completed: 2026-09-06
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-06
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `117b2b3`
+**Commit**: `117b2b3` (component) + `9080655` (AC 10)
 
 ## Summary
 
