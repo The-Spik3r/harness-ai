@@ -2192,3 +2192,513 @@ def test_the_rehydration_reads_every_stored_field():
     }
 
     assert expected <= read, f"_to_chat_message drops {sorted(expected - read)}"
+
+
+# ---------------------------------------------------------------------------
+# New chat, rename, delete, logout (STORY-016)
+# ---------------------------------------------------------------------------
+
+
+def _new_chat(state: ChatState) -> None:
+    handler = type(state).event_handlers["new_chat"]
+    handler.fn(state)
+
+
+async def _rename(state: ChatState, session_id: str, title: str) -> None:
+    handler = type(state).event_handlers["rename_session"]
+    await handler.fn(state, session_id, title)
+
+
+async def _delete(state: ChatState, session_id: str) -> None:
+    handler = type(state).event_handlers["delete_session"]
+    await handler.fn(state, session_id)
+
+
+def _title_of(session_id: str, user_id: str = _AUTH_USER_ID) -> str:
+    row = next(r for r in _session_rows(user_id) if r.session_id == session_id)
+    return row.title
+
+
+def _updated_at_of(session_id: str, user_id: str = _AUTH_USER_ID) -> str:
+    row = next(r for r in _session_rows(user_id) if r.session_id == session_id)
+    return row.updated_at
+
+
+_OTHER_USER_ID = "otra@empresa.com"
+_OTHER_TOKEN = "other-user-token"
+
+
+def _seed_other_user_session(title: str = "Not yours") -> str:
+    """A second identity with one session -- the foreign row AC 10 is about."""
+    insert_user(
+        User(user_id=_OTHER_USER_ID, role="user", token_hash=hash_token(_OTHER_TOKEN))
+    )
+    return create_chat_session(_OTHER_USER_ID, title)
+
+
+@pytest.mark.asyncio
+async def test_new_chat_clears_the_active_id_and_the_transcript_and_writes_nothing(
+    temp_db, monkeypatch
+):
+    """AC 1: `active_session_id` and `messages` are cleared and no row is
+    written."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "first subject")
+    assert state.active_session_id
+    assert state.messages
+    before = count_chat_sessions(_AUTH_USER_ID)
+
+    _new_chat(state)
+
+    assert state.active_session_id == ""
+    assert state.messages == []
+    assert count_chat_sessions(_AUTH_USER_ID) == before == 1
+
+
+def test_new_chat_twice_with_no_send_leaves_no_session(temp_db):
+    """AC 2: the lazy rule, stated as the absence it is. Two clicks and an
+    empty table -- an opened-and-abandoned tab leaves nothing behind."""
+    state = _make_state()
+
+    _new_chat(state)
+    _new_chat(state)
+
+    assert count_chat_sessions(_AUTH_USER_ID) == 0
+    assert _session_rows() == []
+    assert state.active_session_id == ""
+
+
+@pytest.mark.asyncio
+async def test_new_chat_then_a_send_creates_exactly_one_session(temp_db, monkeypatch):
+    """AC 1's second half: "the next send creates the session". The first chat
+    stays in the rail; the new one joins it."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "first subject")
+    first = state.active_session_id
+
+    _new_chat(state)
+    await _send(state, "second subject")
+    second = state.active_session_id
+
+    assert second and second != first
+    assert count_chat_sessions(_AUTH_USER_ID) == 2
+    assert {s.session_id for s in state.sessions} == {first, second}
+    # The new chat is the most recently active, so it leads the rail.
+    assert state.sessions[0].session_id == second
+
+
+@pytest.mark.asyncio
+async def test_rename_persists_and_updates_the_rail_without_moving_the_row(
+    temp_db, monkeypatch
+):
+    """AC 3: the title persists, the rail updates, and `updated_at` is not
+    touched -- so the row does not move under the user's cursor."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    older_state = _make_state()
+    await _send(older_state, "older subject")
+    older = older_state.active_session_id
+
+    state = _make_state()
+    await _send(state, "newer subject")
+    newer = state.active_session_id
+    _backdate_session(older, hours_ago=3)
+
+    # Both chats in one rail, newest first, so a reorder would be visible.
+    state.sessions = [
+        ChatSessionSummary(
+            session_id=newer, title=_title_of(newer), activity_info="just now"
+        ),
+        ChatSessionSummary(
+            session_id=older, title=_title_of(older), activity_info="3h ago"
+        ),
+    ]
+    order_before = [s.session_id for s in state.sessions]
+    activity_before = [s.activity_info for s in state.sessions]
+    updated_before = _updated_at_of(older)
+    newer_title = _title_of(newer)
+
+    await _rename(state, older, "Vendor contract review")
+
+    # Persisted.
+    assert _title_of(older) == "Vendor contract review"
+    # The rail updated, at the same index, keeping its activity string.
+    assert [s.session_id for s in state.sessions] == order_before
+    assert [s.activity_info for s in state.sessions] == activity_before
+    assert state.sessions[1].title == "Vendor contract review"
+    assert state.sessions[0].title == newer_title
+    # A rename is not activity: the timestamp is byte-identical.
+    assert _updated_at_of(older) == updated_before
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n "])
+async def test_a_blank_rename_is_refused_and_the_existing_title_stands(
+    temp_db, monkeypatch, blank
+):
+    """AC 4. Refused silently: the refusal is of the input, not of the system,
+    and the title standing is the whole feedback."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "keep this title")
+    session_id = state.active_session_id
+    title_before = _title_of(session_id)
+    rail_before = [(s.session_id, s.title) for s in state.sessions]
+
+    await _rename(state, session_id, blank)
+
+    assert _title_of(session_id) == title_before
+    assert [(s.session_id, s.title) for s in state.sessions] == rail_before
+    # No notice: the rail's list is not what went wrong.
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_a_rename_survives_the_next_send_and_is_never_re_derived(
+    temp_db, monkeypatch
+):
+    """Technical Notes: "a rename that re-derives on the next send would
+    silently undo the user's edit". derive_title runs once, at creation."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "summarise the Q3 vendor spend")
+    session_id = state.active_session_id
+    assert _title_of(session_id) == derive_title("summarise the Q3 vendor spend")
+
+    await _rename(state, session_id, "Vendor contract review")
+    await _send(state, "and the Q4 figures too")
+
+    assert _title_of(session_id) == "Vendor contract review"
+    assert _title_of(session_id) != derive_title("and the Q4 figures too")
+    # The rail carries the stored title, not a re-derived one.
+    assert state.sessions[0].title == "Vendor contract review"
+
+
+@pytest.mark.asyncio
+async def test_a_rename_is_stored_stripped(temp_db, monkeypatch):
+    """The other half of AC 4's whitespace rule: a title that is not blank but
+    is padded is one rename, not two different ones."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "anything")
+    session_id = state.active_session_id
+
+    await _rename(state, session_id, "  Payroll question  ")
+
+    assert _title_of(session_id) == "Payroll question"
+    assert state.sessions[0].title == "Payroll question"
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_the_session_and_its_messages_and_no_audit_row(
+    temp_db, monkeypatch
+):
+    """AC 5: the session and its messages are removed, the rail drops the row,
+    and the audit trail is untouched across the delete."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "delete me")
+    await _send(state, "and this turn too")
+    session_id = state.active_session_id
+
+    # run_query is patched out, so the pipeline wrote no audit row -- and an
+    # unchanged count of zero would assert nothing. Seed the rows this
+    # conversation would really have produced, carrying its session_id, so the
+    # assertion below is about evidence that actually exists and is actually
+    # joined to the chat being deleted.
+    for prompt in ("delete me", "and this turn too"):
+        insert_audit_log(
+            AuditLog(
+                timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
+                user_id=_AUTH_USER_ID,
+                prompt_hash=hash_prompt(prompt),
+                session_id=session_id,
+            )
+        )
+
+    assert _stored_messages(session_id)
+    audit_before = _count_audit_rows()
+    assert audit_before == 2
+
+    await _delete(state, session_id)
+
+    assert count_chat_sessions(_AUTH_USER_ID) == 0
+    assert _stored_messages(session_id) == []
+    assert [s.session_id for s in state.sessions] == []
+    # PRD Section 9: deleting a conversation deletes a conversation. It does
+    # not edit the record of what was asked. The orphaned session_id on those
+    # rows is expected -- "it is what preserves the evidence when a user tidies
+    # their list".
+    assert _count_audit_rows() == audit_before
+    with get_connection() as conn:
+        orphaned = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_logs WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()["n"]
+    assert orphaned == 2
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_active_session_lands_on_the_next_most_recent(
+    temp_db, monkeypatch
+):
+    """AC 6: the UI lands on the next most recent session."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    older_state = _make_state()
+    await _send(older_state, "older one")
+    await _send(older_state, "older two")
+    older = older_state.active_session_id
+
+    state = _make_state()
+    await _send(state, "newer one")
+    await _send(state, "newer two")
+    newer = state.active_session_id
+    _backdate_session(older, hours_ago=3)
+
+    # The rail as login() would build it: newest activity first.
+    state.sessions = [
+        ChatSessionSummary(session_id=newer, title="newer", activity_info="just now"),
+        ChatSessionSummary(session_id=older, title="older", activity_info="3h ago"),
+    ]
+
+    await _delete(state, newer)
+
+    assert state.active_session_id == older
+    assert [s.session_id for s in state.sessions] == [older]
+    assert [m.content for m in state.messages if m.kind == "user"] == ["older two"]
+    assert all("newer" not in m.content for m in state.messages)
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_last_session_lands_on_the_empty_state(
+    temp_db, monkeypatch
+):
+    """AC 6's other arm: "or on the empty state if none remains"."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "the only chat")
+    session_id = state.active_session_id
+    assert state.messages
+
+    await _delete(state, session_id)
+
+    assert state.active_session_id == ""
+    assert state.messages == []
+    assert state.sessions == []
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_non_active_session_leaves_the_transcript_alone(
+    temp_db, monkeypatch
+):
+    """AC 6 read the other way: a chat the reader is not looking at changes
+    the rail and nothing else."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    other_state = _make_state()
+    await _send(other_state, "the doomed chat")
+    doomed = other_state.active_session_id
+
+    state = _make_state()
+    await _send(state, "the chat on screen")
+    active = state.active_session_id
+    state.sessions = [
+        ChatSessionSummary(session_id=active, title="on screen", activity_info="now"),
+        ChatSessionSummary(session_id=doomed, title="doomed", activity_info="now"),
+    ]
+    messages_before = list(state.messages)
+
+    await _delete(state, doomed)
+
+    assert state.active_session_id == active
+    assert state.messages == messages_before
+    assert [s.session_id for s in state.sessions] == [active]
+    assert count_chat_sessions(_AUTH_USER_ID) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_after_a_delete_never_lands_on_the_deleted_transcript(
+    temp_db, monkeypatch
+):
+    """AC 6's absolute: "never on a transcript belonging to a deleted id".
+
+    The one place in the class where a failed read empties the screen, and the
+    deliberate divergence from select_session -- whose transcript is still a
+    real conversation when its read fails, and whose is not here.
+    """
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    older_state = _make_state()
+    await _send(older_state, "older one")
+    older = older_state.active_session_id
+
+    state = _make_state()
+    await _send(state, "doomed one")
+    await _send(state, "doomed two")
+    doomed = state.active_session_id
+    _backdate_session(older, hours_ago=3)
+    state.sessions = [
+        ChatSessionSummary(session_id=doomed, title="doomed", activity_info="now"),
+        ChatSessionSummary(session_id=older, title="older", activity_info="3h ago"),
+    ]
+
+    def _raise_on_read(*args, **kwargs):
+        raise ChatSessionError("messages_for failed: store is down")
+
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "messages_for", _raise_on_read)
+
+    await _delete(state, doomed)
+
+    assert state.messages == []
+    assert state.active_session_id == older
+    assert state.sessions_error == TRANSCRIPT_NOT_LOADED_NOTICE
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_every_session_var_and_every_row_survives(
+    temp_db, monkeypatch
+):
+    """AC 8, and the story's central distinction: logout() clears state,
+    delete_session() deletes rows."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "first chat")
+    first = state.active_session_id
+    _new_chat(state)
+    await _send(state, "second chat")
+    second = state.active_session_id
+    state.sessions_error = "something stale"
+
+    sessions_before = count_chat_sessions(_AUTH_USER_ID)
+    messages_before = len(_stored_messages(first)) + len(_stored_messages(second))
+    assert sessions_before == 2
+    assert messages_before > 0
+
+    state.logout()
+
+    assert state.sessions == []
+    assert state.active_session_id == ""
+    assert state.messages == []
+    assert state.sessions_error == ""
+    assert state.transcript_error == ""
+    assert state._token == ""
+    assert state.user_id == ""
+
+    # Every row survives. This is the assertion the story asks for by name.
+    assert count_chat_sessions(_AUTH_USER_ID) == sessions_before
+    assert (
+        len(_stored_messages(first)) + len(_stored_messages(second)) == messages_before
+    )
+
+
+@pytest.mark.asyncio
+async def test_signing_back_in_lists_the_sessions_again(temp_db, monkeypatch):
+    """AC 9: the rows survived, so the rail comes back."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "first chat")
+    first = state.active_session_id
+    _new_chat(state)
+    await _send(state, "second chat")
+    second = state.active_session_id
+
+    # Backdate rather than rely on creation order: both rows can land in the
+    # same second on a TEXT timestamp, and that tie breaks arbitrarily -- the
+    # reason test_login_opens_the_most_recently_active_chat does the same.
+    _backdate_session(first, hours_ago=3)
+
+    state.logout()
+    assert state.sessions == []
+
+    fresh = ChatState(_reflex_internal_init=True)
+    fresh.token_input = _AUTH_TOKEN
+    await fresh.login()
+
+    assert {s.session_id for s in fresh.sessions} == {first, second}
+    assert fresh.active_session_id == second
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler", ["rename_session", "delete_session"])
+async def test_a_foreign_session_id_changes_nothing(temp_db, monkeypatch, handler):
+    """AC 10, and PRD Risk 3: `session_id` is client-visible and names a row.
+
+    Neither handler validates it and neither should -- the service scopes the
+    WHERE on the freshly resolved Identity and returns False for a foreign id,
+    an unknown id and history-off alike.
+    """
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    foreign = _seed_other_user_session("Not yours")
+    foreign_title_before = _title_of(foreign, _OTHER_USER_ID)
+
+    state = _make_state()
+    await _send(state, "my own chat")
+    mine = state.active_session_id
+    rail_before = [(s.session_id, s.title) for s in state.sessions]
+    messages_before = list(state.messages)
+
+    if handler == "rename_session":
+        await _rename(state, foreign, "Mine now")
+    else:
+        await _delete(state, foreign)
+
+    # The foreign row is untouched, in both directions.
+    assert count_chat_sessions(_OTHER_USER_ID) == 1
+    assert _title_of(foreign, _OTHER_USER_ID) == foreign_title_before
+    # And nothing of the caller's moved either.
+    assert [(s.session_id, s.title) for s in state.sessions] == rail_before
+    assert state.messages == messages_before
+    assert state.active_session_id == mine
+    assert count_chat_sessions(_AUTH_USER_ID) == 1
+
+
+def test_logout_calls_no_service_and_can_write_nothing():
+    """The structural half of "logout() clears state, delete_session() deletes
+    rows".
+
+    A comment saying "this must not delete" is exactly the artifact that
+    survives the edit that makes it false. The AST walk is the shape
+    test_chat_state_never_names_the_history_flag and the _do_send append guard
+    already use in this file: the drift fails a test rather than a review. A
+    logout that reached for chat_sessions.delete to "tidy up" the list would
+    destroy a user's history on every sign-out of a shared machine.
+    """
+    tree = ast.parse(pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8"))
+    logout = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "logout"
+    )
+
+    # Synchronous by declaration: it is not an AsyncFunctionDef, so there is no
+    # await to hang a service call on without changing the signature.
+    assert not isinstance(logout, ast.AsyncFunctionDef)
+    assert not [n for n in ast.walk(logout) if isinstance(n, ast.Await)]
+
+    called = {
+        node.func.attr
+        for node in ast.walk(logout)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert called == set(), f"logout calls {sorted(called)}"
+
+    names = {node.id for node in ast.walk(logout) if isinstance(node, ast.Name)}
+    assert "chat_sessions" not in names
+    assert "asyncio" not in names
+    assert "resolve" not in names

@@ -35,6 +35,9 @@ from chat_ui.chat_ui.copy import (
     SESSION_ORDER_STALE_NOTICE,
     # STORY-015: the read counterpart of the two above.
     TRANSCRIPT_NOT_LOADED_NOTICE,
+    # STORY-016: the delete flow's two words.
+    SESSION_DELETE_CONFIRM_TEMPLATE,
+    SESSION_DELETE_CONFIRM_LABEL,
 )
 from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
@@ -634,3 +637,79 @@ def test_the_load_notice_says_the_screen_is_unchanged_and_claims_no_lost_turn():
     assert "not saved" not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
     # AC 9's promise, in the string that makes it.
     assert "unchanged" in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+
+
+def test_the_delete_confirmation_names_the_chat_and_keeps_the_record():
+    """STORY-016 AC 7, as copy.
+
+    PRD-008 Section 9 is the source: "`delete_chat_session` removes rows from
+    `chat_sessions` and `chat_messages` only. `audit_logs` is append-only and
+    stays so... The confirmation copy says this in the user's words." Both
+    halves are asserted -- the promise is present, and the schema's vocabulary
+    is absent. A confirmation that said "audit_logs rows are retained" would
+    be true and useless; one that said nothing about the record would leave
+    the reader in an audited system guessing at the one fact they want.
+    """
+    assert SESSION_DELETE_CONFIRM_TEMPLATE
+    assert SESSION_DELETE_CONFIRM_LABEL
+
+    # One placeholder, filled per row by STORY-018's rx.foreach.
+    assert SESSION_DELETE_CONFIRM_TEMPLATE.count("{title}") == 1
+    filled = SESSION_DELETE_CONFIRM_TEMPLATE.format(title="Q3 vendor spend")
+    assert "Q3 vendor spend" in filled
+    assert "{" not in filled and "}" not in filled
+
+    # The promise the reader is owed, in the words they use.
+    assert "kept" in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+    # ...and never in the words the system uses.
+    for word in (
+        "audit",
+        "audit_logs",
+        "row",
+        "rows",
+        "table",
+        "database",
+        "sql",
+        "schema",
+        "chat_sessions",
+        "chat_messages",
+    ):
+        assert word not in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+
+    # The same voice rules the notices above are held to.
+    assert SESSION_DELETE_CONFIRM_TEMPLATE[0].isupper()
+    for word in ("sorry", "apologise", "apologize", "oops", "unfortunately"):
+        assert word not in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+
+
+def test_the_delete_action_keeps_its_name_through_the_flow():
+    """The frontend-design skill, verbatim: "An action keeps the same name
+    through the whole flow, so the button that says 'Publish' produces a toast
+    that says 'Published.'"
+
+    The affordance says Delete and so does its confirmation. Nothing in this
+    flow says Remove -- a second word for one action is a second thing to
+    learn, and the vocabulary of an interface is its signposting.
+    """
+    assert SESSION_DELETE_CONFIRM_LABEL == "Delete"
+    assert "delete" in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+    for text in (SESSION_DELETE_CONFIRM_TEMPLATE, SESSION_DELETE_CONFIRM_LABEL):
+        assert "remove" not in text.lower()
+        assert "discard" not in text.lower()
+
+
+def test_the_delete_confirmation_is_permanent_about_the_chat_and_only_the_chat():
+    """The one claim in the string that could be false in the wrong direction.
+
+    Deleting a chat *is* permanent -- `database.delete_chat_session` drops the
+    session and its messages in one transaction with no recovery path -- so
+    saying so is accurate and the reader deserves it before they confirm. What
+    must never be permanent-sounding is the record: the same string says it is
+    kept, and the two claims must sit on opposite sides of the sentence.
+    """
+    lowered = SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+    # Whatever wording carries the finality, it is about the chat.
+    assert "for good" in lowered or "permanent" in lowered or "cannot be undone" in lowered
+    # And the record is kept in the same breath, so no reader confirms one
+    # believing the other.
+    assert "kept" in lowered

@@ -112,6 +112,33 @@ SESSION_UNTITLED_TITLE = "Untitled chat"
 # will not parse costs the relative reading, not the row.
 SESSION_ACTIVITY_UNKNOWN = "no recent activity"
 
+# --- Session deletion ----------------------------------------------------
+# STORY-016 owns the delete flow, so its two words live here; the rest of the
+# rail's strings -- the New chat label, the empty-rail invitation, the read
+# failure line, the rename affordance -- are STORY-017's, exactly as the
+# Session fallbacks block above says. Two stories cannot both write one
+# constant, and this is the one STORY-016's own AC requires.
+#
+# PRD-008 Section 9 is the source and governs the second sentence: "`audit_logs`
+# is append-only and stays so... The confirmation copy says this in the user's
+# words." So the promise is made in what the reader controls and recognizes --
+# the chat goes, the record of what was checked stays -- and never in the
+# schema's terms (frontend-design: "Name things by what people control and
+# recognize, never by how the system is built").
+#
+# One `{title}` placeholder, the shape PII_BADGE_TEMPLATE above already uses:
+# STORY-018 formats it per row inside an `rx.foreach`, and a Reflex Var
+# interpolates through `str.format` into the same Var-embedded string an
+# f-string produces.
+SESSION_DELETE_CONFIRM_TEMPLATE = (
+    "Delete “{title}”? The chat and its messages go for good. The record of "
+    "what was checked is kept."
+)
+# The action keeps its name through the whole flow (frontend-design: "the
+# button that says 'Publish' produces a toast that says 'Published'"), so the
+# affordance, this confirmation and nothing else all say Delete. Not Remove.
+SESSION_DELETE_CONFIRM_LABEL = "Delete"
+
 # --- Transcript persistence ----------------------------------------------
 # PRD-008 Risk 5: the model answered and the audit row is already written --
 # only the saving failed, and the notice says exactly that much. It names the

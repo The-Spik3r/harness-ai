@@ -252,18 +252,67 @@ class ChatState(rx.State):
     def logout(self):
         """Ends the session. The transcript goes with it: the header names who
         is sending, so leaving one user's prompts on screen under another's ID
-        would misattribute them in a surface people read as a record."""
+        would misattribute them in a surface people read as a record.
+
+        **The rail goes for the same reason.** A session list is a list of one
+        person's subjects -- *Quarterly close reconciliation*, *Payroll
+        question* -- and reading it under the next person's ID misattributes
+        them exactly as the bubbles would. So `sessions`, `active_session_id`
+        and `sessions_error` clear here too.
+
+        **This handler writes nothing, and that is the whole of it.** It calls
+        no service, resolves no Identity and is synchronous so that awaiting one
+        would take a signature change. `logout()` clears state;
+        `delete_session()` deletes rows. Conflating them -- "tidying up" the
+        list here by deleting it in the database -- would destroy a user's
+        history every time they signed out of a shared machine, which is the
+        one thing this story is written to make impossible. The rows survive;
+        signing back in lists them again.
+        """
         self._token = ""
         self.user_id = ""
         self.token_input = ""
         self.login_error = ""
         self.messages = []
         self.input_text = ""
-        # The notice is *about* the transcript being cleared on the line above,
-        # so leaving it standing would report a lost turn for a conversation
-        # that is no longer on screen. STORY-016 clears `sessions`,
-        # `active_session_id` and `sessions_error`; this one belongs with
-        # `messages`.
+        self.sessions = []
+        self.active_session_id = ""
+        self.sessions_error = ""
+        # The notice is *about* the transcript being cleared above, so leaving
+        # it standing would report a lost turn for a conversation that is no
+        # longer on screen. Its rail counterpart, `sessions_error`, clears with
+        # `sessions` for the same reason.
+        self.transcript_error = ""
+
+    @rx.event
+    def new_chat(self):
+        """Opens a blank chat. **Nothing is written, and that is the feature.**
+
+        STORY-013 made creation lazy -- PRD-008 Section 4, verbatim: "a session
+        row is written on the first send, never on page load -- an
+        opened-and-abandoned tab leaves nothing behind." So starting a chat is
+        the act of emptying `active_session_id`, and `_do_send`'s `if not
+        session_id:` arm does the rest on the first send. Calling
+        `chat_sessions.create` here would put the abandoned-tab row back: click
+        this ten times and the rail would grow ten empty chats.
+
+        Two vars are deliberately left alone. `input_text` is the person's
+        half-typed text and belongs to them rather than to the chat, which is
+        the choice `select_session` already makes; `logout` clears it only
+        because the person themselves is leaving. `sessions_error` is the
+        rail's slot -- a list that failed to load is still failed after
+        starting a new chat.
+
+        The `pending` guard is `select_session`'s, for the sharper half of its
+        reason: clearing `messages` under an in-flight send files that send's
+        answer into a chat the user has already left.
+        """
+        if self.pending:
+            return
+        self.active_session_id = ""
+        self.messages = []
+        # About the transcript cleared on the line above, so it cannot outlive
+        # it -- the reasoning `logout` and `select_session` both record.
         self.transcript_error = ""
 
     @rx.event
@@ -323,6 +372,165 @@ class ChatState(rx.State):
         # var.
         self.transcript_error = ""
 
+    @rx.event
+    async def rename_session(self, session_id: str, title: str):
+        """Retitles an owned chat, in place, without moving it.
+
+        Plain async, not `background=True`, for the reason `login` and
+        `select_session` both state: the handler holds the exclusive state lock
+        for its whole duration, so `self` is the real state, mutations are
+        direct, and an `async with self` here would deadlock on a lock this
+        handler already holds.
+
+        **A rename is not activity.** `database.rename_chat_session` refuses to
+        move `updated_at` and records why -- "a rename that bumped the
+        timestamp would reorder the rail and move the row the user was looking
+        at while they were looking at it". This is the state layer's half of
+        that: the row is replaced at its own index, keeping the
+        `activity_info` it already had, and nothing re-sorts. Calling `touch`
+        here, or recomputing the activity string from a fresh clock, would undo
+        the store's care at the last step.
+
+        **Nothing re-derives the title.** `formatting.derive_title` is called
+        exactly once per session, inside `chat_sessions.create`, and this
+        handler adds no second call site -- which is what makes a rename
+        survive the next send rather than being silently reverted by it.
+
+        An empty or whitespace title is refused before any identity work and
+        **silently**: the refusal is of the input, not of the system, and the
+        existing title standing is the whole feedback. Putting a notice on
+        `sessions_error` for a keystroke would report a stale list for
+        something that is not about the list.
+
+        `session_id` is untrusted (PRD-008 Risk 3) and is not validated here.
+        `chat_sessions.rename` scopes the `WHERE` on the freshly resolved
+        Identity and returns `False` for a foreign id, an unknown id and
+        history being off alike -- one arm, and a caller that cannot tell them
+        apart.
+        """
+        title = title.strip()
+        if not title:
+            return
+
+        identity = resolve(self._token)
+        if identity is None:
+            self.sessions_error = SESSION_INVALIDATED_ERROR
+            return
+
+        try:
+            renamed = await asyncio.to_thread(
+                chat_sessions.rename, identity, session_id, title
+            )
+        except ChatSessionError as exc:
+            self.sessions_error = str(exc)
+            return
+
+        if not renamed:
+            return
+
+        # Replaced at its index, not moved to the front: the whole list is
+        # reassigned because a Reflex list var is replaced rather than mutated
+        # in place, but the order is the one it already had.
+        self.sessions = [
+            ChatSessionSummary(
+                session_id=row.session_id,
+                title=title,
+                activity_info=row.activity_info,
+            )
+            if row.session_id == session_id
+            else row
+            for row in self.sessions
+        ]
+        self.sessions_error = ""
+
+    @rx.event
+    async def delete_session(self, session_id: str):
+        """Deletes an owned chat and its transcript, then lands somewhere real.
+
+        Plain async and never `background=True`, per `rename_session` above.
+
+        **This is the handler that deletes rows.** `logout()` clears state and
+        writes nothing; this one writes and clears nothing else. The two must
+        not borrow each other's mechanism, which is why neither calls the
+        other's.
+
+        **It asks nothing.** `rx.window_alert` and `rx.alert_dialog` both exist
+        in the pinned Reflex, and neither is used: the confirmation is
+        STORY-018's component, and a state handler that popped its own dialog
+        would put the flow's gate in a layer the component cannot replace. This
+        handler *is* the confirmed branch. The words it is confirmed with are
+        `copy.SESSION_DELETE_CONFIRM_TEMPLATE`.
+
+        **`audit_logs` is untouched**, because the only write here is
+        `chat_sessions.delete`, whose statements name `chat_sessions` and
+        `chat_messages` and nothing else (PRD Section 9: the orphaned
+        `session_id` on the audit rows "is what preserves the evidence when a
+        user tidies their list").
+
+        **Where the screen lands.** `self.sessions` is `list_for`'s output,
+        `ORDER BY updated_at DESC`, so after dropping the deleted row index 0
+        *is* the next most recent chat -- read from the list already in hand
+        rather than re-listed, since a stale row costs a failed read and its
+        notice, not a wrong transcript.
+
+        **The one place in this class where a failed read empties the screen.**
+        `select_session` leaves the old transcript standing when a read fails,
+        because it is still a real conversation the reader could be looking at.
+        Here it is not: it belongs to the session just deleted, and landing on
+        it is the single outcome this story forbids. So the failure arm clears
+        `messages` and reports on the rail's slot.
+        """
+        if self.pending:
+            return
+
+        identity = resolve(self._token)
+        if identity is None:
+            self.sessions_error = SESSION_INVALIDATED_ERROR
+            return
+
+        try:
+            deleted = await asyncio.to_thread(
+                chat_sessions.delete, identity, session_id
+            )
+        except ChatSessionError as exc:
+            self.sessions_error = str(exc)
+            return
+
+        if not deleted:
+            # Foreign, unknown, and history-off in one arm -- `rename_session`
+            # records the reason. Nothing is mutated, so the rail is unaffected.
+            return
+
+        remaining = [row for row in self.sessions if row.session_id != session_id]
+        self.sessions = remaining
+        self.sessions_error = ""
+
+        if self.active_session_id != session_id:
+            # A chat the reader is not looking at: the rail changes and the
+            # transcript on screen does not.
+            return
+
+        # The transcript below is replaced or emptied either way, so its notice
+        # cannot outlive it.
+        self.transcript_error = ""
+
+        if not remaining:
+            self.active_session_id = ""
+            self.messages = []
+            return
+
+        next_id = remaining[0].session_id
+        try:
+            restored = await self._read_transcript(identity, next_id)
+        except Exception:
+            self.active_session_id = next_id
+            self.messages = []
+            self.sessions_error = TRANSCRIPT_NOT_LOADED_NOTICE
+            return
+
+        self.active_session_id = next_id
+        self.messages = restored
+
     def _promote_session(self, row: ChatSession, now: datetime) -> None:
         """Moves this session to the front of the rail, inserting it if new.
 
@@ -351,12 +559,15 @@ class ChatState(rx.State):
         """This session's stored bubbles, in write order, rehydrated.
 
         **Callable only from a plain async handler**, and the opposite rule to
-        `_append_and_persist` below. Both callers (`login` and
-        `select_session`) hold the exclusive state lock for their whole
+        `_append_and_persist` below. That is a rule about the handler kind and
+        not a list of names: every caller -- `login`, `select_session` and
+        `delete_session` -- holds the exclusive state lock for its whole
         duration, so `self` is the real state and an `async with self` here
-        would deadlock on a lock the caller already holds -- `login`'s own
-        docstring records the same rule for the same reason. Nothing here
-        mutates state; the caller does that with the returned list.
+        would deadlock on a lock the caller already holds. `login`'s own
+        docstring records the same rule for the same reason. A fourth caller is
+        welcome on the same terms and on no others: a background task must not
+        call this. Nothing here mutates state; the caller does that with the
+        returned list.
 
         The order is the store's (`ORDER BY id ASC`) and is not re-sorted: a
         second sort in a second module is a second opinion about the order,
