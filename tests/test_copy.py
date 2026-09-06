@@ -33,6 +33,8 @@ from chat_ui.chat_ui.copy import (
     # STORY-014: the two transcript-persistence notices, same rule.
     TRANSCRIPT_NOT_SAVED_NOTICE,
     SESSION_ORDER_STALE_NOTICE,
+    # STORY-015: the read counterpart of the two above.
+    TRANSCRIPT_NOT_LOADED_NOTICE,
 )
 from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
@@ -601,3 +603,34 @@ def test_transcript_notices_name_the_saving_and_never_the_answer():
     # The stale-order notice must not read as a lost turn -- AC 6.
     assert "not saved" not in SESSION_ORDER_STALE_NOTICE.lower()
     assert "saved" in SESSION_ORDER_STALE_NOTICE.lower()
+
+
+def test_the_load_notice_says_the_screen_is_unchanged_and_claims_no_lost_turn():
+    """STORY-015 AC 9, as copy.
+
+    The third notice in this family, and the reason it is a third string
+    rather than a reuse of either: a read that failed did not lose a turn, so
+    "not saved" would be false here, and the reader needs to know which
+    conversation the bubbles still on screen belong to.
+    """
+    assert TRANSCRIPT_NOT_LOADED_NOTICE
+
+    notices = (
+        TRANSCRIPT_NOT_SAVED_NOTICE,
+        SESSION_ORDER_STALE_NOTICE,
+        TRANSCRIPT_NOT_LOADED_NOTICE,
+    )
+    assert len(set(notices)) == 3
+
+    # The same shape and voice rules the two STORY-014 notices are held to.
+    assert TRANSCRIPT_NOT_LOADED_NOTICE[0].isupper()
+    assert TRANSCRIPT_NOT_LOADED_NOTICE.endswith(".")
+    for word in ("sorry", "apologise", "apologize", "oops", "unfortunately"):
+        assert word not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+    for word in ("sql", "database", "exception", "storageerror", "select"):
+        assert word not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+
+    # A failed *read* costs no turn: only the write notice may say so.
+    assert "not saved" not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+    # AC 9's promise, in the string that makes it.
+    assert "unchanged" in TRANSCRIPT_NOT_LOADED_NOTICE.lower()

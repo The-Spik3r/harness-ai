@@ -130,3 +130,12 @@ TRANSCRIPT_NOT_SAVED_NOTICE = (
 SESSION_ORDER_STALE_NOTICE = (
     "This chat is saved. The list order is out of date until you reload."
 )
+# The read counterpart of TRANSCRIPT_NOT_SAVED_NOTICE above. STORY-015 AC 9
+# requires the transcript on screen to be left alone when a load fails, so the
+# notice must say that the *previous* conversation is what the reader is still
+# looking at -- a bare "could not load" would leave them unsure which chat the
+# bubbles belong to. Names the consequence, not the mechanism, and does not
+# apologize.
+TRANSCRIPT_NOT_LOADED_NOTICE = (
+    "This chat could not be loaded. The conversation on screen is unchanged."
+)

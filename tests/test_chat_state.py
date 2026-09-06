@@ -1,5 +1,6 @@
 import ast
 import asyncio
+import dataclasses
 import os
 import pathlib
 
@@ -24,7 +25,7 @@ from app.db.database import (
     touch_chat_session,
 )
 from app.db.errors import StorageError
-from app.db.models import AuditLog, User
+from app.db.models import AuditLog, StoredMessage, User
 from app.main import app
 from app.models.schemas import (
     QueryBlockedDuplicateResponse,
@@ -48,9 +49,10 @@ from chat_ui.chat_ui.copy import (
     LOGIN_INVALID_TOKEN_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_ORDER_STALE_NOTICE,
+    TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
 )
-from chat_ui.chat_ui.formatting import derive_title
+from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 from chat_ui.chat_ui.models import ChatMessage, ChatSessionSummary
 
 client = TestClient(app)
@@ -1432,7 +1434,16 @@ async def test_the_first_send_puts_the_new_chat_at_the_front_of_the_rail(
 ):
     """AC 4's insert half. STORY-013's create leaves the new session out of
     `sessions`, so the reorder has to add it -- carrying the *stored* title,
-    never one re-derived here (`derive_title` runs exactly once per session)."""
+    never one re-derived here (`derive_title` runs exactly once per session).
+
+    The cleared `active_session_id` below is STORY-015's doing and is the whole
+    of what changed here. Sign-in now *opens* the most recently active chat
+    (STORY-015 AC 1), so a send straight after `login()` continues that chat
+    instead of creating one -- which is the story's point, not a regression.
+    Starting from an empty active id is what "New chat" will do in STORY-016,
+    and it is the only state in which a create still happens, so it is the
+    state this assertion has to be made from.
+    """
     monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
 
     existing = create_chat_session(_AUTH_USER_ID, "Older chat")
@@ -1441,6 +1452,8 @@ async def test_the_first_send_puts_the_new_chat_at_the_front_of_the_rail(
     state = ChatState(_reflex_internal_init=True)
     state.token_input = _AUTH_TOKEN
     await state.login()
+    assert state.active_session_id == existing
+    state.active_session_id = ""
 
     await _send(state, "summarise the Q3 vendor spend")
 
@@ -1620,3 +1633,562 @@ def test_every_bubble_append_in_do_send_goes_through_the_helper():
     # The eight append sites the story enumerates, collapsed to six calls: the
     # four isinstance branches already share one.
     assert len(helper_calls) == 6
+
+
+# ---------------------------------------------------------------------------
+# Transcript restore (STORY-015)
+# ---------------------------------------------------------------------------
+
+
+async def _select(state: ChatState, session_id: str) -> None:
+    handler = type(state).event_handlers["select_session"]
+    await handler.fn(state, session_id)
+
+
+async def _restore(session_id: str) -> ChatState:
+    """A fresh signed-in state showing `session_id` -- the reload, modelled."""
+    state = _make_state()
+    await _select(state, session_id)
+    return state
+
+
+# Every ChatMessage field a bubble renderer reads, minus the two duplicate
+# fields, which the recompute test owns because they are derived rather than
+# restored.
+_ROUND_TRIP_FIELDS = (
+    "kind",
+    "content",
+    "prompt",
+    "model_used",
+    "tokens_used",
+    "audit_id",
+    "pii_redacted",
+    "pii_entities",
+    "pattern",
+    "required_permission",
+    "first_query_at",
+    "detail",
+)
+
+
+def _fields(bubble: ChatMessage) -> dict:
+    return {name: getattr(bubble, name) for name in _ROUND_TRIP_FIELDS}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome,expected_kind",
+    [
+        (
+            QuerySuccessResponse(
+                response="ok", audit_id=7, model_used="gpt-4", tokens_used=42
+            ),
+            "assistant",
+        ),
+        (
+            QueryBlockedDuplicateResponse(
+                reason="Duplicate", first_query_at="2026-09-04T10:00:00Z"
+            ),
+            "duplicate",
+        ),
+        (
+            QueryBlockedSuspiciousResponse(
+                reason="Suspicious", pattern="ignore previous"
+            ),
+            "injection",
+        ),
+        (
+            QueryBlockedForbiddenResponse(
+                reason="Forbidden", required_permission=PERMISSION_QUERY_SUBMIT
+            ),
+            "forbidden",
+        ),
+        (OpenRouterError("upstream timeout"), "upstream_error"),
+        (PiiRedactorError("redactor down"), "internal_error"),
+    ],
+    ids=[
+        "assistant",
+        "duplicate",
+        "injection",
+        "forbidden",
+        "upstream_error",
+        "internal_error",
+    ],
+)
+async def test_every_bubble_kind_survives_the_round_trip(
+    temp_db, monkeypatch, outcome, expected_kind
+):
+    """AC 4 and AC 11: a store/restore round trip asserted **per kind**, not
+    once for a representative kind.
+
+    `user` is the seventh kind and rides along in every case, exactly as it
+    does in `test_every_bubble_kind_is_persisted` on the write side.
+
+    Two sends, not one: the first send appends the user bubble *before* the
+    lazy create, deliberately, so that bubble has no session to be filed
+    under. A restored first turn therefore starts at its outcome bubble --
+    inherited from STORY-014 and recorded in the plan's Deviations. The live
+    transcript's `[1:]` is what the store was ever given.
+    """
+    if isinstance(outcome, Exception):
+
+        def _fake(*args, **kwargs):
+            raise outcome
+
+    else:
+        _fake = _capturing_run_query(outcome)
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake)
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    live = state.messages[1:]
+    assert [m.kind for m in live] == [expected_kind, "user", expected_kind]
+
+    restored = (await _restore(state.active_session_id)).messages
+
+    assert [m.kind for m in restored] == [expected_kind, "user", expected_kind]
+    assert [_fields(m) for m in restored] == [_fields(m) for m in live]
+    # The seventh kind, asserted rather than assumed to have ridden along.
+    assert any(m.kind == "user" for m in restored)
+
+    # The two derived fields, which `_fields` excludes because they are
+    # recomputed rather than restored. Only a duplicate may carry them:
+    # `format_duplicate_info` returns DUPLICATE_FALLBACK_TEXT rather than ""
+    # for an empty timestamp, so a rehydration that called it for every kind
+    # would put duplicate copy on a user bubble. Invisible on screen today --
+    # only `render_duplicate` reads these -- and a divergence from the live
+    # path that no other assertion here would catch.
+    for bubble in restored:
+        if bubble.kind == "duplicate":
+            assert bubble.duplicate_relative_info
+        else:
+            assert bubble.duplicate_relative_info == ""
+            assert bubble.duplicate_release_info == ""
+
+
+@pytest.mark.asyncio
+async def test_the_restored_transcript_is_in_id_order(temp_db, monkeypatch):
+    """AC 2: "in `id ASC` order". The write side pins this shape in
+    `test_a_send_persists_the_user_bubble_and_the_assistant_bubble`; this is
+    the same shape read back, one send longer."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "one")
+    await _send(state, "two")
+    await _send(state, "three")
+
+    restored = (await _restore(state.active_session_id)).messages
+
+    assert [m.kind for m in restored] == [
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert [m.content for m in restored if m.kind == "user"] == ["two", "three"]
+
+
+@pytest.mark.asyncio
+async def test_a_restored_duplicate_recomputes_its_relative_copy(temp_db, monkeypatch):
+    """AC 5. The humanized copy is recomputed from the stored `first_query_at`
+    through `format_duplicate_info`, never read from storage -- so "already
+    sent 2m ago" reads correctly hours later."""
+    two_hours = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    monkeypatch.setattr(
+        chat_state_mod,
+        "run_query",
+        _capturing_run_query(
+            QueryBlockedDuplicateResponse(reason="Duplicate", first_query_at=two_hours)
+        ),
+    )
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    restored = [
+        m
+        for m in (await _restore(state.active_session_id)).messages
+        if m.kind == "duplicate"
+    ]
+    assert restored
+
+    expected_relative, expected_release = format_duplicate_info(two_hours)
+    for bubble in restored:
+        assert bubble.duplicate_relative_info == expected_relative
+        assert bubble.duplicate_release_info == expected_release
+        assert bubble.duplicate_relative_info
+
+    # The structural half: there is no column to have read it from. Neither
+    # field exists on the stored row, which is what forces the recompute.
+    stored_field_names = {f.name for f in dataclasses.fields(StoredMessage)}
+    assert "duplicate_relative_info" not in stored_field_names
+    assert "duplicate_release_info" not in stored_field_names
+
+    # Two different stored timestamps must restore to two different strings --
+    # a stored constant would give the same one twice.
+    twenty_hours = (datetime.now(timezone.utc) - timedelta(hours=20)).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    assert format_duplicate_info(twenty_hours)[0] != expected_relative
+
+
+@pytest.mark.asyncio
+async def test_a_restored_assistant_keeps_its_footer_and_pii_badge(
+    temp_db, monkeypatch
+):
+    """AC 6: the same model_used, tokens_used and #audit_id, and the same
+    entity list in the PII badge."""
+    monkeypatch.setattr(
+        chat_state_mod,
+        "run_query",
+        _capturing_run_query(
+            QuerySuccessResponse(
+                response="redacted answer",
+                audit_id=99,
+                model_used="gpt-4",
+                tokens_used=123,
+                pii_redacted=True,
+                pii_entities_masked=["EMAIL", "PHONE"],
+            )
+        ),
+    )
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    restored = [
+        m
+        for m in (await _restore(state.active_session_id)).messages
+        if m.kind == "assistant"
+    ]
+    assert restored
+
+    for bubble in restored:
+        assert bubble.content == "redacted answer"
+        assert bubble.model_used == "gpt-4"
+        assert bubble.tokens_used == 123
+        assert bubble.audit_id == 99
+        assert bubble.pii_redacted is True
+        # A real list, because render_assistant calls .length() and .join(", ")
+        # on it.
+        assert bubble.pii_entities == ["EMAIL", "PHONE"]
+
+
+@pytest.mark.asyncio
+async def test_a_message_with_no_pii_entities_restores_to_an_empty_list(
+    temp_db, monkeypatch
+):
+    """The phantom entity the column's own docstring predicted for this story
+    by name: `"".split(",")` is `[""]`, one entity on a message that had
+    none."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    restored = (await _restore(state.active_session_id)).messages
+    assert restored
+    for bubble in restored:
+        assert bubble.pii_entities == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome,expected_kind",
+    [
+        (
+            QueryBlockedDuplicateResponse(
+                reason="Duplicate", first_query_at="2026-09-04T10:00:00Z"
+            ),
+            "duplicate",
+        ),
+        (
+            QueryBlockedSuspiciousResponse(reason="Suspicious", pattern="ignore"),
+            "injection",
+        ),
+        (OpenRouterError("upstream timeout"), "upstream_error"),
+        (PiiRedactorError("redactor down"), "internal_error"),
+    ],
+    ids=["duplicate", "injection", "upstream_error", "internal_error"],
+)
+async def test_a_restored_bubble_keeps_the_prompt_its_actions_consume(
+    temp_db, monkeypatch, outcome, expected_kind
+):
+    """AC 7: Retry and Edit and resend work on a restored bubble, because
+    `prompt` survived the round trip -- it is what
+    `ChatState.edit_and_resend(message.prompt)` and
+    `ChatState.retry_message(message.prompt)` are handed."""
+    if isinstance(outcome, Exception):
+
+        def _fake(*args, **kwargs):
+            raise outcome
+
+    else:
+        _fake = _capturing_run_query(outcome)
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake)
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    restored_state = await _restore(state.active_session_id)
+    bubbles = [m for m in restored_state.messages if m.kind == expected_kind]
+    assert bubbles
+    assert bubbles[-1].prompt == "second prompt"
+
+    # The action actually consumes it: the composer refills.
+    restored_state.edit_and_resend(bubbles[-1].prompt)
+    assert restored_state.input_text == "second prompt"
+
+
+@pytest.mark.asyncio
+async def test_login_opens_the_most_recently_active_chat(temp_db, monkeypatch):
+    """AC 1: "the most recently active session becomes active and its
+    transcript is rendered"."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    older_state = _make_state()
+    await _send(older_state, "older one")
+    await _send(older_state, "older two")
+    older = older_state.active_session_id
+
+    newer_state = _make_state()
+    await _send(newer_state, "newer one")
+    await _send(newer_state, "newer two")
+    newer = newer_state.active_session_id
+
+    assert older != newer
+    # Backdate rather than rely on a touch: both rows can land in the same
+    # second on a TEXT timestamp, and that tie breaks arbitrarily.
+    _backdate_session(older, hours_ago=3)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.active_session_id == newer
+    assert state.sessions_error == ""
+    assert [m.content for m in state.messages if m.kind == "user"] == ["newer two"]
+    assert [m.kind for m in state.messages] == ["assistant", "user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_login_with_no_sessions_leaves_the_chat_empty(temp_db, monkeypatch):
+    """The other half of AC 1: a user with nothing stored opens on an empty
+    chat, and no read is attempted for a session that does not exist."""
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "messages_for", _fail_if_called)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.sessions == []
+    assert state.active_session_id == ""
+    assert state.messages == []
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_a_switch_replaces_the_transcript_and_moves_the_active_id(
+    temp_db, monkeypatch
+):
+    """AC 2: `self.messages` is replaced by that session's stored messages and
+    `active_session_id` moves."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    first = _make_state()
+    await _send(first, "alpha one")
+    await _send(first, "alpha two")
+    alpha = first.active_session_id
+
+    second = _make_state()
+    await _send(second, "beta one")
+    await _send(second, "beta two")
+    beta = second.active_session_id
+
+    assert alpha != beta
+    # `second` is showing beta; switch it to alpha.
+    await _select(second, alpha)
+
+    assert second.active_session_id == alpha
+    assert [m.content for m in second.messages if m.kind == "user"] == ["alpha two"]
+    assert all("beta" not in m.content for m in second.messages)
+    assert second.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_a_switch_touches_nothing_else(temp_db, monkeypatch):
+    """AC 3: "the model selector and the signed-in user are untouched"."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    other = _make_state()
+    await _send(other, "one")
+    await _send(other, "two")
+    target = other.active_session_id
+
+    state = _make_state()
+    state.selected_model = "anthropic/claude-3"
+    before = (state.selected_model, state.user_id, state._token)
+
+    await _select(state, target)
+
+    assert (state.selected_model, state.user_id, state._token) == before
+    assert state.messages
+
+
+@pytest.mark.asyncio
+async def test_a_switch_is_refused_while_pending(temp_db, monkeypatch):
+    """AC 8: swapping the transcript out from under an in-flight send would
+    append the answer to the wrong conversation, so the switch is refused --
+    the guard `edit_and_resend` already applies."""
+    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+
+    other = _make_state()
+    await _send(other, "one")
+    await _send(other, "two")
+    target = other.active_session_id
+
+    state = _make_state()
+    state.active_session_id = "a-different-session"
+    state.messages = [ChatMessage(kind="user", content="in flight")]
+    state.pending = True
+
+    await _select(state, target)
+
+    assert state.active_session_id == "a-different-session"
+    assert [m.content for m in state.messages] == ["in flight"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_keeps_the_transcript_and_reports_it(temp_db, monkeypatch):
+    """AC 9: `sessions_error` is set, `self.messages` is left as it was, and
+    the composer stays usable."""
+    state = _make_state()
+    state.active_session_id = "still-this-one"
+    state.messages = [ChatMessage(kind="user", content="still here")]
+
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions, "messages_for", _raise_chat_session_error
+    )
+    await _select(state, "some-other-session")
+
+    assert state.sessions_error == TRANSCRIPT_NOT_LOADED_NOTICE
+    assert [m.content for m in state.messages] == ["still here"]
+    # The active id stands too: marking a chat whose transcript is not on
+    # screen would point the rail at a conversation the reader cannot see.
+    assert state.active_session_id == "still-this-one"
+    # The composer stays usable.
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_a_storage_error_that_escaped_wrapping_still_keeps_the_transcript(
+    temp_db, monkeypatch
+):
+    """The bare-`Exception` half of AC 9. A ChatSessionError-only catch would
+    let a raw StorageError empty the screen -- the escape STORY-014's own
+    storage-error test exists for, on the read side."""
+
+    def _raise_storage_error(*args, **kwargs):
+        raise StorageError("stream disconnected")
+
+    monkeypatch.setattr(
+        chat_state_mod.chat_sessions.database,
+        "list_chat_messages",
+        _raise_storage_error,
+    )
+
+    state = _make_state()
+    state.messages = [ChatMessage(kind="user", content="still here")]
+    await _select(state, "any-session")
+
+    assert state.sessions_error == TRANSCRIPT_NOT_LOADED_NOTICE
+    assert [m.content for m in state.messages] == ["still here"]
+
+
+@pytest.mark.asyncio
+async def test_a_foreign_session_id_restores_empty_rather_than_erroring(temp_db):
+    """The story's Technical Note: "A foreign or unknown `session_id` yields an
+    empty list, not an error -- the caller cannot distinguish the two, and the
+    UI treats both as 'nothing here'."
+
+    PRD-008 Risk 3: `active_session_id` is client-visible, so this is the case
+    where the server re-checks ownership against the freshly resolved Identity
+    rather than against the var.
+    """
+    insert_user(
+        User(
+            user_id="otro@empresa.com",
+            role="user",
+            token_hash=hash_token("otro-token"),
+        )
+    )
+    theirs = create_chat_session("otro@empresa.com", "Their chat")
+
+    state = _make_state()
+    await _select(state, theirs)
+
+    assert state.messages == []
+    assert state.sessions_error == ""
+
+
+@pytest.mark.asyncio
+async def test_history_off_reads_nothing_on_login(temp_db, monkeypatch):
+    """AC 10: with the flag off, no read is attempted and the chat opens
+    empty, exactly as today."""
+    create_chat_session(_AUTH_USER_ID, "A chat")
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
+    monkeypatch.setattr(chat_state_mod.chat_sessions, "messages_for", _fail_if_called)
+
+    state = ChatState(_reflex_internal_init=True)
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.messages == []
+    assert state.sessions == []
+    assert state.active_session_id == ""
+    assert state.sessions_error == ""
+
+
+def test_the_rehydration_reads_every_stored_field():
+    """The read-side counterpart of
+    `test_every_bubble_append_in_do_send_goes_through_the_helper`.
+
+    A column added to `chat_messages` later is written by `_to_stored_message`
+    and would be silently dropped by `_to_chat_message` with no test failing --
+    transcripts quietly losing a field. The AST walk makes that drift fail a
+    test rather than a review.
+
+    `session_id`, `created_at` and `id` are excluded: `ChatMessage` has no
+    field for any of them, and `id` is the ordering the store already applied.
+    """
+    tree = ast.parse(pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8"))
+    fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_to_chat_message"
+    )
+    read = {
+        node.attr
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "row"
+    }
+
+    expected = {f.name for f in dataclasses.fields(StoredMessage)} - {
+        "session_id",
+        "created_at",
+        "id",
+    }
+
+    assert expected <= read, f"_to_chat_message drops {sorted(expected - read)}"

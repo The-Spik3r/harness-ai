@@ -24,6 +24,7 @@ from .copy import (
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
     SESSION_ORDER_STALE_NOTICE,
+    TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
 )
 from .formatting import derive_title, format_activity, format_duplicate_info
@@ -61,6 +62,53 @@ def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
         required_permission=bubble.required_permission or None,
         first_query_at=bubble.first_query_at or None,
         detail=bubble.detail or None,
+    )
+
+
+def _to_chat_message(row: StoredMessage) -> ChatMessage:
+    """One `chat_messages` row as one bubble -- the inverse of
+    `_to_stored_message` above, and deliberately adjacent to it.
+
+    Every conversion is that function's read backwards. It writes the optional
+    fields with `or None` because the columns mean *absent*; this reads them
+    with `or ""` / `or 0` because a Reflex Var cannot be None on the wire.
+    `pii_entities` splits on "," and guards the empty case: `"".split(",")` is
+    `[""]`, and `app/db/database.py` stores an empty list as NULL precisely so
+    this line cannot invent "a phantom entity on a message that had none".
+
+    The two duplicate fields have no column (`app/db/models.py`: "a stored
+    '2m ago' is wrong the moment it is read back") and are recomputed here
+    through the same `format_duplicate_info` the live duplicate branch calls in
+    `_do_send`, so "already sent 2m ago" reads correctly hours later. It is
+    called **only** for `kind == "duplicate"`: the function returns
+    DUPLICATE_FALLBACK_TEXT rather than "" for an empty timestamp, so running
+    every kind through it would put duplicate copy on a user bubble --
+    invisible today, because only `render_duplicate` reads those fields, and a
+    divergence from the live path all the same.
+
+    `row.created_at` and `row.id` are not mapped: `ChatMessage` has no field for
+    either, and `id` is the ordering `list_chat_messages` has already applied.
+    """
+    relative_info = ""
+    release_info = ""
+    if row.kind == "duplicate":
+        relative_info, release_info = format_duplicate_info(row.first_query_at or "")
+
+    return ChatMessage(
+        kind=row.kind,
+        content=row.content,
+        prompt=row.prompt or "",
+        model_used=row.model_used or "",
+        tokens_used=row.tokens_used or 0,
+        audit_id=row.audit_id or 0,
+        pii_redacted=row.pii_redacted,
+        pii_entities=row.pii_entities.split(",") if row.pii_entities else [],
+        pattern=row.pattern or "",
+        required_permission=row.required_permission or "",
+        first_query_at=row.first_query_at or "",
+        duplicate_relative_info=relative_info,
+        duplicate_release_info=release_info,
+        detail=row.detail or "",
     )
 
 
@@ -182,6 +230,23 @@ class ChatState(rx.State):
                 )
                 for row in rows
             ]
+            # The list is ORDER BY updated_at DESC, so the first row is the
+            # most recently active chat. Opening it is what makes a reload cost
+            # nothing: this handler *is* the page load for a signed-in user,
+            # because `_token` is a backend var and no signed-in state survives
+            # a refresh. An `on_load` on the chat page would fire with
+            # `user_id == ""` every time and have nothing to read.
+            if self.sessions:
+                self.active_session_id = self.sessions[0].session_id
+                try:
+                    self.messages = await self._read_transcript(
+                        identity, self.active_session_id
+                    )
+                except Exception:
+                    # A transcript that will not load is not a failed sign-in,
+                    # exactly as a rail that will not load is not -- the arm
+                    # above. The chat opens empty and the composer works.
+                    self.sessions_error = TRANSCRIPT_NOT_LOADED_NOTICE
 
     @rx.event
     def logout(self):
@@ -208,6 +273,56 @@ class ChatState(rx.State):
         self.input_text = prompt
         return rx.set_focus("chat_input")
 
+    @rx.event
+    async def select_session(self, session_id: str):
+        """Makes `session_id` the active chat and renders its transcript.
+
+        Plain async, not `background=True`, for the reason `login` states: a
+        background task cannot be called from another handler and holds no lock
+        across its awaits. Plain async holds the exclusive lock for the whole
+        handler, so the read below and the swap after it cannot interleave with
+        a send -- which is the other half of the `pending` guard rather than a
+        duplicate of it.
+
+        `session_id` arrives from the client and is untrusted (PRD-008 Risk 3).
+        It is not validated here and must not be: `chat_sessions` re-checks
+        ownership server-side against the freshly resolved Identity, and
+        returns [] for a foreign id, an unknown id and history being off alike.
+        A caller that could tell those apart would be a caller branching on the
+        flag.
+        """
+        if self.pending:
+            # The same refusal `edit_and_resend` applies, and for a sharper
+            # reason: `_do_send` is holding a `session_id` in a local and will
+            # append the answer to it. Swapping `messages` out from under an
+            # in-flight send files that answer in the wrong chat.
+            return
+
+        identity = resolve(self._token)
+        if identity is None:
+            self.sessions_error = SESSION_INVALIDATED_ERROR
+            return
+
+        try:
+            restored = await self._read_transcript(identity, session_id)
+        except Exception:
+            # Bare `Exception`, not `ChatSessionError`: a StorageError that
+            # escaped the service's wrapping must not empty the screen either.
+            # Nothing is assigned on this arm, so `messages` *and*
+            # `active_session_id` both stand -- moving the active id to a chat
+            # whose transcript is not on screen would leave the rail marking a
+            # conversation the reader cannot see.
+            self.sessions_error = TRANSCRIPT_NOT_LOADED_NOTICE
+            return
+
+        self.messages = restored
+        self.active_session_id = session_id
+        self.sessions_error = ""
+        # The notice was about the transcript the line above just replaced, so
+        # it cannot outlive it -- the reasoning `logout` records for the same
+        # var.
+        self.transcript_error = ""
+
     def _promote_session(self, row: ChatSession, now: datetime) -> None:
         """Moves this session to the front of the rail, inserting it if new.
 
@@ -229,6 +344,31 @@ class ChatState(rx.State):
             ),
             *remaining,
         ]
+
+    async def _read_transcript(
+        self, identity: Identity, session_id: str
+    ) -> list[ChatMessage]:
+        """This session's stored bubbles, in write order, rehydrated.
+
+        **Callable only from a plain async handler**, and the opposite rule to
+        `_append_and_persist` below. Both callers (`login` and
+        `select_session`) hold the exclusive state lock for their whole
+        duration, so `self` is the real state and an `async with self` here
+        would deadlock on a lock the caller already holds -- `login`'s own
+        docstring records the same rule for the same reason. Nothing here
+        mutates state; the caller does that with the returned list.
+
+        The order is the store's (`ORDER BY id ASC`) and is not re-sorted: a
+        second sort in a second module is a second opinion about the order,
+        which the PRD spends a paragraph refusing.
+
+        Raises whatever the read raised. The caller owns the notice, because
+        only the caller knows what is on screen to be left alone.
+        """
+        rows = await asyncio.to_thread(
+            chat_sessions.messages_for, identity, session_id
+        )
+        return [_to_chat_message(row) for row in rows]
 
     async def _append_and_persist(
         self,
