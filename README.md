@@ -97,15 +97,24 @@ If either check fails, the request is rejected **before** it reaches the model p
         └───────────┬───────────┘
                      ▼
         ┌───────────────────────┐
-        │   Audit log write     │
+        │   Audit log write     │────► Turso (audit_logs)
         │  user · device · hash │
         │  model · tokens · flag│
         └───────────┬───────────┘
                      ▼
               Response to caller
+                     │
+                     │ chat UI only, after the pipeline has returned
+                     ▼
+        ┌───────────────────────┐
+        │   Transcript write    │────► Turso (chat_sessions,
+        │   (owner-scoped)      │              chat_messages)
+        └───────────────────────┘
 ```
 
 Blocked requests (missing/invalid credential, missing permission, duplicate, or suspicious pattern) short-circuit at step 0, 3, or 4 — the model provider is never called, and the block is still logged. Redaction sits after every check, so a blocked request is never analyzed for PII.
+
+The transcript write is **not** a pipeline step. It happens in the chat UI after the pipeline has returned, it is allowed to fail without taking the answer with it, and `CHAT_HISTORY_ENABLED=false` removes it entirely — which is why the eight steps above are exactly the eight steps of the previous release. `POST /query` writes no transcript at all; it only records which conversation a row belonged to.
 
 ---
 
@@ -120,6 +129,7 @@ Blocked requests (missing/invalid credential, missing permission, duplicate, or 
 | **Prompt-injection blocking** | Case-insensitive substring match against a maintained pattern list. |
 | **PII redaction** | [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt before it reaches OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a request, and the audit log keeps the raw text. English-only in this release. |
 | **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
+| **Persisted chat sessions** | The chat UI holds named, per-conversation transcripts in Turso — restored on reload, on a new browser session, and from any instance sharing the database. Each transcript is readable only by the account that wrote it; no admin surface exposes one. `CHAT_HISTORY_ENABLED=false` turns the whole feature off, from the same image. |
 | **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
 | **Model-agnostic** | Works with any model OpenRouter serves — Claude, GPT, or others — with no code changes. |
@@ -212,12 +222,15 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 
 **Message rendering** — your own messages render right-aligned; a successful model response renders as a left-aligned assistant bubble. A blocked message (duplicate within 24h, or a suspicious pattern match) renders as a distinct centered bubble carrying the same `reason` text the REST API returns — it is never silently dropped.
 
+**Session rail** — the chat keeps named conversations, listed down the left. **A chat is created on the first send, never on page load**: opening the app and typing nothing leaves no row behind. That first prompt also names the chat, automatically, and you can rename it afterwards. The rail lists your own chats newest-activity-first with the current one marked; sending in a chat moves it to the top, and renaming deliberately does not — it would move the row you are looking at while you are looking at it. It lists at most `CHAT_SESSION_LIMIT` chats and states its window against your real total (`50 most recent of 212`), so a capped list never reads as a complete one. It has three states and they are distinct: your chats, an invitation when you have none, and a read-failure notice that says nothing on screen has changed. Below a narrow viewport it collapses behind a **Chats** control. Deleting asks first, and says what it will and will not remove.
+
 **Known limitations (MVP)**
 
 - No token-by-token streaming — the full response renders once available, same as `POST /query` today.
-- No persisted chat history — messages do not survive a page reload or a new browser session.
+- **No multi-turn context.** A session is a saved transcript, not a conversation the model remembers: every send is one user turn, alone, and prior turns are never included in the prompt. See [Multi-turn context](#multi-turn-context) for why, and what it would cost to change.
+- **The first turn of a brand-new chat is not saved.** The session row is created after your prompt is already on screen — deliberately, so a slow write never delays what you typed — so reloading a first conversation begins at the assistant's reply. Every turn after it is saved in full.
+- Two tabs open on the same chat do not see each other's writes. Each loads its own view and the second one to write simply wins.
 - A denied query (missing permission, disallowed model, or BYOK without `query:byok`) renders as an in-thread bubble, not a session error — the same rendering path as a duplicate or injection block.
-- No visible indicator when PII is masked — redaction still applies to every chat message, but the UI does not yet surface *that* it happened (the REST API does, via `pii_redacted`).
 
 ---
 
@@ -225,19 +238,34 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 
 ### Where state lives
 
-Both tables the harness owns — `audit_logs` and `users` — live in a [Turso](https://turso.tech) (libSQL) database, reached over the network. There is no database file in the repository, in the image, or in the compose stack, and there is no local-file fallback: a `sqlite:` `DATABASE_URL` is a startup error rather than a file, deliberately, because a local database written to an ephemeral container layer is read by nobody and backed up by nobody.
+All four tables the harness owns — `audit_logs`, `users`, `chat_sessions` and `chat_messages` — live in a [Turso](https://turso.tech) (libSQL) database, reached over the network. There is no database file in the repository, in the image, or in the compose stack, and there is no local-file fallback: a `sqlite:` `DATABASE_URL` is a startup error rather than a file, deliberately, because a local database written to an ephemeral container layer is read by nobody and backed up by nobody.
 
 To provision one: create a database, take its `libsql://<database>-<org>.turso.io` URL and an auth token, and put both in `.env` as `DATABASE_URL` and `TURSO_AUTH_TOKEN`. Any libSQL endpoint works — the local dev server on `http://` is the same contract without the token.
+
+### What is stored, and who can read it
+
+**This release changed what the harness holds at rest, and that is worth reading before you deploy it.** Until now the durable store held a prompt hash and truncated previews. `chat_messages` holds **the prompt as the user typed it** and **the response as PII redaction released it**. **No raw model output reaches `chat_messages`** — what the model returned before masking never enters a transcript; it survives only where it always has, as the 500-character `audit_logs` preview this release did not touch. The prompt, though, is stored in full and unmasked, and that is a real widening over the previous release rather than a detail.
+
+**Only the author reads a transcript.** Ownership is a required parameter on every session and message function in `app/db/database.py`, re-checked on every read rather than trusted from the client; `chat_messages` carries no `user_id` of its own, so reads and deletes scope through a subselect on `chat_sessions`. A `session_id` belonging to someone else is refused at `POST /query` with a `403`, and returns an empty transcript through every other path — the same answer as a session that does not exist, so the id space cannot be probed. **There is no admin path to a transcript**: `GET /audit` gains a `session_id` and nothing more, and the admin console renders no transcript at all.
+
+**`audit_logs` is unchanged.** It still stores the prompt hash and the 500-character raw previews it always did, and it gained exactly one column, `session_id`. Nothing about the audit trail's contents moved in this release.
+
+**`CHAT_HISTORY_ENABLED=false` is a supported configuration, not a degraded mode.** With it off, no transcript row is written and none is read, the session rail is *absent* rather than empty, and the chat behaves exactly as it did before this release — same image, same code path, no fork to maintain. It is the configuration for a deployment that must not hold prompt text at rest. `POST /query` is unaffected either way: it never wrote a transcript, and with the flag off a supplied `session_id` is still recorded on the audit row as a label. The switch governs the transcript, not the audit column.
+
+**Deleting a chat removes the transcript and leaves the audit record intact.** The session and its messages go together in one transaction. `audit_logs` is append-only and is not touched, so the `session_id` on those rows is left pointing at a conversation that no longer exists — deliberately. That is what preserves the evidence of what was asked when a user tidies their list, and the confirmation dialog says so in the user's own words rather than the schema's.
+
+**No retention or expiry exists.** A transcript persists until its owner deletes it. A deployment holding prompt text will eventually want a TTL; there is none today, and `audit_logs` has none either.
 
 ### Multiple instances
 
 Several application instances may now share one database. That is what this migration bought: the audit trail is no longer an artifact of one container's filesystem, and `init_db()` converges correctly when instances start against the same database simultaneously, rather than racing each other through the schema migration.
 
-**What is not included.** The database blocker is gone; the deployment topology is not built:
+**This is proven rather than assumed.** `tests/test_two_instance_smoke.py` starts two application processes against one database and asserts that a chat written through the first is served, in full, by the second — the transcript included. Sessions were the last piece of state that lived only in one process's memory, and they no longer do.
+
+**What is still not included.** The database blocker is gone; the deployment topology is not built:
 
 - **No load balancer or health-check configuration** is provided or documented here.
 - **No Reflex websocket session affinity.** The chat UI holds a websocket per session, so placing instances behind a round-robin balancer without sticky sessions is not a supported configuration today.
-- **No production two-instance validation yet.** Running two instances against one database is designed for and expected to work, but the end-to-end proof is still outstanding work, not a completed test.
 
 Treat multi-instance as *unblocked*, not *delivered*.
 
@@ -285,8 +313,10 @@ Four properties matter when you run it:
 | `PII_SCORE_THRESHOLD` | No | `0.35` | Minimum Presidio confidence for an entity to be masked. Deliberately low — the project favors over-masking over missing real PII. |
 | `PII_ENTITIES` | No | `PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION` | Comma-separated list of Presidio entity types to detect and mask. |
 | `PII_NLP_MODEL` | No | `en_core_web_lg` | spaCy model backing Presidio's analyzer. This is the only model the Dockerfile and the Quickstart install; naming a different one (e.g. `en_core_web_trf`) makes spaCy try to download it at startup, which is slow and fails outright if the name is unresolvable or the package needs a C++ toolchain to build. |
+| `CHAT_HISTORY_ENABLED` | No | `true` | Master switch for chat transcript persistence. `false` writes no transcript, reads none, and renders no session rail — the chat behaves exactly as it did before this release, from the same image. A supported configuration for a deployment that must not hold prompt text at rest, not a degraded mode. It governs the transcript only: a `session_id` sent to `POST /query` is still recorded on the audit row. |
+| `CHAT_SESSION_LIMIT` | No | `50` | How many chats the session rail lists per user. The rail states its window against your real total, so a capped list never reads as a complete one. A value below `1` is a **startup error**, not a clamp — an empty rail on an account that has chats is a silent lie. To turn persistence off, set `CHAT_HISTORY_ENABLED=false` instead. |
 
-All four PII settings are read once at startup (`app/config.py`); changing them requires a restart.
+Every setting in this table is read once at startup (`app/config.py`); changing any of them requires a restart.
 
 See [`.env.example`](.env.example) for a ready-to-copy template with inline descriptions.
 
@@ -319,6 +349,8 @@ OpenRouter received `my name is <PERSON>, my email is <EMAIL_ADDRESS>` — never
 
 The token identifies the caller — the request body's `user_id`, if present, is accepted only for backward compatibility and must match the authenticated identity or the request is refused with `403` (`user_id does not match the authenticated identity`).
 
+`session_id` is optional and names the conversation a send belongs to. **Omit it and the request behaves exactly as it did in the previous release**, writing `NULL` to the audit row — clients written against the earlier API need no change. Supplied, it must be a **canonical lowercase UUID4** string: the harness mints session ids and echoes them back unchanged, so `{braces}`, a `urn:uuid:` prefix, uppercase hex and non-v4 ids are each a `422`. The value is recorded exactly as sent rather than normalized, which is why a second spelling of the same id is refused instead of quietly accepted. `POST /query` stores no transcript — the field only labels the audit row with the conversation it belonged to.
+
 ### `POST /query` — 401 (no or invalid credential)
 
 ```json
@@ -334,6 +366,14 @@ Missing header, unknown token, or a deactivated user all map to this same respon
 ```
 
 The `auditor` role holds no `query:submit` permission by default, so it always gets this response from `POST /query`. In the chat UI, the identical decision renders as an in-thread bubble rather than a session error, because the browser ingress has no router layer to enforce it at.
+
+### `POST /query` — 403 (session belongs to another identity)
+
+```json
+{"detail": "session_id does not belong to the authenticated identity"}
+```
+
+A `session_id` the caller does not own is refused at the boundary, beside the `user_id` check above. Unlike that one, **this refusal is written to the audit log** — with the attempted `session_id` on the row — because a rejected send is recorded with the same rigor as an accepted one. An unknown session and another user's session produce the identical response, so the id space cannot be probed for which conversations exist.
 
 ### `POST /query` — blocked (duplicate)
 
@@ -395,7 +435,8 @@ curl http://localhost:8000/audit \
       "pii_detected_output": false,
       "pii_entities": ["EMAIL_ADDRESS", "PERSON"],
       "role": "user",
-      "denied_permission": "query:byok"
+      "denied_permission": "query:byok",
+      "session_id": "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
     }
   ]
 }
@@ -404,6 +445,8 @@ curl http://localhost:8000/audit \
 `pii_entities` is the union of types masked in either direction. The audit trail deliberately stores the **raw, unmasked** prompt and response previews in the database — an auditor investigating an incident needs the actual value, not `<EMAIL_ADDRESS>` — but this endpoint exposes neither the raw previews nor the masked text, only the flags above.
 
 `audit:read:all` returns every row; with only `audit:read:own`, the response contains solely the caller's rows and `total` reflects that scoped count. An identity holding neither permission gets `403` `{"detail": "Permission denied: audit:read:own"}` (the last permission attempted). `role` and `denied_permission` are populated on every row — `null` for rows written before this control existed or for a successful, non-denied query.
+
+`session_id` names the conversation a row belonged to, so three rows that were one conversation are visibly one conversation instead of a guess. It is `null` for two whole classes of row: everything written before this release, and every send that carried no session — `POST /query` without the field, which keeps working unchanged. **This is the only place a session reaches an admin.** No endpoint and no console surface exposes a transcript; the auditor learns that rows were related, not what was said in them beyond the previews this endpoint already withholds.
 
 ### `GET /stats` (requires `stats:read`)
 
@@ -523,16 +566,26 @@ The credential is valid, but the role lacks the permission that endpoint require
 - [x] Chat UI
 - [x] PII redaction on input/output
 - [x] Role-based access control (RBAC)
+- [x] Chat sessions — persisted, per-conversation transcripts
 
 ### Planned
 
 - [ ] Semantic (not just exact-match) duplicate detection
+- [ ] [Multi-turn context](#multi-turn-context) — sending a chat's history to the model, so a session becomes a conversation
 - [ ] Configurable, per-deployment pattern lists
 - [ ] [OpenAI-compatible endpoint](#openai-compatible-endpoint) — drop-in use from OpenCode and other coding agents
 - [ ] [MCP servers and agent skills](#mcp-servers-and-agent-skills) — code-writing tools behind the same pipeline
 - [ ] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations
 
 Everything below this line is **intended direction, not current behavior**. The only ingress that exists today is `POST /query`.
+
+### Multi-turn context
+
+A chat session today is a **saved transcript, not a conversation the model remembers**. Every send is one user turn, alone: the stored history is rendered on your screen and is never added to the prompt. Sending it is the natural next step, and it is deferred for one specific reason rather than for lack of interest.
+
+**It breaks duplicate detection.** `check_duplicate` hashes the whole prompt against a global 24-hour window, with no user scope and no session scope. In a real conversation *"yes"*, *"go on"* and *"thanks"* recur constantly, and today they would be held as duplicates of each other across every user on the deployment. Persisted sessions do not create that problem — they make it unavoidable, because they are what makes a real conversation possible in the first place.
+
+Rescoping that hash — minimally to `session_id + prompt`, more likely to `user_id + session_id + prompt` — is a change to the product's central security control, and it deserves its own threat reasoning and its own tests rather than arriving as a side effect of a persistence release. It is the same open question the [OpenAI-compatible endpoint](#openai-compatible-endpoint) section already poses about what to hash in a multi-turn `messages` array; sessions make answering it a prerequisite instead of a nicety. `chat_messages` is deliberately shaped so that work is a read away from its input.
 
 ### OpenAI-compatible endpoint
 

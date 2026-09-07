@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Surface and hardening"
-status: todo
+status: done
 labels: [docs, readme, security]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-022-readme-and-env-docs.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-022-readme-and-env-docs.report.md
 commit: null
 depends_on: [STORY-010, STORY-011, STORY-019, STORY-021]
 blocks: []
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-07
 ---
 
 # STORY-022: README and .env: document the persistence model the code actually has, including what is now at rest

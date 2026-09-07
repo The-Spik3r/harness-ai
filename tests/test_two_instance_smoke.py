@@ -459,8 +459,10 @@ class Instance:
         # behind STORY-014's Finding 1 and STORY-015's Finding 1, both of which
         # were an inherited environment variable reaching a real database. The
         # URL is pinned and the credential is emptied here rather than trusted
-        # to the invocation, which is the same triple README.md:456 documents
-        # for the in-container suite.
+        # to the invocation, which is the same triple README.md's *Running
+        # Tests* section documents for the in-container suite. Named by section
+        # rather than by line number: STORY-022 edited the README above it and
+        # the old citation had already gone stale.
         env = {
             **os.environ,
             **child_db_env(url),
