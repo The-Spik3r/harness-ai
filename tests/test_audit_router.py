@@ -86,6 +86,7 @@ def test_valid_token_returns_expected_shape(temp_db):
             "pii_entities",
             "role",
             "denied_permission",
+            "session_id",
         }
 
     newest, oldest = body["queries"]
@@ -260,3 +261,34 @@ def test_audit_entry_carries_role_and_denied_permission(temp_db):
     assert by_hash["h1"]["denied_permission"] == "query:byok"
     assert by_hash["h2"]["role"] is None
     assert by_hash["h2"]["denied_permission"] is None
+
+
+def test_audit_entry_carries_session_id_when_present_and_null_when_absent(temp_db):
+    """PRD-008 STORY-011 AC 3 and AC 5: the present case and the absent one.
+
+    The second row is constructed exactly as `AuditLog` was constructible
+    before this PRD -- no `session_id` argument at all -- so it stands in for
+    every row written before the column existed. Reporting `None` for it is the
+    whole of the backward-compatibility claim: an additive field on a response
+    model, invisible to a consumer that does not read it.
+    """
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="ana",
+            prompt_hash="h-session",
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        )
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-07-02T10:00:00Z", user_id="ana", prompt_hash="h-no-session")
+    )
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    body = response.json()
+    by_hash = {q["prompt_hash"]: q for q in body["queries"]}
+    assert by_hash["h-session"]["session_id"] == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert by_hash["h-no-session"]["session_id"] is None

@@ -113,9 +113,28 @@ def test_audit_response_shape():
                 "pii_entities": [],
                 "role": None,
                 "denied_permission": None,
+                # PRD-008 STORY-011. The entry above is constructed without
+                # `session_id`, so `None` here is the default being asserted
+                # rather than merely accommodated.
+                "session_id": None,
             }
         ],
     }
+
+
+def test_audit_query_entry_session_id_is_optional_with_a_none_default():
+    """STORY-011 AC 6, asserted on the field rather than on a serialized row.
+
+    `test_audit_response_shape` above shows what an omitted `session_id`
+    serializes to; this shows *why* omitting it is allowed at all. A required
+    field here would break every existing constructor -- the one in that test,
+    and the projection in `app/routers/admin.py` for as long as any row
+    predates the column.
+    """
+    field = AuditQueryEntry.model_fields["session_id"]
+
+    assert field.is_required() is False
+    assert field.default is None
 
 
 def test_stats_response_shape():
@@ -174,13 +193,82 @@ def test_query_success_response_pii_defaults_are_not_shared_between_instances():
 
 
 def test_query_request_contract_is_unchanged():
+    """`session_id` joined the contract in PRD-008 STORY-010.
+
+    The name still reads "unchanged" because what it guards is unchanged: the
+    field list is enumerated so that adding one is a decision somebody makes
+    here, in a test, rather than a thing that happens. STORY-010 made it, and
+    the two clauses below say what the new field promises -- optional and
+    defaulted, so a client written against the previous release is unaffected.
+    """
     assert sorted(QueryRequest.model_fields) == [
         "device",
         "model",
         "openrouter_api_key",
         "prompt",
+        "session_id",
         "user_id",
     ]
     assert not QueryRequest.model_fields["user_id"].is_required()
     assert QueryRequest.model_fields["user_id"].default is None
     assert QueryRequest.model_fields["prompt"].is_required()
+    assert not QueryRequest.model_fields["session_id"].is_required()
+    assert QueryRequest.model_fields["session_id"].default is None
+
+
+def test_query_request_accepts_a_uuid4_session_id_unchanged():
+    """PRD-008 STORY-010 AC 1. Returned verbatim, not normalized or re-parsed:
+    the value is written to the audit column as supplied."""
+    session_id = "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+    request = QueryRequest(prompt="hi", session_id=session_id)
+
+    assert request.session_id == session_id
+
+
+def test_query_request_omitting_session_id_is_none():
+    """AC 2 at the model level. Absence is not something the validator has an
+    opinion about."""
+    assert QueryRequest(prompt="hi").session_id is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not-a-uuid",
+        "",
+        "0f6c2e5a9b3d4c81a7f21d5e8c9b0a34",
+        "{0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34}",
+        "urn:uuid:0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        "0F6C2E5A-9B3D-4C81-A7F2-1D5E8C9B0A34",
+        "d2b8f1e4-5c3a-11ee-9b0a-0242ac120002",
+    ],
+    ids=[
+        "not-a-uuid",
+        "empty",
+        "unhyphenated",
+        "braced",
+        "urn",
+        "uppercase",
+        "version-1",
+    ],
+)
+def test_query_request_refuses_anything_but_a_canonical_uuid4(value):
+    """AC 3, and AC 1's "UUID4" taken literally.
+
+    The last four cases all parse as UUIDs. They are refused because each is a
+    *second representation of the same id*, and the id is a database key
+    compared with `=` -- a value the harness never minted is one no `WHERE`
+    clause will ever match.
+    """
+    with pytest.raises(ValidationError):
+        QueryRequest(prompt="hi", session_id=value)
+
+
+def test_query_request_session_id_error_names_the_field():
+    """An integrating developer is told which field, not merely that something
+    failed -- the error travels to them inside Pydantic's 422 body."""
+    with pytest.raises(ValidationError) as caught:
+        QueryRequest(prompt="hi", session_id="not-a-uuid")
+
+    assert caught.value.errors()[0]["loc"] == ("session_id",)

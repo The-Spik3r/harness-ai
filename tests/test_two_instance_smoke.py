@@ -32,6 +32,17 @@ real work in flight in two processes at once without a `sleep` anywhere in this
 file. There is no timeout to tune and no race to lose: see `_INVARIANTS` at the
 bottom for the constraints this file holds itself to.
 
+**It is now two epics' exit criterion.** PRD-007 STORY-016 wrote it; PRD-008
+STORY-021 extended it with the session half -- a transcript written on one
+instance and read back whole on the other, a delete that lands on the instance
+that did not create the row, and a `session_id` that is refused with a 403 on
+the instance that never saw it created. That it could absorb a second epic
+without a second harness is not luck: two processes are already two clients, so
+a read on B is exactly the "separate, freshly constructed client, not the
+writing one" that PRD-007 STORY-006 named as Risk 1's mitigation. The reason it
+gave -- "a lost `insert_audit_log()` is invisible until someone reads an empty
+audit trail" -- describes a lost transcript row without a word changed.
+
 Running it needs the same local libSQL dev server the rest of the suite uses
 (`tests/conftest.py`), and no Turso account.
 """
@@ -57,6 +68,10 @@ from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, User  # noqa: E402
 from app.services.duplicate_checker import hash_prompt  # noqa: E402
 from app.services.identity import hash_token  # noqa: E402
 
+# The auto-title rule, asserted against the module that owns it rather than
+# restated here -- the same reason the child imports it (see _INSTANCE_SCRIPT).
+from chat_ui.chat_ui.formatting import derive_title  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: The two instances. Names travel into the children and come back in every
@@ -66,6 +81,12 @@ _INSTANCE_NAMES = ("instance-a", "instance-b")
 
 _USER_ID = "smoke@empresa.com"
 _USER_TOKEN = "two-instance-smoke-token"
+
+#: A second identity, for STORY-021 AC 7. Written by the test that needs it
+#: rather than by a fixture: the story asks for no second harness, and the one
+#: test that wants a foreign session needs two lines, not a shared surface.
+_OTHER_USER_ID = "someone-else@empresa.com"
+_OTHER_TOKEN = "two-instance-smoke-other-token"
 
 #: `app/services/duplicate_checker.py:28` computes its cutoff as now - 24h and
 #: takes no configuration, so the window is controlled by choosing a row's
@@ -96,7 +117,7 @@ _OUTSIDE_THE_WINDOW = timedelta(hours=25)
 # -- including the first one, which runs after these children have booted. The
 # evidence of what a boot produced has to be captured at boot.
 _INSTANCE_SCRIPT = r"""
-import json, os, sys, time
+import dataclasses, json, os, sys, time
 
 _out = sys.stdout
 sys.stdout = sys.stderr  # nothing but the protocol reaches the real stdout
@@ -114,10 +135,21 @@ try:
 
     import app.db.database as database
     import app.routers.query as query_router
-    from app.db.models import AuditLog
+    from app.db.models import AuditLog, StoredMessage
     from app.main import app
-    from app.services import authz
+    from app.services import authz, chat_sessions
+    from app.services.identity import Identity
     from app.services.openrouter_client import OpenRouterResult
+
+    # The auto-title rule, from the module that owns it. `chat_sessions.create`
+    # takes its deriver as a parameter and refuses to own the rule
+    # (app/services/chat_sessions.py:130), and the production caller that
+    # supplies it is chat_ui/chat_ui/state.py:995 -- so supplying the same
+    # function here is the honest reproduction, where a lambda would be a second
+    # title rule to drift. The import costs nothing and pulls in no Reflex:
+    # chat_ui/chat_ui/__init__.py is empty and formatting.py imports only the
+    # standard library and .copy.
+    from chat_ui.chat_ui.formatting import derive_title
 
     # The one thing that must not reach the network. Patched by assignment
     # because a child has no monkeypatch; the shape is
@@ -197,10 +229,21 @@ def measured(work):
 
 
 def do_query(command):
+    # The field is added only when the command carries one, and the omission
+    # stays a genuine omission: app/routers/query.py:68's `is not None` guard is
+    # what keeps owns() from issuing a statement for the requests that name no
+    # session, and test_round_trip_cost_is_measured_and_reported asserts exactly
+    # three statements on that path. Sending an explicit None would not change
+    # that count, but building the body conditionally keeps the two call shapes
+    # visibly distinct.
+    body = {"prompt": command["prompt"], "model": command.get("model", "gpt-4")}
+    if command.get("session_id") is not None:
+        body["session_id"] = command["session_id"]
+
     def work():
         return client.post(
             "/query",
-            json={"prompt": command["prompt"], "model": command.get("model", "gpt-4")},
+            json=body,
             headers={"Authorization": "Bearer " + command["token"]},
         )
 
@@ -251,6 +294,8 @@ def do_rows(command):
                 "success": row.success,
                 "was_duplicate_blocked": row.was_duplicate_blocked,
                 "timestamp": row.timestamp,
+                "session_id": row.session_id,
+                "error_message": row.error_message,
             }
             for row in rows
         ]
@@ -282,6 +327,90 @@ def do_console_load(command):
     }
 
 
+def _identity(command):
+    '''An Identity the way resolve() would have produced one.
+
+    Constructed directly, as tests/test_chat_sessions.py:1000 does: what the
+    session handlers below are about is what the service does with
+    identity.user_id, and going through resolve() would make each of them depend
+    on credential verification -- which do_authenticate already covers, through
+    the real dependency chain, for the tests that are about it.
+    '''
+    return Identity(user_id=command["user_id"], role=command.get("role", "user"))
+
+
+# Every session command goes through app/services/chat_sessions.py and never
+# through database.py directly. That is the rule tests/test_chat_sessions.py
+# enforces across app/, and the child holds itself to it so that this file
+# exercises the ownership rule rather than routing around it -- an instance that
+# called the store directly would prove the database persisted a row and say
+# nothing about whether the deployed call path does.
+def do_create_session(command):
+    return {
+        "session_id": chat_sessions.create(
+            _identity(command), command["prompt"], derive_title
+        )
+    }
+
+
+def do_append(command):
+    return {
+        "row_id": chat_sessions.append_message(
+            _identity(command),
+            command["session_id"],
+            StoredMessage(**command["message"]),
+        )
+    }
+
+
+def do_transcript(command):
+    return {
+        "messages": [
+            dataclasses.asdict(row)
+            for row in chat_sessions.messages_for(
+                _identity(command), command["session_id"]
+            )
+        ]
+    }
+
+
+def do_sessions(command):
+    return {
+        "sessions": [
+            dataclasses.asdict(row) for row in chat_sessions.list_for(_identity(command))
+        ]
+    }
+
+
+def do_delete_session(command):
+    return {
+        "deleted": chat_sessions.delete(_identity(command), command["session_id"])
+    }
+
+
+def do_transcript_row_counts(command):
+    '''Both transcript tables counted raw, unscoped by owner.
+
+    `do_transcript` above answers "is it gone for its owner", which a delete
+    that removed the session row and orphaned its messages would also satisfy --
+    list_chat_messages joins through the session. AC 3 says "gone from both
+    tables", so the tables are what this reads.
+    '''
+    with database.get_connection() as conn:
+        return {
+            "sessions": conn.execute(
+                "SELECT COUNT(*) AS n FROM chat_sessions"
+            ).fetchone()["n"],
+            "messages": conn.execute(
+                "SELECT COUNT(*) AS n FROM chat_messages"
+            ).fetchone()["n"],
+        }
+
+
+def do_audit_count(command):
+    return {"count": database.count_audit_logs()}
+
+
 HANDLERS = {
     "init_db": lambda command: {"ok": database.init_db() is None},
     "schema": lambda command: schema(),
@@ -291,6 +420,13 @@ HANDLERS = {
     "rows": do_rows,
     "audit_ids": do_audit_ids,
     "console_load": do_console_load,
+    "create_session": do_create_session,
+    "append": do_append,
+    "transcript": do_transcript,
+    "sessions": do_sessions,
+    "delete_session": do_delete_session,
+    "transcript_row_counts": do_transcript_row_counts,
+    "audit_count": do_audit_count,
 }
 
 emit({"ready": True, "name": NAME, "schema": schema()})
@@ -323,8 +459,10 @@ class Instance:
         # behind STORY-014's Finding 1 and STORY-015's Finding 1, both of which
         # were an inherited environment variable reaching a real database. The
         # URL is pinned and the credential is emptied here rather than trusted
-        # to the invocation, which is the same triple README.md:456 documents
-        # for the in-container suite.
+        # to the invocation, which is the same triple README.md's *Running
+        # Tests* section documents for the in-container suite. Named by section
+        # rather than by line number: STORY-022 edited the README above it and
+        # the old citation had already gone stale.
         env = {
             **os.environ,
             **child_db_env(url),
@@ -481,7 +619,14 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
     schemas = [instance.ready["schema"] for instance in instances]
 
     for instance, schema in zip(instances, schemas):
-        assert schema["tables"] == ["audit_logs", "users"], instance.name
+        # Four tables since PRD-008 STORY-003 taught init_db() to create the
+        # transcript pair; it was ["audit_logs", "users"] before.
+        assert schema["tables"] == [
+            "audit_logs",
+            "chat_messages",
+            "chat_sessions",
+            "users",
+        ], instance.name
         # Imported, not spelled out: a column added to the schema later must
         # make this test stronger rather than leave it quietly passing.
         assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(schema["columns"]["audit_logs"]), (
@@ -495,6 +640,22 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
             "token_hash",
             "user_id",
         ], instance.name
+        assert schema["columns"]["chat_sessions"] == [
+            "created_at",
+            "session_id",
+            "title",
+            "updated_at",
+            "user_id",
+        ], instance.name
+        # Containment, not the full fifteen: what this test is for is that two
+        # instances converged on the *same* schema, and `schemas[0] ==
+        # schemas[1]` below is what carries that. The exact chat_messages shape
+        # is pinned against the DDL in
+        # tests/test_db.py::test_chat_messages_table_matches_its_ddl, and a
+        # second fifteen-name literal here would only be a copy to drift.
+        assert {"id", "session_id", "kind", "content", "created_at"} <= set(
+            schema["columns"]["chat_messages"]
+        ), (instance.name, schema["columns"]["chat_messages"])
 
     # The failure AC 1 actually guards: two instances that each booted fine but
     # converged on different schemas. `_add_missing_columns()` treating
@@ -728,6 +889,260 @@ def test_a_deactivated_user_is_rejected_by_both_running_instances(
 
 
 # --------------------------------------------------------------------------
+# PRD-008 STORY-021 -- one session, two instances
+# --------------------------------------------------------------------------
+
+#: The seven bubble kinds, each with every optional `StoredMessage` field set to
+#: a distinct, non-default value.
+#:
+#: Defaults are what a field-by-field comparison cannot see through. A column
+#: dropped on the wire and a column defaulting to `False` are the same
+#: observation, so `pii_redacted` is `True` on every row here and no optional
+#: field is left `None` -- which is what makes AC 2's "every field" mean every
+#: field rather than every field that happened to differ from its default.
+#:
+#: `content` names its own index so a transcript returned out of order fails
+#: with a legible message rather than a diff of seven similar dicts.
+_TRANSCRIPT_KINDS = (
+    "user",
+    "assistant",
+    "duplicate",
+    "injection",
+    "forbidden",
+    "upstream_error",
+    "internal_error",
+)
+
+
+def _transcript(session_id: str) -> list[dict]:
+    return [
+        {
+            "session_id": session_id,
+            "kind": kind,
+            "content": f"message {index} of kind {kind}",
+            "prompt": f"the prompt behind message {index}",
+            "model_used": "gpt-4",
+            "tokens_used": 40 + index,
+            "audit_id": 900 + index,
+            "pii_redacted": True,
+            "pii_entities": "EMAIL_ADDRESS,PERSON",
+            "pattern": "ignore previous instructions",
+            "required_permission": "query:submit",
+            "first_query_at": "2026-09-04T10:00:00Z",
+            "detail": f"the detail line for message {index}",
+        }
+        for index, kind in enumerate(_TRANSCRIPT_KINDS)
+    ]
+
+
+#: The two fields the store stamps rather than the caller supplying
+#: (app/db/database.py:1614). Everything else must survive the round trip
+#: unchanged.
+_STORE_ASSIGNED = ("created_at", "id")
+
+
+def test_a_transcript_written_on_one_instance_reads_back_whole_on_the_other(
+    instances, smoke_user
+):
+    """AC 1 and AC 2, and PRD Section 5 story 6.
+
+    **Instance B is the "separate, freshly constructed client".** PRD-007
+    STORY-006 required a durable write to be verified "through a separate,
+    freshly constructed client, not through the writing one", and named the
+    reason: "a lost `insert_audit_log()` is invisible until someone reads an
+    empty audit trail". A lost transcript row has the same shape and the same
+    invisibility. The two children each build their own `_shared_client()` in
+    their own interpreter (`app/db/database.py:72`), so nothing A cached can
+    serve B's read -- a stronger instrument than the requirement asks for, and
+    the reason this story extends this file rather than starting a harness.
+    """
+    instance_a, instance_b = instances
+
+    created = instance_a.call(
+        cmd="create_session", user_id=_USER_ID, prompt="the quarterly close, in full"
+    )
+    session_id = created["session_id"]
+    assert session_id, created
+
+    written = _transcript(session_id)
+    for message in written:
+        appended = instance_a.call(
+            cmd="append", user_id=_USER_ID, session_id=session_id, message=message
+        )
+        assert isinstance(appended["row_id"], int), (instance_a.name, appended)
+
+    # The session row itself, read on the instance that did not create it.
+    listed = instance_b.call(cmd="sessions", user_id=_USER_ID)["sessions"]
+    assert [row["session_id"] for row in listed] == [session_id], (
+        instance_b.name,
+        listed,
+    )
+    assert listed[0]["title"] == derive_title("the quarterly close, in full"), listed[0]
+
+    read_back = instance_b.call(
+        cmd="transcript", user_id=_USER_ID, session_id=session_id
+    )["messages"]
+
+    assert len(read_back) == len(written), (instance_b.name, read_back)
+    assert [row["kind"] for row in read_back] == list(_TRANSCRIPT_KINDS), (
+        instance_b.name,
+        [row["kind"] for row in read_back],
+    )
+
+    for expected, actual in zip(written, read_back):
+        compared = {
+            key: value for key, value in actual.items() if key not in _STORE_ASSIGNED
+        }
+        assert compared == expected, (instance_b.name, expected["kind"])
+
+    # The ordering key has to exist for the order asserted above to be the
+    # store's rather than a coincidence: `list_chat_messages` orders BY id.
+    ids = [row["id"] for row in read_back]
+    assert all(isinstance(value, int) for value in ids), ids
+    assert ids == sorted(ids), ids
+    assert len(set(ids)) == len(ids), ids
+    for row in read_back:
+        assert isinstance(row["created_at"], str) and row["created_at"], row
+
+
+def test_a_session_deleted_on_one_instance_is_gone_from_both_tables_on_the_other(
+    instances, smoke_user
+):
+    """AC 3. The delete lands on B; A is the one that asked for it back.
+
+    The query first is not decoration. "`count_audit_logs()` is unchanged"
+    across a delete is a comparison of zero with zero unless the audit trail
+    holds a row that *names* the session, so one real send carries the
+    `session_id` onto `audit_logs` before anything is deleted.
+    """
+    instance_a, instance_b = instances
+
+    created = instance_a.call(
+        cmd="create_session", user_id=_USER_ID, prompt="a chat that will be deleted"
+    )
+    session_id = created["session_id"]
+    assert session_id, created
+
+    answered = instance_a.call(
+        cmd="query",
+        prompt="what is the retention policy",
+        token=smoke_user,
+        session_id=session_id,
+    )
+    assert answered["status_code"] == 200, answered
+    assert answered["body"]["status"] == "SUCCESS", answered["body"]
+
+    for index in range(2):
+        instance_a.call(
+            cmd="append",
+            user_id=_USER_ID,
+            session_id=session_id,
+            message={
+                "session_id": session_id,
+                "kind": "user",
+                "content": f"a turn {index}",
+            },
+        )
+
+    before = instance_a.call(cmd="audit_count")["count"]
+    assert before == 1, before
+
+    deleted = instance_b.call(
+        cmd="delete_session", user_id=_USER_ID, session_id=session_id
+    )
+    assert deleted["deleted"] is True, (instance_b.name, deleted)
+
+    # Read on A -- the instance that wrote it and never saw the delete.
+    assert instance_a.call(cmd="sessions", user_id=_USER_ID)["sessions"] == [], (
+        instance_a.name,
+        "the deleted session is still listed",
+    )
+    assert (
+        instance_a.call(cmd="transcript", user_id=_USER_ID, session_id=session_id)[
+            "messages"
+        ]
+        == []
+    ), (instance_a.name, "the deleted transcript still reads back")
+
+    # The raw tables, unscoped by owner: `messages_for` above joins through the
+    # session row, so a delete that removed the session and orphaned its
+    # messages would satisfy it and leave rows behind.
+    counts = instance_a.call(cmd="transcript_row_counts")
+    assert counts["sessions"] == 0, (instance_a.name, counts)
+    assert counts["messages"] == 0, (instance_a.name, counts)
+
+    # PRD Section 9: "deleting a conversation deletes a conversation, it does
+    # not edit the record of what was asked." The count alone would pass against
+    # an implementation that deleted the audit row and inserted a tombstone, so
+    # the surviving row is identified by the session it names.
+    assert instance_a.call(cmd="audit_count")["count"] == before
+    rows = instance_a.call(cmd="rows")["rows"]
+    assert [row["session_id"] for row in rows] == [session_id], rows
+
+
+def test_a_session_owned_by_another_user_is_refused_on_the_other_instance(
+    instances, smoke_user
+):
+    """AC 7. The ownership check is not instance-local state.
+
+    The second credential is written here rather than in a fixture: the story
+    asks for no second harness, and one more identity is two lines. The parent
+    writes it while both children are already running, exactly as `smoke_user`
+    does.
+
+    **The owner's 200 is what makes the 403 mean ownership.** Without it the
+    refusal would be equally consistent with "instance B has never heard of that
+    id" -- which is the opposite of what this story claims.
+    """
+    instance_a, instance_b = instances
+
+    insert_user(
+        User(
+            user_id=_OTHER_USER_ID,
+            role="user",
+            token_hash=hash_token(_OTHER_TOKEN),
+        )
+    )
+
+    created = instance_a.call(
+        cmd="create_session", user_id=_USER_ID, prompt="a private conversation"
+    )
+    session_id = created["session_id"]
+    assert session_id, created
+
+    refused = instance_b.call(
+        cmd="query",
+        prompt="whose conversation is this",
+        token=_OTHER_TOKEN,
+        session_id=session_id,
+    )
+    assert refused["status_code"] == 403, (instance_b.name, refused)
+
+    allowed = instance_b.call(
+        cmd="query",
+        prompt="my own question in my own conversation",
+        token=smoke_user,
+        session_id=session_id,
+    )
+    assert allowed["status_code"] == 200, (instance_b.name, allowed)
+    assert allowed["body"]["status"] == "SUCCESS", allowed["body"]
+
+    # The refusal is audited on the shared trail, so the row instance B wrote is
+    # readable from instance A -- STORY-010's audited 403
+    # (app/routers/query.py:71) closed across instances rather than in one
+    # process. `session_id` is on the row because recording the attempt is the
+    # whole evidentiary value of an audited refusal.
+    rows = instance_a.call(cmd="rows")["rows"]
+    refusals = [row for row in rows if row["success"] is False]
+    assert len(refusals) == 1, rows
+    assert refusals[0]["user_id"] == _OTHER_USER_ID, refusals[0]
+    assert refusals[0]["session_id"] == session_id, refusals[0]
+    assert refusals[0]["error_message"] == (
+        "session_id does not belong to the authenticated identity"
+    ), refusals[0]
+
+
+# --------------------------------------------------------------------------
 # AC 8 -- the measured numbers
 # --------------------------------------------------------------------------
 
@@ -819,4 +1234,15 @@ def test_round_trip_cost_is_measured_and_reported(instances, smoke_user, capsys)
 #:  5. Every child environment pins `DATABASE_URL` and blanks
 #:     `TURSO_AUTH_TOKEN`, because a child builds its own `Settings()` where
 #:     `monkeypatch` cannot reach.
-_INVARIANTS = ("no sleep", "no asserted latency", "no race winner", "no hosted database")
+#:  6. Every session command goes through `app/services/chat_sessions.py` and
+#:     never through `database.py` directly, so the child exercises the
+#:     ownership rule rather than routing around it. An instance that called the
+#:     store would prove the database persisted a row and say nothing about
+#:     whether the deployed call path does -- which is the whole claim.
+_INVARIANTS = (
+    "no sleep",
+    "no asserted latency",
+    "no race winner",
+    "no hosted database",
+    "no store call outside the service",
+)

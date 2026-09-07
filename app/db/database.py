@@ -1,6 +1,8 @@
 import json
 import re
 import threading
+import time
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -20,9 +22,15 @@ from app.db.errors import (
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
     CREATE_AUDIT_LOGS_TABLE,
+    CREATE_CHAT_MESSAGES_SESSION_INDEX,
+    CREATE_CHAT_MESSAGES_TABLE,
+    CREATE_CHAT_SESSIONS_TABLE,
+    CREATE_CHAT_SESSIONS_USER_INDEX,
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
     AuditLog,
+    ChatSession,
+    StoredMessage,
     User,
 )
 
@@ -31,6 +39,34 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _client_lock = threading.Lock()
 _client_key: Optional[tuple[str, str]] = None
 _client: Optional[Any] = None
+
+#: `time.monotonic()` when the client was last handed out, for the idle gate
+#: below. Stamped at acquire rather than when the last statement finished, so a
+#: long transaction makes the next call look idler than it really was -- that
+#: over-probes slightly and can never under-probe. `monotonic()` and not
+#: `time.time()`, so a clock adjustment cannot suppress the probe indefinitely.
+_client_used_at: float = 0.0
+
+# PRD-008 STORY-024. How long the client may go without being handed out before
+# it is proved rather than trusted. A **floor on how often we check**, not a
+# model of the server's timeout, which libSQL publishes no constant for and
+# which this repo cannot measure against a hosted endpoint.
+#
+# Against the local dev server the window was measured rather than guessed: a
+# raw client survives a 10 s pause and is dead at 12 s. Five seconds is half of
+# that, which is the property worth having -- any pause long enough to kill the
+# stream is necessarily long enough to have opened the gate, so an expired
+# stream is caught by the probe and never by the caller's statement. A hosted
+# endpoint whose window is shorter would not break this: the `_translated()`
+# arm still drops the dead client, and the call after it recovers.
+#
+# The cost is bounded: one extra `SELECT 1` -- ~1-4 ms against the local
+# endpoint -- on a call that follows a pause, and nothing at all on a busy path,
+# where the gate never opens.
+#
+# A module constant rather than a setting on purpose: a deployment knob whose
+# wrong value silently restores the defect is not a knob worth having.
+_IDLE_PROBE_AFTER_SECONDS = 5.0
 
 
 def _shared_client() -> Any:
@@ -52,8 +88,26 @@ def _shared_client() -> Any:
     Keyed by URL and token: every test repoints `settings.DATABASE_URL` on the
     constructed `Settings` instance, and a client cached without regard to it
     would serve one test's reads from another test's endpoint.
+
+    **Cached forever is not the same as usable forever (STORY-024).** The stream
+    behind this client is server-side state the server expires when it goes
+    quiet, and before this story nothing ever set `_client = None` -- so the
+    first request after an idle period failed, and so did every request after
+    it, until the process was restarted. An idle process was a dead one.
+
+    So a client that has not been handed out for `_IDLE_PROBE_AFTER_SECONDS` is
+    **proved before it is lent**, and a dead one is replaced once (`_proved()`).
+    Validating here rather than around the caller's statement is what makes the
+    recovery safe: it happens before `_session()` opens its transaction, so
+    there is no partial work any of this could replay (AC 6). A statement that
+    dies mid-transaction is handled the other way, by `_translated()`, which
+    invalidates the cache and re-raises without retrying anything.
+
+    A newly built client is not probed -- it has just opened its stream, and
+    probing it would put a second statement on the boot path `init_db()`'s guard
+    deliberately keeps at one.
     """
-    global _client_key, _client
+    global _client_key, _client, _client_used_at
     key = (settings.DATABASE_URL, settings.TURSO_AUTH_TOKEN)
     with _client_lock:
         if _client is None or _client_key != key:
@@ -61,7 +115,77 @@ def _shared_client() -> Any:
             # (STORY-001 §2.2) and the key only changes under test.
             _client = libsql.connect(key[0], auth_token=key[1])
             _client_key = key
+        elif time.monotonic() - _client_used_at >= _IDLE_PROBE_AFTER_SECONDS:
+            _client = _proved(_client, key)
+        _client_used_at = time.monotonic()
         return _client
+
+
+def _proved(client: Any, key: tuple[str, str]) -> Any:
+    """`client` if its stream still answers, otherwise one replacement.
+
+    **Called with `_client_lock` already held, and it must stay that way.** Two
+    threads that discovered a dead client together and rebuilt independently
+    would produce the client-per-thread configuration STORY-006 measured losing
+    169 of 200 writes to `TRANSACTION_TIMEOUT`. The cost is that the lock is held
+    across one round trip on the idle path; those callers would serialize on the
+    single client regardless.
+
+    **The statement, not the function.** It issues `SELECT 1` on the raw client
+    it was handed -- never through `get_connection()`, which re-enters
+    `_shared_client()` and would deadlock on the non-reentrant `_client_lock`,
+    and never through `check_database_reachable()`, which is a *boot-time*
+    classifier that must keep failing loudly and which
+    `tests/test_db.py::test_guard_does_not_run_outside_init_db` pins out of the
+    operational path.
+
+    **Any driver failure condemns the client here, which is broader than
+    `_is_dead_stream()` on purpose.** A `SELECT 1` cannot fail for a statement
+    reason: there is no table to be missing and no constraint to violate. So
+    whatever the driver is complaining about, this client is not usable -- and
+    a third way of saying "the stream is gone" would still be caught. A
+    `ValueError` without the driver's prefix is our own code's and is re-raised
+    untouched, exactly as `_translated()` treats one.
+
+    **One replacement, never a loop.** The new client is not probed in turn, so
+    an endpoint that is genuinely down surfaces through the caller's own
+    statement as a `StorageError` (AC 2) instead of becoming a retry loop
+    against a database nobody has fixed yet.
+    """
+    try:
+        client.execute("SELECT 1").fetchone()
+    except ValueError as exc:
+        if _DRIVER_ERROR not in str(exc):
+            raise
+        # Dropped, not closed: close() discards uncommitted work rather than
+        # flushing it (STORY-001 §2.2), and a dead stream has none to flush.
+        return libsql.connect(key[0], auth_token=key[1])
+    return client
+
+
+def _invalidate_client(stale: Optional[Any] = None) -> None:
+    """Drops the cached client so the next `_shared_client()` builds a fresh one.
+
+    The recovery half that cannot live in `_shared_client()`: a stream can die
+    between the probe and the statement, or during a long transaction, and
+    without this the dead client stays cached and the *next* caller fails too.
+
+    Takes `_client_lock` itself, because every mutation of `_client` happens
+    under it. `stale` is an identity guard for callers that hold the client they
+    found dead -- if another thread has already replaced it, this must not throw
+    the good one away. `_translated()` has no client reference to pass (it is
+    used standalone in `_add_missing_columns()` and `find_user_by_token_hash()`),
+    so it drops whatever is cached; the cost of that rare over-drop is one extra
+    construction on the next call, and construction stays serialized under the
+    lock, so it is not the client-per-thread configuration either.
+
+    It does not close what it drops, for the reason `_shared_client()` gives.
+    """
+    global _client_key, _client
+    with _client_lock:
+        if stale is None or _client is stale:
+            _client = None
+            _client_key = None
 
 
 class _Row:
@@ -70,7 +194,7 @@ class _Row:
     libSQL returns plain tuples and offers no `row_factory` hook (STORY-001
     §2.1), but `cursor.description` is populated -- for `SELECT *`, for aliased
     aggregates like `COUNT(*) AS n`, and for `PRAGMA table_info` alike. Mapping
-    those names back on is what lets `_row_to_audit_log()`'s 19 named reads, the
+    those names back on is what lets `_row_to_audit_log()`'s 20 named reads, the
     seven `row["n"]` counters and `_add_missing_columns()`'s `row["name"]` stay
     exactly as they were.
 
@@ -257,6 +381,46 @@ _DUPLICATE_COLUMN = re.compile(r"duplicate column name: (\w+)")
 # genuine ValueError raised by our own code, which must not be swallowed.
 _DRIVER_ERROR = "Hrana:"
 
+# PRD-008 STORY-024. The stream is **server-side** state: HRANA_3_SPEC states
+# that HTTP is stateless, so a stream lives on the server and is addressed by a
+# baton the client presents on every request. `libsql-server`'s
+# `hrana/http/stream.rs` returns `StreamExpired` for a handle it has expired and
+# `BatonInvalid` for one it no longer has at all -- which is the same server code
+# a hosted Turso endpoint runs, so this is Hrana's behaviour and not the local
+# container's. Both mean the same thing operationally: no client holding that
+# baton can be talked back into a working stream, and only a new client, which
+# opens one with `baton: null`, recovers.
+#
+#   idle expiry, captured live (PRD-007 STORY-009 report, PRD-008 STORY-014):
+#     Hrana: `api error: `status=400 Bad Request,
+#       body={"message":"The stream has expired due to inactivity","code":"STREAM_EXPIRED"}``
+#   after the server restarts, captured by restarting libSQL under a live
+#   process (STORY-024) -- note the plain-text body, with no JSON and no `code`
+#   field, which is a second reason the classifier reads message text:
+#     Hrana: `api error: `status=400 Bad Request, body=Received an invalid baton``
+#
+# Pinned as literals for the same reason `_MISSING_RELATION` and `_CONSTRAINT`
+# are: libSQL raises a bare `ValueError` and there is no type and no code to
+# branch on (STORY-001 §3.5). Both spellings of the expiry are listed because
+# the message carries the prose and the JSON body carries the code, and a driver
+# that stopped quoting one would still quote the other.
+_DEAD_STREAM = ("stream has expired", "stream_expired", "invalid baton")
+
+
+def _is_dead_stream(message: str) -> bool:
+    """True when the driver is reporting that the server no longer has the stream.
+
+    Deliberately **narrow**, and narrower than the rule the probe in
+    `_shared_client()` applies. This predicate decides whether a *statement*
+    failure should discard the process-wide client, and a statement fails for
+    statement reasons far more often than for connection ones: a
+    `UNIQUE constraint failed` or a `no such table` must leave the client exactly
+    where it is (STORY-024 AC 3), because throwing away a working client on a
+    constraint violation would turn a correctly refused write into a reconnect.
+    """
+    haystack = message.lower()
+    return any(marker in haystack for marker in _DEAD_STREAM)
+
 
 def _constraint_of(exc: ValueError) -> Optional[str]:
     match = _CONSTRAINT.search(str(exc))
@@ -421,6 +585,20 @@ def _translated() -> Iterator[None]:
     The single seam in the codebase where the driver's failure shape is known.
     STORY-004 wrote this to be rewritten here, and `app/db/errors.py` did not
     have to change.
+
+    **It invalidates a dead stream, and it does not retry one (STORY-024).** By
+    the time a statement fails, this generator has already yielded: the caller's
+    body has run, possibly inside `_session()`'s open transaction, and a retry
+    from here could replay half of it. A partial transaction replayed is a worse
+    defect than the one STORY-024 fixes, so the recovery is split -- the *retry*
+    lives in `_shared_client()`, before any transaction opens, and what happens
+    here is only that the dead client is dropped so the next call rebuilds. This
+    call still raises `StorageError`, exactly as it did before.
+
+    **The order of the branches is load-bearing.** Constraint and missing-relation
+    are classified first, so a statement-level failure can never reach the
+    dead-stream arm and be reclassified: a `UNIQUE constraint failed` is still an
+    `IntegrityError` and still leaves the client cached (AC 3).
     """
     try:
         yield
@@ -434,6 +612,8 @@ def _translated() -> Iterator[None]:
         relation = _MISSING_RELATION.search(message)
         if relation is not None:
             raise MissingRelationError(relation.group(1), message) from exc
+        if _is_dead_stream(message):
+            _invalidate_client()
         raise StorageError(message) from exc
 
 
@@ -466,6 +646,18 @@ def init_db() -> None:
     lands here, and PRD Section 11 requires the build to succeed with no
     reachable database. See the setting's comment in `app/config.py` for why it
     gates the schema work too and not just the probe.
+
+    **One `_session()` block builds the whole schema** -- `audit_logs`, `users`
+    and, since PRD-008 STORY-003, the two transcript tables and their indexes.
+    One block is one transaction on one connection, so a boot either lands the
+    whole shape or none of it, and the added statements cost no extra round
+    trip. PRD-008 Risk 7 is about exactly that cost: this function runs at
+    import time on every Reflex hot reload, and what the transcript tables add
+    there is four `CREATE ... IF NOT EXISTS` no-ops, idempotent by construction.
+    The one thing PRD-008 adds that is *not* idempotent by construction is a
+    column, `audit_logs.session_id`, and it needed no new code here -- it rides
+    `_add_missing_columns()` below, which iterates the mapping it was already
+    iterating.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -476,6 +668,10 @@ def init_db() -> None:
         _add_missing_columns(conn)
         conn.execute(CREATE_USERS_TABLE)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
+        conn.execute(CREATE_CHAT_SESSIONS_TABLE)
+        conn.execute(CREATE_CHAT_SESSIONS_USER_INDEX)
+        conn.execute(CREATE_CHAT_MESSAGES_TABLE)
+        conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
 
 
 def _add_missing_columns(conn: _Connection) -> None:
@@ -531,8 +727,8 @@ def insert_audit_log(entry: AuditLog) -> int:
                 response_hash, response_preview, model_used, tokens_used,
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
-                role, denied_permission
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                role, denied_permission, session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -553,6 +749,7 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.pii_entities,
                 entry.role,
                 entry.denied_permission,
+                entry.session_id,
             ),
         )
         return cursor.lastrowid
@@ -605,6 +802,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         pii_entities=row["pii_entities"],
         role=row["role"],
         denied_permission=row["denied_permission"],
+        session_id=row["session_id"],
     )
 
 
@@ -929,7 +1127,8 @@ SELECT
               'pii_detected_output', pii_detected_output,
               'pii_entities', pii_entities,
               'role', role,
-              'denied_permission', denied_permission))
+              'denied_permission', denied_permission,
+              'session_id', session_id))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
@@ -1188,3 +1387,390 @@ def set_user_token_hash(user_id: str, token_hash: str) -> bool:
             (token_hash, user_id),
         )
         return cursor.rowcount == 1
+
+
+def _row_to_chat_session(row: _Row) -> ChatSession:
+    """One `chat_sessions` row as the dataclass STORY-002 declared.
+
+    No coercion, unlike `_row_to_user` above: all five columns are TEXT NOT NULL
+    in the DDL, so there is no integer-as-boolean to translate back.
+    """
+    return ChatSession(
+        session_id=row["session_id"],
+        user_id=row["user_id"],
+        title=row["title"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def create_chat_session(user_id: str, title: str) -> str:
+    """Writes one owned session and returns its new id.
+
+    **The id is minted here, and the signature has no `session_id` parameter at
+    all.** A caller-supplied id is a caller-chosen id, and the caller furthest
+    up this path is `ChatState.active_session_id` -- a Reflex state var, which
+    PRD-008 Risk 3 records is serialized to the client and mutable by
+    client-originated events. Accepting one would let a client pick primary
+    keys. `uuid.uuid4()` is what PRD Section 4 spells in the schema.
+
+    `created_at` and `updated_at` are written from **one** `now`. Two calls to
+    `datetime.now()` can straddle a second boundary, and a brand-new session
+    whose two columns disagree would sort below itself in the rail's
+    `updated_at DESC` read for a reason no reader could ever reconstruct.
+
+    `user_id` is first and undefaulted, as on all six of these -- PRD Risk 2:
+    the rule lives in the signature, so an omission is a `TypeError` here rather
+    than a leak at runtime.
+    """
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    with _session() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_sessions
+                (session_id, user_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, user_id, title, now, now),
+        )
+    return session_id
+
+
+def get_chat_session(session_id: str, user_id: str) -> Optional[ChatSession]:
+    """The owner's session, or None.
+
+    **A session that exists but belongs to someone else returns `None`, exactly
+    as a session that does not exist does.** Not an exception, and not an
+    exception that tells the two apart: a caller able to distinguish "yours but
+    missing" from "someone else's" has a membership oracle over other people's
+    session ids. `find_user_by_token_hash` above refuses to be one for
+    credentials for the same reason.
+
+    It deliberately does *not* carry that function's `MissingRelationError` arm.
+    That arm exists because credential resolution needs a closed door rather
+    than a 500; a missing `chat_sessions` table is a broken boot, and folding it
+    into "no such session" would render an empty rail on a database that never
+    ran `init_db()`.
+    """
+    with _session() as conn:
+        row = conn.execute(
+            "SELECT * FROM chat_sessions WHERE session_id = ? AND user_id = ?",
+            (session_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_chat_session(row)
+
+
+def list_chat_sessions(user_id: str, limit: int = 50) -> list[ChatSession]:
+    """One user's sessions, newest activity first.
+
+    `WHERE user_id = ? ORDER BY updated_at DESC` is `idx_chat_sessions_user_updated`
+    read exactly (`app/db/models.py`), which is why the index was declared with
+    that column order.
+
+    The limit is a literal default rather than `settings.CHAT_SESSION_LIMIT`.
+    No function in this module reads a setting for a limit -- `list_users` and
+    `list_audit_logs` both default and let the caller pass one, which
+    `app/routers/admin.py` does -- and the flag-and-limit policy belongs to
+    `app/services/chat_sessions.py`, where PRD Section 6 also puts the
+    `CHAT_HISTORY_ENABLED` short-circuit.
+
+    **Known tie.** `updated_at` is a second-resolution TEXT timestamp, so two
+    sessions touched within the same second order arbitrarily -- the defect
+    PRD-006 Section 13 already recorded for `audit_logs`. For the rail a tie is
+    cosmetic. For a transcript it would not be, which is why `chat_messages` is
+    read by `id` and never by time.
+    """
+    with _session() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM chat_sessions
+             WHERE user_id = ?
+             ORDER BY updated_at DESC
+             LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        return [_row_to_chat_session(row) for row in rows]
+
+
+def rename_chat_session(session_id: str, user_id: str, title: str) -> bool:
+    """Retitles an owned session. False when there was no such owned row.
+
+    **`updated_at` is deliberately not touched.** Renaming is not activity: a
+    rename that bumped the timestamp would reorder the rail and move the row the
+    user was looking at while they were looking at it. The omission is a
+    decision, not an oversight.
+
+    The `False` arm covers "no such session" and "someone else's session"
+    without distinguishing them -- the zero-row case PRD-007 STORY-006 flagged
+    as the one that regresses silently. Note that `rowcount` counts matched rows
+    and not changed ones, so renaming to the identical title still returns True:
+    the same property `test_deactivate_user_is_idempotent` pins for
+    `deactivate_user`.
+    """
+    with _session() as conn:
+        cursor = conn.execute(
+            "UPDATE chat_sessions SET title = ? WHERE session_id = ? AND user_id = ?",
+            (title, session_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def touch_chat_session(session_id: str, user_id: str) -> bool:
+    """Moves an owned session's `updated_at` to now. False when not owned.
+
+    The send path's reorder, called after the transcript write in PRD Section
+    6's diagram, and the only function that writes `updated_at` after creation
+    -- `rename_chat_session` above pointedly does not.
+    """
+    now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    with _session() as conn:
+        cursor = conn.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
+            (now, session_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def delete_chat_session(session_id: str, user_id: str) -> bool:
+    """Removes an owned session and its messages in one transaction.
+
+    **The message delete is scoped by ownership, not by `session_id`.**
+    `chat_messages` carries no `user_id` column, so the obvious
+    `DELETE FROM chat_messages WHERE session_id = ?` would destroy a foreign
+    owner's transcript while the statement below correctly refused to delete
+    their session row -- this function would return False and the messages would
+    be gone anyway. The subselect makes both statements answer to one predicate,
+    and it is the whole of this story's AC 7.
+
+    **Messages first, session second, one `_session()` block.** One block is one
+    transaction (`_Connection.__exit__` commits on clean exit and rolls back on
+    exception), so there is no window in which the session is gone and its
+    messages are not. STORY-002 declared no foreign key on purpose; *this* is
+    the enforcement, and a later story that adds `ON DELETE CASCADE` has to
+    replace it rather than simply drop it.
+
+    **`audit_logs` is not touched, by any statement, ever.** PRD Section 9: the
+    orphaned `session_id` on those rows is expected, and it is what preserves
+    the evidence when a user tidies their list. Deleting a conversation deletes
+    a conversation; it does not edit the record of what was asked.
+    """
+    with _session() as conn:
+        conn.execute(
+            """
+            DELETE FROM chat_messages
+             WHERE session_id = ?
+               AND session_id IN (
+                   SELECT session_id FROM chat_sessions
+                    WHERE session_id = ? AND user_id = ?
+               )
+            """,
+            (session_id, session_id, user_id),
+        )
+        cursor = conn.execute(
+            "DELETE FROM chat_sessions WHERE session_id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def _row_to_stored_message(row: _Row) -> StoredMessage:
+    """One `chat_messages` row as the dataclass STORY-002 declared.
+
+    **`pii_redacted` is the only coercion, and it is the only one that belongs
+    here.** It is `INTEGER NOT NULL DEFAULT 0` in the DDL against a `bool` field,
+    the same shape `users.active` has -- so it gets the same `bool()` that
+    `_row_to_user` gives that column, and for the same reason.
+
+    `tokens_used` and `audit_id` are pointedly *not* coerced. Both are `INTEGER`
+    columns against `Optional[int]` fields, and an `int()` around them would turn
+    a genuine `NULL` into `0` -- a lie on a bubble that never called a model, and
+    indistinguishable from a real zero-token response. The driver returns Python
+    integers for INTEGER columns already; there is nothing to convert and
+    everything to lose by converting.
+    """
+    return StoredMessage(
+        session_id=row["session_id"],
+        kind=row["kind"],
+        content=row["content"],
+        prompt=row["prompt"],
+        model_used=row["model_used"],
+        tokens_used=row["tokens_used"],
+        audit_id=row["audit_id"],
+        pii_redacted=bool(row["pii_redacted"]),
+        pii_entities=row["pii_entities"],
+        pattern=row["pattern"],
+        required_permission=row["required_permission"],
+        first_query_at=row["first_query_at"],
+        detail=row["detail"],
+        created_at=row["created_at"],
+        id=row["id"],
+    )
+
+
+def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -> int:
+    """Writes one message into an owned session and returns its new `id`.
+
+    **One statement, not two.** The ownership check is the `WHERE EXISTS` on the
+    INSERT itself, so the database decides "does this session exist and belong to
+    this caller" and "write the row" in a single evaluation. A `get_chat_session`
+    followed by an INSERT would be two statements over a table whose id comes
+    from `ChatState.active_session_id` -- a Reflex state var, serialized to the
+    client and mutable by client-originated events (PRD-008 Risk 3). Between the
+    read and the write the session can be deleted or, in a two-instance
+    deployment, re-created; one statement has no such window.
+
+    **`session_id` and `user_id` are the parameters, and `message.session_id` is
+    never read.** `StoredMessage` carries a `session_id` field of its own, so
+    there are two candidate values and only one may win. The parameter wins in
+    *both* places -- the column written and the `EXISTS` predicate -- because
+    reading one value twice is what makes it impossible to check ownership
+    against one session and file the row under another. A caller that hands in a
+    `StoredMessage` built for someone else's session gets it written to the
+    session they were authorized for, or gets an exception; never a row smuggled
+    sideways.
+
+    **A foreign session and an unknown session raise the same exception with the
+    same message.** `get_chat_session` returns `None` for both cases so that no
+    caller can tell "yours but missing" from "someone else's" -- a distinction
+    that is a membership oracle over other people's session ids. AC 6 requires a
+    *visible* failure here rather than a `None`, since the return type is the new
+    row id and a silent no-op would read as a successful write in STORY-014's
+    degraded arm. Visible is not the same as informative: it raises, and it says
+    the same thing either way.
+
+    `StorageError` and not a new exception type, and not a builtin: it is the
+    class every consumer of `app/db/` already catches, so STORY-014's degraded
+    arm reports "the turn was not saved" instead of taking the request down with
+    an unhandled `PermissionError`.
+
+    **`rowcount` is checked before `lastrowid` is read, and the order is load-
+    bearing.** `lastrowid` after an insert that matched nothing carries over from
+    whatever ran before it, so a caller reading it first gets a plausible integer
+    for a write that never happened. Raising inside the `with` block also rolls
+    the transaction back (`_Connection.__exit__`), so "no row is written" holds
+    twice over.
+
+    `created_at` is stamped here when the caller leaves it `None`, the way
+    `insert_user` stamps its own; `id` is always the column's, never the
+    dataclass's, because `AUTOINCREMENT` is what makes it the transcript's order.
+
+    `pii_entities` is normalized: `""` is stored as `NULL`, exactly as
+    `app/services/audit_logger.py:45` already stores an empty entity list. The
+    difference matters one layer up -- `"".split(",")` is `[""]`, a phantom
+    entity on a message that had none, which is what STORY-015 would render.
+    Normalizing at the layer that owns the column means no future caller has to
+    remember the rule.
+    """
+    created_at = message.created_at or datetime.now(timezone.utc).strftime(
+        _TIMESTAMP_FORMAT
+    )
+    with _session() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO chat_messages (
+                session_id, kind, content, created_at, prompt, model_used,
+                tokens_used, audit_id, pii_redacted, pii_entities, pattern,
+                required_permission, first_query_at, detail
+            )
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (
+                 SELECT 1 FROM chat_sessions
+                  WHERE session_id = ? AND user_id = ?
+             )
+            """,
+            (
+                session_id,
+                message.kind,
+                message.content,
+                created_at,
+                message.prompt,
+                message.model_used,
+                message.tokens_used,
+                message.audit_id,
+                int(message.pii_redacted),
+                message.pii_entities or None,
+                message.pattern,
+                message.required_permission,
+                message.first_query_at,
+                message.detail,
+                session_id,
+                user_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise StorageError("chat session not available for this owner")
+        return cursor.lastrowid
+
+
+def list_chat_messages(session_id: str, user_id: str) -> list[StoredMessage]:
+    """One owned session's whole transcript, in the order it was written.
+
+    **`ORDER BY id ASC`, never by a timestamp.** `created_at` is a
+    second-resolution TEXT column, so two messages written inside one second tie
+    and order arbitrarily -- the defect PRD-006 Section 13 recorded for
+    `audit_logs`, and the one `list_chat_sessions` above accepts as cosmetic for
+    the rail. It is not cosmetic here: a transcript that reorders itself on
+    reload is the same conversation read wrong, which is precisely the bug this
+    PRD exists to remove. `AUTOINCREMENT` is the order; `created_at` is
+    displayed. `(session_id, id)` is `idx_chat_messages_session_id` read exactly,
+    which is why the index was declared with that column order.
+
+    **Ownership is a subselect, because `chat_messages` has no `user_id`
+    column.** The obvious `WHERE session_id = ?` would hand a foreign owner's
+    transcript to anyone who guessed an id. This is `delete_chat_session`'s
+    predicate, reused deliberately: one rule, expressed the same way in the two
+    places that reach this table.
+
+    A foreign or unknown session yields `[]` -- not an exception, and not a
+    special-cased branch. The empty list falls out of the predicate, which is why
+    there is no `if` here to forget. `append_chat_message` raises instead, and the
+    asymmetry is intended: a read that finds nothing is an ordinary outcome, a
+    write that silently lands nowhere is not.
+
+    **No `limit`, deliberately.** PRD Section 4 caps sessions, not messages
+    within one, and a partial transcript is a wrong transcript -- worse than a
+    slow one, because nothing on screen says it is partial. If message volume
+    ever forces the issue it is a paging design with a visible control, not a
+    default argument added here.
+    """
+    with _session() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM chat_messages
+             WHERE session_id = ?
+               AND session_id IN (
+                   SELECT session_id FROM chat_sessions
+                    WHERE session_id = ? AND user_id = ?
+               )
+             ORDER BY id ASC
+            """,
+            (session_id, session_id, user_id),
+        ).fetchall()
+        return [_row_to_stored_message(row) for row in rows]
+
+
+def count_chat_sessions(user_id: str) -> int:
+    """How many sessions this user has, in total.
+
+    Exists so the rail can state its cap against a true total, the way PRD-006's
+    register reports "100 most recent of 3,180". A count is the only honest way
+    to say that: `len(list_chat_sessions(...))` can never exceed the limit it was
+    called with, so a capped list can report "50 of 50" on an account with two
+    hundred sessions and be indistinguishable from one with exactly fifty.
+
+    It therefore ignores `CHAT_SESSION_LIMIT` entirely -- a count that respected
+    the display cap could not produce the one number worth printing.
+
+    Sessions, not messages. Nothing caps a transcript (`list_chat_messages`
+    above), so there is no second number to report.
+    """
+    with _session() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM chat_sessions WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return row["n"]

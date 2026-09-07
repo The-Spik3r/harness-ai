@@ -308,7 +308,7 @@ async def test_chat_state_never_forwards_a_byok_key_so_query_byok_has_no_chat_in
     insert_user(User(user_id="chatter", role="user", token_hash=hash_token("chat-byok-token")))
     captured = {}
 
-    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter):
+    def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         captured["openrouter_api_key"] = openrouter_api_key
         return QuerySuccessResponse(response="ok", audit_id=1, model_used=model, tokens_used=1)
 

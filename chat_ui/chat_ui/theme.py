@@ -89,6 +89,31 @@ COLUMN_MAX = "56rem"
 MEASURE = "42rem"  # reading measure for prose — roughly 70 characters
 PANEL_MAX = "36rem"  # a verdict is a short record, not a banner
 
+# The session rail. Four sizes, no colour: PRD-008 Section 6.1 closes the
+# palette for this surface -- "no new inks. The rail is PAPER ground against
+# the transcript's CARD, separated by the existing RULE. The active session is
+# marked with INK type against HOVER." Every one of those five tokens is
+# already declared above, so this block adds none.
+#
+# The active mark is not declared here either, and that is the point. It is
+# RAIL_X / GLYPH / SPINE -- the same three tokens bubbles.py assembles for the
+# transcript's rail and register.py for the stamp margin -- appearing a third
+# time at a third scale. PRD-008 Section 6.1: "Three surfaces, one structural
+# device, each time encoding *which one of these is the one*." A
+# SESSION_RAIL_MARK_W beside GLYPH would be a third device wearing the second
+# one's clothes.
+#
+# SESSION_RAIL_*, not RAIL_*: RAIL_X above already means the *transcript's*
+# rail and is reused by this surface, so a bare RAIL_W would name the wrong
+# rail at the one point the two meet.
+SESSION_RAIL_W = "15rem"  # ~34 title characters at TEXT_DATA past the RAIL_X inset
+SESSION_RAIL_ROW_H = "3rem"  # two lines: the title, and the activity time under it
+SESSION_RAIL_GUTTER = "0.75rem"  # the rail's own padding and its gap to the transcript
+# Below this the rail collapses (STORY-019). SESSION_RAIL_W + MEASURE is 57rem,
+# so 60rem is the width at which the rail stops costing the transcript its
+# reading measure rather than an arbitrary device breakpoint.
+SESSION_RAIL_COLLAPSE_W = "60rem"
+
 # --- Global stylesheet ---------------------------------------------------
 # Injected once as a <style> tag. Holds only what inline props cannot express:
 # keyframes, focus-visible, selection, scrollbars, and the reduced-motion

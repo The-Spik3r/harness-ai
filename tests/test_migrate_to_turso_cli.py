@@ -167,7 +167,7 @@ def test_dest_columns_match_the_ddl():
         "response_hash", "response_preview", "model_used", "tokens_used",
         "was_duplicate_blocked", "suspicious_pattern", "success", "error_message",
         "pii_detected_input", "pii_detected_output", "pii_entities", "role",
-        "denied_permission",
+        "denied_permission", "session_id",  # session_id: PRD-008 STORY-002
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",

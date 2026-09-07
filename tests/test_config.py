@@ -271,3 +271,93 @@ def test_db_bootstrap_enabled_can_be_turned_off_for_the_build():
     result = _settings(DATABASE_URL=_LOCAL_URL, DB_BOOTSTRAP_ENABLED="false")
 
     assert result.DB_BOOTSTRAP_ENABLED is False
+# --- PRD-008 STORY-001: chat transcript persistence settings -----------------
+#
+# Nothing reads either setting yet -- app/services/chat_sessions.py (STORY-006)
+# is the only consumer. What is asserted here is the switch existing and
+# refusing a value that would lie to a user, because PRD-008 Risk 1 makes this
+# the mitigation for the largest exposure the PRD introduces, and a mitigation
+# is only load-bearing if it lands before the thing it mitigates.
+
+
+def test_chat_history_settings_available_with_documented_defaults():
+    """AC 1: both settings exist with the defaults PRD-008 Section 9 tabulates."""
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.CHAT_HISTORY_ENABLED is True
+    assert result.CHAT_SESSION_LIMIT == 50
+
+
+def test_chat_history_can_be_turned_off_with_the_string_false():
+    """AC 3: `false`, the string, is what a `.env` file and Docker actually supply.
+
+    Asserted with `is False` rather than `not ...` so a value that merely
+    happens to be falsy -- an empty string surviving coercion, say -- fails.
+    """
+    result = _settings(DATABASE_URL=_LOCAL_URL, CHAT_HISTORY_ENABLED="false")
+
+    assert result.CHAT_HISTORY_ENABLED is False
+
+
+@pytest.mark.parametrize("limit", [0, -1, "0"])
+def test_a_chat_session_limit_below_one_is_a_startup_error(limit):
+    """AC 2: a limit of 0 renders an empty rail on a user who has sessions.
+
+    `"0"` is parametrized alongside the ints because the environment supplies
+    strings and pydantic coerces before the validator runs -- a validator
+    written against the raw string would pass the int cases and leak this one.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, CHAT_SESSION_LIMIT=limit)
+
+    assert "CHAT_SESSION_LIMIT" in str(exc_info.value)
+
+
+def test_a_chat_session_limit_of_one_is_accepted():
+    """The boundary on the accepted side, so `<= 1` fails here and not in STORY-006."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, CHAT_SESSION_LIMIT=1)
+
+    assert result.CHAT_SESSION_LIMIT == 1
+
+
+def test_settings_construct_without_the_chat_vars(monkeypatch):
+    """The defaults are the module's, not a developer's exported environment."""
+    for var in ("CHAT_HISTORY_ENABLED", "CHAT_SESSION_LIMIT"):
+        monkeypatch.delenv(var, raising=False)
+
+    fresh = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert fresh.CHAT_HISTORY_ENABLED is True
+    assert fresh.CHAT_SESSION_LIMIT == 50
+
+
+def test_env_example_documents_both_chat_vars_with_a_comment():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in ("CHAT_HISTORY_ENABLED", "CHAT_SESSION_LIMIT"):
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_chat_vars_appear_in_settings_field_order():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = ["CHAT_HISTORY_ENABLED", "CHAT_SESSION_LIMIT"]
+
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_says_what_the_off_state_does():
+    """AC 4's content half: the comment states the consequence, not the type.
+
+    Asserted on substance rather than on an exact sentence, so rewording the
+    comment stays a docs change instead of a red test.
+    """
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    comment = re.search(r"(?m)((?:^#.*\n)+)CHAT_HISTORY_ENABLED=", text)
+
+    assert comment, "CHAT_HISTORY_ENABLED has no comment block above it"
+    block = comment.group(1).lower()
+    assert block.count("\n") >= 2, "one line cannot say what the off state does"
+    for token in ("false", "transcript", "rail", "prd-008"):
+        assert token in block, f"the CHAT_HISTORY_ENABLED comment never mentions {token!r}"

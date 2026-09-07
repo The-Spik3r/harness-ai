@@ -29,7 +29,17 @@ QueryPipelineResult = Union[
 
 
 def _deny(
-    identity: Identity, prompt: str, device: Optional[str], exc: PermissionDenied, reason: str
+    identity: Identity,
+    prompt: str,
+    device: Optional[str],
+    # Required, and deliberately not defaulted or closed over: this helper is
+    # the single log_query call site serving all three authorization arms, and
+    # a captured variable is how one of them silently stops passing the session
+    # on. Required means a forgotten arm is a TypeError, not a NULL nobody
+    # notices for a release. (PRD-008 STORY-009)
+    session_id: Optional[str],
+    exc: PermissionDenied,
+    reason: str,
 ) -> QueryBlockedForbiddenResponse:
     log_query(
         user_id=identity.user_id,
@@ -38,6 +48,7 @@ def _deny(
         success=True,
         role=identity.role,
         denied_permission=exc.permission,
+        session_id=session_id,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -49,22 +60,32 @@ def run_query(
     model: str,
     openrouter_api_key: Optional[str],
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
+    session_id: Optional[str] = None,
 ) -> QueryPipelineResult:
     try:
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
-        return _deny(identity, prompt, device, exc, "Missing required permission")
+        return _deny(
+            identity, prompt, device, session_id=session_id, exc=exc,
+            reason="Missing required permission",
+        )
 
     try:
         authorize_model(identity, model)
     except PermissionDenied as exc:
-        return _deny(identity, prompt, device, exc, "Model not permitted for this role")
+        return _deny(
+            identity, prompt, device, session_id=session_id, exc=exc,
+            reason="Model not permitted for this role",
+        )
 
     if openrouter_api_key is not None:
         try:
             authorize(identity, PERMISSION_QUERY_BYOK)
         except PermissionDenied as exc:
-            return _deny(identity, prompt, device, exc, "Missing required permission")
+            return _deny(
+                identity, prompt, device, session_id=session_id, exc=exc,
+                reason="Missing required permission",
+            )
 
     duplicate_result = check_duplicate(prompt)
 
@@ -75,6 +96,7 @@ def run_query(
             device=device,
             was_duplicate_blocked=True,
             success=True,
+            session_id=session_id,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -89,6 +111,7 @@ def run_query(
             device=device,
             suspicious_pattern=pattern_result.pattern,
             success=True,
+            session_id=session_id,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -104,6 +127,7 @@ def run_query(
             device=device,
             success=False,
             error_message=str(exc),
+            session_id=session_id,
         )
         raise
 
@@ -119,6 +143,7 @@ def run_query(
             model_used=model,
             success=False,
             error_message=str(exc),
+            session_id=session_id,
         )
         raise
 
@@ -136,6 +161,7 @@ def run_query(
             error_message=str(exc),
             pii_detected_input=bool(input_entities),
             pii_entities=input_entities,
+            session_id=session_id,
         )
         raise
 
@@ -152,6 +178,7 @@ def run_query(
         pii_detected_input=bool(input_entities),
         pii_detected_output=bool(output_entities),
         pii_entities=masked_entities,
+        session_id=session_id,
     )
 
     return QuerySuccessResponse(

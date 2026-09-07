@@ -19,9 +19,8 @@ from chat_ui.components.admin_shell import (
     VIEW_SUMMARY,
     admin_page,
 )
-from chat_ui.components.chat import chat_input, message_list
 from chat_ui.components.register import register
-from chat_ui.components.shell import empty_state, header, login_gate
+from chat_ui.components.shell import header, login_gate, shell_body
 from chat_ui.components.summary import summary
 from chat_ui.state import ChatState
 
@@ -34,18 +33,32 @@ init_db()
 
 
 def index() -> rx.Component:
+    """The chat surface: masthead, then the rail beside the transcript, then the
+    composer — or the session gate, for a visitor who has not signed in.
+
+    **The `rx.cond` on `user_id` is the gate and does not move.** The rail lives
+    inside the authenticated arm only, so an unauthenticated visitor renders
+    exactly what they rendered before this story: no rail, and no session read.
+
+    The row itself is `shell_body()` (STORY-019), which owns the rail's column,
+    the transcript's, and the collapse between them. What used to be this
+    function's `rx.cond(has_messages, message_list(), empty_state())` — and its
+    `chat_input()` — moved inside `transcript_column()` unchanged: the composer
+    types into the transcript, so it belongs to the transcript's column, and
+    that is a layout decision rather than a page one. `transcript_column()`
+    records what was measured on screen before it moved.
+
+    `rx.el.style(theme.GLOBAL_CSS)` stays here and is emitted once. A second
+    copy on the page is the mistake `components/session_rail.py` and PRD-006's
+    admin components both record; `shell.py` deliberately adds no CSS at all.
+    """
     return rx.fragment(
         rx.el.style(theme.GLOBAL_CSS),
         rx.cond(
             ChatState.user_id != "",
             rx.vstack(
                 header(),
-                rx.cond(
-                    ChatState.has_messages,
-                    message_list(),
-                    empty_state(),
-                ),
-                chat_input(),
+                shell_body(),
                 height="100vh",
                 width="100%",
                 spacing="0",

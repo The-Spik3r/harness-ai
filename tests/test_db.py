@@ -3,10 +3,12 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import dataclasses
 import inspect
 import re
 import sqlite3
 import threading
+import time
 from datetime import datetime
 
 import pytest
@@ -46,7 +48,18 @@ from app.db.errors import (
     MissingRelationError,
     StorageError,
 )
-from app.db.models import AUDIT_LOGS_ADDED_COLUMNS, AuditLog, User
+from app.db.models import (
+    AUDIT_LOGS_ADDED_COLUMNS,
+    CREATE_AUDIT_LOGS_TABLE,
+    CREATE_CHAT_MESSAGES_SESSION_INDEX,
+    CREATE_CHAT_MESSAGES_TABLE,
+    CREATE_CHAT_SESSIONS_TABLE,
+    CREATE_CHAT_SESSIONS_USER_INDEX,
+    AuditLog,
+    ChatSession,
+    StoredMessage,
+    User,
+)
 
 
 def test_init_db_creates_table(temp_db):
@@ -111,8 +124,18 @@ def test_add_missing_columns_applies_any_declared_column(uninitialized_db, monke
 
 def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
     """A no-op run must not re-issue ALTER: init_db() runs on every Reflex hot
-    reload, and a redundant ADD COLUMN is fatal, not merely wasteful."""
+    reload, and a redundant ADD COLUMN is fatal, not merely wasteful.
+
+    Since PRD-008 STORY-003 it carries a second claim, because the same
+    recording gives it for free: the whole schema is built on **one**
+    connection. `init_db()` opens exactly one `_session()`, so one transaction
+    either lands every table or none of them -- and a boot that could commit
+    `users` and fail before `chat_messages` is precisely the half-built schema
+    the single block exists to rule out. Counting connections is what makes a
+    second `with _session()` fail here rather than pass review.
+    """
     statements: list[str] = []
+    connections: list[object] = []
     real_get_connection = database.get_connection
 
     class _RecordingConnection:
@@ -141,16 +164,34 @@ def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
             statements.append(sql)
             return self._conn.execute(sql, *parameters)
 
-    monkeypatch.setattr(
-        database,
-        "get_connection",
-        lambda: _RecordingConnection(real_get_connection()),
-    )
+    def _record_connection():
+        proxy = _RecordingConnection(real_get_connection())
+        connections.append(proxy)
+        return proxy
+
+    monkeypatch.setattr(database, "get_connection", _record_connection)
 
     init_db()  # temp_db already migrated this database to the current schema
 
     assert statements, "the proxy captured nothing -- the patch did not take"
     assert not any("ALTER" in sql.upper() for sql in statements), statements
+
+    # One `_session()` for the whole schema (PRD-008 STORY-003). `SELECT 1` is
+    # check_database_reachable()'s own connection, so two is the correct total
+    # and three would mean the bootstrap block was split.
+    assert len(connections) == 2, [type(c).__name__ for c in connections]
+    assert statements.count("SELECT 1") == 1, statements
+
+    # Imported, not spelled out: the DDL is app/db/models.py's to define, and a
+    # statement that stops being issued must fail here rather than leave this
+    # test quietly passing on a schema init_db() no longer builds.
+    for ddl in (
+        CREATE_CHAT_SESSIONS_TABLE,
+        CREATE_CHAT_SESSIONS_USER_INDEX,
+        CREATE_CHAT_MESSAGES_TABLE,
+        CREATE_CHAT_MESSAGES_SESSION_INDEX,
+    ):
+        assert ddl in statements, ddl
 
 
 def _create_pre_pii_database(connect, url) -> None:
@@ -258,6 +299,54 @@ def _create_pre_rbac_database(connect, url) -> None:
     legacy.execute(
         "INSERT INTO audit_logs (timestamp, user_id, prompt_hash) VALUES (?, ?, ?)",
         ("2026-08-20T09:00:00Z", "ana@empresa.com", "xyz789"),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def _create_pre_chat_sessions_database(connect, url) -> None:
+    """Builds the 19-column audit_logs table exactly as it ships on `main`
+    today -- i.e. after PRD-005's role / denied_permission columns, before
+    PRD-008's session_id.
+
+    The third of these fixtures, and the narrowest on purpose.
+    `_create_pre_pii_database` is missing five of the added columns and
+    `_create_pre_rbac_database` is missing three; both would migrate `session_id`
+    incidentally, alongside others, so neither can show that *this* column
+    converges. Here `session_id` is the only column in flight, so a change that
+    dropped it from the migration path fails rather than hides in a set
+    comparison.
+    """
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT
+        )
+        """
+    )
+    legacy.execute(
+        "INSERT INTO audit_logs (timestamp, user_id, prompt_hash, role) "
+        "VALUES (?, ?, ?, ?)",
+        ("2026-09-01T09:00:00Z", "carla@empresa.com", "pre008", "user"),
     )
     legacy.commit()
     legacy.close()
@@ -434,6 +523,83 @@ def test_role_and_denied_permission_round_trip(temp_db):
     assert entries[0].denied_permission == "query:byok"
 
 
+def test_session_id_defaults_to_none_when_not_supplied(temp_db):
+    """PRD-008 STORY-008 AC 4 at the store level: a row written without a
+    session is indistinguishable from one written before the column existed."""
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:00:00Z",
+            user_id="a",
+            prompt_hash="h5",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.session_id is None
+
+
+def test_session_id_round_trips(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h6",
+            role="user",
+            denied_permission=None,
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    # The neighbours too: a miscount in insert_audit_log's column list shifts
+    # every later value, which shows up here as a wrong neighbour rather than
+    # only as a missing session.
+    assert fetched.prompt_hash == "h6"
+    assert fetched.role == "user"
+    assert fetched.denied_permission is None
+
+    # And via list_audit_logs, the other read path (AuditQueryEntry's future source).
+    entries = list_audit_logs()
+    assert entries[0].session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+
+def test_session_id_survives_the_batched_read(temp_db):
+    """`_row_to_audit_log` serves two row shapes: the `SELECT *` row and the
+    plain dict decoded out of `_SUMMARY_SQL`'s hand-written `json_object(...)`.
+    A column added to the mapper but not to that column list makes the batched
+    `rows` figure fail on every call, so the agreement is asserted rather than
+    assumed -- with one row carrying a session and one not."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:10:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h7",
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-04T09:15:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="h8",
+        )
+    )
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    assert [row.session_id for row in snapshot.rows] == [
+        None,
+        "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+    ]
+
+
 def test_get_audit_log_missing_id_returns_none(temp_db):
     assert get_audit_log(999) is None
 
@@ -462,6 +628,7 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "pii_entities",
         "role",
         "denied_permission",
+        "session_id",  # PRD-008 STORY-002
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -1300,6 +1467,431 @@ def test_init_db_adds_users_table_to_pre_rbac_database(uninitialized_db, db_conn
     assert get_audit_log(1).user_id == "juan@empresa.com"
 
 
+# ---------------------------------------------------------------------------
+# Transcript schema (PRD-008 STORY-002)
+#
+# These assert the DDL **constants**, not PRAGMA table_info, and that is not an
+# oversight: STORY-002 declares the schema and STORY-003 is what teaches
+# init_db() to execute it, so there is no chat_sessions table to interrogate
+# yet. STORY-003 owns the PRAGMA assertions; these own the declarations, and
+# they keep holding afterwards.
+#
+# STORY-003 has since landed: its PRAGMA half is the section headed
+# "Transcript schema, as built (PRD-008 STORY-003)" below.
+# ---------------------------------------------------------------------------
+
+#: The ChatMessage metadata a restored bubble needs, per PRD Section 6. Named
+#: here so a dropped column names itself in the failure rather than showing up
+#: as a bare `assert False`.
+_RESTORABLE_MESSAGE_FIELDS = (
+    "prompt",
+    "model_used",
+    "tokens_used",
+    "audit_id",
+    "pii_redacted",
+    "pii_entities",
+    "pattern",
+    "required_permission",
+    "first_query_at",
+    "detail",
+)
+
+
+def _declared_columns(ddl: str) -> list[str]:
+    """The column names of a CREATE TABLE, in declaration order."""
+    body = ddl.split("(", 1)[1].rsplit(")", 1)[0]
+    return [line.strip().split()[0] for line in body.splitlines() if line.strip()]
+
+
+@pytest.mark.parametrize(
+    "ddl",
+    [CREATE_CHAT_SESSIONS_TABLE, CREATE_CHAT_MESSAGES_TABLE],
+    ids=["chat_sessions", "chat_messages"],
+)
+def test_chat_table_ddl_declares_if_not_exists(ddl):
+    """init_db() runs at import time on every Reflex hot reload and on every
+    instance boot (PRD-008 Risk 7), so both CREATEs have to be no-ops the second
+    time. IF NOT EXISTS is what makes them idempotent by construction."""
+    assert "CREATE TABLE IF NOT EXISTS" in ddl
+
+
+def test_chat_sessions_key_columns_declare_not_null_explicitly():
+    """Outside INTEGER PRIMARY KEY, SQLite lets a PRIMARY KEY column hold NULL
+    -- and more than one row of them -- so dropping the explicit NOT NULL would
+    silently allow unowned, unaddressable conversations. Same reasoning as
+    test_users_schema_matches_expected_columns, one table over.
+    """
+    assert "session_id TEXT PRIMARY KEY NOT NULL" in CREATE_CHAT_SESSIONS_TABLE
+    assert "user_id TEXT NOT NULL" in CREATE_CHAT_SESSIONS_TABLE
+    assert _declared_columns(CREATE_CHAT_SESSIONS_TABLE) == [
+        "session_id",
+        "user_id",
+        "title",
+        "created_at",
+        "updated_at",
+    ]
+
+
+def test_chat_messages_ddl_orders_by_an_autoincrement_key():
+    """PRD Section 6, Ordering: messages are read ORDER BY id ASC and never by
+    timestamp, because a TEXT timestamp ties arbitrarily when two rows share a
+    second. The key is the order, so it has to be an autoincrement one."""
+    assert "id INTEGER PRIMARY KEY AUTOINCREMENT" in CREATE_CHAT_MESSAGES_TABLE
+
+
+@pytest.mark.parametrize("field", _RESTORABLE_MESSAGE_FIELDS)
+def test_chat_messages_ddl_carries_every_restorable_chat_message_field(field):
+    """A restored bubble renders through the same rx.match as a live one, so
+    every field that verdict rendering reads needs somewhere to live. A missing
+    column here is a bubble that comes back different after a reload."""
+    assert field in _declared_columns(CREATE_CHAT_MESSAGES_TABLE)
+
+
+def test_chat_messages_ddl_requires_the_columns_every_bubble_has():
+    for column in ("session_id", "kind", "content", "created_at"):
+        assert f"{column} TEXT NOT NULL" in CREATE_CHAT_MESSAGES_TABLE
+
+
+def test_chat_messages_pii_redacted_follows_the_boolean_convention():
+    """audit_logs stores booleans as INTEGER NOT NULL DEFAULT 0 throughout;
+    one table storing them differently is how a truthiness bug gets in."""
+    assert "pii_redacted INTEGER NOT NULL DEFAULT 0" in CREATE_CHAT_MESSAGES_TABLE
+
+
+@pytest.mark.parametrize(
+    "field", ["duplicate_relative_info", "duplicate_release_info"]
+)
+def test_chat_messages_ddl_stores_no_humanized_duplicate_copy(field):
+    """PRD Section 6: "the humanized copy is recomputed on load, not stored, so
+    it stays relative to *now*."
+
+    This test looks like it is asserting an omission, and it is -- deliberately.
+    A stored "2m ago" is wrong the moment it is read back, so these two fields
+    of ChatMessage are the only ones without a column, and someone adding one
+    to "finish the mapping" should fail here rather than ship a transcript that
+    lies about when things happened.
+    """
+    assert field not in CREATE_CHAT_MESSAGES_TABLE
+
+
+def test_chat_messages_declares_no_foreign_key():
+    """SQLite enforces foreign keys only under PRAGMA foreign_keys=ON per
+    connection, and the shared libSQL client gives no place to guarantee that on
+    every path. A declared-but-unenforced constraint reads as a guarantee it is
+    not; delete_chat_session()'s single transaction is the enforcement."""
+    assert "REFERENCES" not in CREATE_CHAT_MESSAGES_TABLE.upper()
+    assert "FOREIGN KEY" not in CREATE_CHAT_MESSAGES_TABLE.upper()
+
+
+def test_chat_indexes_cover_the_two_read_paths():
+    """The rail lists a user's sessions newest-activity-first, and a transcript
+    reads one session in key order. Those are the only two access paths the PRD
+    has, and these are their indexes."""
+    assert "CREATE INDEX IF NOT EXISTS" in CREATE_CHAT_SESSIONS_USER_INDEX
+    assert (
+        "idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at DESC)"
+        in CREATE_CHAT_SESSIONS_USER_INDEX
+    )
+
+    assert "CREATE INDEX IF NOT EXISTS" in CREATE_CHAT_MESSAGES_SESSION_INDEX
+    assert (
+        "idx_chat_messages_session_id ON chat_messages(session_id, id)"
+        in CREATE_CHAT_MESSAGES_SESSION_INDEX
+    )
+
+
+def test_chat_session_indexes_are_not_unique():
+    """Unlike idx_users_token_hash, these order and filter rather than claim
+    uniqueness -- one user has many sessions, one session has many messages."""
+    assert "UNIQUE" not in CREATE_CHAT_SESSIONS_USER_INDEX.upper()
+    assert "UNIQUE" not in CREATE_CHAT_MESSAGES_SESSION_INDEX.upper()
+
+
+def test_audit_logs_added_columns_carries_a_nullable_session_id():
+    """Nullable with no default is what lets a request that omits session_id
+    write NULL (PRD Section 10), and it is what keeps
+    test_added_columns_declaring_not_null_also_declare_a_default satisfied.
+
+    Declared in both places, like every other migrated column: the mapping
+    upgrades an old database, the CREATE is what a fresh one is built to.
+    """
+    assert AUDIT_LOGS_ADDED_COLUMNS["session_id"] == "TEXT"
+    assert "session_id TEXT" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_every_added_column_is_also_declared_in_the_create():
+    """The pair is the invariant, not a coincidence of this one column: a column
+    in only the mapping means every fresh deployment ALTERs its own brand-new
+    table on first boot."""
+    declared = _declared_columns(CREATE_AUDIT_LOGS_TABLE)
+    for name in AUDIT_LOGS_ADDED_COLUMNS:
+        assert name in declared, f"{name} is migrated in but never created"
+
+
+def test_audit_log_carries_session_id_without_breaking_construction():
+    """session_id sits before id so the surrogate key stays the trailing field,
+    matching AuditLog's and User's existing shape."""
+    assert AuditLog(
+        timestamp="2026-09-03T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc"
+    ).session_id is None
+
+    carried = AuditLog(
+        timestamp="2026-09-03T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+    )
+    assert carried.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+    names = [field.name for field in dataclasses.fields(AuditLog)]
+    assert names[-2:] == ["session_id", "id"]
+
+
+def test_stored_message_mirrors_the_chat_messages_columns():
+    """The real long-run risk in this file is the dataclass and the table
+    drifting apart as later stories add fields. Compared mechanically here so
+    the drift fails a test rather than a reading."""
+    assert {field.name for field in dataclasses.fields(StoredMessage)} == set(
+        _declared_columns(CREATE_CHAT_MESSAGES_TABLE)
+    )
+
+
+def test_chat_session_mirrors_the_chat_sessions_columns():
+    assert {field.name for field in dataclasses.fields(ChatSession)} == set(
+        _declared_columns(CREATE_CHAT_SESSIONS_TABLE)
+    )
+
+
+def test_chat_dataclasses_require_their_identifying_fields():
+    """No defaults on the fields that say which conversation this is: a
+    StoredMessage without a session_id is a message belonging to nobody, and it
+    should fail at the call site rather than reach the insert."""
+    with pytest.raises(TypeError):
+        StoredMessage()  # noqa -- session_id, kind and content are required
+    with pytest.raises(TypeError):
+        ChatSession()  # noqa -- session_id, user_id and title are required
+
+
+# ---------------------------------------------------------------------------
+# Transcript schema, as built (PRD-008 STORY-003)
+#
+# The other half of the block above: those tests assert the DDL *constants*,
+# these run `init_db()` and interrogate the tables it actually produced. Both
+# are needed -- a constant nothing executes is a schema that does not exist,
+# and a table nobody declared is one no reader can find.
+# ---------------------------------------------------------------------------
+
+_CHAT_TABLES = ("chat_sessions", "chat_messages")
+_CHAT_INDEXES = ("idx_chat_sessions_user_updated", "idx_chat_messages_session_id")
+
+
+def _table_names(conn) -> set:
+    return {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+
+
+def _column_names(conn, table) -> list:
+    return [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
+@pytest.mark.parametrize("table", _CHAT_TABLES)
+def test_init_db_creates_the_chat_tables(temp_db, table):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+    assert row is not None
+
+
+@pytest.mark.parametrize("index", _CHAT_INDEXES)
+def test_init_db_creates_the_chat_indexes(temp_db, index):
+    """The indexes are part of the schema, not an optimization applied later:
+    the rail's read and the transcript's read are the only two access paths the
+    PRD has, and these are them."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?", (index,)
+        ).fetchone()
+    assert row is not None
+
+
+def test_chat_sessions_table_matches_its_ddl(temp_db):
+    """Pins the built table, including the explicit NOT NULL on session_id.
+
+    Outside INTEGER PRIMARY KEY, SQLite lets a PRIMARY KEY column hold NULL --
+    and more than one row of them -- so dropping that NOT NULL would silently
+    allow unowned, unaddressable conversations. Same assertion shape as
+    test_users_schema_matches_expected_columns, one table over.
+    """
+    with get_connection() as conn:
+        info = list(conn.execute("PRAGMA table_info(chat_sessions)"))
+
+    columns = {row["name"]: row for row in info}
+    assert set(columns) == {
+        "session_id",
+        "user_id",
+        "title",
+        "created_at",
+        "updated_at",
+    }
+    for name, row in columns.items():
+        assert row["notnull"] == 1, f"{name} must be NOT NULL"
+    assert columns["session_id"]["pk"] == 1
+    assert all(
+        columns[name]["pk"] == 0
+        for name in ("user_id", "title", "created_at", "updated_at")
+    )
+
+
+def test_chat_messages_table_matches_its_ddl(temp_db):
+    """AC 6: the built column set is STORY-002's DDL exactly.
+
+    Compared against `_declared_columns(CREATE_CHAT_MESSAGES_TABLE)` rather than
+    a second hand-typed literal, and in **declaration order**: a fifteen-name
+    list copied into this file would be a second source of truth, and the two
+    would drift the first time a column is added at either end.
+    """
+    with get_connection() as conn:
+        info = list(conn.execute("PRAGMA table_info(chat_messages)"))
+
+    assert [row["name"] for row in info] == _declared_columns(
+        CREATE_CHAT_MESSAGES_TABLE
+    )
+
+    columns = {row["name"]: row for row in info}
+    assert columns["id"]["pk"] == 1  # id is the order (PRD Section 6)
+    assert columns["pii_redacted"]["notnull"] == 1
+    assert columns["pii_redacted"]["dflt_value"] == "0"
+    for name in ("session_id", "kind", "content", "created_at"):
+        assert columns[name]["notnull"] == 1, f"{name} must be NOT NULL"
+
+
+@pytest.mark.parametrize("field", ["duplicate_relative_info", "duplicate_release_info"])
+def test_chat_messages_table_stores_no_humanized_duplicate_copy(temp_db, field):
+    """PRD Section 6: "the humanized copy is recomputed on load, not stored, so
+    it stays relative to *now*."
+
+    The twin of the constant-level assertion above, and deliberately an
+    assertion of an *absence* for the same reason: a stored "2m ago" is wrong
+    the moment it is read back, so someone adding the column to "finish the
+    mapping" should fail here rather than ship a transcript that lies about when
+    things happened. AC 6 names the built table specifically, which is why the
+    string-level twin is not enough on its own.
+    """
+    with get_connection() as conn:
+        assert field not in _column_names(conn, "chat_messages")
+
+
+def test_init_db_is_idempotent_for_the_chat_tables(temp_db):
+    """init_db() runs at import time on every Reflex hot reload
+    (chat_ui/chat_ui/chat_ui.py:33), so the re-issued CREATEs must stay no-ops
+    rather than raising -- PRD-008 Risk 7's first half."""
+    init_db()
+    init_db()
+    init_db()
+
+    with get_connection() as conn:
+        tables = _table_names(conn)
+        indexes = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        }
+        for table in _CHAT_TABLES:
+            columns = _column_names(conn, table)
+            assert len(columns) == len(set(columns)), f"{table}: a column added twice"
+
+    assert set(_CHAT_TABLES) <= tables
+    assert set(_CHAT_INDEXES) <= indexes
+
+
+def test_init_db_adds_the_chat_tables_to_a_pre_chat_database(
+    uninitialized_db, db_connect
+):
+    """A new *table* needs no ALTER-based migration: CREATE TABLE IF NOT EXISTS
+    reaches an existing database, unlike a new column. That is why this story
+    edits `init_db()` and not `_add_missing_columns()`, and it is the same
+    argument test_init_db_adds_users_table_to_pre_rbac_database made for
+    `users` one PRD earlier."""
+    _create_pre_pii_database(db_connect, uninitialized_db)  # audit_logs only
+
+    init_db()
+
+    with get_connection() as conn:
+        tables = _table_names(conn)
+    assert {"audit_logs", "users", "chat_sessions", "chat_messages"} <= tables
+
+    # The legacy audit row is untouched by the new tables.
+    assert count_audit_logs() == 1
+    assert get_audit_log(1).user_id == "juan@empresa.com"
+
+
+def test_init_db_migrates_a_pre_chat_sessions_database(uninitialized_db, db_connect):
+    """AC 3: a database created before this PRD gains session_id, every existing
+    row takes NULL, and no row is rewritten.
+
+    `_add_missing_columns()` is **unmodified** by this story -- it iterates
+    `AUDIT_LOGS_ADDED_COLUMNS`, and STORY-002 put `session_id` there. This test
+    is evidence for that existing path carrying the new column, not for new
+    code.
+    """
+    _create_pre_chat_sessions_database(db_connect, uninitialized_db)
+
+    init_db()
+
+    with get_connection() as conn:
+        assert "session_id" in _column_names(conn, "audit_logs")
+
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "carla@empresa.com"
+    assert preserved.role == "user"  # the row was migrated, not rewritten
+    assert preserved.session_id is None
+
+    # And inserts still work against the upgraded table -- the failure this
+    # migration exists to prevent is "table audit_logs has no column named ...".
+    #
+    # The new row carries its session_id as of STORY-008, which added the column
+    # to the INSERT. STORY-003 pinned this as None and said in as many words that
+    # STORY-008 would have to come back and change the line deliberately -- this
+    # is that change, and it is what makes the migrated table demonstrably
+    # writable through the *current* write path, not merely through the one that
+    # existed when the migration was written.
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-01T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="def000",
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        )
+    )
+    assert count_audit_logs() == 2
+    assert get_audit_log(2).user_id == "bob@empresa.com"
+    assert get_audit_log(2).session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+
+def test_bootstrap_disabled_creates_no_chat_tables(database_url, monkeypatch):
+    """AC 5, the half the existing bootstrap test cannot reach.
+
+    `test_bootstrap_disabled_skips_the_guard_and_the_schema` points the module
+    at a dead endpoint, which proves the *reachability guard* was skipped but
+    leaves no database to interrogate afterwards. This one runs against the
+    reachable test endpoint on an empty database, so it can assert what the
+    other cannot: with the flag off, `init_db()` returns before issuing a single
+    statement, and the two new tables are no exception to that.
+    """
+    monkeypatch.setattr(settings, "DB_BOOTSTRAP_ENABLED", False)
+
+    init_db()
+
+    with get_connection() as conn:
+        assert _table_names(conn) == set()
+
+
 def test_find_user_by_token_hash_returns_active_user(temp_db):
     insert_user(
         User(
@@ -1614,6 +2206,304 @@ def test_the_shared_client_is_rebuilt_when_the_database_url_changes(
     assert database._shared_client() is not first
 
 
+# PRD-008 STORY-024: recovering a dead stream
+# ---------------------------------------------------------------------------
+#
+# The client above is cached for the life of the process, and the stream behind
+# it is server-side state the server expires when it goes quiet. Before this
+# story nothing ever set `_client = None`, so an idle process was a dead one:
+# the first request after the pause failed and so did every one after it.
+#
+# **None of this can be reached by waiting.** Every pytest run is a fresh
+# process that queries continuously, so the stream is never idle long enough to
+# expire -- which is exactly why the defect survived 1472 passing tests. The
+# dead stream is therefore simulated, and the one assertion that needs a wall
+# clock is the manual boot in the story's AC 9.
+
+#: The idle-expiry message, captured verbatim from the live driver twice: the
+#: PRD-007 STORY-009 report and the PRD-008 STORY-014 report record the same
+#: text. Pinned as a literal for the reason `_MISSING_RELATION` is -- libSQL
+#: raises a bare ValueError, so message text is the only thing to branch on.
+_STREAM_EXPIRED_TEXT = (
+    "Hrana: `api error: `status=400 Bad Request, "
+    'body={"message":"The stream has expired due to inactivity",'
+    '"code":"STREAM_EXPIRED"}``'
+)
+
+#: The post-restart message, captured verbatim during STORY-024 by restarting
+#: the libSQL server under a live process. Worth noting that it is **not** shaped
+#: like the one above: the body is plain text, with no JSON and no `code` field
+#: to branch on even if this module wanted to -- which is the second reason the
+#: classifier reads message text. `libsql-server` raises it from
+#: `ProtocolError::BatonInvalid`, for a stream handle the server no longer has.
+_INVALID_BATON_TEXT = (
+    "Hrana: `api error: `status=400 Bad Request, "
+    "body=Received an invalid baton``"
+)
+
+
+@pytest.fixture
+def _restore_client_cache():
+    """Drops all three pieces of client cache state after the test.
+
+    Separate from `_restore_shared_client` below, which these tests could
+    otherwise have borrowed: the tests in this section stub `_client` outright
+    and force the idle gate open by rewinding `_client_used_at`, so a stale
+    timestamp left behind would make the *next* test probe, or decline to, for
+    reasons that have nothing to do with it.
+    """
+    yield
+    database._client = None
+    database._client_key = None
+    database._client_used_at = 0.0
+
+
+class _StandInClient:
+    """A client that fails its first `execute()` and delegates afterwards.
+
+    Everything but `execute` is delegated, so the object is a usable client for
+    `_Connection`'s `commit()` / `rollback()` as well -- the same
+    proxy-over-the-real-thing idiom as `_LockedConnection` and the recording
+    connections elsewhere in this file, one level lower down.
+    """
+
+    def __init__(self, real, message: str, failures: int = 1) -> None:
+        self._real = real
+        self._message = message
+        self._remaining = failures
+        self.statements: list = []
+
+    def execute(self, sql, *parameters):
+        self.statements.append(sql)
+        if self._remaining > 0:
+            self._remaining -= 1
+            raise ValueError(self._message)
+        return self._real.execute(sql, *parameters)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _counting_connect(monkeypatch, result) -> list:
+    """Points `libsql.connect` at `result` and records every construction.
+
+    Construction count is the assertion these tests turn on: "the dead client
+    was discarded and a new one was built" is a claim about `libsql.connect`
+    being called, and "the reconnect happens at most once" is a claim about how
+    many times.
+    """
+    built: list = []
+
+    def _connect(url, auth_token=None):
+        built.append(url)
+        return result
+
+    monkeypatch.setattr(database.libsql, "connect", _connect)
+    return built
+
+
+def test_a_dead_stream_is_discarded_and_the_call_is_served(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 1 and AC 4: the caller sees a result, not a StorageError.
+
+    The stand-in raises the captured expiry text on its first call and serves
+    the second, and `libsql.connect` hands the recovery that same object back --
+    so both of its arms are exercised by one call, and the construction counter
+    is what proves the dead client was actually discarded rather than retried
+    in place. Retrying in place cannot work: the baton the client holds is for a
+    stream the server has already dropped.
+    """
+    real = database._shared_client()
+    stand_in = _StandInClient(real, _STREAM_EXPIRED_TEXT)
+    database._client = stand_in
+    database._client_used_at = 0.0  # past the idle gate, so the probe fires
+    built = _counting_connect(monkeypatch, stand_in)
+
+    total = count_audit_logs()
+
+    assert total == 0
+    assert len(built) == 1
+    assert stand_in.statements[0] == "SELECT 1"
+    assert len(stand_in.statements) == 2
+
+
+def test_a_second_connection_failure_surfaces_rather_than_looping(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 2. A database that is genuinely down must stay visible.
+
+    The replacement client is dead too, and the failure it raises has to reach
+    the caller as a `StorageError`. Asserting the construction count is what
+    makes a retry loop fail this test rather than hang it -- a loop would build
+    a third client, and a fourth.
+    """
+    real = database._shared_client()
+    dead = _StandInClient(real, _STREAM_EXPIRED_TEXT, failures=99)
+    database._client = dead
+    database._client_used_at = 0.0
+    built = _counting_connect(monkeypatch, dead)
+
+    with pytest.raises(StorageError) as exc_info:
+        count_audit_logs()
+
+    assert not isinstance(exc_info.value, (IntegrityError, MissingRelationError))
+    assert len(built) == 1
+    assert database._client is None  # dropped, so the next call rebuilds
+
+
+@pytest.mark.parametrize(
+    "message, recognised",
+    [
+        (_STREAM_EXPIRED_TEXT, True),
+        (_INVALID_BATON_TEXT, True),
+        ("Received an invalid baton", True),
+        ('Hrana: `... "SQLite error: UNIQUE constraint failed: users.token_hash"', False),
+        ('Hrana: `... "SQLite error: no such table: users"', False),
+    ],
+)
+def test_the_captured_dead_stream_messages_are_told_from_statement_failures(
+    message, recognised
+):
+    """AC 5, and the negative half of AC 3.
+
+    The two messages this defect actually produces are recognised, and the two
+    the schema produces are not -- a classifier that could not tell them apart
+    would reconnect on a constraint violation, which is a write the database
+    correctly refused.
+    """
+    assert database._is_dead_stream(message) is recognised
+
+
+def test_a_constraint_violation_does_not_discard_the_client(
+    temp_db, _restore_client_cache
+):
+    """AC 3, against the real driver rather than a stand-in.
+
+    A duplicate `user_id` is the constraint this schema actually violates, so
+    the message is the driver's own and not a literal this file composed.
+    """
+    insert_user(User(user_id="ana", role="user", token_hash="h-ana"))
+    before = database._shared_client()
+
+    with pytest.raises(IntegrityError):
+        insert_user(User(user_id="ana", role="user", token_hash="h-otro"))
+
+    assert database._client is before
+
+
+def test_a_missing_table_does_not_discard_the_client(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 3's other half. `no such table` is a schema fault, not a dead stream."""
+    before = database._shared_client()
+
+    class _NoSuchTable:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, *args, **kwargs):
+            raise _driver_error("no such table: audit_logs")
+
+    _install(monkeypatch, _NoSuchTable)
+
+    with pytest.raises(MissingRelationError):
+        count_audit_logs()
+
+    assert database._client is before
+
+
+def test_a_dead_stream_mid_statement_invalidates_without_retrying(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """AC 6, which is the constraint the whole design is shaped around.
+
+    A stream can die after the probe has passed -- inside the transaction
+    `_session()` has already opened. `_translated()` may therefore *invalidate*
+    but must never *retry*: the caller's body has run, and replaying half a
+    transaction is a worse defect than the one this story fixes. So the count of
+    executes must be exactly one, the caller must still see a `StorageError`,
+    and the recovery must be deferred to the next call, which finds no cached
+    client and builds one.
+    """
+    executes: list = []
+
+    class _DyingStream:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def execute(self, sql, *parameters):
+            executes.append(sql)
+            raise ValueError(_STREAM_EXPIRED_TEXT)
+
+    _install(monkeypatch, _DyingStream)
+
+    with pytest.raises(StorageError):
+        count_audit_logs()
+
+    assert executes == ["SELECT COUNT(*) AS n FROM audit_logs"]
+    assert database._client is None
+
+
+def test_many_threads_finding_the_stream_dead_together_build_one_client(
+    temp_db, monkeypatch, _restore_client_cache
+):
+    """The recovery must not undo STORY-006's central measurement.
+
+    Eight threads writing through a client *per thread* lost 169 of 200 writes
+    to `TRANSACTION_TIMEOUT`; one shared client lost none. A recovery that let
+    every thread that discovered the dead stream build its own replacement would
+    reconstruct that configuration at exactly the worst moment -- the first
+    burst of traffic after a quiet period, which is when the whole rebuild
+    happens. So the probe and the rebuild both run under `_client_lock`, and the
+    proof is arithmetic: eight threads, **one** construction.
+    """
+    real = database._shared_client()
+    stand_in = _StandInClient(real, _STREAM_EXPIRED_TEXT)
+    database._client = stand_in
+    database._client_used_at = 0.0
+    built = _counting_connect(monkeypatch, stand_in)
+
+    failures = _run_concurrently(8, count_audit_logs)
+
+    assert failures == []
+    assert len(built) == 1
+
+
+def test_a_busy_client_is_not_probed(temp_db, _restore_client_cache):
+    """The cost bound, made falsifiable.
+
+    The probe is gated on idle time precisely so an active process never pays
+    for it. Two reads issued back to back must put two statements on the wire
+    and nothing else -- if the gate were ever removed, or the threshold set to
+    zero, this test is what fails.
+    """
+    real = database._shared_client()
+    recorder = _StandInClient(real, _STREAM_EXPIRED_TEXT, failures=0)
+    database._client = recorder
+    database._client_used_at = time.monotonic()
+
+    count_audit_logs()
+    count_audit_logs()
+
+    assert "SELECT 1" not in recorder.statements
+    assert len(recorder.statements) == 2
+
+
 # PRD-007 STORY-007: concurrent init_db()
 # ---------------------------------------------------------------------------
 #
@@ -1815,6 +2705,49 @@ def test_two_init_db_calls_interleaved_between_read_and_alter_both_succeed(
     assert len(columns) == len(set(columns)), "a column was added twice"
     assert count_audit_logs() == 1
     assert get_audit_log(1).user_id == "juan@empresa.com"
+
+
+def test_two_init_db_calls_racing_on_session_id_both_converge(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """PRD-008 STORY-003 AC 4, and the reason it says "assert it, do not assume it".
+
+    The two tests above already force the interleave, but they run against
+    `_create_pre_pii_database`, where five columns are missing and the assertion
+    is the generic `set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)`. That set
+    grew when STORY-002 added `session_id`, so those tests began covering the
+    new column without anyone deciding they should -- and they would keep
+    passing if `session_id` ever left the migration path, because four other
+    columns would still be racing.
+
+    Here it is the **only** column in flight: the fixture is `main`'s current
+    19-column shape, so both threads read a stale PRAGMA missing exactly one
+    column and both attempt `ADD COLUMN session_id`. One wins, one gets
+    `duplicate column name`, and `_is_duplicate_column()` is what turns the
+    loser's failure into convergence.
+
+    `_add_missing_columns()` is unmodified by this story. This is evidence for
+    an existing guarantee carrying a new column, not for new code -- which is
+    exactly what the story asked to be proven rather than assumed.
+    """
+    _create_pre_chat_sessions_database(db_connect, uninitialized_db)
+    gate = threading.Barrier(2, timeout=30)
+    _install(monkeypatch, lambda conn: _GatedConnection(conn, gate))
+
+    failures = _run_concurrently(2, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+
+    assert columns.count("session_id") == 1, columns
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "carla@empresa.com"
+    assert preserved.session_id is None
 
 
 def test_add_missing_columns_propagates_a_failure_that_is_not_a_duplicate_column(

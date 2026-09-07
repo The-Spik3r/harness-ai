@@ -1,3 +1,4 @@
+import ast
 import sys
 from pathlib import Path
 
@@ -26,13 +27,41 @@ from chat_ui.chat_ui.copy import (
     EMPTY_STATE_PII_FEATURE,
     EMPTY_STATE_SECURITY_FEATURE,
     EMPTY_STATE_DEDUP_FEATURE,
+    # STORY-012: the two session fallbacks. Imported by name like every
+    # constant above, so a rename fails at collection rather than at render.
+    SESSION_UNTITLED_TITLE,
+    SESSION_ACTIVITY_UNKNOWN,
+    # STORY-014: the two transcript-persistence notices, same rule.
+    TRANSCRIPT_NOT_SAVED_NOTICE,
+    SESSION_ORDER_STALE_NOTICE,
+    # STORY-015: the read counterpart of the two above.
+    TRANSCRIPT_NOT_LOADED_NOTICE,
+    # STORY-016: the delete flow's two words.
+    SESSION_DELETE_CONFIRM_TEMPLATE,
+    SESSION_DELETE_CONFIRM_LABEL,
+    # STORY-017: the rail's remaining strings, imported by name like every
+    # constant above, so a rename fails at collection rather than at render.
+    SESSION_NEW_CHAT_LABEL,
+    SESSION_RAIL_EMPTY_TITLE,
+    SESSION_RAIL_EMPTY_BODY,
+    SESSION_RAIL_FAULT_TITLE,
+    SESSION_RAIL_FAULT_BODY,
+    SESSION_RAIL_SCOPE_TEMPLATE,
+    SESSION_RENAME_LABEL,
+    SESSION_RENAME_PLACEHOLDER,
+    SESSION_DELETE_CANCEL_LABEL,
+    SESSION_RAIL_SHOW_LABEL,
 )
-from chat_ui.chat_ui.formatting import format_duplicate_info
+from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
 # STORY-008: the console's own copy module. Imported by name, as the chat
 # constants above are, so a deleted or renamed constant fails at collection
 # rather than at render.
 from chat_ui.chat_ui import admin_copy
+
+# The module itself, alongside the by-name imports above: STORY-020's AC 8 test
+# walks `copy.py`'s whole vocabulary rather than a list, so it needs the module.
+from chat_ui.chat_ui import copy as chat_copy
 from chat_ui.chat_ui.admin_copy import (
     CONSOLE_TITLE,
     MASTHEAD_SEPARATOR,
@@ -518,3 +547,389 @@ def test_admin_copy_states_one_refusal_and_says_nothing_about_why():
     # from malformed, and no advice that implies one.
     forbidden = ("empty", "invalid", "incorrect", "wrong", "length", "expired", "format")
     assert not [word for word in forbidden if word in GATE_REFUSED_MESSAGE.lower()]
+
+
+# --------------------------------------------------------------------------
+# STORY-012 -- the session rail's two fallback strings.
+#
+# Appended, never edited above: `tests/test_copy.py` is one of the two suites
+# `tests/test_untouched_app.py` pins by census, and every test above this line
+# is untouched.
+# --------------------------------------------------------------------------
+
+
+def test_session_fallback_copy_names_the_thing_rather_than_the_failure():
+    """STORY-012: both fallbacks are user-facing sentences, so both live here.
+
+    Neither may report a parse failure or apologize (frontend-design: "errors
+    don't apologize, and they are never vague about what happened"), and the
+    untitled fallback must be non-empty -- a blank row in the rail is
+    unclickable and unnameable.
+    """
+    assert SESSION_UNTITLED_TITLE
+    assert SESSION_ACTIVITY_UNKNOWN
+
+    for text in (SESSION_UNTITLED_TITLE, SESSION_ACTIVITY_UNKNOWN):
+        # Sentence case: the copy module's own register throughout.
+        assert text == text[0].upper() + text[1:] or text == text.lower()
+        assert not text.endswith("."), "a rail row is a label, not a sentence"
+        lowered = text.lower()
+        for word in (
+            "error",
+            "invalid",
+            "failed",
+            "failure",
+            "sorry",
+            "unparseable",
+            "none",
+            "null",
+            "unknown",
+        ):
+            assert word not in lowered, f"{text!r} names the mechanism: {word!r}"
+
+
+def test_the_untitled_fallback_is_the_string_derive_title_actually_returns():
+    """The constant is proven to be wired, not merely present.
+
+    A copy constant that nothing returns is a string in a file. This asserts
+    the whitespace arm of `derive_title` reaches for this one, so renaming the
+    constant without updating `formatting.py` fails here.
+    """
+    assert derive_title("   ") == SESSION_UNTITLED_TITLE
+    assert derive_title("") == SESSION_UNTITLED_TITLE
+
+
+def test_transcript_notices_name_the_saving_and_never_the_answer():
+    """STORY-014 AC 5 and AC 6, as copy rather than as behaviour.
+
+    Both notices are full sentences in the interface's voice (frontend-design:
+    "explain what went wrong and how to fix it... errors don't apologize"), and
+    the two are *different strings* on purpose: only one of them may claim a
+    turn was not saved, because only one of the two failures means that.
+    """
+    assert TRANSCRIPT_NOT_SAVED_NOTICE
+    assert SESSION_ORDER_STALE_NOTICE
+    assert TRANSCRIPT_NOT_SAVED_NOTICE != SESSION_ORDER_STALE_NOTICE
+
+    for text in (TRANSCRIPT_NOT_SAVED_NOTICE, SESSION_ORDER_STALE_NOTICE):
+        assert text[0].isupper() and text.endswith(".")
+        for word in ("sorry", "apologise", "apologize", "oops", "unfortunately"):
+            assert word not in text.lower()
+        # No mechanism: the reader does not run the database.
+        for word in ("sql", "database", "exception", "storageerror", "insert"):
+            assert word not in text.lower()
+
+    assert "not saved" in TRANSCRIPT_NOT_SAVED_NOTICE.lower()
+    # The stale-order notice must not read as a lost turn -- AC 6.
+    assert "not saved" not in SESSION_ORDER_STALE_NOTICE.lower()
+    assert "saved" in SESSION_ORDER_STALE_NOTICE.lower()
+
+
+def test_the_load_notice_says_the_screen_is_unchanged_and_claims_no_lost_turn():
+    """STORY-015 AC 9, as copy.
+
+    The third notice in this family, and the reason it is a third string
+    rather than a reuse of either: a read that failed did not lose a turn, so
+    "not saved" would be false here, and the reader needs to know which
+    conversation the bubbles still on screen belong to.
+    """
+    assert TRANSCRIPT_NOT_LOADED_NOTICE
+
+    notices = (
+        TRANSCRIPT_NOT_SAVED_NOTICE,
+        SESSION_ORDER_STALE_NOTICE,
+        TRANSCRIPT_NOT_LOADED_NOTICE,
+    )
+    assert len(set(notices)) == 3
+
+    # The same shape and voice rules the two STORY-014 notices are held to.
+    assert TRANSCRIPT_NOT_LOADED_NOTICE[0].isupper()
+    assert TRANSCRIPT_NOT_LOADED_NOTICE.endswith(".")
+    for word in ("sorry", "apologise", "apologize", "oops", "unfortunately"):
+        assert word not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+    for word in ("sql", "database", "exception", "storageerror", "select"):
+        assert word not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+
+    # A failed *read* costs no turn: only the write notice may say so.
+    assert "not saved" not in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+    # AC 9's promise, in the string that makes it.
+    assert "unchanged" in TRANSCRIPT_NOT_LOADED_NOTICE.lower()
+
+
+def test_the_delete_confirmation_names_the_chat_and_keeps_the_record():
+    """STORY-016 AC 7, as copy.
+
+    PRD-008 Section 9 is the source: "`delete_chat_session` removes rows from
+    `chat_sessions` and `chat_messages` only. `audit_logs` is append-only and
+    stays so... The confirmation copy says this in the user's words." Both
+    halves are asserted -- the promise is present, and the schema's vocabulary
+    is absent. A confirmation that said "audit_logs rows are retained" would
+    be true and useless; one that said nothing about the record would leave
+    the reader in an audited system guessing at the one fact they want.
+    """
+    assert SESSION_DELETE_CONFIRM_TEMPLATE
+    assert SESSION_DELETE_CONFIRM_LABEL
+
+    # One placeholder, filled per row by STORY-018's rx.foreach.
+    assert SESSION_DELETE_CONFIRM_TEMPLATE.count("{title}") == 1
+    filled = SESSION_DELETE_CONFIRM_TEMPLATE.format(title="Q3 vendor spend")
+    assert "Q3 vendor spend" in filled
+    assert "{" not in filled and "}" not in filled
+
+    # The promise the reader is owed, in the words they use.
+    assert "kept" in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+    # ...and never in the words the system uses.
+    for word in (
+        "audit",
+        "audit_logs",
+        "row",
+        "rows",
+        "table",
+        "database",
+        "sql",
+        "schema",
+        "chat_sessions",
+        "chat_messages",
+    ):
+        assert word not in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+
+    # The same voice rules the notices above are held to.
+    assert SESSION_DELETE_CONFIRM_TEMPLATE[0].isupper()
+    for word in ("sorry", "apologise", "apologize", "oops", "unfortunately"):
+        assert word not in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+
+
+def test_the_delete_action_keeps_its_name_through_the_flow():
+    """The frontend-design skill, verbatim: "An action keeps the same name
+    through the whole flow, so the button that says 'Publish' produces a toast
+    that says 'Published.'"
+
+    The affordance says Delete and so does its confirmation. Nothing in this
+    flow says Remove -- a second word for one action is a second thing to
+    learn, and the vocabulary of an interface is its signposting.
+    """
+    assert SESSION_DELETE_CONFIRM_LABEL == "Delete"
+    assert "delete" in SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+    for text in (SESSION_DELETE_CONFIRM_TEMPLATE, SESSION_DELETE_CONFIRM_LABEL):
+        assert "remove" not in text.lower()
+        assert "discard" not in text.lower()
+
+
+def test_the_delete_confirmation_is_permanent_about_the_chat_and_only_the_chat():
+    """The one claim in the string that could be false in the wrong direction.
+
+    Deleting a chat *is* permanent -- `database.delete_chat_session` drops the
+    session and its messages in one transaction with no recovery path -- so
+    saying so is accurate and the reader deserves it before they confirm. What
+    must never be permanent-sounding is the record: the same string says it is
+    kept, and the two claims must sit on opposite sides of the sentence.
+    """
+    lowered = SESSION_DELETE_CONFIRM_TEMPLATE.lower()
+    # Whatever wording carries the finality, it is about the chat.
+    assert "for good" in lowered or "permanent" in lowered or "cannot be undone" in lowered
+    # And the record is kept in the same breath, so no reader confirms one
+    # believing the other.
+    assert "kept" in lowered
+
+
+# --------------------------------------------------------------------------
+# STORY-017 -- the rail's remaining strings.
+#
+# Appended, never edited above: `tests/test_copy.py` is one of the two suites
+# `tests/test_untouched_app.py` pins by census, and every test above this line
+# is untouched.
+# --------------------------------------------------------------------------
+
+
+def test_every_rail_string_exists_and_is_not_empty():
+    """AC 8: the whole rail vocabulary, asserted by name.
+
+    Existence is the cheap half; the point of listing them together is that
+    STORY-018 can be written against this tuple and find nothing missing. The
+    six constants STORY-012, STORY-014, STORY-015 and STORY-016 contributed are
+    included, because "every rail string" is the claim -- not "every string
+    this story happened to add".
+    """
+    rail_strings = (
+        SESSION_NEW_CHAT_LABEL,
+        SESSION_RAIL_EMPTY_TITLE,
+        SESSION_RAIL_EMPTY_BODY,
+        SESSION_RAIL_FAULT_TITLE,
+        SESSION_RAIL_FAULT_BODY,
+        SESSION_RAIL_SCOPE_TEMPLATE,
+        SESSION_RENAME_LABEL,
+        SESSION_RENAME_PLACEHOLDER,
+        SESSION_DELETE_CANCEL_LABEL,
+        SESSION_RAIL_SHOW_LABEL,
+        # Contributed early by the stories that needed them first.
+        SESSION_UNTITLED_TITLE,
+        SESSION_ACTIVITY_UNKNOWN,
+        SESSION_DELETE_CONFIRM_TEMPLATE,
+        SESSION_DELETE_CONFIRM_LABEL,
+        TRANSCRIPT_NOT_SAVED_NOTICE,
+        SESSION_ORDER_STALE_NOTICE,
+        TRANSCRIPT_NOT_LOADED_NOTICE,
+    )
+    for text in rail_strings:
+        assert isinstance(text, str)
+        assert text.strip(), f"empty rail string: {text!r}"
+
+    # PRD-008 Section 6.1 fixes these two words, and the control, the action
+    # and what it produces all carry them (frontend-design: "an action keeps
+    # the same name through the whole flow").
+    assert SESSION_NEW_CHAT_LABEL == "New chat"
+    # The scope line states both halves or it is not a scope line (PRD-006
+    # Risk 4), and it is the register's own wording rather than a second
+    # phrasing of one idea.
+    assert "{shown}" in SESSION_RAIL_SCOPE_TEMPLATE
+    assert "{total}" in SESSION_RAIL_SCOPE_TEMPLATE
+    assert SESSION_RAIL_SCOPE_TEMPLATE == admin_copy.REGISTER_SCOPE_TEMPLATE
+
+
+def test_the_empty_rail_invites_a_chat_rather_than_reporting_none():
+    """AC 6, and the skill verbatim: "an empty screen is an invitation to act".
+
+    PRD-008 Section 6.1: "the empty rail reads as an invitation to start one
+    rather than as a report that none exist." An invitation names an act and a
+    census does not, so both halves are checked -- a census sentence ("No chats
+    yet", "You have no chats") passes a non-emptiness check and fails this one,
+    which is the whole reason this test exists beside the one above.
+    """
+    assert SESSION_RAIL_EMPTY_TITLE
+    assert SESSION_RAIL_EMPTY_BODY
+
+    lowered = f"{SESSION_RAIL_EMPTY_TITLE} {SESSION_RAIL_EMPTY_BODY}".lower()
+    for absence in ("no chats", "nothing here", "empty", "none", "0 chats"):
+        assert absence not in lowered, f"the empty rail reports absence: {absence!r}"
+    # The invitation names the act. Both verbs are ones the surface actually
+    # offers: New chat above the rail, and the composer below it.
+    assert "start" in lowered or "send" in lowered
+
+    # Sentence case, not Title Case, and no mechanism words: the copy module's
+    # own register throughout (frontend-design: "plain verbs, sentence case, no
+    # filler").
+    for text in (SESSION_RAIL_EMPTY_TITLE, SESSION_RAIL_EMPTY_BODY):
+        assert text == text[0].upper() + text[1:]
+        assert not text.isupper()
+        for mechanism in ("session", "row", "record", "database", "null"):
+            assert mechanism not in text.lower(), f"{text!r} names the mechanism"
+
+
+def test_the_rail_read_failure_names_the_read_and_offers_the_retry():
+    """AC 7, and the skill verbatim: "errors don't apologize, and they are
+    never vague about what happened".
+
+    Three claims, and the third is the one that would rot silently. First, the
+    line names what failed -- the reader's chats, not "data". Second, it offers
+    the action, spelled with the same word its control carries, so RETRY_LABEL
+    is asserted *into* the sentence rather than beside it (the shape
+    admin_copy's REFRESH_LABEL / FAULT_MESSAGE_TEMPLATE pair uses). Third, it
+    states that the screen did not move: STORY-015 established that a failed
+    read leaves the transcript alone, and a fault line that omits that leaves
+    the reader unsure which chat the bubbles belong to.
+    """
+    assert "chats" in SESSION_RAIL_FAULT_TITLE.lower()
+    assert RETRY_LABEL.lower() in SESSION_RAIL_FAULT_BODY.lower()
+    assert "nothing on screen has changed" in SESSION_RAIL_FAULT_BODY.lower()
+
+    for text in (SESSION_RAIL_FAULT_TITLE, SESSION_RAIL_FAULT_BODY):
+        lowered = text.lower()
+        # No apology, in any of its usual disguises.
+        for apology in ("sorry", "apolog", "unfortunately", "oops"):
+            assert apology not in lowered, f"{text!r} apologizes"
+        # No vagueness, and no mechanism. "Something went wrong" is the
+        # sentence this loop exists to refuse.
+        for vague in ("something went wrong", "an error", "try again later"):
+            assert vague not in lowered, f"{text!r} is vague: {vague!r}"
+        for mechanism in ("session", "exception", "traceback", "null", "500"):
+            assert mechanism not in lowered, f"{text!r} names the mechanism"
+
+
+# --------------------------------------------------------------------------
+# The rail component holds no literal (STORY-020 AC 8)
+# --------------------------------------------------------------------------
+
+_RAIL_COMPONENT = (
+    Path(__file__).parent.parent / "chat_ui" / "chat_ui" / "components" / "session_rail.py"
+)
+
+# Every user-facing constant the rail could reach for. Derived from `copy.py`'s
+# own contents rather than typed out, which is the whole point of putting this
+# test here: a constant added tomorrow and then pasted as a literal into the
+# rail is caught without anyone remembering to extend a tuple.
+_RAIL_VOCABULARY = tuple(
+    sorted(
+        name
+        for name in dir(chat_copy)
+        if name.isupper()
+        and isinstance(getattr(chat_copy, name), str)
+        and (name.startswith(("SESSION_", "TRANSCRIPT_")) or name == "RETRY_LABEL")
+    )
+)
+
+
+def _rail_code_strings() -> list:
+    """Every string literal in the rail's *code*, docstrings excluded.
+
+    The module argues its refusals in prose -- it names `rx.alert_dialog` in
+    order to refuse it, and quotes the copy constants' own words to explain
+    them -- so the claim is about code, and the prose is excluded rather than
+    the prose rewritten to dodge a grep. Same treatment, and the same reason,
+    as `tests/test_session_rail.py`; copied rather than imported so that this
+    module's collection does not depend on another test module's.
+    """
+    tree = ast.parse(_RAIL_COMPONENT.read_text(encoding="utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            body = getattr(node, "body", None)
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                docstrings.add(id(body[0].value))
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def test_the_rail_vocabulary_is_discoverable():
+    """A selector that matched nothing would pass the test below vacuously."""
+    assert len(_RAIL_VOCABULARY) >= 17, _RAIL_VOCABULARY
+    assert "SESSION_NEW_CHAT_LABEL" in _RAIL_VOCABULARY
+    assert _RAIL_COMPONENT.exists(), _RAIL_COMPONENT
+
+
+@pytest.mark.parametrize("name", _RAIL_VOCABULARY)
+def test_no_rail_string_is_written_as_a_literal_in_the_component(name):
+    """AC 8: every user-facing string in the rail resolves from `copy.py`.
+
+    PRD-008 Section 11's quality bar, first clause: "Every rail string resolves
+    from `copy.py`". PRD-004 STORY-007 established the rule and this is it
+    carried onto the one surface PRD-008 adds.
+
+    **Why this lives here and not only in `tests/test_session_rail.py`.** That
+    file has `test_every_user_facing_string_resolves_from_copy`, which walks a
+    curated eleven-name tuple -- it answers "are the strings STORY-018 knew
+    about resolved?". This one walks the whole `copy.py` vocabulary, so it
+    answers "is *any* copy value inlined?", including constants added after the
+    rail was written. The two are not duplicates and neither subsumes the
+    other: the curated one also asserts each name is actually *referenced*,
+    which a whole-vocabulary check cannot, because most of these constants
+    belong to the shell and the state rather than to the rail.
+
+    Parametrized per constant so a failure names the string that was pasted.
+    """
+    value = getattr(chat_copy, name)
+    assert value not in _rail_code_strings(), (
+        f"{name}'s text is inlined in session_rail.py as a literal; "
+        f"render it as copy.{name}"
+    )

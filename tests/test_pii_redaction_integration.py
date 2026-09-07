@@ -181,6 +181,12 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
     new leak surface", and PRD-001 Section 10's /audit contract never carried
     previews. If a future story adds them, this test fails -- forcing that to be a
     deliberate, reviewed decision rather than a drift.
+
+    PRD-008 STORY-011 is one such decision, made in the open: `session_id` joins
+    the list below so `GET /audit` can report which conversation a row came from.
+    What this test defends is unchanged -- no `prompt_preview`, no
+    `response_preview`, no `response_hash` -- and an opaque UUID is not prompt
+    text, so the leak surface the PRD-003 assertion guards is no wider.
     """
     _post_pii_query(monkeypatch)
 
@@ -196,6 +202,7 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "pii_entities",
         "prompt_hash",
         "role",
+        "session_id",
         "suspicious_pattern_detected",
         "timestamp",
         "user_id",
@@ -281,7 +288,12 @@ _PRE_EPIC_UNTOUCHED_TESTS = [
 # change to the pre-RBAC contract. tests/test_integration.py posts as two different
 # users in a single test (PRD-001 Section 5's happy-path/dup/pattern coverage), so it
 # had to gain per-request Authorization headers rather than staying untouched.
-_TEST_DEF = re.compile(r"^def (test_\w+)", re.MULTILINE)
+# `async def` counts: most of tests/test_chat_state.py is async, and a
+# regex that only saw `def` was blind to those cases entirely -- it could
+# not have caught their deletion, and it read a sync test converted to
+# async as a removal. PRD-008 STORY-013 converted the five login tests
+# when ChatState.login() became a coroutine.
+_TEST_DEF = re.compile(r"^(?:async )?def (test_\w+)", re.MULTILINE)
 
 
 def _git(*args):
@@ -335,6 +347,24 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_chat_state_reset_user_id_clears_error -> folded into
 #     test_chat_state_logout_clears_session_and_credential
 #   - test_reset_user_id_clears_the_transcript -> test_logout_clears_the_transcript
+#
+# PRD-008 STORY-023 retires the four provenance guards in
+# `tests/test_untouched_app.py` that diffed a pinned baseline against the *working
+# tree*. That comparison answered "what changed since PRD-006 began", never "what
+# did PRD-006 change", and the two stopped being the same question at the `main`
+# merge `0f77203` -- so the guards had been unmeasurable since before PRD-007 and
+# were failing CI on every branch cut from `main`. PRD-006's containment claim was
+# verified true before they were removed (40 commits, `577a285`..`99afc9f`, touched
+# nothing under any pinned path) and is preserved in STORY-023's report; what was
+# discarded is the broken instrument, not the claim. The fifth name is a rename,
+# not a deletion: the byte-equality pin became a name census that permits extending
+# a suite and still fails on deleting a case.
+#   - test_no_file_under_app_changed_since_prd_006_began -> retired
+#   - test_no_new_dependency_in_either_requirements_file -> retired
+#   - test_the_caddyfile_and_rxconfig_are_unchanged -> retired
+#   - test_the_chat_modules_are_unchanged_since_prd_006_began -> retired
+#   - test_the_pinned_suites_are_byte_unmodified ->
+#     test_no_test_was_removed_from_the_six_pinned_suites
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_schemas.py": {"test_query_request_missing_user_id_raises"},
     "tests/test_query_router.py": {
@@ -346,6 +376,13 @@ _DELIBERATELY_SUPERSEDED_TESTS = {
         "test_chat_state_submit_valid_user_id_clears_error_and_sets_user",
         "test_chat_state_reset_user_id_clears_error",
         "test_reset_user_id_clears_the_transcript",
+    },
+    "tests/test_untouched_app.py": {
+        "test_no_file_under_app_changed_since_prd_006_began",
+        "test_no_new_dependency_in_either_requirements_file",
+        "test_the_caddyfile_and_rxconfig_are_unchanged",
+        "test_the_chat_modules_are_unchanged_since_prd_006_began",
+        "test_the_pinned_suites_are_byte_unmodified",
     },
 }
 
