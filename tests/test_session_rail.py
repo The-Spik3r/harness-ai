@@ -183,7 +183,13 @@ result["has_rail_x"] = theme.RAIL_X in rendered
 result["has_glyph"] = theme.GLYPH in rendered
 
 # Every colour the rail actually renders.
-result["hexes"] = sorted(set(re.findall(r"#[0-9a-fA-F]{6}\b", rendered)))
+# Every colour the rail actually renders, named by its token rather than by its
+# value: `theme.PAPER` *is* the string `var(--hx-paper)` now that theme.py holds
+# two palettes, and the hex appears only in the stylesheet. A hex search here
+# would come back empty, and every comparison below is a subset or a membership
+# check that an empty set satisfies -- so the collector matches the reference
+# form, which is exactly what `getattr(theme, NAME)` returns.
+result["colours"] = sorted(set(re.findall(r"var\(--hx-[a-z0-9-]+\)", rendered)))
 
 # Every radius, in both spellings the compiled output can carry: Reflex's
 # inline-style JS form, and raw CSS from a style string or a `_hover` block.
@@ -331,7 +337,7 @@ def test_no_tint_reaches_the_rail(probe, name):
     """
     assert probe["errors"] == [], probe["errors"]
     value = getattr(theme, name).upper()
-    found = {hex_value.upper() for hex_value in probe["hexes"]}
+    found = {value.upper() for value in probe["colours"]}
     assert value not in found, f"{name} ({value}) is a fill, and the rail carries none"
 
 
@@ -347,7 +353,7 @@ def test_no_verdict_ink_reaches_the_rail(probe, name):
     """
     assert probe["errors"] == [], probe["errors"]
     value = getattr(theme, name).upper()
-    found = {hex_value.upper() for hex_value in probe["hexes"]}
+    found = {value.upper() for value in probe["colours"]}
     assert value not in found, f"{name} ({value}) belongs to the transcript"
 
 
@@ -382,11 +388,25 @@ def test_ink_self_cannot_be_excluded_by_rail_value(probe):
     Asserted rather than commented, so that a future attempt to "complete" the
     tuple finds the reason before writing it, and so that the day the two inks
     diverge in `theme.py` this fails and points at the tuple that can then grow.
+
+    **The split is now narrower than it was.** `theme.py`'s second palette moved
+    every token behind a custom property, so a component renders
+    `var(--hx-ink-self)` or `var(--hx-ink)` -- two distinguishable strings for the
+    one pigment. The rendered check the seventh entry could never have is
+    therefore possible, and is made below; what stays impossible is a check by
+    *value*, which is what this test's name and its six/seven split are about.
+    The identity itself now lives in `tests/test_contrast.py`, against the
+    palettes, because `theme.INK_SELF == theme.INK` is no longer a statement
+    about pigment.
     """
-    assert theme.INK_SELF == theme.INK
-    assert theme.INK.upper() in {value.upper() for value in probe["hexes"]}, (
+    for palette_name, palette in (("light", theme.LIGHT), ("dark", theme.DARK)):
+        assert palette["INK_SELF"] == palette["INK"], palette_name
+    assert theme.INK.upper() in {value.upper() for value in probe["colours"]}, (
         "the rail no longer paints INK; the six/seven split may now be wrong"
     )
+    assert theme.INK_SELF.upper() not in {
+        value.upper() for value in probe["colours"]
+    }, "INK_SELF is the transcript's ink for a reader's own words; the rail has none"
 
 
 def test_the_only_radius_in_the_rail_is_the_theme_radius(probe):
@@ -439,7 +459,7 @@ def test_every_colour_in_the_rail_is_a_ground_token(probe):
     `test_the_rail_renders_only_ground_tokens_and_one_radius`.
     """
     assert probe["errors"] == [], probe["errors"]
-    found = {hex_value.upper() for hex_value in probe["hexes"]}
+    found = {value.upper() for value in probe["colours"]}
     assert found <= _ground_values(), sorted(found - _ground_values())
 
 
@@ -458,7 +478,7 @@ def test_the_tint_guard_detects_a_tint():
     is a guard nobody knows is armed."
     """
     drifted = sorted({theme.PAPER, theme.INK, theme.TINT_HELD})
-    found = {hex_value.upper() for hex_value in drifted}
+    found = {value.upper() for value in drifted}
 
     # AC 1's comparison, over the drifted sample.
     assert theme.TINT_HELD.upper() in found

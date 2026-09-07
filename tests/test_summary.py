@@ -86,6 +86,13 @@ VERDICT_INKS = {
     "INK_FAULT": theme.INK_FAULT,
 }
 
+# Every theme colour reference the compiled component can carry, in exactly the
+# form a token now has: `theme.PAPER` *is* the string `var(--hx-paper)`, so what
+# this collects and what `ALLOWED_COLOURS` holds are the same shape and the
+# comparison stays the value comparison it always was. The `--` keeps it clear of
+# the `hx-` *class* names theme.py declares alongside the properties.
+COLOUR_REFERENCE = re.compile(r"var\(--hx-[a-z0-9-]+\)")
+
 # Everything the sheet is allowed to paint: the ground tokens, and nothing else.
 # Computed from theme.py rather than hard-coded, so retuning a token retunes the
 # assertion in the same edit.
@@ -382,7 +389,16 @@ def test_no_colour_outside_the_allowed_set(probe):
     tokens.
     """
     assert not probe["errors"], probe["errors"]
-    found = {c.upper() for c in re.findall(r"#[0-9a-fA-F]{6}\b", probe["rendered"])}
+    # The compiled output names a colour by its token now, not by its value:
+    # `theme.PAPER` *is* the string `var(--hx-paper)`, and the hex lives only in
+    # the stylesheet's two palette blocks. A hex search here would find nothing,
+    # and a subset assertion over nothing passes -- so the collector matches the
+    # reference form, and the positive control below keeps it from going quiet.
+    found = {c.upper() for c in COLOUR_REFERENCE.findall(probe["rendered"])}
+    assert found, (
+        "no theme colour reference found; the collector is looking for the wrong "
+        "thing and the subset assertion below means nothing"
+    )
     assert found <= ALLOWED_COLOURS, sorted(found - ALLOWED_COLOURS)
 
 

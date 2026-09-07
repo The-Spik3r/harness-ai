@@ -44,6 +44,7 @@ import reflex as rx
 
 from chat_ui import copy, theme
 from chat_ui.components.chat import chat_input, message_list
+from chat_ui.components.ground_switch import ground_switch
 from chat_ui.components.session_rail import session_rail
 from chat_ui.config import MODEL_ALLOWLIST
 from chat_ui.state import ChatState
@@ -215,6 +216,20 @@ def header() -> rx.Component:
         ),
         rx.hstack(
             model_selector(),
+            # The ground switch takes a rule-separated slot of its own, between
+            # the model and the identity cluster. That position is a claim about
+            # what it is: the masthead's right side holds "the session's facts
+            # (who is sending, which model)", and which palette the reader
+            # prefers is not one of them -- it outlives the session, the sign-out
+            # and the visit. Sitting beside the model selector groups it with the
+            # other thing the reader *chooses*, and leaves `Sending as` and
+            # `Sign out` contiguous as the one cluster about this session.
+            rx.box(
+                ground_switch(),
+                padding_left="1rem",
+                margin_left="0.25rem",
+                border_left=f"1px solid {theme.RULE}",
+            ),
             rx.hstack(
                 _label(copy.SHELL_USER_LABEL),
                 rx.box(
@@ -506,13 +521,31 @@ def login_gate() -> rx.Component:
     either."""
     return rx.center(
         rx.box(
-            rx.box(
-                copy.SHELL_HEADER_TITLE,
-                font_family=theme.FONT_DISPLAY,
-                font_size="1.0625rem",
-                font_weight="700",
-                letter_spacing="0.16em",
-                color=theme.INK,
+            # The gate gets the switch too, and gets it in the masthead's own
+            # arrangement -- wordmark left, control right -- so the panel reads as
+            # a miniature of the shell it is standing in front of rather than as
+            # a different kind of screen. `login_gate()` and `admin_gate()` are
+            # already "the same shape ... vocabulary consistency, not drift"
+            # (admin_gate's docstring), and this keeps that true.
+            #
+            # It works here for the same reason it works anywhere: the switch
+            # carries no state and reaches no backend, so a visitor who has not
+            # signed in can set the ground and keep it through the sign-in. A
+            # reader who needs the dark ground needs it *most* on the screen they
+            # are staring at while typing a token they cannot see.
+            rx.hstack(
+                rx.box(
+                    copy.SHELL_HEADER_TITLE,
+                    font_family=theme.FONT_DISPLAY,
+                    font_size="1.0625rem",
+                    font_weight="700",
+                    letter_spacing="0.16em",
+                    color=theme.INK,
+                ),
+                ground_switch(),
+                justify="between",
+                align="center",
+                width="100%",
             ),
             rx.box(
                 copy.LOGIN_PROMPT_TITLE,

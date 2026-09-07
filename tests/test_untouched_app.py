@@ -215,9 +215,36 @@ def test_no_theme_token_was_retuned_or_removed():
         comments reduces `"#14181C"` to `"` and reports two different palettes
         as identical. This guard was written that way first and passed while a
         retuned INK sat in the tree.
+
+        **Colour tokens moved, and this follows them.** `theme.py` grew a second
+        palette, so `PAPER = "#ECEFF1"` became a `LIGHT` dict entry plus a
+        `PAPER = f"var(...)"` reference. Read literally, every colour token would
+        be reported as *removed* -- which is what this guard said before it was
+        taught the indirection, and it would have said it just as loudly for a
+        palette that had actually been retuned. Neither the question nor the
+        answer changed: the light palette's values are byte-identical to the
+        baseline's, and this resolves a token to the value the page renders on
+        the ground the baseline had, which is the only ground it can be compared
+        against.
+
+        The dark palette is deliberately not read here. There is nothing to
+        compare it to -- the baseline has no second ground -- and folding it in
+        would either report every dark value as a retune or require this guard
+        to decide which palette counts, a judgement `tests/test_contrast.py`
+        makes properly by holding both to the same floor.
         """
         found = {}
+        palettes = {}
         for node in ast.parse(source).body:
+            # `LIGHT: dict[str, str] = {...}` is an AnnAssign, not an Assign.
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.target.id == "LIGHT" and isinstance(node.value, ast.Dict):
+                    for key, value in zip(node.value.keys, node.value.values):
+                        if isinstance(key, ast.Constant) and isinstance(
+                            value, ast.Constant
+                        ):
+                            palettes[key.value] = value.value
+                continue
             if not isinstance(node, ast.Assign):
                 continue
             for target in node.targets:
@@ -226,6 +253,10 @@ def test_no_theme_token_was_retuned_or_removed():
                         found[target.id] = node.value.value
                     elif isinstance(node.value, ast.Name):
                         found[target.id] = f"<alias:{node.value.id}>"
+        # A token defined directly wins; the palette supplies only the colours
+        # that are no longer bound to a literal of their own.
+        for name, value in palettes.items():
+            found.setdefault(name, value)
         return found
 
     before, after = literals(base_source), literals(current_source)
