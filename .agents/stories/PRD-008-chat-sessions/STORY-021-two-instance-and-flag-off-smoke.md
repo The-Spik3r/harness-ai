@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Surface and hardening"
-status: todo
+status: done
 labels: [tests, integration, security, deployment]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-021-two-instance-and-flag-off-smoke.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-021-two-instance-and-flag-off-smoke.report.md
+commit: PENDING
 depends_on: [STORY-007, STORY-010, STORY-015, STORY-016]
 blocks: [STORY-022]
 skills: []
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-07
 ---
 
 # STORY-021: Two instances serve one session, and CHAT_HISTORY_ENABLED=false writes nothing — proven, not assumed
