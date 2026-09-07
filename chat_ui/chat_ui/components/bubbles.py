@@ -109,8 +109,26 @@ def _action(label: str, on_click, ink: str) -> rx.Component:
     )
 
 
-def _entry(rail: rx.Component, *content, **props) -> rx.Component:
-    """Shared geometry for every kind: rail cell, then the content column."""
+def _entry(message, rail: rx.Component, *content, **props) -> rx.Component:
+    """Shared geometry for every kind: rail cell, then the content column.
+
+    **The entry animation is withheld from a restored bubble.** `.hx-entry`
+    runs on mount, and a session switch mounts every bubble the previous
+    transcript did not have — so without this the switch animated part of the
+    conversation into place, which PRD-008 Section 6.1 refuses outright:
+    "Switching sessions does not animate." A bubble that has just arrived still
+    rises onto the rail, because that is PRD-004's one orchestrated moment and
+    it is about *arrival*; a bubble that was already in the database was never
+    an arrival and now does not pretend to be one.
+
+    The class is decided per message and never changes for a given bubble, so
+    re-rendering can never restart an animation — see `models.ChatMessage`'s
+    `restored` for why a shared on/off flag could not say the same.
+
+    `message` is `None` for the pending indicator, which has no message behind
+    it and is only ever live: nothing restores an in-flight request, so it
+    always animates.
+    """
     return rx.box(
         rail,
         rx.box(
@@ -120,7 +138,9 @@ def _entry(rail: rx.Component, *content, **props) -> rx.Component:
             padding_bottom="1.5rem",
             **props,
         ),
-        class_name="hx-entry",
+        class_name="hx-entry"
+        if message is None
+        else rx.cond(message.restored, "", "hx-entry"),
         display="flex",
         align_items="stretch",
         width="100%",
@@ -147,6 +167,7 @@ def _panel(ink: str, tint: str, *children) -> rx.Component:
 def render_user(message) -> rx.Component:
     """Your own words. No verdict, no panel — you are the record's subject."""
     return _entry(
+        message,
         _rail(theme.MUTE, filled=False),
         _tag(copy.TAG_USER, theme.MUTE),
         _prose(message.content, lead=True),
@@ -199,6 +220,7 @@ def render_assistant(message) -> rx.Component:
     )
 
     return _entry(
+        message,
         _rail(theme.INK_CLEAR),
         _tag(copy.TAG_ASSISTANT, theme.INK_CLEAR),
         _prose(message.content),
@@ -212,6 +234,7 @@ def render_duplicate(message) -> rx.Component:
     by formatting.format_duplicate_info."""
     ink, tint = theme.INK_HELD, theme.TINT_HELD
     return _entry(
+        message,
         _rail(ink),
         _tag(copy.TAG_DUPLICATE, ink),
         _panel(
@@ -253,6 +276,7 @@ def render_injection(message) -> rx.Component:
     face, because it is a rule the harness matched and not a sentence."""
     ink, tint = theme.INK_DENIED, theme.TINT_DENIED
     return _entry(
+        message,
         _rail(ink),
         _tag(copy.TAG_INJECTION, ink),
         _panel(
@@ -283,6 +307,7 @@ def render_forbidden(message) -> rx.Component:
     resending the same prompt hits the same permission check again."""
     ink, tint = theme.INK_FORBIDDEN, theme.TINT_FORBIDDEN
     return _entry(
+        message,
         _rail(ink),
         _tag(copy.TAG_FORBIDDEN, ink),
         _panel(
@@ -312,6 +337,7 @@ def _failure(message, ink: str, tint: str, tag: str, headline: str) -> rx.Compon
     """Shared shape for the two failure kinds: what failed, the raw detail, and
     a way to send the same prompt again."""
     return _entry(
+        message,
         _rail(ink),
         _tag(tag, ink),
         _panel(
@@ -359,6 +385,7 @@ def render_fallback(message) -> rx.Component:
     """The rx.match default. An unrecognised kind still lands on the rail —
     "no silent drops" has to hold for the renderer too, not just for send()."""
     return _entry(
+        message,
         _rail(theme.MUTE),
         _tag(copy.TAG_UNKNOWN, theme.MUTE),
         _prose(message.content),
@@ -369,6 +396,7 @@ def render_pending_indicator() -> rx.Component:
     """In-flight entry. Occupies a real slot on the rail so the transcript does
     not jump when the answer replaces it."""
     return _entry(
+        None,
         _rail(theme.MUTE, pulse=True),
         _tag(copy.PENDING_TAG, theme.MUTE),
         _evidence(copy.PENDING_INDICATOR_TEXT, class_name="hx-pulse"),

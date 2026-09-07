@@ -2976,3 +2976,83 @@ async def test_logout_clears_the_rails_modes_and_its_total(temp_db, monkeypatch)
     assert state.renaming_session_id == ""
     assert state.rename_draft == ""
     assert state.confirming_delete_id == ""
+
+
+# ---------------------------------------------------------------------------
+# STORY-019: the rail's disclosure at a narrow viewport
+# ---------------------------------------------------------------------------
+# One bool and one handler. What is worth asserting is not that a toggle
+# toggles, but the three things about it that are easy to get wrong and silent
+# when they are: that it starts closed, that it is not refused mid-send the way
+# the rail's *write* modes are, and that signing out closes it.
+
+
+def test_the_rail_starts_collapsed():
+    """The default is the collapsed one, so a narrow viewport's first paint is
+    the transcript at full width -- the state STORY-019's criterion asks for.
+    Nothing persists the bit, so this is also what every reload lands on."""
+    state = _make_state()
+
+    assert state.rail_expanded is False
+
+
+def test_toggle_rail_opens_and_closes():
+    """The whole of the handler. It is idempotent in pairs, so a reader who
+    opens the rail, picks a chat and closes it is back where they started."""
+    state = _make_state()
+
+    _handler(state, "toggle_rail")(state)
+    assert state.rail_expanded is True
+
+    _handler(state, "toggle_rail")(state)
+    assert state.rail_expanded is False
+
+
+def test_toggle_rail_is_not_refused_while_a_send_is_out():
+    """Deliberately unlike `begin_rename` and `ask_delete`, which *are* guarded
+    on `pending`.
+
+    Those two open a mode that can dispatch a write against a list about to
+    reorder. This one moves a column. Refusing it mid-send would trap a narrow
+    viewport's reader outside their own chat list for the length of an
+    OpenRouter round trip -- the opposite of the rail's one job.
+    """
+    state = _make_state()
+    state.pending = True
+
+    _handler(state, "toggle_rail")(state)
+
+    assert state.rail_expanded is True
+
+
+def test_toggle_rail_touches_nothing_else():
+    """Collapsing is a layout state, not a fetch: the rows are already in
+    `sessions`, so showing the rail again must never read, never fail, and never
+    cost a round trip."""
+    state = _make_state()
+    state.sessions = [ChatSessionSummary(session_id="a", title="A")]
+    state.sessions_total = 1
+    state.active_session_id = "a"
+    state.messages = [ChatMessage(kind="user", content="hello")]
+
+    _handler(state, "toggle_rail")(state)
+
+    assert len(state.sessions) == 1
+    assert state.sessions_total == 1
+    assert state.active_session_id == "a"
+    assert len(state.messages) == 1
+    assert state.sessions_error == ""
+
+
+def test_logout_closes_the_disclosure():
+    """Signing out is not a resize. The next person to sign in on this tab gets
+    the collapsed default their own width implies, not a rail left open by
+    whoever was here before -- the same misattribution `logout` already refuses
+    for the bubbles and for the rail's half-typed rename."""
+    state = _make_state()
+    _handler(state, "toggle_rail")(state)
+    assert state.rail_expanded is True
+
+    state.logout()
+
+    assert state.rail_expanded is False

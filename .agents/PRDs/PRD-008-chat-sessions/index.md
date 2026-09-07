@@ -6,7 +6,7 @@
 
 ## Progress
 
-20/24 stories done — 83%
+21/24 stories done — 88%
 
 ## Stories
 
@@ -32,7 +32,7 @@ All stories commit on the epic branch `epic/PRD-008-chat-sessions`. No per-story
 | STORY-016 | New chat, rename, delete, and a logout that clears state without deleting rows | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-016-session-rename-delete-logout.plan.md) | `310ac02` |
 | STORY-017 | Rail tokens in theme.py and every rail string in copy.py, adding no new ink | technical | ✅ done | small | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-017-rail-tokens-and-copy.plan.md) | `9df2a39` |
 | STORY-018 | session_rail.py: the spine as the active mark, three states, no fill and no pill | feature | ✅ done | large | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md) | `117b2b3` `9080655` |
-| STORY-019 | The rail in the shell: full-width masthead kept, collapse at a narrow viewport, one transition | feature | ⬜ todo | medium | — | — |
+| STORY-019 | The rail in the shell: full-width masthead kept, collapse at a narrow viewport, one transition | feature | ✅ done | medium | [plan](../../plans/PRD-008-chat-sessions/completed/STORY-019-shell-layout-and-responsive.plan.md) | `pending` |
 | STORY-020 | Palette-drift and contrast assertions so the sidebar default fails a test, not a review | technical | ⬜ todo | small | — | — |
 | STORY-021 | Two instances serve one session, and CHAT_HISTORY_ENABLED=false writes nothing — proven, not assumed | technical | ⬜ todo | medium | — | — |
 | STORY-022 | README and .env: document the persistence model the code actually has, including what is now at rest | technical | ⬜ todo | small | — | — |

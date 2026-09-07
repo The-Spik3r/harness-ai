@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "4 - Surface and hardening"
-status: todo
+status: done
 labels: [ui, reflex, layout, design, a11y]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-019-shell-layout-and-responsive.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-019-shell-layout-and-responsive.report.md
 commit: null
 depends_on: [STORY-018]
 blocks: [STORY-020, STORY-022]
 skills: [frontend-design, reflex-docs]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-07
 ---
 
 # STORY-019: The rail in the shell: full-width masthead kept, collapse at a narrow viewport, one transition

@@ -110,6 +110,13 @@ def _to_chat_message(row: StoredMessage) -> ChatMessage:
         duplicate_relative_info=relative_info,
         duplicate_release_info=release_info,
         detail=row.detail or "",
+        # This bubble was already part of the conversation before the reader
+        # opened it, so it does not arrive: `bubbles.py` withholds PRD-004's
+        # entry animation from it, and a session switch is therefore silent
+        # (PRD-008 Section 6.1, and STORY-019 AC 5). Set only here -- the live
+        # path in `_do_send` builds its bubbles without it and keeps the
+        # animation.
+        restored=True,
     )
 
 
@@ -179,6 +186,22 @@ class ChatState(rx.State):
     renaming_session_id: str = ""
     rename_draft: str = ""
     confirming_delete_id: str = ""
+
+    # --- The rail's disclosure at a narrow viewport (STORY-019) ----------
+    # Not a preference and not a data var: the open bit of the collapse
+    # control, and the *only* thing on this class that a viewport can move.
+    #
+    # **It is ignored at or above `theme.SESSION_RAIL_COLLAPSE_W`.** The slot's
+    # width is a breakpoint map whose wide arm is unconditional, so above the
+    # breakpoint the media query wins and this var decides nothing -- which is
+    # why the control that flips it is itself `display: none` up there. A
+    # `False` here never hides a rail that has room.
+    #
+    # Nothing persists it. A reload lands on a collapsed rail at a narrow
+    # width, which is the state the story asks for ("the rail collapses and the
+    # transcript keeps the full width") -- remembering "open" across reloads
+    # would restore the exact layout the collapse exists to prevent.
+    rail_expanded: bool = False
     # The *turn's* notice slot, and deliberately not `sessions_error` above,
     # which is the *rail's*. One says a bubble is not in the database; the other
     # says the list is stale. Conflating them would make one of the two messages
@@ -364,6 +387,11 @@ class ChatState(rx.State):
         self.renaming_session_id = ""
         self.rename_draft = ""
         self.confirming_delete_id = ""
+        # And the disclosure closes. It is the one var here a viewport can
+        # move, but signing out is not a resize: the next person to sign in on
+        # this tab gets the collapsed default their own width implies, not a
+        # rail left open by whoever was here before.
+        self.rail_expanded = False
         # The notice is *about* the transcript being cleared above, so leaving
         # it standing would report a lost turn for a conversation that is no
         # longer on screen. Its rail counterpart, `sessions_error`, clears with
@@ -511,6 +539,24 @@ class ChatState(rx.State):
     def cancel_delete(self):
         """Walks away from the confirmation. The chat is kept, untouched."""
         self.confirming_delete_id = ""
+
+    @rx.event
+    def toggle_rail(self):
+        """Opens or closes the rail below the collapse breakpoint.
+
+        The whole of the disclosure's behaviour, and deliberately the whole of
+        it: no read, no Identity, no database. The rail's rows are already in
+        `sessions` -- collapsing is a layout state, not a fetch, so showing the
+        rail again must never be able to fail or to spend a round trip.
+
+        Not guarded on `self.pending`, unlike `begin_rename` and `ask_delete`.
+        Those two open a mode that can dispatch a write, so opening one
+        mid-send would queue an edit against a list about to reorder. This one
+        moves a column. Refusing it while a request is out would trap a narrow
+        viewport's reader outside their own chat list for the length of an
+        OpenRouter round trip, which is the opposite of *get out of the way*.
+        """
+        self.rail_expanded = not self.rail_expanded
 
     @rx.event
     def edit_and_resend(self, prompt: str):
