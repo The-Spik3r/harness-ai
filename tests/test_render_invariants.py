@@ -114,6 +114,20 @@ VERDICT_INKS = {
 # from theme.py by name, never copied as literals — a token retuned in theme.py
 # retunes this assertion in the same edit, which is the whole point of the
 # single-file guarantee theme.py's docstring makes.
+#
+# **What a colour looks like in a compiled page changed, and this set changed
+# with it.** These were `#RRGGBB` values until `theme.py` grew a second palette;
+# a component now renders `var(--hx-ink-clear)` and the hex appears only in the
+# stylesheet's two palette blocks, which `_page_without_the_stylesheet` strips.
+# So a hex search over a page body now finds *nothing at all* — and
+# `test_no_colour_outside_the_allowed_set` is a subset assertion, which the empty
+# set satisfies. The guard would have kept passing while painting anything.
+#
+# Collecting custom property names instead restores it, and sharpens it: the
+# names are what the components actually write, so a colour is now identified by
+# the token it came from rather than by a value two tokens could share. That is
+# also why `theme.custom_property` is a public function — this is the caller it
+# was made public for.
 ALLOWED_COLOURS = {value.upper() for value in VERDICT_INKS.values()} | {
     theme.PAPER.upper(),
     theme.CARD.upper(),
@@ -124,6 +138,16 @@ ALLOWED_COLOURS = {value.upper() for value in VERDICT_INKS.values()} | {
     theme.SPINE.upper(),
     theme.HOVER.upper(),
 }
+
+# Every theme colour reference in a page body, in exactly the form a token now
+# carries: `theme.PAPER` *is* the string `var(--hx-paper)`, so what this collects
+# and what `ALLOWED_COLOURS` holds are the same shape, and every comparison in
+# this file stays the value comparison it was.
+#
+# `--hx-` is theme.py's own prefix, so this cannot collide with a Radix or
+# Tailwind variable, and the two dashes keep it clear of the `hx-` *class* names
+# the same file declares (`hx-scroll`, `hx-composer`).
+COLOUR_REFERENCE = re.compile(r"var\(--hx-[a-z0-9-]+\)")
 
 # The two pages, as probe keys. Both are asserted for every invariant: PRD-006
 # Risk 6 names the register, but the summary is the surface the dashboard
@@ -396,12 +420,24 @@ def test_no_colour_outside_the_allowed_set(probe, page):
 
     A source grep cannot see a colour a component supplies at compile time — the
     Radix accent `admin_shell.py` records for `rx.link` is exactly that failure.
-    This collects every hex the compiled page actually contains and holds it to
-    the four verdict inks plus the ground tokens, all read from `theme.py`.
+    This collects every colour reference the compiled page actually contains
+    and holds it to the four verdict inks plus the ground tokens, all read
+    from `theme.py`.
+
+    The positive control is not decoration here. This is a subset assertion,
+    and a subset assertion passes on an empty set -- which is precisely what
+    happened to the hex version of this test the moment the palette moved
+    behind custom properties. Asserting that *something* was found means the
+    guard can no longer go quiet: it fails if the page stops naming colours
+    the way `theme.py` names them, whatever the reason.
     """
     assert not probe["errors"], probe["errors"]
     body = _page_without_the_stylesheet(probe, page)
-    found = {c.upper() for c in re.findall(r"#[0-9a-fA-F]{6}\b", body)}
+    found = {c.upper() for c in COLOUR_REFERENCE.findall(body)}
+    assert found, (
+        "no theme colour reference found on the page; the collector is looking "
+        "for the wrong thing and the subset assertion below means nothing"
+    )
     assert found <= ALLOWED_COLOURS, sorted(found - ALLOWED_COLOURS)
 
 
@@ -426,16 +462,55 @@ def test_the_focus_ring_is_the_only_upstream_ink(probe, page):
 
 
 def test_ink_self_cannot_be_excluded_by_value():
-    """Why AC 4's "no `INK_SELF`" is not asserted here as a hex.
+    """Why AC 4's "no `INK_SELF`" was not asserted here as a hex -- and why the
+    exclusion this file could never make is now made below.
 
-    `INK_SELF` and `INK` are the same pigment — "your own words — plain ink, no
-    verdict". A hex-based exclusion would therefore either fail on every page,
-    because `INK` sets the body text, or be written to pass and say nothing. The
-    claim lives where it can be true: `tests/test_admin_palette.py`'s
+    `INK_SELF` and `INK` are the same pigment -- "your own words -- plain ink, no
+    verdict" -- in both palettes. A hex-based exclusion would therefore either
+    fail on every page, because `INK` sets the body text, or be written to pass
+    and say nothing. That is why the claim lived where it could be true:
+    `tests/test_admin_palette.py`'s
     `test_no_admin_module_references_a_chat_only_ink`, which reads the admin
     sources by token name.
 
-    Recorded as a test rather than a comment so that a future attempt to add the
-    value check finds the reason before writing it.
+    **The second palette changed what a page can be asked.** A component no
+    longer renders a pigment, it renders the *token* -- `var(--hx-ink-self)` or
+    `var(--hx-ink)` -- so the two are now distinguishable in compiled output for
+    the first time. `test_no_ink_self_reaches_either_page` below makes the
+    exclusion directly, on the page, which is strictly better than inferring it
+    from a source grep: it sees a token a component acquires at compile time,
+    which is the failure mode this whole file exists for.
+
+    The identity itself is asserted in `tests/test_contrast.py`
+    (`test_ink_self_is_the_same_pigment_as_ink_on_both_grounds`), against the
+    palettes, which is where pigments now live -- `theme.INK_SELF` and
+    `theme.INK` are two different custom property references and comparing them
+    here would assert nothing about the colour.
+
+    Kept as a test rather than a comment for its original reason: so that the
+    next person to reach for a value check finds the history before writing one.
     """
-    assert theme.INK_SELF == theme.INK
+    for palette_name, palette in (("light", theme.LIGHT), ("dark", theme.DARK)):
+        assert palette["INK_SELF"] == palette["INK"], palette_name
+    assert theme.INK_SELF != theme.INK, (
+        "the tokens are distinct references; if they ever collapse to one string, "
+        "test_no_ink_self_reaches_either_page below stops meaning anything"
+    )
+
+
+@pytest.mark.parametrize("page", PAGES)
+def test_no_ink_self_reaches_either_page(probe, page):
+    """AC 4's last clause, asserted on the page at last.
+
+    "There is no 'your own words' on an admin surface" (PRD-006 Section 6.1).
+    Until the palette moved behind custom properties this was unassertable here
+    for the reason the test above records, and it was carried by a source grep in
+    `tests/test_admin_palette.py`. That grep stays -- it catches an import, which
+    is the earlier signal -- and this closes the route it cannot see, a component
+    handed the token by something it composes.
+    """
+    assert not probe["errors"], probe["errors"]
+    body = _page_without_the_stylesheet(probe, page)
+    assert theme.INK_SELF.upper() not in body.upper(), (
+        "INK_SELF is the chat's ink for a reader's own words; the console has none"
+    )

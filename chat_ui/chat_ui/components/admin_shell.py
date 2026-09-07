@@ -42,6 +42,7 @@ import reflex as rx
 
 from chat_ui import admin_copy, theme
 from chat_ui.admin_state import AdminState
+from chat_ui.components.ground_switch import ground_switch
 
 # --- Routes and view keys ------------------------------------------------
 # Declared here rather than in admin_copy: these are values, not copy — the
@@ -79,13 +80,31 @@ def admin_gate() -> rx.Component:
     """
     return rx.center(
         rx.box(
-            rx.box(
-                admin_copy.CONSOLE_TITLE,
-                font_family=theme.FONT_DISPLAY,
-                font_size="1.0625rem",
-                font_weight="700",
-                letter_spacing="0.16em",
-                color=theme.INK,
+            # The gate gets the switch too, and gets it in the masthead's own
+            # arrangement -- wordmark left, control right -- so the panel reads as
+            # a miniature of the shell it is standing in front of rather than as
+            # a different kind of screen. `login_gate()` and `admin_gate()` are
+            # already "the same shape ... vocabulary consistency, not drift"
+            # (admin_gate's docstring), and this keeps that true.
+            #
+            # It works here for the same reason it works anywhere: the switch
+            # carries no state and reaches no backend, so a visitor who has not
+            # signed in can set the ground and keep it through the sign-in. A
+            # reader who needs the dark ground needs it *most* on the screen they
+            # are staring at while typing a token they cannot see.
+            rx.hstack(
+                rx.box(
+                    admin_copy.CONSOLE_TITLE,
+                    font_family=theme.FONT_DISPLAY,
+                    font_size="1.0625rem",
+                    font_weight="700",
+                    letter_spacing="0.16em",
+                    color=theme.INK,
+                ),
+                ground_switch(),
+                justify="between",
+                align="center",
+                width="100%",
             ),
             rx.box(
                 admin_copy.GATE_TITLE,
@@ -444,6 +463,18 @@ def admin_masthead(active: str) -> rx.Component:
             ),
             rx.box(
                 refresh_control(),
+                padding_left="1rem",
+                margin_left="0.25rem",
+                border_left=f"1px solid {theme.RULE}",
+            ),
+            # Same slot as the chat header gives it: after what the console
+            # *does* (switch view, refresh) and before the control that ends the
+            # session. Both mastheads therefore read settings-then-session, and
+            # the switch sits at the same index of the same cluster on every
+            # surface -- which is what stops it reading as a different control
+            # on the console than on the chat.
+            rx.box(
+                ground_switch(),
                 padding_left="1rem",
                 margin_left="0.25rem",
                 border_left=f"1px solid {theme.RULE}",

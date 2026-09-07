@@ -85,18 +85,29 @@ def admin_summary_page() -> rx.Component:
     return admin_page(summary(), VIEW_SUMMARY)
 
 
-# Radix resolves its own colour tokens from the theme's appearance, and Reflex
-# defaults to following the OS. On a machine set to dark mode every Radix
-# control (both inputs, the model selector) painted dark-mode gray-12 — near
-# white — on top of this deliberately light design, leaving typed text
-# invisible. The design is committed to one palette, so the appearance is
-# pinned to match it rather than left to the visitor's OS.
+# Radix resolves its own colour tokens from the theme's appearance, and this
+# line used to read `appearance="light"`. The reason it did is worth keeping,
+# because it is the same reason it now reads "inherit": on a machine set to dark
+# mode, every Radix control (both inputs, the model selector) painted dark-mode
+# gray-12 — near white — on top of a light design, leaving typed text invisible.
+# The fault was never that Radix followed the OS; it was that the design had one
+# palette and Radix had two, so *any* disagreement produced that result.
+#
+# The dark-ground work gives the design its second palette, so the disagreement
+# is gone and
+# the pin is what would reintroduce it — inverted. Pinned to "light", a reader on
+# the dark ground would get light-mode Radix controls on a slate page: the same
+# invisible-text failure, from the same mismatch, in the other direction.
+#
+# "inherit" ties Radix's appearance to the colour mode that `theme.GLOBAL_CSS`'s
+# `html.dark` block is already keyed to, so the Radix controls and the design's
+# own tokens resolve from one source and cannot disagree again.
 app = rx.App(
     api_transformer=fastapi_app,
     stylesheets=[theme.FONTS_HREF],
     style={"background_color": theme.PAPER, "font_family": theme.FONT_BODY},
     theme=rx.theme(
-        appearance="light",
+        appearance="inherit",
         has_background=False,
         accent_color="gray",
         gray_color="slate",

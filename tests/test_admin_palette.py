@@ -83,7 +83,27 @@ def test_register_tokens_exist():
 
 
 def test_hover_ground_is_a_hex_colour():
-    assert re.fullmatch(r"#[0-9A-F]{6}", theme.HOVER), theme.HOVER
+    """`HOVER` is a colour and not a size -- the claim this made when every token
+    was a hex, kept now that colours resolve through a custom property.
+
+    The name is unchanged on purpose. It still describes what is asserted: the
+    hover ground is a hex colour, in both palettes. It is also load-bearing --
+    `tests/test_pii_redaction_integration.py`'s census reads this file and treats
+    a rename as a removal, which it caught when this function was briefly called
+    `test_hover_ground_is_a_colour_on_both_grounds`.
+
+    Two halves, because the token and its value are no longer the same string.
+    The token has to be a `var(--hx-…)` reference, which is what makes it a
+    colour a component can render on either ground; and both palettes have to
+    give it a hex, which is what makes the reference resolve to anything at all.
+    Asserting only the first would pass for a token whose property nothing
+    declares, and the register's row hover would render as no background.
+    """
+    assert re.fullmatch(r"var\(--hx-[a-z-]+\)", theme.HOVER), theme.HOVER
+    for palette_name, palette in (("LIGHT", theme.LIGHT), ("DARK", theme.DARK)):
+        assert re.fullmatch(r"#[0-9A-F]{6}", palette["HOVER"]), (
+            f"{palette_name}: {palette['HOVER']}"
+        )
 
 
 @pytest.mark.parametrize("name", ["ROW_H", "TEXT_MICRO"])
