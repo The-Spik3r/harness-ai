@@ -3,7 +3,7 @@ story: STORY-021
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-021-two-instance-and-flag-off-smoke.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 9e0dafc
 status: COMPLETE
 completed: 2026-09-07
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-07
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-021-two-instance-and-flag-off-smoke.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `9e0dafc`
 
 ## Summary
 

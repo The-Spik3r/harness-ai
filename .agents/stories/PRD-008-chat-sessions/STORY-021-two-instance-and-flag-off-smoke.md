@@ -12,7 +12,7 @@ labels: [tests, integration, security, deployment]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-021-two-instance-and-flag-off-smoke.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-021-two-instance-and-flag-off-smoke.report.md
-commit: PENDING
+commit: 9e0dafc
 depends_on: [STORY-007, STORY-010, STORY-015, STORY-016]
 blocks: [STORY-022]
 skills: []
