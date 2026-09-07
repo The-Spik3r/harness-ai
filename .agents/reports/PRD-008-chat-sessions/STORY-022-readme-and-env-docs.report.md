@@ -60,6 +60,16 @@ No application code changed. The only file touched outside `README.md` is a stal
 | 403 detail string byte-identical to `app/routers/query.py:15` | ✅ |
 | E2E checklist | ✅ (6/6) |
 
+**A note on suite flakiness, recorded rather than hidden.** The full suite was run three times. The
+first and third were green at 1680 passed. The second reported one failure
+(`test_query_session_id.py::test_a_malformed_session_id_is_a_422_from_validation[not-a-uuid]`) and one
+error (`test_pii_redaction_integration.py::test_no_raw_pii_fragment_reaches_openrouter[...]`). Both
+passed in isolation immediately afterwards, and the third full run was green with no intervening
+change of any kind. This story alters no application code, so it cannot produce a behavioural failure;
+the signature matches the known degradation of the local libSQL dev server under repeated whole-suite
+runs, whose remedy is restarting the server rather than bisecting. Noted here so that a future reader
+who sees it does not go looking for it in this diff.
+
 ## Files Changed
 
 | File | Action | Lines |
