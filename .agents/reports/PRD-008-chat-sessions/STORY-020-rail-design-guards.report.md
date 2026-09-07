@@ -3,7 +3,7 @@ story: STORY-020
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-020-rail-design-guards.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 02485bc
 status: COMPLETE
 completed: 2026-09-07
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-07
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-020-rail-design-guards.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `02485bc`
 
 ## Summary
 

@@ -12,7 +12,7 @@ labels: [tests, ui, design, a11y]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-020-rail-design-guards.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-020-rail-design-guards.report.md
-commit: null
+commit: 02485bc
 depends_on: [STORY-018, STORY-019]
 blocks: []
 skills: [frontend-design]
