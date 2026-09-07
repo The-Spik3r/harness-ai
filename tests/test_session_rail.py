@@ -17,18 +17,30 @@ cannot: that no colour is written as a literal hex, that no rail token is
 written as its value, that every user-facing string resolves from `copy`, and
 that the type roles are the ones PRD-008 Section 6.1 fixes.
 
-**The design guards are STORY-020's**, not this file's: no `TINT_*`, no verdict
-ink, no radius beyond `theme.RADIUS`, every colour a ground token, and the
-deliberate-violation run that proves the guard bites. That story extends this
-file rather than replacing it. What is here is the subset STORY-018 can assert
-about its own component without pre-empting them.
+**The design guards landed in STORY-020**, in the third section below: no
+`TINT_*`, no verdict ink, no radius beyond `theme.RADIUS`, and every colour a
+ground token. They are PRD-008 Risk 6's "component test", and they extended this
+file rather than replacing it — STORY-018's own combined floor test,
+`test_the_rail_renders_only_ground_tokens_and_one_radius`, was split into
+`test_the_only_radius_in_the_rail_is_the_theme_radius` and
+`test_every_colour_in_the_rail_is_a_ground_token` so that a drift prints one
+failure naming one claim.
 
-**A note for STORY-020.** `theme.INK_SELF == theme.INK` (both `#14181C`), so a
-verdict-ink guard that tests `INK_SELF in rendered` will fire on every rail row's
-title colour and be *right* about the bytes and wrong about the claim. It is the
-same shape of exception `tests/test_admin_palette.py` records for the
-`:focus-visible` ring, and it needs the same explicit handling: compare against
-the six inks that are not `INK`, or compare by token name rather than by value.
+**The `INK_SELF` exception, and how it was resolved.** `theme.INK_SELF ==
+theme.INK` (both `#14181C`), so a verdict-ink guard that tests `INK_SELF in
+rendered` fires on every rail row's title colour: right about the bytes, wrong
+about the claim. It is the same shape of exception `tests/test_admin_palette.py`
+records for the `:focus-visible` ring. AC 2 is therefore asserted in two halves —
+six inks by value against the rendered output, all seven by token name against
+the source — and `test_ink_self_cannot_be_excluded_by_rail_value` records why,
+so that a future attempt to "complete" the value tuple finds the reason first.
+
+**The violation was run.** A `TINT_HELD` background on the active row turned
+`test_no_tint_reaches_the_rail[TINT_HELD]` and
+`test_every_colour_in_the_rail_is_a_ground_token` red together, and was removed;
+the run is recorded in STORY-020's report. Because a removed violation proves
+nothing about tomorrow, `test_the_tint_guard_detects_a_tint` runs the same
+comparison over a synthetic sample and keeps the claim standing.
 """
 
 import ast
@@ -172,7 +184,24 @@ result["has_glyph"] = theme.GLYPH in rendered
 
 # Every colour the rail actually renders.
 result["hexes"] = sorted(set(re.findall(r"#[0-9a-fA-F]{6}\b", rendered)))
-result["radii"] = sorted(set(re.findall(r'\["borderRadius"\] : "([^"]+)"', rendered)))
+
+# Every radius, in both spellings the compiled output can carry: Reflex's
+# inline-style JS form, and raw CSS from a style string or a `_hover` block.
+# STORY-020 widened this -- the JS-only matcher it inherited would let a
+# raw-CSS pill through unseen, and a pill is the drift's first step.
+_RADIUS_FORMS = {
+    "js": r'\["borderRadius"\] : "([^"]+)"',
+    "css": r"border-radius\s*:\s*([^;\"'}]+)",
+}
+_by_form = {
+    form: [value.strip() for value in re.findall(pattern, rendered)]
+    for form, pattern in _RADIUS_FORMS.items()
+}
+result["radii"] = sorted({value for values in _by_form.values() for value in values})
+# The per-form counts, so a Reflex change to the compiled shape is visible
+# rather than silent: a detector that quietly matches nothing is worse than
+# no detector. Same defence `_page_without_the_stylesheet` uses for its strip.
+result["radius_form_counts"] = {form: len(values) for form, values in _by_form.items()}
 
 print(json.dumps(result))
 """
@@ -230,26 +259,218 @@ def test_the_delete_sentence_interpolates_the_title_as_a_var(probe):
     assert probe["confirm_reads_title"] is True
 
 
-def test_the_rail_renders_only_ground_tokens_and_one_radius(probe):
-    """The subset of PRD Risk 6 this story can assert about its own component.
+# --------------------------------------------------------------------------
+# The design guards (STORY-020)
+# --------------------------------------------------------------------------
+#
+# PRD-008 Risk 6, in full, over the rail's compiled output. STORY-018 shipped
+# one combined floor test here and named this story as the owner of the rest;
+# `test_the_rail_renders_only_ground_tokens_and_one_radius` was split into the
+# two guards below rather than left beside them, so that a drift prints one
+# failure naming one claim instead of two failures naming the same edit.
+#
+# Every token is read from `theme.py` by name, never copied as a literal: a
+# token retuned in `theme.py` retunes these assertions in the same edit, which
+# is the single-file guarantee `theme.py`'s own docstring makes.
 
-    STORY-020 owns the full guard, including the deliberate violation. This is
-    the floor: no colour reaches the screen that is not one of PRD Section 6.1's
-    grounds, and the only radius is `theme.RADIUS` -- the pill being the drift's
-    most likely first step.
+
+# The six fills in `theme.py`. `tests/test_render_invariants.py` lists five,
+# because PRD-006 predates `TINT_FORBIDDEN`; the rail refuses all six.
+TINT_NAMES = (
+    "TINT_CLEAR",
+    "TINT_HELD",
+    "TINT_DENIED",
+    "TINT_FORBIDDEN",
+    "TINT_UPSTREAM",
+    "TINT_FAULT",
+)
+
+# The seven verdict inks AC 2 names, split by how each one can honestly be
+# checked. Six have values of their own and are asserted against what the rail
+# renders; `INK_SELF` does not -- see `test_ink_self_cannot_be_excluded_by_rail_value`.
+VERDICT_INKS_BY_VALUE = (
+    "INK_CLEAR",
+    "INK_HELD",
+    "INK_DENIED",
+    "INK_FORBIDDEN",
+    "INK_UPSTREAM",
+    "INK_FAULT",
+)
+VERDICT_INK_NAMES = VERDICT_INKS_BY_VALUE + ("INK_SELF",)
+
+# PRD-008 Section 6.1's grounds, and the whole of the rail's permitted palette.
+GROUND_TOKEN_NAMES = (
+    "PAPER",
+    "CARD",
+    "INK",
+    "MUTE",
+    "RULE",
+    "RULE_SOFT",
+    "HOVER",
+    "SPINE",
+)
+
+
+def _ground_values() -> set:
+    return {getattr(theme, name).upper() for name in GROUND_TOKEN_NAMES}
+
+
+@pytest.mark.parametrize("name", TINT_NAMES)
+def test_no_tint_reaches_the_rail(probe, name):
+    """AC 1. PRD-008 Risk 6: the drift "arrives one reasonable component at a
+    time -- a card for a row, a rounded highlight for the active one, an accent
+    for the button".
+
+    A tint is that first card. The five `TINT_*` fills isolate one panel among
+    the transcript's prose, and the rail has no prose -- it is a shelf of
+    labels. Section 6.1 is explicit that the active session is marked "with
+    `INK` type against `HOVER`, not with a fill or an accent".
+
+    Parametrized per tint rather than aggregated, so a failure names the fill
+    that arrived.
     """
-    grounds = {
-        theme.PAPER,
-        theme.CARD,
-        theme.INK,
-        theme.MUTE,
-        theme.RULE,
-        theme.RULE_SOFT,
-        theme.HOVER,
-        theme.SPINE,
-    }
-    assert set(probe["hexes"]) <= grounds, f"non-ground colour: {probe['hexes']}"
+    assert probe["errors"] == [], probe["errors"]
+    value = getattr(theme, name).upper()
+    found = {hex_value.upper() for hex_value in probe["hexes"]}
+    assert value not in found, f"{name} ({value}) is a fill, and the rail carries none"
+
+
+@pytest.mark.parametrize("name", VERDICT_INKS_BY_VALUE)
+def test_no_verdict_ink_reaches_the_rail(probe, name):
+    """AC 2, for the six inks that have a value of their own.
+
+    PRD-008 Section 6.1: "The seven verdict inks stay in the transcript, where
+    they mean something: a rail row is not a verdict and must not borrow one."
+    A session is not cleared, held or denied -- it is a conversation that
+    contains turns which were, and colouring the shelf by the last verdict in
+    the volume is precisely the accent this design refuses.
+    """
+    assert probe["errors"] == [], probe["errors"]
+    value = getattr(theme, name).upper()
+    found = {hex_value.upper() for hex_value in probe["hexes"]}
+    assert value not in found, f"{name} ({value}) belongs to the transcript"
+
+
+@pytest.mark.parametrize("name", VERDICT_INK_NAMES)
+def test_the_rail_names_no_verdict_ink(source, name):
+    """AC 2's other half, by token name over the source.
+
+    This is the mechanism `tests/test_admin_palette.py` uses for the console's
+    two chat-only inks, and it is what carries `INK_SELF` -- whose value is
+    `INK`'s, so no hex search can see it. Running all seven by name rather than
+    only the one that needs it means the two halves agree: a hex the value check
+    catches is also a name this catches, and neither is load-bearing alone.
+
+    The grep is over the whole file, prose included, and that is deliberate: the
+    rail names no ink token anywhere today. If a future docstring must *name* an
+    ink in order to refuse it, narrow this to the `code_strings` treatment this
+    module already builds -- do not weaken the grep.
+    """
+    assert f"theme.{name}" not in source, f"the rail names {name}"
+
+
+def test_ink_self_cannot_be_excluded_by_rail_value(probe):
+    """Why AC 2's value check has six entries and not seven.
+
+    `INK_SELF` and `INK` are one pigment -- "your own words -- plain ink, no
+    verdict" -- and the rail sets every session title in `INK`. So a seventh
+    entry in `VERDICT_INKS_BY_VALUE` would fail on a *correct* rail: right about
+    the bytes, wrong about the claim. STORY-018's module docstring predicted
+    this and asked for exactly the split above; `tests/test_render_invariants.py`
+    records the identical exception for the console.
+
+    Asserted rather than commented, so that a future attempt to "complete" the
+    tuple finds the reason before writing it, and so that the day the two inks
+    diverge in `theme.py` this fails and points at the tuple that can then grow.
+    """
+    assert theme.INK_SELF == theme.INK
+    assert theme.INK.upper() in {value.upper() for value in probe["hexes"]}, (
+        "the rail no longer paints INK; the six/seven split may now be wrong"
+    )
+
+
+def test_the_only_radius_in_the_rail_is_the_theme_radius(probe):
+    """AC 3. Section 6.1 refuses "rounded pill rows", and the story names the
+    pill as "the drift's most likely first step".
+
+    `theme.RADIUS` by name, never as its value: the assertion is that the rail
+    renders *one* radius and that it is the theme's, not that it renders 3px.
+
+    Supersedes the radius half of STORY-018's
+    `test_the_rail_renders_only_ground_tokens_and_one_radius`, which made this
+    claim and the ground-token claim in one function.
+    """
+    assert probe["errors"] == [], probe["errors"]
     assert probe["radii"] == [theme.RADIUS], probe["radii"]
+
+
+def test_the_radius_detector_still_matches_the_compiled_form(probe):
+    """The radius guard, kept armed.
+
+    `test_the_only_radius_in_the_rail_is_the_theme_radius` compares a list, and
+    an empty list is not equal to `[theme.RADIUS]` -- so a detector that stopped
+    matching would fail loudly there too. This states the same thing from the
+    other side and names the cause: if Reflex changes how it compiles inline
+    styles, the JS-form count goes to zero and this says so directly instead of
+    leaving the reader to guess why the radius list emptied.
+    """
+    assert probe["errors"] == [], probe["errors"]
+    counts = probe["radius_form_counts"]
+    assert counts["js"] > 0, (
+        "the compiled inline-style form matched nothing; the radius detector "
+        f"is no longer looking at what Reflex emits: {counts}"
+    )
+
+
+def test_every_colour_in_the_rail_is_a_ground_token(probe):
+    """AC 4. Every colour the rail actually paints resolves to one of PRD-008
+    Section 6.1's eight grounds.
+
+    A subset, not an equality: `theme.CARD` is legitimately unrendered -- the
+    rail's ground is `PAPER` against the transcript's `CARD` -- and demanding
+    every ground appear would fail on a correct rail.
+
+    This is the guard that catches a drift no per-token check can enumerate: an
+    accent nobody has named yet, or a colour a Radix component supplies at
+    compile time. The failure message names the offending colour rather than
+    dumping the set.
+
+    Supersedes the ground-token half of STORY-018's
+    `test_the_rail_renders_only_ground_tokens_and_one_radius`.
+    """
+    assert probe["errors"] == [], probe["errors"]
+    found = {hex_value.upper() for hex_value in probe["hexes"]}
+    assert found <= _ground_values(), sorted(found - _ground_values())
+
+
+def test_the_tint_guard_detects_a_tint():
+    """The guard, watched failing -- and kept watched.
+
+    STORY-020's fifth acceptance criterion is a claim about what *fails*: a
+    `TINT_HELD` background on the active row must turn this file red. That was
+    done during implementation and the run is recorded in this story's report,
+    but a violation that has been removed proves nothing about tomorrow. So the
+    comparison the two guards above make is run here over a synthetic sample
+    containing the tint, which keeps the claim true without a shipped module
+    carrying a fill.
+
+    `tests/test_admin_palette.py` puts it best: "A guard nobody has watched fail
+    is a guard nobody knows is armed."
+    """
+    drifted = sorted({theme.PAPER, theme.INK, theme.TINT_HELD})
+    found = {hex_value.upper() for hex_value in drifted}
+
+    # AC 1's comparison, over the drifted sample.
+    assert theme.TINT_HELD.upper() in found
+
+    # AC 4's comparison, over the same sample: a tint is not a ground, so the
+    # two guards catch this edit together rather than one covering for the other.
+    assert not found <= _ground_values()
+    assert sorted(found - _ground_values()) == [theme.TINT_HELD.upper()]
+
+    # And the clean sample stays clean, so the detector is not simply always red.
+    clean = {value.upper() for value in (theme.PAPER, theme.INK, theme.MUTE)}
+    assert clean <= _ground_values()
 
 
 # --------------------------------------------------------------------------

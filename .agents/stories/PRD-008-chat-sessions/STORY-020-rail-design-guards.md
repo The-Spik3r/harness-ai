@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "4 - Surface and hardening"
-status: todo
+status: done
 labels: [tests, ui, design, a11y]
 epic_branch: epic/PRD-008-chat-sessions
-plan: null
-report: null
+plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-020-rail-design-guards.plan.md
+report: .agents/reports/PRD-008-chat-sessions/STORY-020-rail-design-guards.report.md
 commit: null
 depends_on: [STORY-018, STORY-019]
 blocks: []
 skills: [frontend-design]
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-07
 ---
 
 # STORY-020: Palette-drift and contrast assertions so the sidebar default fails a test, not a review

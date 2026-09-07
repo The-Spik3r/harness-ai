@@ -153,3 +153,62 @@ def test_every_console_pairing_is_readable(ink_name, ink, ground_name, ground):
     matrix that is too strict.
     """
     assert contrast(ink, ground) >= AA_NORMAL, f"{ink_name} on {ground_name}"
+
+
+# The rail's pairings as a set, on the console block's pattern (STORY-020 AC 6).
+#
+# The rail renders exactly two inks on exactly two grounds, and every one of the
+# four was already asserted in the neutral block above -- including
+# `("body ink on row hover", theme.INK, theme.HOVER)`, which is AC 6's
+# specifically named case. **No new pairing was needed**, and that is the
+# finding rather than an absence of work: STORY-017 declared the rail's tokens
+# adding no ink, STORY-018 spent none, and the story predicted this outcome
+# ("a new pairing appearing here is a signal worth recording, not a routine
+# addition"). Stating the set is what makes the result survive a component
+# moving an ink onto a ground it had not used before.
+#
+# The neutral entries above are deliberately not deleted. They record *why each
+# specific pairing exists*; this block records *what the surface is allowed to
+# do*. The module docstring draws the same distinction for the console block.
+_RAIL_INKS = (
+    ("INK", theme.INK),  # session titles, and the active row's own mark of type
+    ("MUTE", theme.MUTE),  # the activity time, and the row's quiet verbs
+)
+
+# `SPINE`, `RULE` and `RULE_SOFT` are absent by the same reasoning the neutral
+# block records for `RULE`: AA is a text criterion, and a hairline or a solid
+# mark is not text. `SPINE` carries no glyph -- it is a nine-pixel bar, and
+# PRD-008 Section 6.1 marks the active row with "`INK` type against `HOVER`",
+# which is the pairing below and not the mark.
+_RAIL_GROUNDS = (
+    ("PAPER", theme.PAPER),  # the rail's own ground, against the transcript's CARD
+    ("HOVER", theme.HOVER),  # a row under the cursor, and the active row's ground
+)
+
+
+@pytest.mark.parametrize(
+    "ink_name,ink,ground_name,ground",
+    [
+        (ink_name, ink, ground_name, ground)
+        for ink_name, ink in _RAIL_INKS
+        for ground_name, ground in _RAIL_GROUNDS
+    ],
+    ids=lambda value: value if not str(value).startswith("#") else "",
+)
+def test_every_rail_pairing_is_readable(ink_name, ink, ground_name, ground):
+    """Every pairing the session rail actually uses, at AA.
+
+    PRD-008 Section 11's quality bar: "every rail string resolves from `copy.py`;
+    every colour and size from `theme.py`; `tests/test_contrast.py` covers any
+    new pairing." This is the covering half.
+
+    A cross product, for the reason the console block gives: it is a superset of
+    what ships, so it needs no edit when the rail moves `MUTE` onto `HOVER` or
+    `INK` onto `PAPER` in some future row treatment. All four clear the floor
+    today at 15.45:1, 16.04:1, 4.63:1 and 4.80:1 -- the tightest being `MUTE` on
+    `PAPER`, which is the same pairing the neutral block above already flags as
+    the tightest in this file, and the reason the rail's activity time is the
+    one piece of rail type worth watching. A failure here is a token that moved
+    in `theme.py`, not a matrix that is too strict.
+    """
+    assert contrast(ink, ground) >= AA_NORMAL, f"{ink_name} on {ground_name}"

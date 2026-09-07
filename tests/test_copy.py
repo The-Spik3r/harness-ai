@@ -1,3 +1,4 @@
+import ast
 import sys
 from pathlib import Path
 
@@ -57,6 +58,10 @@ from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 # constants above are, so a deleted or renamed constant fails at collection
 # rather than at render.
 from chat_ui.chat_ui import admin_copy
+
+# The module itself, alongside the by-name imports above: STORY-020's AC 8 test
+# walks `copy.py`'s whole vocabulary rather than a list, so it needs the module.
+from chat_ui.chat_ui import copy as chat_copy
 from chat_ui.chat_ui.admin_copy import (
     CONSOLE_TITLE,
     MASTHEAD_SEPARATOR,
@@ -838,3 +843,93 @@ def test_the_rail_read_failure_names_the_read_and_offers_the_retry():
             assert vague not in lowered, f"{text!r} is vague: {vague!r}"
         for mechanism in ("session", "exception", "traceback", "null", "500"):
             assert mechanism not in lowered, f"{text!r} names the mechanism"
+
+
+# --------------------------------------------------------------------------
+# The rail component holds no literal (STORY-020 AC 8)
+# --------------------------------------------------------------------------
+
+_RAIL_COMPONENT = (
+    Path(__file__).parent.parent / "chat_ui" / "chat_ui" / "components" / "session_rail.py"
+)
+
+# Every user-facing constant the rail could reach for. Derived from `copy.py`'s
+# own contents rather than typed out, which is the whole point of putting this
+# test here: a constant added tomorrow and then pasted as a literal into the
+# rail is caught without anyone remembering to extend a tuple.
+_RAIL_VOCABULARY = tuple(
+    sorted(
+        name
+        for name in dir(chat_copy)
+        if name.isupper()
+        and isinstance(getattr(chat_copy, name), str)
+        and (name.startswith(("SESSION_", "TRANSCRIPT_")) or name == "RETRY_LABEL")
+    )
+)
+
+
+def _rail_code_strings() -> list:
+    """Every string literal in the rail's *code*, docstrings excluded.
+
+    The module argues its refusals in prose -- it names `rx.alert_dialog` in
+    order to refuse it, and quotes the copy constants' own words to explain
+    them -- so the claim is about code, and the prose is excluded rather than
+    the prose rewritten to dodge a grep. Same treatment, and the same reason,
+    as `tests/test_session_rail.py`; copied rather than imported so that this
+    module's collection does not depend on another test module's.
+    """
+    tree = ast.parse(_RAIL_COMPONENT.read_text(encoding="utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            body = getattr(node, "body", None)
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                docstrings.add(id(body[0].value))
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def test_the_rail_vocabulary_is_discoverable():
+    """A selector that matched nothing would pass the test below vacuously."""
+    assert len(_RAIL_VOCABULARY) >= 17, _RAIL_VOCABULARY
+    assert "SESSION_NEW_CHAT_LABEL" in _RAIL_VOCABULARY
+    assert _RAIL_COMPONENT.exists(), _RAIL_COMPONENT
+
+
+@pytest.mark.parametrize("name", _RAIL_VOCABULARY)
+def test_no_rail_string_is_written_as_a_literal_in_the_component(name):
+    """AC 8: every user-facing string in the rail resolves from `copy.py`.
+
+    PRD-008 Section 11's quality bar, first clause: "Every rail string resolves
+    from `copy.py`". PRD-004 STORY-007 established the rule and this is it
+    carried onto the one surface PRD-008 adds.
+
+    **Why this lives here and not only in `tests/test_session_rail.py`.** That
+    file has `test_every_user_facing_string_resolves_from_copy`, which walks a
+    curated eleven-name tuple -- it answers "are the strings STORY-018 knew
+    about resolved?". This one walks the whole `copy.py` vocabulary, so it
+    answers "is *any* copy value inlined?", including constants added after the
+    rail was written. The two are not duplicates and neither subsumes the
+    other: the curated one also asserts each name is actually *referenced*,
+    which a whole-vocabulary check cannot, because most of these constants
+    belong to the shell and the state rather than to the rail.
+
+    Parametrized per constant so a failure names the string that was pasted.
+    """
+    value = getattr(chat_copy, name)
+    assert value not in _rail_code_strings(), (
+        f"{name}'s text is inlined in session_rail.py as a literal; "
+        f"render it as copy.{name}"
+    )
