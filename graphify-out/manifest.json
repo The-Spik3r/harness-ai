@@ -1,0 +1,3164 @@
+{
+  ".claude/settings.local.json": {
+    "mtime": 1787960970.7174294,
+    "seen": 1788726306.8090394,
+    "ast_hash": "d3e9867987b16a38ff7c8105998bea94",
+    "semantic_hash": "d3e9867987b16a38ff7c8105998bea94"
+  },
+  "app.py": {
+    "mtime": 1783218941.1081295,
+    "seen": 1788726306.8090436,
+    "ast_hash": "5bba185cb6f8fccf61730005744768ae",
+    "semantic_hash": "5bba185cb6f8fccf61730005744768ae"
+  },
+  "app/__init__.py": {
+    "mtime": 1783218941.1081295,
+    "seen": 1788726306.8090456,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "app/config.py": {
+    "mtime": 1788724723.402376,
+    "seen": 1788726306.80905,
+    "ast_hash": "854b1f5bc5387f70727c571eae954381",
+    "semantic_hash": "854b1f5bc5387f70727c571eae954381"
+  },
+  "app/db/__init__.py": {
+    "mtime": 1783218941.109128,
+    "seen": 1788726306.8090513,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "app/db/database.py": {
+    "mtime": 1788724723.4033775,
+    "seen": 1788726306.8090525,
+    "ast_hash": "22bba0e9b47d31ab7a4f83eccb5fba34",
+    "semantic_hash": "22bba0e9b47d31ab7a4f83eccb5fba34"
+  },
+  "app/db/errors.py": {
+    "mtime": 1788724713.4342213,
+    "seen": 1788726306.8090534,
+    "ast_hash": "69e66488d5f27272bdcd3e1f3adb80d4",
+    "semantic_hash": "69e66488d5f27272bdcd3e1f3adb80d4"
+  },
+  "app/db/models.py": {
+    "mtime": 1788724723.4033775,
+    "seen": 1788726306.8090541,
+    "ast_hash": "e67ca2906d9b6efe7ccb6d8bbede492c",
+    "semantic_hash": "e67ca2906d9b6efe7ccb6d8bbede492c"
+  },
+  "app/main.py": {
+    "mtime": 1788724713.4352226,
+    "seen": 1788726306.809055,
+    "ast_hash": "509ef6c0a4625f9b8583d0491c12cb44",
+    "semantic_hash": "509ef6c0a4625f9b8583d0491c12cb44"
+  },
+  "app/middleware/__init__.py": {
+    "mtime": 1783218941.1101282,
+    "seen": 1788726306.809056,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "app/middleware/auth.py": {
+    "mtime": 1788724713.4362206,
+    "seen": 1788726306.8090565,
+    "ast_hash": "b89dc698034e6080947685436424bd6b",
+    "semantic_hash": "b89dc698034e6080947685436424bd6b"
+  },
+  "app/models/__init__.py": {
+    "mtime": 1783218941.1111283,
+    "seen": 1788726306.8090577,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "app/models/schemas.py": {
+    "mtime": 1788724723.4043753,
+    "seen": 1788726306.8090587,
+    "ast_hash": "36764613ab1c0a50cd913ed674a6565f",
+    "semantic_hash": "36764613ab1c0a50cd913ed674a6565f"
+  },
+  "app/routers/__init__.py": {
+    "mtime": 1783218941.1111283,
+    "seen": 1788726306.8090594,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "app/routers/admin.py": {
+    "mtime": 1788724723.4043753,
+    "seen": 1788726306.8090599,
+    "ast_hash": "d3fa8580b92892145501b1a2825b25b7",
+    "semantic_hash": "d3fa8580b92892145501b1a2825b25b7"
+  },
+  "app/routers/query.py": {
+    "mtime": 1788724723.4053757,
+    "seen": 1788726306.8090606,
+    "ast_hash": "81b6952e05443c39363ab3c2180cd7c0",
+    "semantic_hash": "81b6952e05443c39363ab3c2180cd7c0"
+  },
+  "app/services/__init__.py": {
+    "mtime": 1783218941.112128,
+    "seen": 1788726306.8090613,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "app/services/audit_logger.py": {
+    "mtime": 1788724723.4053757,
+    "seen": 1788726306.8090622,
+    "ast_hash": "1f882793de53621344f0cea230792f6a",
+    "semantic_hash": "1f882793de53621344f0cea230792f6a"
+  },
+  "app/services/authz.py": {
+    "mtime": 1788724713.4388547,
+    "seen": 1788726306.809063,
+    "ast_hash": "9b7da83e55418f7bd6f90a54e83c18fd",
+    "semantic_hash": "9b7da83e55418f7bd6f90a54e83c18fd"
+  },
+  "app/services/chat_sessions.py": {
+    "mtime": 1788724723.4053757,
+    "seen": 1788726306.8090637,
+    "ast_hash": "9995314ae72ecc3721b6b7a0cd00e0a8",
+    "semantic_hash": "9995314ae72ecc3721b6b7a0cd00e0a8"
+  },
+  "app/services/duplicate_checker.py": {
+    "mtime": 1788724713.4521248,
+    "seen": 1788726306.8090644,
+    "ast_hash": "d039f25fafb1f0149fd8a031d45609d9",
+    "semantic_hash": "d039f25fafb1f0149fd8a031d45609d9"
+  },
+  "app/services/identity.py": {
+    "mtime": 1788724713.4531245,
+    "seen": 1788726306.809065,
+    "ast_hash": "9d8224fb135630989c5e219e5c80b857",
+    "semantic_hash": "9d8224fb135630989c5e219e5c80b857"
+  },
+  "app/services/openrouter_client.py": {
+    "mtime": 1783218941.1131277,
+    "seen": 1788726306.8090665,
+    "ast_hash": "c7b4630881336eb5f0c1bc6c5897411c",
+    "semantic_hash": "c7b4630881336eb5f0c1bc6c5897411c"
+  },
+  "app/services/pattern_detector.py": {
+    "mtime": 1785610515.4801285,
+    "seen": 1788726306.8090672,
+    "ast_hash": "295315574329789c8155207c1438196d",
+    "semantic_hash": "295315574329789c8155207c1438196d"
+  },
+  "app/services/pii_redactor.py": {
+    "mtime": 1787315360.6421201,
+    "seen": 1788726306.8090677,
+    "ast_hash": "04cdc4faf26d2c238fdb0a0601d086b6",
+    "semantic_hash": "04cdc4faf26d2c238fdb0a0601d086b6"
+  },
+  "app/services/query_pipeline.py": {
+    "mtime": 1788724723.4064076,
+    "seen": 1788726306.8090684,
+    "ast_hash": "65b21cc0c53cbf74e0669bd7ad38adda",
+    "semantic_hash": "65b21cc0c53cbf74e0669bd7ad38adda"
+  },
+  "chat_ui/chat_ui/__init__.py": {
+    "mtime": 1784771467.6911004,
+    "seen": 1788726306.8090694,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "chat_ui/chat_ui/admin_copy.py": {
+    "mtime": 1788724713.4541247,
+    "seen": 1788726306.80907,
+    "ast_hash": "cb55282de12b70f33dcb64ebd37e045d",
+    "semantic_hash": "cb55282de12b70f33dcb64ebd37e045d"
+  },
+  "chat_ui/chat_ui/admin_formatting.py": {
+    "mtime": 1788724713.4541247,
+    "seen": 1788726306.8090708,
+    "ast_hash": "6b783df6228cdc9704ead5ca51c6da30",
+    "semantic_hash": "6b783df6228cdc9704ead5ca51c6da30"
+  },
+  "chat_ui/chat_ui/admin_models.py": {
+    "mtime": 1788724713.473094,
+    "seen": 1788726306.8090715,
+    "ast_hash": "6eff931bfc9d3f4a0f4d51bbc4e0c7b4",
+    "semantic_hash": "6eff931bfc9d3f4a0f4d51bbc4e0c7b4"
+  },
+  "chat_ui/chat_ui/admin_state.py": {
+    "mtime": 1788724713.4740975,
+    "seen": 1788726306.8090725,
+    "ast_hash": "05652e34b122e04c8cb1cf437effe6e1",
+    "semantic_hash": "05652e34b122e04c8cb1cf437effe6e1"
+  },
+  "chat_ui/chat_ui/chat_ui.py": {
+    "mtime": 1788724713.4740975,
+    "seen": 1788726306.8090732,
+    "ast_hash": "19e317e97051903ffcefd823305e90a2",
+    "semantic_hash": "19e317e97051903ffcefd823305e90a2"
+  },
+  "chat_ui/chat_ui/components/__init__.py": {
+    "mtime": 1784771467.6921015,
+    "seen": 1788726306.809074,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "chat_ui/chat_ui/components/admin_shell.py": {
+    "mtime": 1788724713.4740975,
+    "seen": 1788726306.8090746,
+    "ast_hash": "6d4c30b60d4e436108037b68e5f172b9",
+    "semantic_hash": "6d4c30b60d4e436108037b68e5f172b9"
+  },
+  "chat_ui/chat_ui/components/bubbles.py": {
+    "mtime": 1788724713.475095,
+    "seen": 1788726306.8090754,
+    "ast_hash": "95f730f7aefa11f0a7918c71d3438b98",
+    "semantic_hash": "95f730f7aefa11f0a7918c71d3438b98"
+  },
+  "chat_ui/chat_ui/components/chat.py": {
+    "mtime": 1788724713.4760942,
+    "seen": 1788726306.8090763,
+    "ast_hash": "c8d4fb4f0de7035bc5352e9ac919aea0",
+    "semantic_hash": "c8d4fb4f0de7035bc5352e9ac919aea0"
+  },
+  "chat_ui/chat_ui/components/register.py": {
+    "mtime": 1788724713.4760942,
+    "seen": 1788726306.809077,
+    "ast_hash": "805a6465d73c001598ec3a9573871b81",
+    "semantic_hash": "805a6465d73c001598ec3a9573871b81"
+  },
+  "chat_ui/chat_ui/components/session_rail.py": {
+    "mtime": 1788724723.4069223,
+    "seen": 1788726306.8090775,
+    "ast_hash": "18483e69d12486de7c5a20d0772c04bb",
+    "semantic_hash": "18483e69d12486de7c5a20d0772c04bb"
+  },
+  "chat_ui/chat_ui/components/shell.py": {
+    "mtime": 1788724713.4770947,
+    "seen": 1788726306.8090782,
+    "ast_hash": "d6e8cbdba39f9d258bab91781ed2f7e7",
+    "semantic_hash": "d6e8cbdba39f9d258bab91781ed2f7e7"
+  },
+  "chat_ui/chat_ui/components/summary.py": {
+    "mtime": 1788724713.4770947,
+    "seen": 1788726306.809079,
+    "ast_hash": "e61bb1ab9aa9f15e3e35eecdfe9c969c",
+    "semantic_hash": "e61bb1ab9aa9f15e3e35eecdfe9c969c"
+  },
+  "chat_ui/chat_ui/config.py": {
+    "mtime": 1787924610.4599073,
+    "seen": 1788726306.80908,
+    "ast_hash": "a27fec88ea21e11080fb831774608069",
+    "semantic_hash": "a27fec88ea21e11080fb831774608069"
+  },
+  "chat_ui/chat_ui/copy.py": {
+    "mtime": 1788724723.4069223,
+    "seen": 1788726306.8090806,
+    "ast_hash": "8e55cfb7076c8bbb9cf2704554975da4",
+    "semantic_hash": "8e55cfb7076c8bbb9cf2704554975da4"
+  },
+  "chat_ui/chat_ui/formatting.py": {
+    "mtime": 1788724723.4079225,
+    "seen": 1788726306.809081,
+    "ast_hash": "869c0d6fdf71df1df5dc5fcd42084f21",
+    "semantic_hash": "869c0d6fdf71df1df5dc5fcd42084f21"
+  },
+  "chat_ui/chat_ui/models.py": {
+    "mtime": 1788724723.4079225,
+    "seen": 1788726306.8090825,
+    "ast_hash": "d6b552a9b030002ff47d9390c64d08ba",
+    "semantic_hash": "d6b552a9b030002ff47d9390c64d08ba"
+  },
+  "chat_ui/chat_ui/state.py": {
+    "mtime": 1788724723.4089205,
+    "seen": 1788726306.8090835,
+    "ast_hash": "13e9d65ed63f63ce30eacf6c728d22cd",
+    "semantic_hash": "13e9d65ed63f63ce30eacf6c728d22cd"
+  },
+  "chat_ui/chat_ui/theme.py": {
+    "mtime": 1788724723.4089205,
+    "seen": 1788726306.8090842,
+    "ast_hash": "253a418d0a6f8b0b159834e96c3c1c46",
+    "semantic_hash": "253a418d0a6f8b0b159834e96c3c1c46"
+  },
+  "chat_ui/reflex.lock/package.json": {
+    "mtime": 1787969552.9749799,
+    "seen": 1788726306.809085,
+    "ast_hash": "2766e1dcf28a1851aaf4f002dad76c0e",
+    "semantic_hash": "2766e1dcf28a1851aaf4f002dad76c0e"
+  },
+  "chat_ui/rxconfig.py": {
+    "mtime": 1787315360.6441216,
+    "seen": 1788726306.8090854,
+    "ast_hash": "bacfa36f6742aba114886190916e5d20",
+    "semantic_hash": "bacfa36f6742aba114886190916e5d20"
+  },
+  "scripts/__init__.py": {
+    "mtime": 1788724713.4810941,
+    "seen": 1788726306.8090863,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "scripts/manage_users.py": {
+    "mtime": 1788724713.4810941,
+    "seen": 1788726306.809087,
+    "ast_hash": "4ebae64989b3193448decbfc02821e79",
+    "semantic_hash": "4ebae64989b3193448decbfc02821e79"
+  },
+  "scripts/migrate_to_turso.py": {
+    "mtime": 1788724713.4820938,
+    "seen": 1788726306.8090878,
+    "ast_hash": "0fd69fb46439bf199e233b0a4e18748a",
+    "semantic_hash": "0fd69fb46439bf199e233b0a4e18748a"
+  },
+  "skills-lock.json": {
+    "mtime": 1787924610.4629076,
+    "seen": 1788726306.8090885,
+    "ast_hash": "81e2cc464e60ebaef4fb1c3e1803fb97",
+    "semantic_hash": "81e2cc464e60ebaef4fb1c3e1803fb97"
+  },
+  "tests/__init__.py": {
+    "mtime": 1783218941.115536,
+    "seen": 1788726306.8090892,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "tests/conftest.py": {
+    "mtime": 1788724713.4820938,
+    "seen": 1788726306.80909,
+    "ast_hash": "2cc74edd47daa28624f5083ed4a2f2df",
+    "semantic_hash": "2cc74edd47daa28624f5083ed4a2f2df"
+  },
+  "tests/test_admin_auth.py": {
+    "mtime": 1788027656.7836955,
+    "seen": 1788726306.8090909,
+    "ast_hash": "c431cb85f00e85df7bf506bf3ef3bfb9",
+    "semantic_hash": "c431cb85f00e85df7bf506bf3ef3bfb9"
+  },
+  "tests/test_admin_copy.py": {
+    "mtime": 1788724713.4830947,
+    "seen": 1788726306.8090913,
+    "ast_hash": "b4c4e9db78fcbc2eb10169868f300f51",
+    "semantic_hash": "b4c4e9db78fcbc2eb10169868f300f51"
+  },
+  "tests/test_admin_formatting.py": {
+    "mtime": 1788724713.4830947,
+    "seen": 1788726306.809092,
+    "ast_hash": "9cbf03d1faa5241d9564e7250e675e1d",
+    "semantic_hash": "9cbf03d1faa5241d9564e7250e675e1d"
+  },
+  "tests/test_admin_models.py": {
+    "mtime": 1788724713.4840944,
+    "seen": 1788726306.8090932,
+    "ast_hash": "399ebad2d4d49d542263bad7d151e8ef",
+    "semantic_hash": "399ebad2d4d49d542263bad7d151e8ef"
+  },
+  "tests/test_admin_palette.py": {
+    "mtime": 1788724713.4850967,
+    "seen": 1788726306.809094,
+    "ast_hash": "68afa82a6b58dd6f39e0360aa3e87576",
+    "semantic_hash": "68afa82a6b58dd6f39e0360aa3e87576"
+  },
+  "tests/test_admin_shell.py": {
+    "mtime": 1788724713.4850967,
+    "seen": 1788726306.8090944,
+    "ast_hash": "a78e04af5004fba24d596bd805dc4104",
+    "semantic_hash": "a78e04af5004fba24d596bd805dc4104"
+  },
+  "tests/test_admin_state.py": {
+    "mtime": 1788724713.486094,
+    "seen": 1788726306.8090954,
+    "ast_hash": "5fda32486374fcd90d2cedbe1c4e47ce",
+    "semantic_hash": "5fda32486374fcd90d2cedbe1c4e47ce"
+  },
+  "tests/test_audit_logger.py": {
+    "mtime": 1788724723.4099252,
+    "seen": 1788726306.8090959,
+    "ast_hash": "842f3fa8cf63fcdf5772743f79bcac16",
+    "semantic_hash": "842f3fa8cf63fcdf5772743f79bcac16"
+  },
+  "tests/test_audit_router.py": {
+    "mtime": 1788724723.4099252,
+    "seen": 1788726306.8090968,
+    "ast_hash": "e81614da5e5261bfbc0c265c1587d315",
+    "semantic_hash": "e81614da5e5261bfbc0c265c1587d315"
+  },
+  "tests/test_audit_session_id.py": {
+    "mtime": 1788724723.4109206,
+    "seen": 1788726306.8090975,
+    "ast_hash": "fd9a4b8397b4fa5eb0b347bb0dd13aad",
+    "semantic_hash": "fd9a4b8397b4fa5eb0b347bb0dd13aad"
+  },
+  "tests/test_auth_dependencies.py": {
+    "mtime": 1788724713.4870968,
+    "seen": 1788726306.8090982,
+    "ast_hash": "d9269a4e7922926899bc5f94cb8cc733",
+    "semantic_hash": "d9269a4e7922926899bc5f94cb8cc733"
+  },
+  "tests/test_authz.py": {
+    "mtime": 1788724713.488207,
+    "seen": 1788726306.809099,
+    "ast_hash": "5ed387875df223241b247fea2b65ba17",
+    "semantic_hash": "5ed387875df223241b247fea2b65ba17"
+  },
+  "tests/test_chat_components_import.py": {
+    "mtime": 1788724713.488207,
+    "seen": 1788726306.8090994,
+    "ast_hash": "10a52c9fcaa65ba68804b9dbbdcdce1a",
+    "semantic_hash": "10a52c9fcaa65ba68804b9dbbdcdce1a"
+  },
+  "tests/test_chat_sessions.py": {
+    "mtime": 1788724723.4109206,
+    "seen": 1788726306.8091004,
+    "ast_hash": "3f5469e133251ad8190b412cfe75d015",
+    "semantic_hash": "3f5469e133251ad8190b412cfe75d015"
+  },
+  "tests/test_chat_state.py": {
+    "mtime": 1788724723.4119208,
+    "seen": 1788726306.809101,
+    "ast_hash": "8968f9267ea511de83e9c363f7030c3c",
+    "semantic_hash": "8968f9267ea511de83e9c363f7030c3c"
+  },
+  "tests/test_chat_ui_startup_guard.py": {
+    "mtime": 1788724713.4892187,
+    "seen": 1788726306.8091018,
+    "ast_hash": "fa27e4ac5421ed7e3260f0b6cbe87deb",
+    "semantic_hash": "fa27e4ac5421ed7e3260f0b6cbe87deb"
+  },
+  "tests/test_config.py": {
+    "mtime": 1788724723.4129207,
+    "seen": 1788726306.8091025,
+    "ast_hash": "0c2977b052ce3b939a1a0525571ce551",
+    "semantic_hash": "0c2977b052ce3b939a1a0525571ce551"
+  },
+  "tests/test_conftest_fixtures.py": {
+    "mtime": 1788724713.4902203,
+    "seen": 1788726306.809103,
+    "ast_hash": "6c326991413995d41939b5e0442cc664",
+    "semantic_hash": "6c326991413995d41939b5e0442cc664"
+  },
+  "tests/test_contrast.py": {
+    "mtime": 1788724713.4912179,
+    "seen": 1788726306.809104,
+    "ast_hash": "0518bd894bab41ecaf0fea72f83483aa",
+    "semantic_hash": "0518bd894bab41ecaf0fea72f83483aa"
+  },
+  "tests/test_copy.py": {
+    "mtime": 1788724723.4129207,
+    "seen": 1788726306.8091047,
+    "ast_hash": "774d276ee8f4e8579154481ebee757e1",
+    "semantic_hash": "774d276ee8f4e8579154481ebee757e1"
+  },
+  "tests/test_db.py": {
+    "mtime": 1788724723.413922,
+    "seen": 1788726306.8091054,
+    "ast_hash": "5a2b6835d10c062cfceb19b7f651aeed",
+    "semantic_hash": "5a2b6835d10c062cfceb19b7f651aeed"
+  },
+  "tests/test_duplicate_checker.py": {
+    "mtime": 1788724713.4932177,
+    "seen": 1788726306.809106,
+    "ast_hash": "b0d787dd35cbdbba179f80029c994c09",
+    "semantic_hash": "b0d787dd35cbdbba179f80029c994c09"
+  },
+  "tests/test_formatting.py": {
+    "mtime": 1788724723.4149206,
+    "seen": 1788726306.8091066,
+    "ast_hash": "3858f996d34da2b0f7bec00dd17ffe0f",
+    "semantic_hash": "3858f996d34da2b0f7bec00dd17ffe0f"
+  },
+  "tests/test_identity.py": {
+    "mtime": 1788724713.4932177,
+    "seen": 1788726306.8091078,
+    "ast_hash": "4576da40afb1ca5b903078c5c4a008c6",
+    "semantic_hash": "4576da40afb1ca5b903078c5c4a008c6"
+  },
+  "tests/test_integration.py": {
+    "mtime": 1788724713.4932177,
+    "seen": 1788726306.8091085,
+    "ast_hash": "e54c6660a78529908c13e1268dcce86a",
+    "semantic_hash": "e54c6660a78529908c13e1268dcce86a"
+  },
+  "tests/test_main.py": {
+    "mtime": 1788724713.494218,
+    "seen": 1788726306.8091094,
+    "ast_hash": "efaea0d156023d1954bd51645fae359c",
+    "semantic_hash": "efaea0d156023d1954bd51645fae359c"
+  },
+  "tests/test_manage_users_cli.py": {
+    "mtime": 1788724713.494218,
+    "seen": 1788726306.8091102,
+    "ast_hash": "c60c4c5acccf43b76d043de3ac27aa20",
+    "semantic_hash": "c60c4c5acccf43b76d043de3ac27aa20"
+  },
+  "tests/test_migrate_to_turso_cli.py": {
+    "mtime": 1788724723.4149206,
+    "seen": 1788726306.8091109,
+    "ast_hash": "b4f0a04f36bdf83ca5150577cf32d649",
+    "semantic_hash": "b4f0a04f36bdf83ca5150577cf32d649"
+  },
+  "tests/test_openrouter_client.py": {
+    "mtime": 1783218941.1175473,
+    "seen": 1788726306.8091118,
+    "ast_hash": "939bb25f65caa328207fe1864be0a5bf",
+    "semantic_hash": "939bb25f65caa328207fe1864be0a5bf"
+  },
+  "tests/test_pattern_detector.py": {
+    "mtime": 1783218941.1175473,
+    "seen": 1788726306.8091123,
+    "ast_hash": "7a1f361469fd822f92c858cef45aa387",
+    "semantic_hash": "7a1f361469fd822f92c858cef45aa387"
+  },
+  "tests/test_pii_badge.py": {
+    "mtime": 1787924610.4649074,
+    "seen": 1788726306.809113,
+    "ast_hash": "3538610221209e3c98845cbe65dbfd5c",
+    "semantic_hash": "3538610221209e3c98845cbe65dbfd5c"
+  },
+  "tests/test_pii_dedup_isolation.py": {
+    "mtime": 1788724713.4952185,
+    "seen": 1788726306.8091137,
+    "ast_hash": "a5c9b92f7c95797c1f65fde160a51b50",
+    "semantic_hash": "a5c9b92f7c95797c1f65fde160a51b50"
+  },
+  "tests/test_pii_redaction_integration.py": {
+    "mtime": 1788724723.415577,
+    "seen": 1788726306.8091156,
+    "ast_hash": "d9ad46b14eed4cb3fca3024b1120bd73",
+    "semantic_hash": "d9ad46b14eed4cb3fca3024b1120bd73"
+  },
+  "tests/test_pii_redactor.py": {
+    "mtime": 1787315360.6681216,
+    "seen": 1788726306.8091164,
+    "ast_hash": "299a16b5ee2666a5908f5637d157dbeb",
+    "semantic_hash": "299a16b5ee2666a5908f5637d157dbeb"
+  },
+  "tests/test_query_pipeline_authorization.py": {
+    "mtime": 1788724713.4968438,
+    "seen": 1788726306.809117,
+    "ast_hash": "e597603239e097193113e7ffc2d24144",
+    "semantic_hash": "e597603239e097193113e7ffc2d24144"
+  },
+  "tests/test_query_pipeline_session_passthrough.py": {
+    "mtime": 1788724723.415577,
+    "seen": 1788726306.8091178,
+    "ast_hash": "e7242de435a32c7ff38fee61824fb958",
+    "semantic_hash": "e7242de435a32c7ff38fee61824fb958"
+  },
+  "tests/test_query_router.py": {
+    "mtime": 1788724713.4968438,
+    "seen": 1788726306.8091187,
+    "ast_hash": "f08553e4a5ac7f2f53e4df1c3d3c61cd",
+    "semantic_hash": "f08553e4a5ac7f2f53e4df1c3d3c61cd"
+  },
+  "tests/test_query_session_id.py": {
+    "mtime": 1788724723.4165707,
+    "seen": 1788726306.8091195,
+    "ast_hash": "bcd2b69da1b0c59b2190cd17bf084b7d",
+    "semantic_hash": "bcd2b69da1b0c59b2190cd17bf084b7d"
+  },
+  "tests/test_rbac.py": {
+    "mtime": 1788724723.4165707,
+    "seen": 1788726306.8091202,
+    "ast_hash": "197a2fa8af9d4a435d9d7b49e002ed56",
+    "semantic_hash": "197a2fa8af9d4a435d9d7b49e002ed56"
+  },
+  "tests/test_register.py": {
+    "mtime": 1788724713.4978547,
+    "seen": 1788726306.8091211,
+    "ast_hash": "afe5a3e82459cc54ca301e29c8c52c82",
+    "semantic_hash": "afe5a3e82459cc54ca301e29c8c52c82"
+  },
+  "tests/test_render_invariants.py": {
+    "mtime": 1788724713.498856,
+    "seen": 1788726306.8091216,
+    "ast_hash": "769e204f5b3df49801897e3f81738964",
+    "semantic_hash": "769e204f5b3df49801897e3f81738964"
+  },
+  "tests/test_route_reservations.py": {
+    "mtime": 1784771467.6971006,
+    "seen": 1788726306.8091223,
+    "ast_hash": "17e38198ebb611db90d4e95c7b71afe8",
+    "semantic_hash": "17e38198ebb611db90d4e95c7b71afe8"
+  },
+  "tests/test_schemas.py": {
+    "mtime": 1788724723.4175708,
+    "seen": 1788726306.809123,
+    "ast_hash": "3370c1cebcc05a0420957b2ec3c158a0",
+    "semantic_hash": "3370c1cebcc05a0420957b2ec3c158a0"
+  },
+  "tests/test_session_ownership.py": {
+    "mtime": 1788724723.4175708,
+    "seen": 1788726306.8091238,
+    "ast_hash": "0899186b2a2473a44f72983fea12f4c9",
+    "semantic_hash": "0899186b2a2473a44f72983fea12f4c9"
+  },
+  "tests/test_session_rail.py": {
+    "mtime": 1788724723.4185703,
+    "seen": 1788726306.8091247,
+    "ast_hash": "2e144fdb951a9960c85c61d255f88fda",
+    "semantic_hash": "2e144fdb951a9960c85c61d255f88fda"
+  },
+  "tests/test_stats_router.py": {
+    "mtime": 1788724713.499855,
+    "seen": 1788726306.8091252,
+    "ast_hash": "31ecb806d70860a3405e13263ee8ee06",
+    "semantic_hash": "31ecb806d70860a3405e13263ee8ee06"
+  },
+  "tests/test_success_metadata_footer.py": {
+    "mtime": 1787924610.4659064,
+    "seen": 1788726306.809126,
+    "ast_hash": "dc6456b85d649f50f2759489e6cdb2ef",
+    "semantic_hash": "dc6456b85d649f50f2759489e6cdb2ef"
+  },
+  "tests/test_summary.py": {
+    "mtime": 1788724713.499855,
+    "seen": 1788726306.8091269,
+    "ast_hash": "895fceb6fd6c01f090e71f19f5e7e5ab",
+    "semantic_hash": "895fceb6fd6c01f090e71f19f5e7e5ab"
+  },
+  "tests/test_two_instance_smoke.py": {
+    "mtime": 1788724723.4185703,
+    "seen": 1788726306.8091273,
+    "ast_hash": "4635d04051ca5557dca682dda5a95b27",
+    "semantic_hash": "4635d04051ca5557dca682dda5a95b27"
+  },
+  "tests/test_untouched_app.py": {
+    "mtime": 1788724723.4195695,
+    "seen": 1788726306.8091283,
+    "ast_hash": "9a841cb708f82255e7204d80bf96e461",
+    "semantic_hash": "9a841cb708f82255e7204d80bf96e461"
+  },
+  ".agents/AGENT-template.md": {
+    "mtime": 1783218941.085131,
+    "seen": 1788726306.809129,
+    "ast_hash": "0927d7195c95ac2476157f76ffd6a5fd",
+    "semantic_hash": "0927d7195c95ac2476157f76ffd6a5fd"
+  },
+  ".agents/PRDs/PRD-001-harness-ia/PRD.md": {
+    "mtime": 1783218941.0861282,
+    "seen": 1788726306.8091297,
+    "ast_hash": "ed126ac535b9a338ef521739ecafcd0d",
+    "semantic_hash": "ed126ac535b9a338ef521739ecafcd0d"
+  },
+  ".agents/PRDs/PRD-001-harness-ia/index.md": {
+    "mtime": 1783218941.0861282,
+    "seen": 1788726306.8091304,
+    "ast_hash": "6ed0523956cf24d90e273212b01aaef2",
+    "semantic_hash": "6ed0523956cf24d90e273212b01aaef2"
+  },
+  ".agents/PRDs/PRD-002-reflex-chat-ui/PRD.md": {
+    "mtime": 1784771467.67184,
+    "seen": 1788726306.8091311,
+    "ast_hash": "3ef1291d04e4cdd589d8764a604e9301",
+    "semantic_hash": "3ef1291d04e4cdd589d8764a604e9301"
+  },
+  ".agents/PRDs/PRD-002-reflex-chat-ui/index.md": {
+    "mtime": 1784771467.67184,
+    "seen": 1788726306.8091319,
+    "ast_hash": "606f5978c447e7ba2127bc3faf0e6bc2",
+    "semantic_hash": "606f5978c447e7ba2127bc3faf0e6bc2"
+  },
+  ".agents/PRDs/PRD-003-pii-redaction/PRD.md": {
+    "mtime": 1787315360.5600939,
+    "seen": 1788726306.8091328,
+    "ast_hash": "3492c9dec606c9af7a9cb6a839adc0ae",
+    "semantic_hash": "3492c9dec606c9af7a9cb6a839adc0ae"
+  },
+  ".agents/PRDs/PRD-003-pii-redaction/index.md": {
+    "mtime": 1787315360.5600939,
+    "seen": 1788726306.8091335,
+    "ast_hash": "37a2ff4d219bcb74511c54bc6376b4d0",
+    "semantic_hash": "37a2ff4d219bcb74511c54bc6376b4d0"
+  },
+  ".agents/PRDs/PRD-004-chat-ui-redesign/PRD.md": {
+    "mtime": 1787924610.389366,
+    "seen": 1788726306.8091342,
+    "ast_hash": "f35ae77cd519cdebcf0378f287416bed",
+    "semantic_hash": "f35ae77cd519cdebcf0378f287416bed"
+  },
+  ".agents/PRDs/PRD-004-chat-ui-redesign/index.md": {
+    "mtime": 1787924610.389366,
+    "seen": 1788726306.8091352,
+    "ast_hash": "181d7a7c584bd088c6a0b6cdafd8ad4a",
+    "semantic_hash": "181d7a7c584bd088c6a0b6cdafd8ad4a"
+  },
+  ".agents/PRDs/PRD-005-rbac/PRD.md": {
+    "mtime": 1788724713.2791252,
+    "seen": 1788726306.809136,
+    "ast_hash": "dcd5c5691645971a47d1007a9afd5261",
+    "semantic_hash": "dcd5c5691645971a47d1007a9afd5261"
+  },
+  ".agents/PRDs/PRD-005-rbac/index.md": {
+    "mtime": 1788724713.2791252,
+    "seen": 1788726306.8091364,
+    "ast_hash": "2d687d06860cba3c35eb89f6127a690b",
+    "semantic_hash": "2d687d06860cba3c35eb89f6127a690b"
+  },
+  ".agents/PRDs/PRD-006-admin-console/PRD.md": {
+    "mtime": 1788724713.280126,
+    "seen": 1788726306.8091373,
+    "ast_hash": "51a668ac88819b39fc4ce2243d64c3a8",
+    "semantic_hash": "51a668ac88819b39fc4ce2243d64c3a8"
+  },
+  ".agents/PRDs/PRD-006-admin-console/index.md": {
+    "mtime": 1788724713.280126,
+    "seen": 1788726306.809138,
+    "ast_hash": "4c4441eda23caff4af11485cc500a5ce",
+    "semantic_hash": "4c4441eda23caff4af11485cc500a5ce"
+  },
+  ".agents/PRDs/PRD-007-turso-migration/PRD.md": {
+    "mtime": 1788724713.2811224,
+    "seen": 1788726306.8091388,
+    "ast_hash": "0d4895ddc6b3d96cd568c90731e0eea5",
+    "semantic_hash": "0d4895ddc6b3d96cd568c90731e0eea5"
+  },
+  ".agents/PRDs/PRD-007-turso-migration/index.md": {
+    "mtime": 1788724713.2811224,
+    "seen": 1788726306.8091395,
+    "ast_hash": "78bbfd1307b0c572046008d0688a09d7",
+    "semantic_hash": "78bbfd1307b0c572046008d0688a09d7"
+  },
+  ".agents/PRDs/PRD-008-chat-sessions/PRD.md": {
+    "mtime": 1788724723.3234074,
+    "seen": 1788726306.8091402,
+    "ast_hash": "593d0b6fc929861aad66a015fa18a173",
+    "semantic_hash": "593d0b6fc929861aad66a015fa18a173"
+  },
+  ".agents/PRDs/PRD-008-chat-sessions/index.md": {
+    "mtime": 1788724723.3234074,
+    "seen": 1788726306.809141,
+    "ast_hash": "e2a459485b697d0ec51fd42e693ec1d7",
+    "semantic_hash": "e2a459485b697d0ec51fd42e693ec1d7"
+  },
+  ".agents/commands/create-prd.md": {
+    "mtime": 1783218941.087128,
+    "seen": 1788726306.8091419,
+    "ast_hash": "124ce4197e1cbeeabede11cbf9f9f414",
+    "semantic_hash": "124ce4197e1cbeeabede11cbf9f9f414"
+  },
+  ".agents/commands/create-rules.md": {
+    "mtime": 1783218941.087128,
+    "seen": 1788726306.8091426,
+    "ast_hash": "88eb6e1d77d38d7ba2a8f5193bf2c775",
+    "semantic_hash": "88eb6e1d77d38d7ba2a8f5193bf2c775"
+  },
+  ".agents/commands/create-stories.md": {
+    "mtime": 1783218941.0881276,
+    "seen": 1788726306.8091433,
+    "ast_hash": "42572a998d59b8b0934a65db81de0082",
+    "semantic_hash": "42572a998d59b8b0934a65db81de0082"
+  },
+  ".agents/commands/implement.md": {
+    "mtime": 1783218941.0881276,
+    "seen": 1788726306.809144,
+    "ast_hash": "d37e9c8a49efa0e362f3ff78d59773de",
+    "semantic_hash": "d37e9c8a49efa0e362f3ff78d59773de"
+  },
+  ".agents/commands/install.md": {
+    "mtime": 1783218941.0881276,
+    "seen": 1788726306.8091447,
+    "ast_hash": "5dc470eba28b501671ac4e928bcad84d",
+    "semantic_hash": "5dc470eba28b501671ac4e928bcad84d"
+  },
+  ".agents/commands/plan.md": {
+    "mtime": 1783218941.0881276,
+    "seen": 1788726306.8091457,
+    "ast_hash": "9b46f9d68aad5cef78c04645c75b77bf",
+    "semantic_hash": "9b46f9d68aad5cef78c04645c75b77bf"
+  },
+  ".agents/commands/prime.md": {
+    "mtime": 1787924610.3903656,
+    "seen": 1788726306.8091464,
+    "ast_hash": "3b3e7e369ca637e0d20a37a0be8b78cf",
+    "semantic_hash": "3b3e7e369ca637e0d20a37a0be8b78cf"
+  },
+  ".agents/commands/review.md": {
+    "mtime": 1783218941.0891287,
+    "seen": 1788726306.8091471,
+    "ast_hash": "34487aaebf07cbfdbd0fcb5f55ab7912",
+    "semantic_hash": "34487aaebf07cbfdbd0fcb5f55ab7912"
+  },
+  ".agents/commands/security-review.md": {
+    "mtime": 1783218941.0891287,
+    "seen": 1788726306.8091478,
+    "ast_hash": "a016b48f1bff8a1200a251ba0e219323",
+    "semantic_hash": "a016b48f1bff8a1200a251ba0e219323"
+  },
+  ".agents/commands/validate.md": {
+    "mtime": 1783218941.090128,
+    "seen": 1788726306.8091483,
+    "ast_hash": "ad94e1b45b9d3e3fcf08a809b2c59fa3",
+    "semantic_hash": "ad94e1b45b9d3e3fcf08a809b2c59fa3"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-001-project-scaffolding.plan.md": {
+    "mtime": 1783218941.090128,
+    "seen": 1788726306.8091493,
+    "ast_hash": "353d2ce76b3dfb2b7e6ba5f17728d8ad",
+    "semantic_hash": "353d2ce76b3dfb2b7e6ba5f17728d8ad"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-002-sqlite-audit-schema.plan.md": {
+    "mtime": 1783218941.0911276,
+    "seen": 1788726306.80915,
+    "ast_hash": "fcfb46cadaa831c2f315cb52dd396361",
+    "semantic_hash": "fcfb46cadaa831c2f315cb52dd396361"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-003-request-response-schemas.plan.md": {
+    "mtime": 1783218941.0911276,
+    "seen": 1788726306.8091507,
+    "ast_hash": "5efb8dd527d4cb50278d44bc3b43a1bc",
+    "semantic_hash": "5efb8dd527d4cb50278d44bc3b43a1bc"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-004-duplicate-detection-service.plan.md": {
+    "mtime": 1783218941.0911276,
+    "seen": 1788726306.8091514,
+    "ast_hash": "7f95fb971efdb6ffa4a71b5e6eea85c1",
+    "semantic_hash": "7f95fb971efdb6ffa4a71b5e6eea85c1"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-005-pattern-detection-service.plan.md": {
+    "mtime": 1783218941.092129,
+    "seen": 1788726306.8091524,
+    "ast_hash": "c6bf69cedf7cd99ea26e5a4a3c1289d8",
+    "semantic_hash": "c6bf69cedf7cd99ea26e5a4a3c1289d8"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-006-audit-logging-service.plan.md": {
+    "mtime": 1783218941.092129,
+    "seen": 1788726306.809153,
+    "ast_hash": "b133b3e9dc3e49db22754439ce3da493",
+    "semantic_hash": "b133b3e9dc3e49db22754439ce3da493"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-007-openrouter-client.plan.md": {
+    "mtime": 1783218941.0931284,
+    "seen": 1788726306.8091557,
+    "ast_hash": "ee6851442c3495031a6ef01d6810e9d1",
+    "semantic_hash": "ee6851442c3495031a6ef01d6810e9d1"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-008-post-query-pipeline.plan.md": {
+    "mtime": 1783218941.0931284,
+    "seen": 1788726306.8091562,
+    "ast_hash": "ce856a93f063456e6db9ebb566f0e7a6",
+    "semantic_hash": "ce856a93f063456e6db9ebb566f0e7a6"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-009-admin-auth-middleware.plan.md": {
+    "mtime": 1783218941.0931284,
+    "seen": 1788726306.8091571,
+    "ast_hash": "43a3629a2c3f719ce7aec5f8fd65efcf",
+    "semantic_hash": "43a3629a2c3f719ce7aec5f8fd65efcf"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-010-get-audit-endpoint.plan.md": {
+    "mtime": 1783218941.094129,
+    "seen": 1788726306.8091576,
+    "ast_hash": "bf5d9a20fcdaa284e193b9a174ef7315",
+    "semantic_hash": "bf5d9a20fcdaa284e193b9a174ef7315"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-011-get-stats-endpoint.plan.md": {
+    "mtime": 1783218941.094129,
+    "seen": 1788726306.8091583,
+    "ast_hash": "511710fe2fa63ac54dd0365cf70af3ea",
+    "semantic_hash": "511710fe2fa63ac54dd0365cf70af3ea"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-012-integration-test-suite.plan.md": {
+    "mtime": 1783218941.094129,
+    "seen": 1788726306.8091595,
+    "ast_hash": "c3d1b975975bb02d8a5697509e88b6e9",
+    "semantic_hash": "c3d1b975975bb02d8a5697509e88b6e9"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-013-docker-packaging.plan.md": {
+    "mtime": 1783218941.0951283,
+    "seen": 1788726306.8091602,
+    "ast_hash": "fc9104d115de2048e1064c1ab0190cfa",
+    "semantic_hash": "fc9104d115de2048e1064c1ab0190cfa"
+  },
+  ".agents/plans/PRD-001-harness-ia/completed/STORY-014-readme-documentation.plan.md": {
+    "mtime": 1783218941.0951283,
+    "seen": 1788726306.809161,
+    "ast_hash": "33c4707e08624493a0f8968ef5ea3903",
+    "semantic_hash": "33c4707e08624493a0f8968ef5ea3903"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-001-shared-query-pipeline-extraction.plan.md": {
+    "mtime": 1784771467.672841,
+    "seen": 1788726306.8091617,
+    "ast_hash": "39ee714e590787d8c3905ae203e5c9d5",
+    "semantic_hash": "39ee714e590787d8c3905ae203e5c9d5"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-002-reflex-project-scaffolding.plan.md": {
+    "mtime": 1784771467.672841,
+    "seen": 1788726306.8091624,
+    "ast_hash": "fcc5327a48e989428290f5c4f7034072",
+    "semantic_hash": "fcc5327a48e989428290f5c4f7034072"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-003-mount-fastapi-single-port.plan.md": {
+    "mtime": 1784771467.6738417,
+    "seen": 1788726306.8091633,
+    "ast_hash": "ce209c9c17cd42637abf44f696d274ed",
+    "semantic_hash": "ce209c9c17cd42637abf44f696d274ed"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-004-chat-ui-components.plan.md": {
+    "mtime": 1784771467.6738417,
+    "seen": 1788726306.809164,
+    "ast_hash": "822afc128c7d19571c47adc5ddd49a03",
+    "semantic_hash": "822afc128c7d19571c47adc5ddd49a03"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-005-session-user-id-entry.plan.md": {
+    "mtime": 1784771467.6748407,
+    "seen": 1788726306.8091648,
+    "ast_hash": "80f8c74d3a8e525b26df46776d539857",
+    "semantic_hash": "80f8c74d3a8e525b26df46776d539857"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-006-wire-chatstate-to-pipeline.plan.md": {
+    "mtime": 1784771467.675841,
+    "seen": 1788726306.8091655,
+    "ast_hash": "290f0f8462c1bfa35bf168cbbc78b737",
+    "semantic_hash": "290f0f8462c1bfa35bf168cbbc78b737"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-007-chat-pipeline-test-suite.plan.md": {
+    "mtime": 1784771467.675841,
+    "seen": 1788726306.8091662,
+    "ast_hash": "6389b02ca192915e02082eb17477e004",
+    "semantic_hash": "6389b02ca192915e02082eb17477e004"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-008-docker-single-port-packaging.plan.md": {
+    "mtime": 1784771467.6765494,
+    "seen": 1788726306.8091671,
+    "ast_hash": "b860c6a2923e2dce8fca4ab548675924",
+    "semantic_hash": "b860c6a2923e2dce8fca4ab548675924"
+  },
+  ".agents/plans/PRD-002-reflex-chat-ui/completed/STORY-009-readme-chat-ui-docs.plan.md": {
+    "mtime": 1784771467.6770709,
+    "seen": 1788726306.8091676,
+    "ast_hash": "06e485e6d0258c72f5ed53bc4e676eb9",
+    "semantic_hash": "06e485e6d0258c72f5ed53bc4e676eb9"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-001-pii-redactor-service.plan.md": {
+    "mtime": 1787315360.561094,
+    "seen": 1788726306.8091683,
+    "ast_hash": "1baca6edf5e44d8faaca9f1fc8d57335",
+    "semantic_hash": "1baca6edf5e44d8faaca9f1fc8d57335"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-002-startup-nlp-model-loading.plan.md": {
+    "mtime": 1787315360.5620942,
+    "seen": 1788726306.809169,
+    "ast_hash": "522ef68e7f6169522a337b83ac3485ae",
+    "semantic_hash": "522ef68e7f6169522a337b83ac3485ae"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-003-audit-log-pii-schema.plan.md": {
+    "mtime": 1787315360.563094,
+    "seen": 1788726306.80917,
+    "ast_hash": "3100cd772304f21f90a403228f7aee6d",
+    "semantic_hash": "3100cd772304f21f90a403228f7aee6d"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-004-audit-logger-pii-telemetry.plan.md": {
+    "mtime": 1787315360.563094,
+    "seen": 1788726306.8091707,
+    "ast_hash": "a2b046861c4056a7c0258e1265f00c55",
+    "semantic_hash": "a2b046861c4056a7c0258e1265f00c55"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-005-pipeline-input-redaction.plan.md": {
+    "mtime": 1787315360.6181595,
+    "seen": 1788726306.8091714,
+    "ast_hash": "49ea5350c602a88fe0d98b313a3a50fd",
+    "semantic_hash": "49ea5350c602a88fe0d98b313a3a50fd"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-006-pipeline-output-redaction.plan.md": {
+    "mtime": 1787315360.619122,
+    "seen": 1788726306.8091722,
+    "ast_hash": "7154c43c194c910da03c45e57dcb1ced",
+    "semantic_hash": "7154c43c194c910da03c45e57dcb1ced"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-007-query-response-pii-signal.plan.md": {
+    "mtime": 1787315360.619122,
+    "seen": 1788726306.809173,
+    "ast_hash": "76822e7ec668c937d3e8bcbe984d11fc",
+    "semantic_hash": "76822e7ec668c937d3e8bcbe984d11fc"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-008-dedup-pattern-isolation-tests.plan.md": {
+    "mtime": 1787315360.6201224,
+    "seen": 1788726306.8091738,
+    "ast_hash": "3cb5ac1b8624ce27f3b47ecedc89cf66",
+    "semantic_hash": "3cb5ac1b8624ce27f3b47ecedc89cf66"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-009-audit-stats-pii-endpoints.plan.md": {
+    "mtime": 1787315360.6211214,
+    "seen": 1788726306.8091745,
+    "ast_hash": "d71e3681fc98c1bdc41e0e7a69dc3581",
+    "semantic_hash": "d71e3681fc98c1bdc41e0e7a69dc3581"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-010-pii-pipeline-integration-tests.plan.md": {
+    "mtime": 1787315360.6211214,
+    "seen": 1788726306.8091753,
+    "ast_hash": "62322e3e6461ecaea66c8376107a6afb",
+    "semantic_hash": "62322e3e6461ecaea66c8376107a6afb"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-011-docker-image-spacy-model.plan.md": {
+    "mtime": 1787315360.6221201,
+    "seen": 1788726306.8091757,
+    "ast_hash": "61ff0f90e0d9bfc505da358f64fb9043",
+    "semantic_hash": "61ff0f90e0d9bfc505da358f64fb9043"
+  },
+  ".agents/plans/PRD-003-pii-redaction/completed/STORY-012-readme-env-docs-rollout.plan.md": {
+    "mtime": 1787315360.6231205,
+    "seen": 1788726306.8091767,
+    "ast_hash": "792184667861cf6743a1a6ab570caa27",
+    "semantic_hash": "792184667861cf6743a1a6ab570caa27"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-001-async-run-query-offload.plan.md": {
+    "mtime": 1787924610.3903656,
+    "seen": 1788726306.8091774,
+    "ast_hash": "816ad626ec0e52dad5d38e2f338298b9",
+    "semantic_hash": "816ad626ec0e52dad5d38e2f338298b9"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-002-exhaustive-exception-handling.plan.md": {
+    "mtime": 1787924610.3913648,
+    "seen": 1788726306.809178,
+    "ast_hash": "e3b6ddcc1b62a9c2ff081b603d509639",
+    "semantic_hash": "e3b6ddcc1b62a9c2ff081b603d509639"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-003-pending-state-flag.plan.md": {
+    "mtime": 1787924610.3913648,
+    "seen": 1788726306.8091788,
+    "ast_hash": "7b94a33ab44bfff44a3697fb5763c20e",
+    "semantic_hash": "7b94a33ab44bfff44a3697fb5763c20e"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-004-chat-message-model.plan.md": {
+    "mtime": 1787924610.3913648,
+    "seen": 1788726306.8091795,
+    "ast_hash": "0a3191f44cdac1e1b057cde0d8c080c0",
+    "semantic_hash": "0a3191f44cdac1e1b057cde0d8c080c0"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-005-send-populates-outcome-metadata.plan.md": {
+    "mtime": 1787924610.3923664,
+    "seen": 1788726306.8091805,
+    "ast_hash": "43f85c8737e6da1b4cb18b68e7c3f686",
+    "semantic_hash": "43f85c8737e6da1b4cb18b68e7c3f686"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-007-copy-module.plan.md": {
+    "mtime": 1787924610.3923664,
+    "seen": 1788726306.8091838,
+    "ast_hash": "917dacb519c1200576e7b342f6f16564",
+    "semantic_hash": "917dacb519c1200576e7b342f6f16564"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-008-bubble-renderers-match-dispatch.plan.md": {
+    "mtime": 1787924610.3923664,
+    "seen": 1788726306.8091846,
+    "ast_hash": "a51d5d6bbd0b966856b465ba2b1b5f4e",
+    "semantic_hash": "a51d5d6bbd0b966856b465ba2b1b5f4e"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-009-pii-badge.plan.md": {
+    "mtime": 1787924610.3933647,
+    "seen": 1788726306.8091853,
+    "ast_hash": "559d5292ebeb7d79ac195b15028bebc5",
+    "semantic_hash": "559d5292ebeb7d79ac195b15028bebc5"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-010-success-metadata-footer.plan.md": {
+    "mtime": 1787924610.3933647,
+    "seen": 1788726306.809186,
+    "ast_hash": "d8b09dc77e9ba8b29d661e41beed12ac",
+    "semantic_hash": "d8b09dc77e9ba8b29d661e41beed12ac"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-011-duplicate-relative-time.plan.md": {
+    "mtime": 1787924610.3933647,
+    "seen": 1788726306.8091867,
+    "ast_hash": "85ba5c9b79cc3649e474de4ea43cfe91",
+    "semantic_hash": "85ba5c9b79cc3649e474de4ea43cfe91"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-012-pending-indicator-composer-lock.plan.md": {
+    "mtime": 1787924610.3943646,
+    "seen": 1788726306.8091877,
+    "ast_hash": "b171785085f92932fa6c642e8b07311a",
+    "semantic_hash": "b171785085f92932fa6c642e8b07311a"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-013-auto-scroll-newest.plan.md": {
+    "mtime": 1787924610.4389088,
+    "seen": 1788726306.8091881,
+    "ast_hash": "f8d011dd8602fd2e9411053bcd05ce48",
+    "semantic_hash": "f8d011dd8602fd2e9411053bcd05ce48"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-014-shell-header-empty-state.plan.md": {
+    "mtime": 1787924610.4389088,
+    "seen": 1788726306.8091888,
+    "ast_hash": "daf3b88b364680325238d2b85b365730",
+    "semantic_hash": "daf3b88b364680325238d2b85b365730"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-015-user-id-validation.plan.md": {
+    "mtime": 1787924610.4399073,
+    "seen": 1788726306.8091896,
+    "ast_hash": "3d236589c800e9645e9e422eb429ff47",
+    "semantic_hash": "3d236589c800e9645e9e422eb429ff47"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-016-model-selector-allowlist.plan.md": {
+    "mtime": 1787924610.4399073,
+    "seen": 1788726306.8091905,
+    "ast_hash": "14f327d73210facd770051c31bd340bb",
+    "semantic_hash": "14f327d73210facd770051c31bd340bb"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-017-device-user-agent-capture.plan.md": {
+    "mtime": 1787924610.4399073,
+    "seen": 1788726306.8091912,
+    "ast_hash": "9e492db81bc61ac93a6d54048171d86d",
+    "semantic_hash": "9e492db81bc61ac93a6d54048171d86d"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-018-retry-and-edit-resend.plan.md": {
+    "mtime": 1787924610.4409063,
+    "seen": 1788726306.809192,
+    "ast_hash": "31f2302c075837ae76f2d3d9e46d4f67",
+    "semantic_hash": "31f2302c075837ae76f2d3d9e46d4f67"
+  },
+  ".agents/plans/PRD-004-chat-ui-redesign/completed/STORY-019-six-outcome-regression-verification.plan.md": {
+    "mtime": 1787924610.4409063,
+    "seen": 1788726306.8091927,
+    "ast_hash": "4ce54b372724bc4bc1bdcd7a3413b94a",
+    "semantic_hash": "4ce54b372724bc4bc1bdcd7a3413b94a"
+  },
+  ".agents/plans/PRD-004/STORY-018-retry-and-edit-resend.plan.md": {
+    "mtime": 1787924610.4419074,
+    "seen": 1788726306.8091934,
+    "ast_hash": "30d17f47c35c50a0d6bc36ef219cd8c6",
+    "semantic_hash": "30d17f47c35c50a0d6bc36ef219cd8c6"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-001-additive-audit-log-migration.plan.md": {
+    "mtime": 1788724713.2831235,
+    "seen": 1788726306.8091943,
+    "ast_hash": "e07a06dba4b0d55153194b542c3e9785",
+    "semantic_hash": "e07a06dba4b0d55153194b542c3e9785"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-002-users-table-schema.plan.md": {
+    "mtime": 1788724713.2831235,
+    "seen": 1788726306.809195,
+    "ast_hash": "973b6f1ff4c98fe4e3c43ffb5e2a80c1",
+    "semantic_hash": "973b6f1ff4c98fe4e3c43ffb5e2a80c1"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-003-identity-resolution.plan.md": {
+    "mtime": 1788724713.2841249,
+    "seen": 1788726306.8091958,
+    "ast_hash": "f31e4f2166762a4652322e8569b5ccc0",
+    "semantic_hash": "f31e4f2166762a4652322e8569b5ccc0"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-004-manage-users-cli.plan.md": {
+    "mtime": 1788724713.2841249,
+    "seen": 1788726306.8091962,
+    "ast_hash": "3d324cccd721b701f8f5a38afcc01ba3",
+    "semantic_hash": "3d324cccd721b701f8f5a38afcc01ba3"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-005-rbac-configuration-settings.plan.md": {
+    "mtime": 1788724713.2853696,
+    "seen": 1788726306.8091974,
+    "ast_hash": "a613d396599dad7c2005a1b6fd5552ab",
+    "semantic_hash": "a613d396599dad7c2005a1b6fd5552ab"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-006-authz-permission-matrix.plan.md": {
+    "mtime": 1788724713.2853696,
+    "seen": 1788726306.809198,
+    "ast_hash": "55040a22b41de023668295f5e6bfeafc",
+    "semantic_hash": "55040a22b41de023668295f5e6bfeafc"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-007-roles-file-override.plan.md": {
+    "mtime": 1788724713.2864242,
+    "seen": 1788726306.8091986,
+    "ast_hash": "0cb43e413e9758d43d244aa3b7030b1a",
+    "semantic_hash": "0cb43e413e9758d43d244aa3b7030b1a"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-008-forbidden-response-schema.plan.md": {
+    "mtime": 1788724713.2864242,
+    "seen": 1788726306.8091993,
+    "ast_hash": "4b97c31bb0220fd0a59affdb8f479799",
+    "semantic_hash": "4b97c31bb0220fd0a59affdb8f479799"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-009-audit-rbac-columns.plan.md": {
+    "mtime": 1788724713.2864242,
+    "seen": 1788726306.8092,
+    "ast_hash": "ca21cf0c391a123b65450b683a53e4c6",
+    "semantic_hash": "ca21cf0c391a123b65450b683a53e4c6"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-010-pipeline-identity-authorization.plan.md": {
+    "mtime": 1788724713.287435,
+    "seen": 1788726306.809201,
+    "ast_hash": "e773440792c399727cb7c4f77adf1734",
+    "semantic_hash": "e773440792c399727cb7c4f77adf1734"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-011-model-allowlist-and-byok.plan.md": {
+    "mtime": 1788724713.2884345,
+    "seen": 1788726306.8092017,
+    "ast_hash": "132e17e3d9649f3eb5a623e188954d81",
+    "semantic_hash": "132e17e3d9649f3eb5a623e188954d81"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-012-auth-dependencies.plan.md": {
+    "mtime": 1788724713.2884345,
+    "seen": 1788726306.8092024,
+    "ast_hash": "403d604a70135980064c820c4863ae93",
+    "semantic_hash": "403d604a70135980064c820c4863ae93"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-013-query-router-authentication.plan.md": {
+    "mtime": 1788724713.2884345,
+    "seen": 1788726306.8092031,
+    "ast_hash": "3863a36adb4539bd6adb16e5050c15da",
+    "semantic_hash": "3863a36adb4539bd6adb16e5050c15da"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-014-chat-ui-login.plan.md": {
+    "mtime": 1788724713.2894354,
+    "seen": 1788726306.8092036,
+    "ast_hash": "d0bcf40259874669e4d791996498c99a",
+    "semantic_hash": "d0bcf40259874669e4d791996498c99a"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-015-admin-endpoint-permissions.plan.md": {
+    "mtime": 1788724713.2904344,
+    "seen": 1788726306.8092046,
+    "ast_hash": "cd428f1da8d6436ad8f92d1a483c6433",
+    "semantic_hash": "cd428f1da8d6436ad8f92d1a483c6433"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-016-startup-bootstrap-guard.plan.md": {
+    "mtime": 1788724713.2904344,
+    "seen": 1788726306.8092053,
+    "ast_hash": "b3e328a51401f96b5dd1a763b1a27004",
+    "semantic_hash": "b3e328a51401f96b5dd1a763b1a27004"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-017-rbac-test-suite.plan.md": {
+    "mtime": 1788724713.2914355,
+    "seen": 1788726306.809206,
+    "ast_hash": "b643593c3a0e42be0fc169465b1caf3c",
+    "semantic_hash": "b643593c3a0e42be0fc169465b1caf3c"
+  },
+  ".agents/plans/PRD-005-rbac/completed/STORY-018-rbac-documentation.plan.md": {
+    "mtime": 1788724713.2914355,
+    "seen": 1788726306.8092067,
+    "ast_hash": "f66581f048a609b6c5f4e5d1d0939abc",
+    "semantic_hash": "f66581f048a609b6c5f4e5d1d0939abc"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-001-audit-row-model.plan.md": {
+    "mtime": 1788724713.2924342,
+    "seen": 1788726306.8092074,
+    "ast_hash": "c6238b701feaa0f543b27b3fc22b6dbc",
+    "semantic_hash": "c6238b701feaa0f543b27b3fc22b6dbc"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-002-verdict-derivation-formatting.plan.md": {
+    "mtime": 1788724713.293435,
+    "seen": 1788726306.8092084,
+    "ast_hash": "c157c70d5ac016b3bd6443a1518a175f",
+    "semantic_hash": "c157c70d5ac016b3bd6443a1518a175f"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-003-admin-token-gate.plan.md": {
+    "mtime": 1788724713.293435,
+    "seen": 1788726306.809209,
+    "ast_hash": "e208e3fb58db87779eacf5f2d582ddf3",
+    "semantic_hash": "e208e3fb58db87779eacf5f2d582ddf3"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-004-threaded-database-read.plan.md": {
+    "mtime": 1788724713.3024366,
+    "seen": 1788726306.8092098,
+    "ast_hash": "d526d9e253d6bd4db9e624f0468800f4",
+    "semantic_hash": "d526d9e253d6bd4db9e624f0468800f4"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-005-filter-and-sort-vars.plan.md": {
+    "mtime": 1788724713.303434,
+    "seen": 1788726306.8092105,
+    "ast_hash": "c0eeaf216bd8e8e15af15dafc386e3a3",
+    "semantic_hash": "c0eeaf216bd8e8e15af15dafc386e3a3"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-006-admin-state-tests.plan.md": {
+    "mtime": 1788724713.303434,
+    "seen": 1788726306.8092115,
+    "ast_hash": "4701e319271d9dcbaf9c8e1fa174039d",
+    "semantic_hash": "4701e319271d9dcbaf9c8e1fa174039d"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-007-register-theme-tokens.plan.md": {
+    "mtime": 1788724713.304435,
+    "seen": 1788726306.809212,
+    "ast_hash": "8539ca1dca5d0b7b98e65fbc3829a8fb",
+    "semantic_hash": "8539ca1dca5d0b7b98e65fbc3829a8fb"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-008-admin-copy-module.plan.md": {
+    "mtime": 1788724713.304435,
+    "seen": 1788726306.809213,
+    "ast_hash": "79eb67245c63fcc6901b8c288aaeaf97",
+    "semantic_hash": "79eb67245c63fcc6901b8c288aaeaf97"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-009-admin-shell-and-gate.plan.md": {
+    "mtime": 1788724713.3054354,
+    "seen": 1788726306.8092136,
+    "ast_hash": "5eb6fcdf6b4f5d1ddf2b1308d894686d",
+    "semantic_hash": "5eb6fcdf6b4f5d1ddf2b1308d894686d"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-010-admin-route-registration.plan.md": {
+    "mtime": 1788724713.3054354,
+    "seen": 1788726306.809214,
+    "ast_hash": "27b4fc14d49925ee74015ba1dc00a0fe",
+    "semantic_hash": "27b4fc14d49925ee74015ba1dc00a0fe"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-011-register-table-stamp-margin.plan.md": {
+    "mtime": 1788724713.3064344,
+    "seen": 1788726306.809215,
+    "ast_hash": "c490152908764071d1c7db4547793acc",
+    "semantic_hash": "c490152908764071d1c7db4547793acc"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-012-row-detail-disclosure.plan.md": {
+    "mtime": 1788724713.3064344,
+    "seen": 1788726306.8092158,
+    "ast_hash": "a7563c6ea099dbf07a6bf3deffc192cb",
+    "semantic_hash": "a7563c6ea099dbf07a6bf3deffc192cb"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-013-filter-and-sort-controls.plan.md": {
+    "mtime": 1788724713.3064344,
+    "seen": 1788726306.8092165,
+    "ast_hash": "3bc464a0902c74426c53f62dcb60b43e",
+    "semantic_hash": "3bc464a0902c74426c53f62dcb60b43e"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-014-three-empty-states.plan.md": {
+    "mtime": 1788724713.307435,
+    "seen": 1788726306.8092172,
+    "ast_hash": "7903cbd233fec51706b10418f6376412",
+    "semantic_hash": "7903cbd233fec51706b10418f6376412"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-015-summary-tally-sheet.plan.md": {
+    "mtime": 1788724713.307435,
+    "seen": 1788726306.809218,
+    "ast_hash": "e9f70e81421d2cb71cbf076e09cbc669",
+    "semantic_hash": "e9f70e81421d2cb71cbf076e09cbc669"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-016-completion-label-copy-test.plan.md": {
+    "mtime": 1788724713.3084352,
+    "seen": 1788726306.809219,
+    "ast_hash": "58f8974b2a3a03d7a5663ef83c7f7a48",
+    "semantic_hash": "58f8974b2a3a03d7a5663ef83c7f7a48"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-017-refresh-and-fault-panel.plan.md": {
+    "mtime": 1788724713.3084352,
+    "seen": 1788726306.8092196,
+    "ast_hash": "5b6e694d66ad1e552ec0b468ca664866",
+    "semantic_hash": "5b6e694d66ad1e552ec0b468ca664866"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-018-render-invariant-tests.plan.md": {
+    "mtime": 1788724713.309435,
+    "seen": 1788726306.80922,
+    "ast_hash": "05a47d3d31997d7e13291fe543e3bd87",
+    "semantic_hash": "05a47d3d31997d7e13291fe543e3bd87"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-019-quality-floor-and-critique.plan.md": {
+    "mtime": 1788724713.309435,
+    "seen": 1788726306.809221,
+    "ast_hash": "c56da9f7dacbec5b52c91cc1f29b05c9",
+    "semantic_hash": "c56da9f7dacbec5b52c91cc1f29b05c9"
+  },
+  ".agents/plans/PRD-006-admin-console/completed/STORY-020-untouched-app-regression.plan.md": {
+    "mtime": 1788724713.309435,
+    "seen": 1788726306.8092217,
+    "ast_hash": "df60c1a64af857b2ec390e09f8c18237",
+    "semantic_hash": "df60c1a64af857b2ec390e09f8c18237"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-001-libsql-driver-spike.plan.md": {
+    "mtime": 1788724713.3104348,
+    "seen": 1788726306.8092225,
+    "ast_hash": "54de63007c49e4b0547ec2b91bab5038",
+    "semantic_hash": "54de63007c49e4b0547ec2b91bab5038"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-002-exception-characterization-tests.plan.md": {
+    "mtime": 1788724713.311435,
+    "seen": 1788726306.8092232,
+    "ast_hash": "9784d2df3f5decb32d7f132e194f8af3",
+    "semantic_hash": "9784d2df3f5decb32d7f132e194f8af3"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-003-centralize-database-url-fixture.plan.md": {
+    "mtime": 1788724713.311435,
+    "seen": 1788726306.809224,
+    "ast_hash": "019781d9ec9229709bd84bb94aa71cdc",
+    "semantic_hash": "019781d9ec9229709bd84bb94aa71cdc"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-004-module-owned-error-surface.plan.md": {
+    "mtime": 1788724713.3124344,
+    "seen": 1788726306.8092246,
+    "ast_hash": "cccd43794c22a2f25e975c4a1b722cc2",
+    "semantic_hash": "cccd43794c22a2f25e975c4a1b722cc2"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-005-turso-configuration.plan.md": {
+    "mtime": 1788724713.3124344,
+    "seen": 1788726306.8092256,
+    "ast_hash": "6d5e2239b904996141017bb2a974ba62",
+    "semantic_hash": "6d5e2239b904996141017bb2a974ba62"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-006-libsql-connection-layer.plan.md": {
+    "mtime": 1788724713.3134346,
+    "seen": 1788726306.8092263,
+    "ast_hash": "fbad5dd5d2a7463fdaa82ac96f07ce6b",
+    "semantic_hash": "fbad5dd5d2a7463fdaa82ac96f07ce6b"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-007-concurrent-safe-init-db.plan.md": {
+    "mtime": 1788724713.3134346,
+    "seen": 1788726306.809227,
+    "ast_hash": "016ba8636ca6921ffb9fb7188713f211",
+    "semantic_hash": "016ba8636ca6921ffb9fb7188713f211"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-008-startup-guard.plan.md": {
+    "mtime": 1788724713.3134346,
+    "seen": 1788726306.8092277,
+    "ast_hash": "09f07bec8ce53a0d0b3130800828b5c0",
+    "semantic_hash": "09f07bec8ce53a0d0b3130800828b5c0"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-009-top-pii-entities-sql-aggregation.plan.md": {
+    "mtime": 1788724713.3144348,
+    "seen": 1788726306.8092282,
+    "ast_hash": "b59251fa016091ffc18bf26a30fdd6a0",
+    "semantic_hash": "b59251fa016091ffc18bf26a30fdd6a0"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-010-batched-summary-read.plan.md": {
+    "mtime": 1788724713.3144348,
+    "seen": 1788726306.8092294,
+    "ast_hash": "6738462f35d3496201f2b55ab58c7421",
+    "semantic_hash": "6738462f35d3496201f2b55ab58c7421"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-011-stats-endpoint-batched.plan.md": {
+    "mtime": 1788724713.3154347,
+    "seen": 1788726306.8092299,
+    "ast_hash": "cdcadc89c29350a3c41a16a5859b405c",
+    "semantic_hash": "cdcadc89c29350a3c41a16a5859b405c"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-012-admin-console-batched-reads.plan.md": {
+    "mtime": 1788724713.3154347,
+    "seen": 1788726306.8092306,
+    "ast_hash": "4ced7dcf31ab8da65fa435208f746984",
+    "semantic_hash": "4ced7dcf31ab8da65fa435208f746984"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-013-data-migration-script.plan.md": {
+    "mtime": 1788724713.3164349,
+    "seen": 1788726306.8092313,
+    "ast_hash": "cca582aa469e3f7b5fc58f35d6ca2b25",
+    "semantic_hash": "cca582aa469e3f7b5fc58f35d6ca2b25"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-014-deployment-cutover.plan.md": {
+    "mtime": 1788724713.3174343,
+    "seen": 1788726306.8092322,
+    "ast_hash": "dc4f89198d24139cce4327aa9a0202ed",
+    "semantic_hash": "dc4f89198d24139cce4327aa9a0202ed"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-015-readme-and-deployment-docs.plan.md": {
+    "mtime": 1788724713.3174343,
+    "seen": 1788726306.809233,
+    "ast_hash": "310973e851a82df62450525710d961de",
+    "semantic_hash": "310973e851a82df62450525710d961de"
+  },
+  ".agents/plans/PRD-007-turso-migration/completed/STORY-016-two-instance-smoke-test.plan.md": {
+    "mtime": 1788724713.3184347,
+    "seen": 1788726306.8092337,
+    "ast_hash": "ca08008418d590e26885777eae8c1802",
+    "semantic_hash": "ca08008418d590e26885777eae8c1802"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-001-chat-history-configuration.plan.md": {
+    "mtime": 1788724723.325406,
+    "seen": 1788726306.8092344,
+    "ast_hash": "0653cf9d954cf8c1aa5fcd103102b9ba",
+    "semantic_hash": "0653cf9d954cf8c1aa5fcd103102b9ba"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-002-chat-session-schema.plan.md": {
+    "mtime": 1788724723.325406,
+    "seen": 1788726306.8092356,
+    "ast_hash": "a3234f9012d3529b5e6273d34d83cb7d",
+    "semantic_hash": "a3234f9012d3529b5e6273d34d83cb7d"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-003-init-db-tables-and-audit-column.plan.md": {
+    "mtime": 1788724723.3264074,
+    "seen": 1788726306.8092363,
+    "ast_hash": "1849882372adca50d3bc7eae58b16b2c",
+    "semantic_hash": "1849882372adca50d3bc7eae58b16b2c"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-004-session-crud-functions.plan.md": {
+    "mtime": 1788724723.3264074,
+    "seen": 1788726306.809237,
+    "ast_hash": "3aab1095483621bb68e82a0c2141bc94",
+    "semantic_hash": "3aab1095483621bb68e82a0c2141bc94"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-005-message-store-functions.plan.md": {
+    "mtime": 1788724723.3274076,
+    "seen": 1788726306.8092375,
+    "ast_hash": "b4ff9ba2bf905890be00d755731a0e25",
+    "semantic_hash": "b4ff9ba2bf905890be00d755731a0e25"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-006-chat-sessions-service.plan.md": {
+    "mtime": 1788724723.3274076,
+    "seen": 1788726306.8092382,
+    "ast_hash": "d710601572843fbcc275017b92eb2cb5",
+    "semantic_hash": "d710601572843fbcc275017b92eb2cb5"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-007-ownership-signature-guard.plan.md": {
+    "mtime": 1788724723.3287058,
+    "seen": 1788726306.8092391,
+    "ast_hash": "c2ff68b03dc2d7c9b3c8ce653cd6e325",
+    "semantic_hash": "c2ff68b03dc2d7c9b3c8ce653cd6e325"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-008-audit-log-session-id.plan.md": {
+    "mtime": 1788724723.3292348,
+    "seen": 1788726306.8092399,
+    "ast_hash": "cc7a5b39cabe58d838c4b05c6f37305e",
+    "semantic_hash": "cc7a5b39cabe58d838c4b05c6f37305e"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-009-pipeline-session-passthrough.plan.md": {
+    "mtime": 1788724723.3297553,
+    "seen": 1788726306.8092406,
+    "ast_hash": "285281564a0ef96ff6728b8534cfd9e1",
+    "semantic_hash": "285281564a0ef96ff6728b8534cfd9e1"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-010-query-request-session-id.plan.md": {
+    "mtime": 1788724723.3302846,
+    "seen": 1788726306.8092413,
+    "ast_hash": "432aaa44662765f278ccfc65e03ab41f",
+    "semantic_hash": "432aaa44662765f278ccfc65e03ab41f"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-011-audit-entry-session-id.plan.md": {
+    "mtime": 1788724723.3308136,
+    "seen": 1788726306.809242,
+    "ast_hash": "e9430ee6dc8cb0bb6cd90aecf27cae3a",
+    "semantic_hash": "e9430ee6dc8cb0bb6cd90aecf27cae3a"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-012-session-summary-and-formatting.plan.md": {
+    "mtime": 1788724723.33134,
+    "seen": 1788726306.809243,
+    "ast_hash": "9a182ad29fc45d4558400b30a53aeeb5",
+    "semantic_hash": "9a182ad29fc45d4558400b30a53aeeb5"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-013-chat-state-session-list-and-lazy-create.plan.md": {
+    "mtime": 1788724723.3318636,
+    "seen": 1788726306.8092434,
+    "ast_hash": "26784e64f1516a461ffa03631b34dbaf",
+    "semantic_hash": "26784e64f1516a461ffa03631b34dbaf"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-014-transcript-persistence-write.plan.md": {
+    "mtime": 1788724723.332387,
+    "seen": 1788726306.8092444,
+    "ast_hash": "66dae9aa85645c8211bf7208d35bab0e",
+    "semantic_hash": "66dae9aa85645c8211bf7208d35bab0e"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-015-transcript-restore.plan.md": {
+    "mtime": 1788724723.332908,
+    "seen": 1788726306.809245,
+    "ast_hash": "44546efda76d629c849b14c43785568f",
+    "semantic_hash": "44546efda76d629c849b14c43785568f"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-016-session-rename-delete-logout.plan.md": {
+    "mtime": 1788724723.3735566,
+    "seen": 1788726306.8092456,
+    "ast_hash": "943e553e08a9e8ed386558781bcc5b19",
+    "semantic_hash": "943e553e08a9e8ed386558781bcc5b19"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-017-rail-tokens-and-copy.plan.md": {
+    "mtime": 1788724723.3735566,
+    "seen": 1788726306.8092465,
+    "ast_hash": "7b3eb2e55e48079c28403f260d56868d",
+    "semantic_hash": "7b3eb2e55e48079c28403f260d56868d"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-018-session-rail-component.plan.md": {
+    "mtime": 1788724723.3745577,
+    "seen": 1788726306.8092473,
+    "ast_hash": "bec801135ba309ebbfdf737013c5fee8",
+    "semantic_hash": "bec801135ba309ebbfdf737013c5fee8"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-023-untouched-app-guard-rescope.plan.md": {
+    "mtime": 1788724723.3745577,
+    "seen": 1788726306.809248,
+    "ast_hash": "31742bff5f5a527ff198d999b2861743",
+    "semantic_hash": "31742bff5f5a527ff198d999b2861743"
+  },
+  ".agents/plans/PRD-008-chat-sessions/completed/STORY-024-stale-client-recovery.plan.md": {
+    "mtime": 1788724723.3755572,
+    "seen": 1788726306.8092487,
+    "ast_hash": "896c8b361939c65cae020608e4ce424a",
+    "semantic_hash": "896c8b361939c65cae020608e4ce424a"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-001-project-scaffolding.report.md": {
+    "mtime": 1783218941.096128,
+    "seen": 1788726306.8092492,
+    "ast_hash": "ce8b6fd97fe28d7caa5e48964cc6f70a",
+    "semantic_hash": "ce8b6fd97fe28d7caa5e48964cc6f70a"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-002-sqlite-audit-schema.report.md": {
+    "mtime": 1783218941.096128,
+    "seen": 1788726306.80925,
+    "ast_hash": "8f89707a867aa926bffab210c79e4cc1",
+    "semantic_hash": "8f89707a867aa926bffab210c79e4cc1"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-003-request-response-schemas.report.md": {
+    "mtime": 1783218941.096128,
+    "seen": 1788726306.8092508,
+    "ast_hash": "024bb79b9b8c8a2d94f43fc56d6bdc1f",
+    "semantic_hash": "024bb79b9b8c8a2d94f43fc56d6bdc1f"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-004-duplicate-detection-service.report.md": {
+    "mtime": 1783218941.0971305,
+    "seen": 1788726306.8092515,
+    "ast_hash": "25a4083e35e893c57ca167c31952b9f8",
+    "semantic_hash": "25a4083e35e893c57ca167c31952b9f8"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-005-pattern-detection-service.report.md": {
+    "mtime": 1783218941.0971305,
+    "seen": 1788726306.8092523,
+    "ast_hash": "65df30dc4bf56b24b547e8a4c44c3f0d",
+    "semantic_hash": "65df30dc4bf56b24b547e8a4c44c3f0d"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-006-audit-logging-service.report.md": {
+    "mtime": 1783218941.0971305,
+    "seen": 1788726306.8092532,
+    "ast_hash": "f1b25ed2210975b854fe90e591dca7fe",
+    "semantic_hash": "f1b25ed2210975b854fe90e591dca7fe"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-007-openrouter-client.report.md": {
+    "mtime": 1783218941.098128,
+    "seen": 1788726306.809254,
+    "ast_hash": "0a8385b06bddd2ea977bf8bf03b8436a",
+    "semantic_hash": "0a8385b06bddd2ea977bf8bf03b8436a"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-008-post-query-pipeline.report.md": {
+    "mtime": 1783218941.098128,
+    "seen": 1788726306.8092546,
+    "ast_hash": "9f9f53d52c6fb03b66227134e7eb4a49",
+    "semantic_hash": "9f9f53d52c6fb03b66227134e7eb4a49"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-009-admin-auth-middleware.report.md": {
+    "mtime": 1783218941.0991278,
+    "seen": 1788726306.8092554,
+    "ast_hash": "cf9c35dcbd498fbedae1a6e472f5facb",
+    "semantic_hash": "cf9c35dcbd498fbedae1a6e472f5facb"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-010-get-audit-endpoint.report.md": {
+    "mtime": 1783218941.0991278,
+    "seen": 1788726306.809256,
+    "ast_hash": "270c6fa9e8949f0b11824d8338b1d20d",
+    "semantic_hash": "270c6fa9e8949f0b11824d8338b1d20d"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-011-get-stats-endpoint.report.md": {
+    "mtime": 1783218941.1001282,
+    "seen": 1788726306.809257,
+    "ast_hash": "f79d11c0319c2fbded6d3a6ba31223ca",
+    "semantic_hash": "f79d11c0319c2fbded6d3a6ba31223ca"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-012-integration-test-suite.report.md": {
+    "mtime": 1783218941.1001282,
+    "seen": 1788726306.8092577,
+    "ast_hash": "3142fefbbf3d6ac25b8c76a2ab3eb34e",
+    "semantic_hash": "3142fefbbf3d6ac25b8c76a2ab3eb34e"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-013-docker-packaging.report.md": {
+    "mtime": 1783218941.1001282,
+    "seen": 1788726306.8092585,
+    "ast_hash": "e9c7dd048b1871a8d92aa797034fad00",
+    "semantic_hash": "e9c7dd048b1871a8d92aa797034fad00"
+  },
+  ".agents/reports/PRD-001-harness-ia/STORY-014-readme-documentation.report.md": {
+    "mtime": 1783218941.1011279,
+    "seen": 1788726306.8092592,
+    "ast_hash": "53f6f28e9791b1ca5cafd0453076b86c",
+    "semantic_hash": "53f6f28e9791b1ca5cafd0453076b86c"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-001-shared-query-pipeline-extraction.report.md": {
+    "mtime": 1784771467.6775868,
+    "seen": 1788726306.8092601,
+    "ast_hash": "aaa545ebdd2daef8c6e4833254dbc835",
+    "semantic_hash": "aaa545ebdd2daef8c6e4833254dbc835"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-002-reflex-project-scaffolding.report.md": {
+    "mtime": 1784771467.6781027,
+    "seen": 1788726306.8092608,
+    "ast_hash": "58022cc864efb490ede9c1382e505693",
+    "semantic_hash": "58022cc864efb490ede9c1382e505693"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-003-mount-fastapi-single-port.report.md": {
+    "mtime": 1784771467.6781027,
+    "seen": 1788726306.8092613,
+    "ast_hash": "e8ae6b169f26b00b3a46b565cb263a6e",
+    "semantic_hash": "e8ae6b169f26b00b3a46b565cb263a6e"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-004-chat-ui-components.report.md": {
+    "mtime": 1784771467.6790998,
+    "seen": 1788726306.809262,
+    "ast_hash": "6fda715bfb68f428fa1f36feac291e85",
+    "semantic_hash": "6fda715bfb68f428fa1f36feac291e85"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-005-session-user-id-entry.report.md": {
+    "mtime": 1784771467.6790998,
+    "seen": 1788726306.8092628,
+    "ast_hash": "cfdb2d51655624b163942a6f9223c82c",
+    "semantic_hash": "cfdb2d51655624b163942a6f9223c82c"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-006-wire-chatstate-to-pipeline.report.md": {
+    "mtime": 1784771467.6801002,
+    "seen": 1788726306.8092637,
+    "ast_hash": "ffeab1b9631a21d69507a3d74488a0b5",
+    "semantic_hash": "ffeab1b9631a21d69507a3d74488a0b5"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-007-chat-pipeline-test-suite.report.md": {
+    "mtime": 1784771467.6801002,
+    "seen": 1788726306.8092644,
+    "ast_hash": "02a5e0afef741a769bb7c91d0c66bea6",
+    "semantic_hash": "02a5e0afef741a769bb7c91d0c66bea6"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-008-docker-single-port-packaging.report.md": {
+    "mtime": 1784771467.6811008,
+    "seen": 1788726306.8092651,
+    "ast_hash": "94a1f68b1547a59bf30102f91fc45a19",
+    "semantic_hash": "94a1f68b1547a59bf30102f91fc45a19"
+  },
+  ".agents/reports/PRD-002-reflex-chat-ui/STORY-009-readme-chat-ui-docs.report.md": {
+    "mtime": 1784771467.6811008,
+    "seen": 1788726306.8092659,
+    "ast_hash": "e972186cfd92985a1a3c387967dedbc6",
+    "semantic_hash": "e972186cfd92985a1a3c387967dedbc6"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-001-pii-redactor-service.report.md": {
+    "mtime": 1787315360.6231205,
+    "seen": 1788726306.8092668,
+    "ast_hash": "4d3553826df38450074f8a1ae87e1762",
+    "semantic_hash": "4d3553826df38450074f8a1ae87e1762"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-002-startup-nlp-model-loading.report.md": {
+    "mtime": 1787315360.6241207,
+    "seen": 1788726306.8092675,
+    "ast_hash": "e80d2241131c377af5d738cb402922a5",
+    "semantic_hash": "e80d2241131c377af5d738cb402922a5"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-003-audit-log-pii-schema.report.md": {
+    "mtime": 1787315360.6241207,
+    "seen": 1788726306.8092682,
+    "ast_hash": "ba097bd7daad219637bd8e79058a5da2",
+    "semantic_hash": "ba097bd7daad219637bd8e79058a5da2"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-004-audit-logger-pii-telemetry.report.md": {
+    "mtime": 1787315360.6251204,
+    "seen": 1788726306.809269,
+    "ast_hash": "a7ddd55f61b59fb416c13bd99420600f",
+    "semantic_hash": "a7ddd55f61b59fb416c13bd99420600f"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-005-pipeline-input-redaction.report.md": {
+    "mtime": 1787315360.6251204,
+    "seen": 1788726306.8092697,
+    "ast_hash": "6c45824fdcf46edc54e67f71dec962c7",
+    "semantic_hash": "6c45824fdcf46edc54e67f71dec962c7"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-006-pipeline-output-redaction.report.md": {
+    "mtime": 1787315360.6261213,
+    "seen": 1788726306.8092706,
+    "ast_hash": "f669f384c756631babd50b6661afa0ca",
+    "semantic_hash": "f669f384c756631babd50b6661afa0ca"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-007-query-response-pii-signal.report.md": {
+    "mtime": 1787315360.6261213,
+    "seen": 1788726306.8092713,
+    "ast_hash": "d583ecbda666c58cdb9282e90e784305",
+    "semantic_hash": "d583ecbda666c58cdb9282e90e784305"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-008-dedup-pattern-isolation-tests.report.md": {
+    "mtime": 1787315360.6271212,
+    "seen": 1788726306.8092718,
+    "ast_hash": "a981937f89ca5a83983f17627c124aab",
+    "semantic_hash": "a981937f89ca5a83983f17627c124aab"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-009-audit-stats-pii-endpoints.report.md": {
+    "mtime": 1787315360.6271212,
+    "seen": 1788726306.8092725,
+    "ast_hash": "00fd893e2735e2b497bd7ba313b7d381",
+    "semantic_hash": "00fd893e2735e2b497bd7ba313b7d381"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-010-pii-pipeline-integration-tests.report.md": {
+    "mtime": 1787315360.6281211,
+    "seen": 1788726306.8092732,
+    "ast_hash": "7797a18ba963c53f58ac333fdae2fb1e",
+    "semantic_hash": "7797a18ba963c53f58ac333fdae2fb1e"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-011-docker-image-spacy-model.report.md": {
+    "mtime": 1787315360.6281211,
+    "seen": 1788726306.8092742,
+    "ast_hash": "012ba45ef487227886700f0b83d067bf",
+    "semantic_hash": "012ba45ef487227886700f0b83d067bf"
+  },
+  ".agents/reports/PRD-003-pii-redaction/STORY-012-readme-env-docs-rollout.report.md": {
+    "mtime": 1787315360.6291206,
+    "seen": 1788726306.809275,
+    "ast_hash": "67819ae903955aff3012daea907190ad",
+    "semantic_hash": "67819ae903955aff3012daea907190ad"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.report.md": {
+    "mtime": 1787924610.4419074,
+    "seen": 1788726306.8092756,
+    "ast_hash": "a8ab1473c3bf2a0be3d326058eb6cd80",
+    "semantic_hash": "a8ab1473c3bf2a0be3d326058eb6cd80"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-002-exhaustive-exception-handling.report.md": {
+    "mtime": 1787924610.4419074,
+    "seen": 1788726306.8092763,
+    "ast_hash": "71f325ddd2a04d626dfaf453d58d3eca",
+    "semantic_hash": "71f325ddd2a04d626dfaf453d58d3eca"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.report.md": {
+    "mtime": 1787924610.4429069,
+    "seen": 1788726306.8092773,
+    "ast_hash": "fdd3030fd02df6295a4bc6700bb8bcad",
+    "semantic_hash": "fdd3030fd02df6295a4bc6700bb8bcad"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.report.md": {
+    "mtime": 1787924610.4429069,
+    "seen": 1788726306.809278,
+    "ast_hash": "22c58bb2421fd69ad619f3b711c9bd8c",
+    "semantic_hash": "22c58bb2421fd69ad619f3b711c9bd8c"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-005-send-populates-outcome-metadata.report.md": {
+    "mtime": 1787924610.443913,
+    "seen": 1788726306.8092787,
+    "ast_hash": "2530632a9f6548e82618d577a3f55c31",
+    "semantic_hash": "2530632a9f6548e82618d577a3f55c31"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-007-copy-module.report.md": {
+    "mtime": 1787924610.443913,
+    "seen": 1788726306.8092794,
+    "ast_hash": "151302bd0963fa4c94a8fc10c3dc7965",
+    "semantic_hash": "151302bd0963fa4c94a8fc10c3dc7965"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-008-bubble-renderers-match-dispatch.report.md": {
+    "mtime": 1787924610.443913,
+    "seen": 1788726306.8092802,
+    "ast_hash": "11cfedc4c34777dd9e8a0a4294cacac0",
+    "semantic_hash": "11cfedc4c34777dd9e8a0a4294cacac0"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-009-pii-badge.report.md": {
+    "mtime": 1787924610.4449067,
+    "seen": 1788726306.809281,
+    "ast_hash": "07e5df3a2a0bb232fa77fd000e98b6f3",
+    "semantic_hash": "07e5df3a2a0bb232fa77fd000e98b6f3"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-010-success-metadata-footer.report.md": {
+    "mtime": 1787924610.4449067,
+    "seen": 1788726306.8092818,
+    "ast_hash": "bef5b6e3c2582296d1f9372b6da1a24a",
+    "semantic_hash": "bef5b6e3c2582296d1f9372b6da1a24a"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-011-duplicate-relative-time.report.md": {
+    "mtime": 1787924610.4449067,
+    "seen": 1788726306.8092823,
+    "ast_hash": "46ed49b9d561e3892b121d0f3e7976f2",
+    "semantic_hash": "46ed49b9d561e3892b121d0f3e7976f2"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-012-pending-indicator-composer-lock.report.md": {
+    "mtime": 1787924610.4459095,
+    "seen": 1788726306.809283,
+    "ast_hash": "af4c5960f63c9e88dcbca6fa927804d4",
+    "semantic_hash": "af4c5960f63c9e88dcbca6fa927804d4"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.report.md": {
+    "mtime": 1787924610.4459095,
+    "seen": 1788726306.8092837,
+    "ast_hash": "a46032f21cd23a525517a897b3329165",
+    "semantic_hash": "a46032f21cd23a525517a897b3329165"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.report.md": {
+    "mtime": 1787924610.4469068,
+    "seen": 1788726306.8092847,
+    "ast_hash": "2f73c5995287ac7bb9f775ca3ea8b0b5",
+    "semantic_hash": "2f73c5995287ac7bb9f775ca3ea8b0b5"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.report.md": {
+    "mtime": 1787924610.4469068,
+    "seen": 1788726306.8092854,
+    "ast_hash": "e01afe2b29b221bd4c50246c5bdc81d4",
+    "semantic_hash": "e01afe2b29b221bd4c50246c5bdc81d4"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.report.md": {
+    "mtime": 1787924610.4469068,
+    "seen": 1788726306.809286,
+    "ast_hash": "1fbaa24732f961de68d8b3c5d6671b02",
+    "semantic_hash": "1fbaa24732f961de68d8b3c5d6671b02"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-017-device-user-agent-capture.report.md": {
+    "mtime": 1787924610.4479067,
+    "seen": 1788726306.8092868,
+    "ast_hash": "5f8a2e48f2186508fd34be77422f551b",
+    "semantic_hash": "5f8a2e48f2186508fd34be77422f551b"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-018-retry-and-edit-resend.report.md": {
+    "mtime": 1787924610.4479067,
+    "seen": 1788726306.8092878,
+    "ast_hash": "d5c6707e6022c4672cdb70ee0a065c49",
+    "semantic_hash": "d5c6707e6022c4672cdb70ee0a065c49"
+  },
+  ".agents/reports/PRD-004-chat-ui-redesign/STORY-019-six-outcome-regression-verification.report.md": {
+    "mtime": 1787924610.4479067,
+    "seen": 1788726306.8092885,
+    "ast_hash": "9ab8abe40c90e167028ecff61679191c",
+    "semantic_hash": "9ab8abe40c90e167028ecff61679191c"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-001-additive-audit-log-migration.report.md": {
+    "mtime": 1788724713.319435,
+    "seen": 1788726306.8092892,
+    "ast_hash": "d8bffa76335f6223f2b6b3a2755d9221",
+    "semantic_hash": "d8bffa76335f6223f2b6b3a2755d9221"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-002-users-table-schema.report.md": {
+    "mtime": 1788724713.319435,
+    "seen": 1788726306.80929,
+    "ast_hash": "f9efb7c886ce99d2798bc023c8f7fc83",
+    "semantic_hash": "f9efb7c886ce99d2798bc023c8f7fc83"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-003-identity-resolution.report.md": {
+    "mtime": 1788724713.319435,
+    "seen": 1788726306.8092906,
+    "ast_hash": "b39124b59f517b1b2077e8e4ed4379c3",
+    "semantic_hash": "b39124b59f517b1b2077e8e4ed4379c3"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-004-manage-users-cli.report.md": {
+    "mtime": 1788724713.320435,
+    "seen": 1788726306.8092916,
+    "ast_hash": "1e78e7f2fc5a6ffd6684cb72adec143c",
+    "semantic_hash": "1e78e7f2fc5a6ffd6684cb72adec143c"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-005-rbac-configuration-settings.report.md": {
+    "mtime": 1788724713.320435,
+    "seen": 1788726306.8092923,
+    "ast_hash": "e9372985c371c241c837952f2dc7155f",
+    "semantic_hash": "e9372985c371c241c837952f2dc7155f"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-006-authz-permission-matrix.report.md": {
+    "mtime": 1788724713.3214355,
+    "seen": 1788726306.809293,
+    "ast_hash": "6017e8f8c092594e04f94a828d322103",
+    "semantic_hash": "6017e8f8c092594e04f94a828d322103"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-007-roles-file-override.report.md": {
+    "mtime": 1788724713.3214355,
+    "seen": 1788726306.8092937,
+    "ast_hash": "fbf53cfcc436f57a6fa6cf8cb7d876f6",
+    "semantic_hash": "fbf53cfcc436f57a6fa6cf8cb7d876f6"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-008-forbidden-response-schema.report.md": {
+    "mtime": 1788724713.3224347,
+    "seen": 1788726306.8092947,
+    "ast_hash": "66f93e21de2cf6566005933d7f0514aa",
+    "semantic_hash": "66f93e21de2cf6566005933d7f0514aa"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-009-audit-rbac-columns.report.md": {
+    "mtime": 1788724713.3224347,
+    "seen": 1788726306.8092954,
+    "ast_hash": "3bdf344619306f86c943748351f60fa8",
+    "semantic_hash": "3bdf344619306f86c943748351f60fa8"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-010-pipeline-identity-authorization.report.md": {
+    "mtime": 1788724713.3224347,
+    "seen": 1788726306.809296,
+    "ast_hash": "ad2e0f9d21383fbf913eb50dfeade0f6",
+    "semantic_hash": "ad2e0f9d21383fbf913eb50dfeade0f6"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-011-model-allowlist-and-byok.report.md": {
+    "mtime": 1788724713.3234346,
+    "seen": 1788726306.8092966,
+    "ast_hash": "92c3e34f024d03f3ee04112d7231b6c2",
+    "semantic_hash": "92c3e34f024d03f3ee04112d7231b6c2"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-012-auth-dependencies.report.md": {
+    "mtime": 1788724713.3234346,
+    "seen": 1788726306.8092973,
+    "ast_hash": "7949be7d7ef99a71544814febb380408",
+    "semantic_hash": "7949be7d7ef99a71544814febb380408"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-013-query-router-authentication.report.md": {
+    "mtime": 1788724713.3244376,
+    "seen": 1788726306.8092983,
+    "ast_hash": "cc9428d000888682d128224fedce5453",
+    "semantic_hash": "cc9428d000888682d128224fedce5453"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-014-chat-ui-login.report.md": {
+    "mtime": 1788724713.3244376,
+    "seen": 1788726306.809299,
+    "ast_hash": "4af30cd1236395eecd5a438483e35dd7",
+    "semantic_hash": "4af30cd1236395eecd5a438483e35dd7"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-015-admin-endpoint-permissions.report.md": {
+    "mtime": 1788724713.3244376,
+    "seen": 1788726306.8092997,
+    "ast_hash": "19e0ebbd0793008f866f65b05b864c19",
+    "semantic_hash": "19e0ebbd0793008f866f65b05b864c19"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-016-startup-bootstrap-guard.report.md": {
+    "mtime": 1788724713.3254352,
+    "seen": 1788726306.8093004,
+    "ast_hash": "3330f79bbce2612104ade25aaeb281e4",
+    "semantic_hash": "3330f79bbce2612104ade25aaeb281e4"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-017-rbac-test-suite.report.md": {
+    "mtime": 1788724713.3254352,
+    "seen": 1788726306.8093011,
+    "ast_hash": "11158b3bbf615263ac3aa02928e0755f",
+    "semantic_hash": "11158b3bbf615263ac3aa02928e0755f"
+  },
+  ".agents/reports/PRD-005-rbac/STORY-018-rbac-documentation.report.md": {
+    "mtime": 1788724713.3264353,
+    "seen": 1788726306.809302,
+    "ast_hash": "b7e4de82587406e61f9bfe59cb2144f2",
+    "semantic_hash": "b7e4de82587406e61f9bfe59cb2144f2"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-001-audit-row-model.report.md": {
+    "mtime": 1788724713.3264353,
+    "seen": 1788726306.8093028,
+    "ast_hash": "10c4c3af75de6ffb45e7b3f81f016728",
+    "semantic_hash": "10c4c3af75de6ffb45e7b3f81f016728"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-002-verdict-derivation-formatting.report.md": {
+    "mtime": 1788724713.327435,
+    "seen": 1788726306.8093038,
+    "ast_hash": "e265772fde8ac76812f60b099e396998",
+    "semantic_hash": "e265772fde8ac76812f60b099e396998"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-003-admin-token-gate.report.md": {
+    "mtime": 1788724713.327435,
+    "seen": 1788726306.8093042,
+    "ast_hash": "37411b7f5736f6b8d97bfb555ab21615",
+    "semantic_hash": "37411b7f5736f6b8d97bfb555ab21615"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-004-threaded-database-read.report.md": {
+    "mtime": 1788724713.327435,
+    "seen": 1788726306.8093052,
+    "ast_hash": "b87b00536f5fec656cb74ddde3c65024",
+    "semantic_hash": "b87b00536f5fec656cb74ddde3c65024"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-005-filter-and-sort-vars.report.md": {
+    "mtime": 1788724713.328435,
+    "seen": 1788726306.809306,
+    "ast_hash": "ab9e492b5867735edd2c07494e27ff21",
+    "semantic_hash": "ab9e492b5867735edd2c07494e27ff21"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-006-admin-state-tests.report.md": {
+    "mtime": 1788724713.328435,
+    "seen": 1788726306.8093066,
+    "ast_hash": "e319a749edcb5171b99fdff1532ea4b0",
+    "semantic_hash": "e319a749edcb5171b99fdff1532ea4b0"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-007-register-theme-tokens.report.md": {
+    "mtime": 1788724713.328435,
+    "seen": 1788726306.8093073,
+    "ast_hash": "9d29497f898e2e9f67fc39ab815e2835",
+    "semantic_hash": "9d29497f898e2e9f67fc39ab815e2835"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-008-admin-copy-module.report.md": {
+    "mtime": 1788724713.329435,
+    "seen": 1788726306.809308,
+    "ast_hash": "6d25de569293a480ed59c84694d9da27",
+    "semantic_hash": "6d25de569293a480ed59c84694d9da27"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-009-admin-shell-and-gate.report.md": {
+    "mtime": 1788724713.329435,
+    "seen": 1788726306.8093088,
+    "ast_hash": "ae1d1bb4f9915d76c65eff5f3e789211",
+    "semantic_hash": "ae1d1bb4f9915d76c65eff5f3e789211"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-010-admin-route-registration.report.md": {
+    "mtime": 1788724713.329435,
+    "seen": 1788726306.8093097,
+    "ast_hash": "bca359fa92963b42b2f2948712a79726",
+    "semantic_hash": "bca359fa92963b42b2f2948712a79726"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-011-register-table-stamp-margin.report.md": {
+    "mtime": 1788724713.3304358,
+    "seen": 1788726306.8093102,
+    "ast_hash": "ad93f1cacd3aa4a067a0b537a51a4a47",
+    "semantic_hash": "ad93f1cacd3aa4a067a0b537a51a4a47"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-012-row-detail-disclosure.report.md": {
+    "mtime": 1788724713.3304358,
+    "seen": 1788726306.809311,
+    "ast_hash": "6b2572fc374419a283b4ddd33120d2ff",
+    "semantic_hash": "6b2572fc374419a283b4ddd33120d2ff"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-013-filter-and-sort-controls.report.md": {
+    "mtime": 1788724713.3304358,
+    "seen": 1788726306.8093147,
+    "ast_hash": "1ee842a64aa375684f8cc4aa1bb1c2ce",
+    "semantic_hash": "1ee842a64aa375684f8cc4aa1bb1c2ce"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-014-three-empty-states.report.md": {
+    "mtime": 1788724713.3314352,
+    "seen": 1788726306.8093157,
+    "ast_hash": "b6f5a1edeceb3851a2947f82339cda68",
+    "semantic_hash": "b6f5a1edeceb3851a2947f82339cda68"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-015-summary-tally-sheet.report.md": {
+    "mtime": 1788724713.3314352,
+    "seen": 1788726306.8093162,
+    "ast_hash": "19844fc7a9d7b37d621be57c458405d1",
+    "semantic_hash": "19844fc7a9d7b37d621be57c458405d1"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-016-completion-label-copy-test.report.md": {
+    "mtime": 1788724713.3314352,
+    "seen": 1788726306.8093169,
+    "ast_hash": "e4839d28acccb9e6436a18689095cf4e",
+    "semantic_hash": "e4839d28acccb9e6436a18689095cf4e"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-017-refresh-and-fault-panel.report.md": {
+    "mtime": 1788724713.332439,
+    "seen": 1788726306.8093176,
+    "ast_hash": "103e2e9f0c1d664dfc834e4ddac6990a",
+    "semantic_hash": "103e2e9f0c1d664dfc834e4ddac6990a"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-018-render-invariant-tests.report.md": {
+    "mtime": 1788724713.332439,
+    "seen": 1788726306.8093183,
+    "ast_hash": "34e13eef7832c4a60a329a9eada8c435",
+    "semantic_hash": "34e13eef7832c4a60a329a9eada8c435"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-019-quality-floor-and-critique.report.md": {
+    "mtime": 1788724713.332439,
+    "seen": 1788726306.8093193,
+    "ast_hash": "ba19dd2359f7eb57edeb4b24e8dd805e",
+    "semantic_hash": "ba19dd2359f7eb57edeb4b24e8dd805e"
+  },
+  ".agents/reports/PRD-006-admin-console/STORY-020-untouched-app-regression.report.md": {
+    "mtime": 1788724713.3334353,
+    "seen": 1788726306.80932,
+    "ast_hash": "d75846dafa09eb1644bdd2205a0614be",
+    "semantic_hash": "d75846dafa09eb1644bdd2205a0614be"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-001-driver-decision.md": {
+    "mtime": 1788724713.3334353,
+    "seen": 1788726306.8093207,
+    "ast_hash": "c7ee5612fc72ae847d08f2e90c466c76",
+    "semantic_hash": "c7ee5612fc72ae847d08f2e90c466c76"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-001-libsql-driver-spike.report.md": {
+    "mtime": 1788724713.334436,
+    "seen": 1788726306.8093214,
+    "ast_hash": "004c5d6b6f16e29723311d147c5c0e14",
+    "semantic_hash": "004c5d6b6f16e29723311d147c5c0e14"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-002-exception-characterization-tests.report.md": {
+    "mtime": 1788724713.334436,
+    "seen": 1788726306.8093219,
+    "ast_hash": "7b9cc7270dd9b0292b266a44b0e1a35d",
+    "semantic_hash": "7b9cc7270dd9b0292b266a44b0e1a35d"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-003-centralize-database-url-fixture.report.md": {
+    "mtime": 1788724713.3354352,
+    "seen": 1788726306.809323,
+    "ast_hash": "c14e2bfb08f64a9546ccb94029d2ba30",
+    "semantic_hash": "c14e2bfb08f64a9546ccb94029d2ba30"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-004-module-owned-error-surface.report.md": {
+    "mtime": 1788724713.3364358,
+    "seen": 1788726306.8093235,
+    "ast_hash": "5d001e7f1c62cefdb3db4b9b3c2dd2b7",
+    "semantic_hash": "5d001e7f1c62cefdb3db4b9b3c2dd2b7"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-005-turso-configuration.report.md": {
+    "mtime": 1788724713.3364358,
+    "seen": 1788726306.8093243,
+    "ast_hash": "bf306f35e77ff22d4ced085e345a57b0",
+    "semantic_hash": "bf306f35e77ff22d4ced085e345a57b0"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-006-libsql-connection-layer.report.md": {
+    "mtime": 1788724713.3364358,
+    "seen": 1788726306.809325,
+    "ast_hash": "4a29f96d001f69ad3fa40e9ce6582e0d",
+    "semantic_hash": "4a29f96d001f69ad3fa40e9ce6582e0d"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-007-concurrent-safe-init-db.report.md": {
+    "mtime": 1788724713.3374352,
+    "seen": 1788726306.809326,
+    "ast_hash": "0927b427a721814816e8d48972821041",
+    "semantic_hash": "0927b427a721814816e8d48972821041"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-008-startup-guard.report.md": {
+    "mtime": 1788724713.3374352,
+    "seen": 1788726306.8093266,
+    "ast_hash": "fef86c5e355df1118e3ca3b473d32552",
+    "semantic_hash": "fef86c5e355df1118e3ca3b473d32552"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-009-top-pii-entities-sql-aggregation.report.md": {
+    "mtime": 1788724713.3374352,
+    "seen": 1788726306.8093271,
+    "ast_hash": "350a3e9c928a70a22a6b9c1c1bb94ddc",
+    "semantic_hash": "350a3e9c928a70a22a6b9c1c1bb94ddc"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-010-batched-summary-read.report.md": {
+    "mtime": 1788724713.3374352,
+    "seen": 1788726306.809328,
+    "ast_hash": "9d1acda53376d938eb6f740a5a884325",
+    "semantic_hash": "9d1acda53376d938eb6f740a5a884325"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-011-stats-endpoint-batched.report.md": {
+    "mtime": 1788724713.338435,
+    "seen": 1788726306.8093286,
+    "ast_hash": "297d7ed2f592d21ca3b765a3955bcb8c",
+    "semantic_hash": "297d7ed2f592d21ca3b765a3955bcb8c"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-012-admin-console-batched-reads.report.md": {
+    "mtime": 1788724713.338435,
+    "seen": 1788726306.8093295,
+    "ast_hash": "ae8eb2a4abad166e30a152e9ce26fd31",
+    "semantic_hash": "ae8eb2a4abad166e30a152e9ce26fd31"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-013-data-migration-script.report.md": {
+    "mtime": 1788724713.339435,
+    "seen": 1788726306.8093302,
+    "ast_hash": "dc019dcba10914fa1c80d90ae4597a9c",
+    "semantic_hash": "dc019dcba10914fa1c80d90ae4597a9c"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-014-deployment-cutover.report.md": {
+    "mtime": 1788724713.339435,
+    "seen": 1788726306.809331,
+    "ast_hash": "bf005f50aa138280a209e758d5cc2380",
+    "semantic_hash": "bf005f50aa138280a209e758d5cc2380"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-015-readme-and-deployment-docs.report.md": {
+    "mtime": 1788724713.339435,
+    "seen": 1788726306.8093317,
+    "ast_hash": "f82577bf40292dbe007978e486290b08",
+    "semantic_hash": "f82577bf40292dbe007978e486290b08"
+  },
+  ".agents/reports/PRD-007-turso-migration/STORY-016-two-instance-smoke-test.report.md": {
+    "mtime": 1788724713.3404355,
+    "seen": 1788726306.8093324,
+    "ast_hash": "a8999d889b726697a38e120ef6860145",
+    "semantic_hash": "a8999d889b726697a38e120ef6860145"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-001-chat-history-configuration.report.md": {
+    "mtime": 1788724723.376557,
+    "seen": 1788726306.8093333,
+    "ast_hash": "85ee80a5452d753f802fd063bdd9f731",
+    "semantic_hash": "85ee80a5452d753f802fd063bdd9f731"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-002-chat-session-schema.report.md": {
+    "mtime": 1788724723.376557,
+    "seen": 1788726306.809334,
+    "ast_hash": "3714b2665ce25165170f47ed68513c2a",
+    "semantic_hash": "3714b2665ce25165170f47ed68513c2a"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-003-init-db-tables-and-audit-column.report.md": {
+    "mtime": 1788724723.377557,
+    "seen": 1788726306.8093348,
+    "ast_hash": "573ccc76a8061ae5fa7484d56121da76",
+    "semantic_hash": "573ccc76a8061ae5fa7484d56121da76"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-004-session-crud-functions.report.md": {
+    "mtime": 1788724723.377557,
+    "seen": 1788726306.8093352,
+    "ast_hash": "5d8ccf789ee7e77c34866800fdc69d93",
+    "semantic_hash": "5d8ccf789ee7e77c34866800fdc69d93"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-005-message-store-functions.report.md": {
+    "mtime": 1788724723.378556,
+    "seen": 1788726306.8093364,
+    "ast_hash": "7e4b95125c2c1c9294fef1cde4e53624",
+    "semantic_hash": "7e4b95125c2c1c9294fef1cde4e53624"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-006-chat-sessions-service.report.md": {
+    "mtime": 1788724723.378556,
+    "seen": 1788726306.809337,
+    "ast_hash": "c54348e9e806df44eab3f15986d465af",
+    "semantic_hash": "c54348e9e806df44eab3f15986d465af"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-007-ownership-signature-guard.report.md": {
+    "mtime": 1788724723.379562,
+    "seen": 1788726306.8093376,
+    "ast_hash": "7bacbc2a9e1e191b93b52021c1a5e2f4",
+    "semantic_hash": "7bacbc2a9e1e191b93b52021c1a5e2f4"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-008-audit-log-session-id.report.md": {
+    "mtime": 1788724723.379562,
+    "seen": 1788726306.8093383,
+    "ast_hash": "46a9c64de048c7f7f3ad44e87db06192",
+    "semantic_hash": "46a9c64de048c7f7f3ad44e87db06192"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-009-pipeline-session-passthrough.report.md": {
+    "mtime": 1788724723.379562,
+    "seen": 1788726306.809339,
+    "ast_hash": "dcb28b89a8d3e7fd27f5051dac5eac00",
+    "semantic_hash": "dcb28b89a8d3e7fd27f5051dac5eac00"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-010-query-request-session-id.report.md": {
+    "mtime": 1788724723.3805578,
+    "seen": 1788726306.80934,
+    "ast_hash": "d9c09b98a3575f52ae136368408e6128",
+    "semantic_hash": "d9c09b98a3575f52ae136368408e6128"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-011-audit-entry-session-id.report.md": {
+    "mtime": 1788724723.3805578,
+    "seen": 1788726306.8093405,
+    "ast_hash": "c8ec7656f82cc8f476216d5ae5265eb8",
+    "semantic_hash": "c8ec7656f82cc8f476216d5ae5265eb8"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-012-session-summary-and-formatting.report.md": {
+    "mtime": 1788724723.3815594,
+    "seen": 1788726306.8093412,
+    "ast_hash": "b003def48a9e05745dc33103c3814807",
+    "semantic_hash": "b003def48a9e05745dc33103c3814807"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-013-chat-state-session-list-and-lazy-create.report.md": {
+    "mtime": 1788724723.3815594,
+    "seen": 1788726306.809342,
+    "ast_hash": "990c0c2bfcaf1cc2545191b259a572a6",
+    "semantic_hash": "990c0c2bfcaf1cc2545191b259a572a6"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-014-transcript-persistence-write.report.md": {
+    "mtime": 1788724723.3825574,
+    "seen": 1788726306.8093426,
+    "ast_hash": "4ce6d3345113b35160890bcec5cb2a6d",
+    "semantic_hash": "4ce6d3345113b35160890bcec5cb2a6d"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-015-transcript-restore.report.md": {
+    "mtime": 1788724723.3825574,
+    "seen": 1788726306.8093436,
+    "ast_hash": "34bb0406cf9624fad9b696381ef8c3a4",
+    "semantic_hash": "34bb0406cf9624fad9b696381ef8c3a4"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-016-session-rename-delete-logout.report.md": {
+    "mtime": 1788724723.3825574,
+    "seen": 1788726306.8093443,
+    "ast_hash": "bcd63e5db7d76b77f7e307124d994fc2",
+    "semantic_hash": "bcd63e5db7d76b77f7e307124d994fc2"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-017-rail-tokens-and-copy.report.md": {
+    "mtime": 1788724723.3835595,
+    "seen": 1788726306.809345,
+    "ast_hash": "1dc88803b25dad2d838bbd2d279066ea",
+    "semantic_hash": "1dc88803b25dad2d838bbd2d279066ea"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-018-session-rail-component.report.md": {
+    "mtime": 1788724723.3835595,
+    "seen": 1788726306.8093457,
+    "ast_hash": "3b34733f28082751aee3ab7387bd1a94",
+    "semantic_hash": "3b34733f28082751aee3ab7387bd1a94"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-023-untouched-app-guard-rescope.report.md": {
+    "mtime": 1788724723.384557,
+    "seen": 1788726306.8093467,
+    "ast_hash": "b3e323b7a1e437fe72d38fb9f34afa5d",
+    "semantic_hash": "b3e323b7a1e437fe72d38fb9f34afa5d"
+  },
+  ".agents/reports/PRD-008-chat-sessions/STORY-024-stale-client-recovery.report.md": {
+    "mtime": 1788724723.384557,
+    "seen": 1788726306.8093472,
+    "ast_hash": "c62712d6dae620fab57c48fbbb943894",
+    "semantic_hash": "c62712d6dae620fab57c48fbbb943894"
+  },
+  ".agents/skills/frontend-design/LICENSE.txt": {
+    "mtime": 1787924610.4489067,
+    "seen": 1788726306.809348,
+    "ast_hash": "29256199be2a609aac596980ffc11996",
+    "semantic_hash": "29256199be2a609aac596980ffc11996"
+  },
+  ".agents/skills/frontend-design/SKILL.md": {
+    "mtime": 1787924610.4489067,
+    "seen": 1788726306.8093486,
+    "ast_hash": "f5c3db69b9c6a00578301dd0cbe90253",
+    "semantic_hash": "f5c3db69b9c6a00578301dd0cbe90253"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-001-project-scaffolding.md": {
+    "mtime": 1783218941.1011279,
+    "seen": 1788726306.8093493,
+    "ast_hash": "4161cb682177f5419eca6a8cbd11f421",
+    "semantic_hash": "4161cb682177f5419eca6a8cbd11f421"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-002-sqlite-audit-schema.md": {
+    "mtime": 1783218941.1021278,
+    "seen": 1788726306.8093505,
+    "ast_hash": "36db815a0a2fc65fbda4da3c8090bf54",
+    "semantic_hash": "36db815a0a2fc65fbda4da3c8090bf54"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-003-request-response-schemas.md": {
+    "mtime": 1783218941.1021278,
+    "seen": 1788726306.8093512,
+    "ast_hash": "1de9914a840e4d4052f0440f28c244ec",
+    "semantic_hash": "1de9914a840e4d4052f0440f28c244ec"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-004-duplicate-detection-service.md": {
+    "mtime": 1783218941.1021278,
+    "seen": 1788726306.809352,
+    "ast_hash": "88918421831a11f44d3223528331f3b1",
+    "semantic_hash": "88918421831a11f44d3223528331f3b1"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-005-pattern-detection-service.md": {
+    "mtime": 1783218941.103128,
+    "seen": 1788726306.8093526,
+    "ast_hash": "de39c7f595e205a9ddb45e3d0c43e153",
+    "semantic_hash": "de39c7f595e205a9ddb45e3d0c43e153"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-006-audit-logging-service.md": {
+    "mtime": 1783218941.103128,
+    "seen": 1788726306.8093536,
+    "ast_hash": "66ca460327aec25cae723b026669e976",
+    "semantic_hash": "66ca460327aec25cae723b026669e976"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-007-openrouter-client.md": {
+    "mtime": 1783218941.103128,
+    "seen": 1788726306.8093543,
+    "ast_hash": "0a5be2f10e43001363becf115167ee77",
+    "semantic_hash": "0a5be2f10e43001363becf115167ee77"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-008-post-query-pipeline.md": {
+    "mtime": 1783218941.103128,
+    "seen": 1788726306.809355,
+    "ast_hash": "134bfb75e875df63abe142730fa1cb23",
+    "semantic_hash": "134bfb75e875df63abe142730fa1cb23"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-009-admin-auth-middleware.md": {
+    "mtime": 1783218941.1041293,
+    "seen": 1788726306.8093557,
+    "ast_hash": "8f6073f3b29a15fe2b8e3469de592188",
+    "semantic_hash": "8f6073f3b29a15fe2b8e3469de592188"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-010-get-audit-endpoint.md": {
+    "mtime": 1783218941.1041293,
+    "seen": 1788726306.8093567,
+    "ast_hash": "f8afcedf33bbd218176eabf30ceb9ce6",
+    "semantic_hash": "f8afcedf33bbd218176eabf30ceb9ce6"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-011-get-stats-endpoint.md": {
+    "mtime": 1783218941.1041293,
+    "seen": 1788726306.8093574,
+    "ast_hash": "cb1abe282658f0cab9217054d647f0da",
+    "semantic_hash": "cb1abe282658f0cab9217054d647f0da"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-012-integration-test-suite.md": {
+    "mtime": 1783218941.1051278,
+    "seen": 1788726306.8093581,
+    "ast_hash": "68d63d05aef8eb68810ba00d32758f40",
+    "semantic_hash": "68d63d05aef8eb68810ba00d32758f40"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-013-docker-packaging.md": {
+    "mtime": 1783218941.1051278,
+    "seen": 1788726306.8093588,
+    "ast_hash": "c2efa09cf6065fd27694e007a5db6131",
+    "semantic_hash": "c2efa09cf6065fd27694e007a5db6131"
+  },
+  ".agents/stories/PRD-001-harness-ia/STORY-014-readme-documentation.md": {
+    "mtime": 1783218941.1051278,
+    "seen": 1788726306.8093596,
+    "ast_hash": "41cc1382d5bf0411220d1bd9a461dbb9",
+    "semantic_hash": "41cc1382d5bf0411220d1bd9a461dbb9"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-001-shared-query-pipeline-extraction.md": {
+    "mtime": 1784771467.6821003,
+    "seen": 1788726306.8093603,
+    "ast_hash": "37c82ba9a18272c0608105c32368ee28",
+    "semantic_hash": "37c82ba9a18272c0608105c32368ee28"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-002-reflex-project-scaffolding.md": {
+    "mtime": 1784771467.6821003,
+    "seen": 1788726306.8093612,
+    "ast_hash": "93c0cc6af21f3bc5ee5046613c037d56",
+    "semantic_hash": "93c0cc6af21f3bc5ee5046613c037d56"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-003-mount-fastapi-single-port.md": {
+    "mtime": 1784771467.6831052,
+    "seen": 1788726306.809362,
+    "ast_hash": "4abfa470bb731f834febc9b959ceef1d",
+    "semantic_hash": "4abfa470bb731f834febc9b959ceef1d"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-004-chat-ui-components.md": {
+    "mtime": 1784771467.6831052,
+    "seen": 1788726306.8093626,
+    "ast_hash": "fa67692b71fbfc7a40f893cc2bcbbaba",
+    "semantic_hash": "fa67692b71fbfc7a40f893cc2bcbbaba"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-005-session-user-id-entry.md": {
+    "mtime": 1784771467.6841013,
+    "seen": 1788726306.8093631,
+    "ast_hash": "0aaba23ec46693a0cb3aa37ef4bb67d5",
+    "semantic_hash": "0aaba23ec46693a0cb3aa37ef4bb67d5"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-006-wire-chatstate-to-pipeline.md": {
+    "mtime": 1784771467.6841013,
+    "seen": 1788726306.809364,
+    "ast_hash": "4912e597450b8651f5a2114399b3d3b1",
+    "semantic_hash": "4912e597450b8651f5a2114399b3d3b1"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-007-chat-pipeline-test-suite.md": {
+    "mtime": 1784771467.6851013,
+    "seen": 1788726306.8093648,
+    "ast_hash": "47c2e1b16690ee0c98300693c04ad1e9",
+    "semantic_hash": "47c2e1b16690ee0c98300693c04ad1e9"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-008-docker-single-port-packaging.md": {
+    "mtime": 1784771467.6851013,
+    "seen": 1788726306.8093655,
+    "ast_hash": "4f0440194578f1a7ab47032ca01147fe",
+    "semantic_hash": "4f0440194578f1a7ab47032ca01147fe"
+  },
+  ".agents/stories/PRD-002-reflex-chat-ui/STORY-009-readme-chat-ui-docs.md": {
+    "mtime": 1784771467.6861005,
+    "seen": 1788726306.8093662,
+    "ast_hash": "18134ef9bfa61dc6ff3f11442ec5fdda",
+    "semantic_hash": "18134ef9bfa61dc6ff3f11442ec5fdda"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-001-pii-redactor-service.md": {
+    "mtime": 1787315360.6291206,
+    "seen": 1788726306.809367,
+    "ast_hash": "2329aa1282feb227e78de2b8d6a00f02",
+    "semantic_hash": "2329aa1282feb227e78de2b8d6a00f02"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-002-startup-nlp-model-loading.md": {
+    "mtime": 1787315360.6301203,
+    "seen": 1788726306.809368,
+    "ast_hash": "cac96bd32a58afb2429e9f69b0fa7bc4",
+    "semantic_hash": "cac96bd32a58afb2429e9f69b0fa7bc4"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-003-audit-log-pii-schema.md": {
+    "mtime": 1787315360.6301203,
+    "seen": 1788726306.8093686,
+    "ast_hash": "47269a6ef4e499655af19723756e91f9",
+    "semantic_hash": "47269a6ef4e499655af19723756e91f9"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-004-audit-logger-pii-telemetry.md": {
+    "mtime": 1787315360.6311202,
+    "seen": 1788726306.809369,
+    "ast_hash": "7edb04d3145d026908fa7567da336654",
+    "semantic_hash": "7edb04d3145d026908fa7567da336654"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-005-pipeline-input-redaction.md": {
+    "mtime": 1787315360.6311202,
+    "seen": 1788726306.8093698,
+    "ast_hash": "24adcd8bb1c9f47ae064eb867617df71",
+    "semantic_hash": "24adcd8bb1c9f47ae064eb867617df71"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-006-pipeline-output-redaction.md": {
+    "mtime": 1787315360.632121,
+    "seen": 1788726306.8093705,
+    "ast_hash": "f0b8b637c814dcf30cdd16b8dcb9a2e9",
+    "semantic_hash": "f0b8b637c814dcf30cdd16b8dcb9a2e9"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-007-query-response-pii-signal.md": {
+    "mtime": 1787315360.632121,
+    "seen": 1788726306.8093715,
+    "ast_hash": "a8fa179e19baaf22f8c7e720bff82882",
+    "semantic_hash": "a8fa179e19baaf22f8c7e720bff82882"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-008-dedup-pattern-isolation-tests.md": {
+    "mtime": 1787315360.6331217,
+    "seen": 1788726306.8093722,
+    "ast_hash": "14523bbe24ab34259f2d03ae2722b4bf",
+    "semantic_hash": "14523bbe24ab34259f2d03ae2722b4bf"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-009-audit-stats-pii-endpoints.md": {
+    "mtime": 1787315360.6331217,
+    "seen": 1788726306.8093727,
+    "ast_hash": "943798af3d2f915008025e7923d7ee89",
+    "semantic_hash": "943798af3d2f915008025e7923d7ee89"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-010-pii-pipeline-integration-tests.md": {
+    "mtime": 1787315360.6341205,
+    "seen": 1788726306.8093736,
+    "ast_hash": "6ccde861d3acee49ca177598fea3383e",
+    "semantic_hash": "6ccde861d3acee49ca177598fea3383e"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-011-docker-image-spacy-model.md": {
+    "mtime": 1787315360.6341205,
+    "seen": 1788726306.809374,
+    "ast_hash": "bc07d89e9bce601eb4add22559ac123e",
+    "semantic_hash": "bc07d89e9bce601eb4add22559ac123e"
+  },
+  ".agents/stories/PRD-003-pii-redaction/STORY-012-readme-env-docs-rollout.md": {
+    "mtime": 1787315360.635122,
+    "seen": 1788726306.809375,
+    "ast_hash": "8c992aac5a02355a05522084a8c07ed3",
+    "semantic_hash": "8c992aac5a02355a05522084a8c07ed3"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-001-async-run-query-offload.md": {
+    "mtime": 1787924610.4499068,
+    "seen": 1788726306.8093758,
+    "ast_hash": "c345369071584e2b5dffaca78c9866d5",
+    "semantic_hash": "c345369071584e2b5dffaca78c9866d5"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-002-exhaustive-exception-handling.md": {
+    "mtime": 1787924610.4499068,
+    "seen": 1788726306.8093765,
+    "ast_hash": "e00b85f63c01fe8381bfc5eae27f430b",
+    "semantic_hash": "e00b85f63c01fe8381bfc5eae27f430b"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-003-pending-state-flag.md": {
+    "mtime": 1787924610.4509084,
+    "seen": 1788726306.8093772,
+    "ast_hash": "7fa997556df7545bafcd2fb39291b6dc",
+    "semantic_hash": "7fa997556df7545bafcd2fb39291b6dc"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-004-chat-message-model.md": {
+    "mtime": 1787924610.4509084,
+    "seen": 1788726306.8093781,
+    "ast_hash": "bcb508843ee39de7b1560f4f57acbc6a",
+    "semantic_hash": "bcb508843ee39de7b1560f4f57acbc6a"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-005-send-populates-outcome-metadata.md": {
+    "mtime": 1787924610.4509084,
+    "seen": 1788726306.8093789,
+    "ast_hash": "b0305e6fae5fbaa3559d99077dee5d9f",
+    "semantic_hash": "b0305e6fae5fbaa3559d99077dee5d9f"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-006-chat-state-structural-tests.md": {
+    "mtime": 1787924610.4519067,
+    "seen": 1788726306.8093796,
+    "ast_hash": "7f0659c4055e4b2473a8002b107341e2",
+    "semantic_hash": "7f0659c4055e4b2473a8002b107341e2"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-007-copy-module.md": {
+    "mtime": 1787924610.4519067,
+    "seen": 1788726306.8093805,
+    "ast_hash": "2dc35c14d6b379f1664582eea95e3d66",
+    "semantic_hash": "2dc35c14d6b379f1664582eea95e3d66"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-008-bubble-renderers-match-dispatch.md": {
+    "mtime": 1787924610.4529064,
+    "seen": 1788726306.809381,
+    "ast_hash": "5020385f14230b32aac94221ebcd1401",
+    "semantic_hash": "5020385f14230b32aac94221ebcd1401"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-009-pii-badge.md": {
+    "mtime": 1787924610.4529064,
+    "seen": 1788726306.809382,
+    "ast_hash": "8daeb32bf3932bc2c419210888b3c3a2",
+    "semantic_hash": "8daeb32bf3932bc2c419210888b3c3a2"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-010-success-metadata-footer.md": {
+    "mtime": 1787924610.4529064,
+    "seen": 1788726306.8093827,
+    "ast_hash": "ad02eba62d54d84327b93efa6f5f971c",
+    "semantic_hash": "ad02eba62d54d84327b93efa6f5f971c"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-011-duplicate-relative-time.md": {
+    "mtime": 1787924610.453907,
+    "seen": 1788726306.8093834,
+    "ast_hash": "481425f9937b5c45ee2fe028056bc665",
+    "semantic_hash": "481425f9937b5c45ee2fe028056bc665"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-012-pending-indicator-composer-lock.md": {
+    "mtime": 1787924610.453907,
+    "seen": 1788726306.809384,
+    "ast_hash": "bb9927287729e1270793f7275ee3ca01",
+    "semantic_hash": "bb9927287729e1270793f7275ee3ca01"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-013-auto-scroll-newest.md": {
+    "mtime": 1787924610.453907,
+    "seen": 1788726306.809385,
+    "ast_hash": "7a0c89fad0eb6d69dfb94b00b449ee6b",
+    "semantic_hash": "7a0c89fad0eb6d69dfb94b00b449ee6b"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-014-shell-header-empty-state.md": {
+    "mtime": 1787924610.4549074,
+    "seen": 1788726306.8093858,
+    "ast_hash": "54d5ed540a0a21b203c5111b4dc3778e",
+    "semantic_hash": "54d5ed540a0a21b203c5111b4dc3778e"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-015-user-id-validation.md": {
+    "mtime": 1787924610.4549074,
+    "seen": 1788726306.8093865,
+    "ast_hash": "d9778703651e8ed2cfe121bd1c468acb",
+    "semantic_hash": "d9778703651e8ed2cfe121bd1c468acb"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-016-model-selector-allowlist.md": {
+    "mtime": 1787924610.4549074,
+    "seen": 1788726306.8093872,
+    "ast_hash": "4f6b11b0403216c71b2010ef3d4aa334",
+    "semantic_hash": "4f6b11b0403216c71b2010ef3d4aa334"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-017-device-user-agent-capture.md": {
+    "mtime": 1787924610.455907,
+    "seen": 1788726306.8093877,
+    "ast_hash": "6290d294af6c466ce9f46766d8e5d092",
+    "semantic_hash": "6290d294af6c466ce9f46766d8e5d092"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-018-retry-and-edit-resend.md": {
+    "mtime": 1787924610.455907,
+    "seen": 1788726306.8093886,
+    "ast_hash": "ea5c64e738c54a9d152151f62de8f412",
+    "semantic_hash": "ea5c64e738c54a9d152151f62de8f412"
+  },
+  ".agents/stories/PRD-004-chat-ui-redesign/STORY-019-six-outcome-regression-verification.md": {
+    "mtime": 1787924610.455907,
+    "seen": 1788726306.8093894,
+    "ast_hash": "4c2ca5138f17cc912e0668ba628aa745",
+    "semantic_hash": "4c2ca5138f17cc912e0668ba628aa745"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-001-additive-audit-log-migration.md": {
+    "mtime": 1788724713.3404355,
+    "seen": 1788726306.80939,
+    "ast_hash": "4bbad7d5d4979350f50cc056efa282e4",
+    "semantic_hash": "4bbad7d5d4979350f50cc056efa282e4"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-002-users-table-schema.md": {
+    "mtime": 1788724713.3414342,
+    "seen": 1788726306.8093908,
+    "ast_hash": "6ef057321a2a3d9f7be2a8214d3b6205",
+    "semantic_hash": "6ef057321a2a3d9f7be2a8214d3b6205"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-003-identity-resolution.md": {
+    "mtime": 1788724713.3414342,
+    "seen": 1788726306.8093915,
+    "ast_hash": "a078d5435e27642220ddf4b043f870ca",
+    "semantic_hash": "a078d5435e27642220ddf4b043f870ca"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-004-manage-users-cli.md": {
+    "mtime": 1788724713.3414342,
+    "seen": 1788726306.8093925,
+    "ast_hash": "12756b7c9b78e0bb77d0abe85e33f19f",
+    "semantic_hash": "12756b7c9b78e0bb77d0abe85e33f19f"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-005-rbac-configuration-settings.md": {
+    "mtime": 1788724713.3424358,
+    "seen": 1788726306.809393,
+    "ast_hash": "4223ca8b0ffca09c55e673c4e6c1c81e",
+    "semantic_hash": "4223ca8b0ffca09c55e673c4e6c1c81e"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-006-authz-permission-matrix.md": {
+    "mtime": 1788724713.3424358,
+    "seen": 1788726306.809394,
+    "ast_hash": "0f24d2f983038d611022d58dbba16031",
+    "semantic_hash": "0f24d2f983038d611022d58dbba16031"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-007-roles-file-override.md": {
+    "mtime": 1788724713.3434353,
+    "seen": 1788726306.8093944,
+    "ast_hash": "f243cbc058c2a143f68fcac13bd2ca1d",
+    "semantic_hash": "f243cbc058c2a143f68fcac13bd2ca1d"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-008-forbidden-response-schema.md": {
+    "mtime": 1788724713.3434353,
+    "seen": 1788726306.8093953,
+    "ast_hash": "6189b75c600bf8c8d1429e1d7f4896f6",
+    "semantic_hash": "6189b75c600bf8c8d1429e1d7f4896f6"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-009-audit-rbac-columns.md": {
+    "mtime": 1788724713.3434353,
+    "seen": 1788726306.809396,
+    "ast_hash": "0654075d4cc3968c6e4e3ed9b791c209",
+    "semantic_hash": "0654075d4cc3968c6e4e3ed9b791c209"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-010-pipeline-identity-authorization.md": {
+    "mtime": 1788724713.3444345,
+    "seen": 1788726306.8093967,
+    "ast_hash": "758a389c46e381bc2e9cf8dd90b9765f",
+    "semantic_hash": "758a389c46e381bc2e9cf8dd90b9765f"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-011-model-allowlist-and-byok.md": {
+    "mtime": 1788724713.3444345,
+    "seen": 1788726306.8093975,
+    "ast_hash": "b9837892b33e0f04e975286a0717b0a3",
+    "semantic_hash": "b9837892b33e0f04e975286a0717b0a3"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-012-auth-dependencies.md": {
+    "mtime": 1788724713.3444345,
+    "seen": 1788726306.8093982,
+    "ast_hash": "73aa3be7d3c98763a0c9ae47e1489179",
+    "semantic_hash": "73aa3be7d3c98763a0c9ae47e1489179"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-013-query-router-authentication.md": {
+    "mtime": 1788724713.345435,
+    "seen": 1788726306.8093994,
+    "ast_hash": "61144b96a2de22e4acbaab139377d95a",
+    "semantic_hash": "61144b96a2de22e4acbaab139377d95a"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-014-chat-ui-login.md": {
+    "mtime": 1788724713.345435,
+    "seen": 1788726306.8094,
+    "ast_hash": "b09bb060d83ba64a79c1842a0efecce5",
+    "semantic_hash": "b09bb060d83ba64a79c1842a0efecce5"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-015-admin-endpoint-permissions.md": {
+    "mtime": 1788724713.3464358,
+    "seen": 1788726306.8094006,
+    "ast_hash": "4b868d780edbdcbf1377577e80cb3f30",
+    "semantic_hash": "4b868d780edbdcbf1377577e80cb3f30"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-016-startup-bootstrap-guard.md": {
+    "mtime": 1788724713.3464358,
+    "seen": 1788726306.8094015,
+    "ast_hash": "78de694b7b6f49d9b86bbbee6633d897",
+    "semantic_hash": "78de694b7b6f49d9b86bbbee6633d897"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-017-rbac-test-suite.md": {
+    "mtime": 1788724713.3464358,
+    "seen": 1788726306.8094025,
+    "ast_hash": "1792b79f1e18154830b1e53c057d580f",
+    "semantic_hash": "1792b79f1e18154830b1e53c057d580f"
+  },
+  ".agents/stories/PRD-005-rbac/STORY-018-rbac-documentation.md": {
+    "mtime": 1788724713.347436,
+    "seen": 1788726306.809403,
+    "ast_hash": "982803158f14708edadc2f7d026deb35",
+    "semantic_hash": "982803158f14708edadc2f7d026deb35"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-001-audit-row-model.md": {
+    "mtime": 1788724713.3484347,
+    "seen": 1788726306.8094037,
+    "ast_hash": "9dd25249cf0075077e34110dbbcd0118",
+    "semantic_hash": "9dd25249cf0075077e34110dbbcd0118"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-002-verdict-derivation-formatting.md": {
+    "mtime": 1788724713.3484347,
+    "seen": 1788726306.8094044,
+    "ast_hash": "87fb034b193a173915bec3f428591daa",
+    "semantic_hash": "87fb034b193a173915bec3f428591daa"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-003-admin-token-gate.md": {
+    "mtime": 1788724713.3484347,
+    "seen": 1788726306.809405,
+    "ast_hash": "a06e11174b6c0500e0d4420205457069",
+    "semantic_hash": "a06e11174b6c0500e0d4420205457069"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-004-threaded-database-read.md": {
+    "mtime": 1788724713.3484347,
+    "seen": 1788726306.809406,
+    "ast_hash": "744a706bb2cdb22e46a7aa0f7cc1554b",
+    "semantic_hash": "744a706bb2cdb22e46a7aa0f7cc1554b"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-005-filter-and-sort-vars.md": {
+    "mtime": 1788724713.349435,
+    "seen": 1788726306.8094068,
+    "ast_hash": "faa9a377ec0bf8befe9fc1bab16639cc",
+    "semantic_hash": "faa9a377ec0bf8befe9fc1bab16639cc"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-006-admin-state-tests.md": {
+    "mtime": 1788724713.349435,
+    "seen": 1788726306.8094075,
+    "ast_hash": "3f9b8a76dbba646ec2e3034afcb4b126",
+    "semantic_hash": "3f9b8a76dbba646ec2e3034afcb4b126"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-007-register-theme-tokens.md": {
+    "mtime": 1788724713.350437,
+    "seen": 1788726306.809408,
+    "ast_hash": "9d41a5850daa9274bc1d3c2c630f0bb0",
+    "semantic_hash": "9d41a5850daa9274bc1d3c2c630f0bb0"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-008-admin-copy-module.md": {
+    "mtime": 1788724713.350437,
+    "seen": 1788726306.8094087,
+    "ast_hash": "03083f023a8eff7eb908fe07a679940e",
+    "semantic_hash": "03083f023a8eff7eb908fe07a679940e"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-009-admin-shell-and-gate.md": {
+    "mtime": 1788724713.3674345,
+    "seen": 1788726306.8094096,
+    "ast_hash": "5e6590b05d798ca6da4a68dc93700ab6",
+    "semantic_hash": "5e6590b05d798ca6da4a68dc93700ab6"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-010-admin-route-registration.md": {
+    "mtime": 1788724713.3674345,
+    "seen": 1788726306.8094103,
+    "ast_hash": "90c33f92c99248549d5a04b37fa1edc7",
+    "semantic_hash": "90c33f92c99248549d5a04b37fa1edc7"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-011-register-table-stamp-margin.md": {
+    "mtime": 1788724713.3674345,
+    "seen": 1788726306.809411,
+    "ast_hash": "c0916d4b198461f357b897446410d10c",
+    "semantic_hash": "c0916d4b198461f357b897446410d10c"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-012-row-detail-disclosure.md": {
+    "mtime": 1788724713.368435,
+    "seen": 1788726306.8094118,
+    "ast_hash": "6fe95c6b366d3362eaa2495e6cfaebac",
+    "semantic_hash": "6fe95c6b366d3362eaa2495e6cfaebac"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-013-filter-and-sort-controls.md": {
+    "mtime": 1788724713.368435,
+    "seen": 1788726306.8094127,
+    "ast_hash": "165bf67df71d12f7c684c5de91ce8064",
+    "semantic_hash": "165bf67df71d12f7c684c5de91ce8064"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-014-three-empty-states.md": {
+    "mtime": 1788724713.3694346,
+    "seen": 1788726306.8094134,
+    "ast_hash": "43c4653b18babf81908e09bbe87f4ee5",
+    "semantic_hash": "43c4653b18babf81908e09bbe87f4ee5"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-015-summary-tally-sheet.md": {
+    "mtime": 1788724713.3694346,
+    "seen": 1788726306.8094141,
+    "ast_hash": "6dd154eebf4276c014402ae7fed7da43",
+    "semantic_hash": "6dd154eebf4276c014402ae7fed7da43"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-016-completion-label-copy-test.md": {
+    "mtime": 1788724713.3694346,
+    "seen": 1788726306.8094149,
+    "ast_hash": "078fd400cd5470800a147f8b1d1cf728",
+    "semantic_hash": "078fd400cd5470800a147f8b1d1cf728"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-017-refresh-and-fault-panel.md": {
+    "mtime": 1788724713.370435,
+    "seen": 1788726306.8094156,
+    "ast_hash": "5581f4c28693c5c13a927e8f21afeb4e",
+    "semantic_hash": "5581f4c28693c5c13a927e8f21afeb4e"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-018-render-invariant-tests.md": {
+    "mtime": 1788724713.370435,
+    "seen": 1788726306.8094163,
+    "ast_hash": "5970be331f89e8e085c80b07efd67e51",
+    "semantic_hash": "5970be331f89e8e085c80b07efd67e51"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-019-quality-floor-and-critique.md": {
+    "mtime": 1788724713.3754349,
+    "seen": 1788726306.8094172,
+    "ast_hash": "1f17d52bd94170992ea3510d9714f2e6",
+    "semantic_hash": "1f17d52bd94170992ea3510d9714f2e6"
+  },
+  ".agents/stories/PRD-006-admin-console/STORY-020-untouched-app-regression.md": {
+    "mtime": 1788724713.3794339,
+    "seen": 1788726306.8094177,
+    "ast_hash": "29ca61ff1948f04df06fcf746f67cbea",
+    "semantic_hash": "29ca61ff1948f04df06fcf746f67cbea"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-001-libsql-driver-spike.md": {
+    "mtime": 1788724713.3864357,
+    "seen": 1788726306.8094184,
+    "ast_hash": "db13c66a9ae9c1591d922ec738c240df",
+    "semantic_hash": "db13c66a9ae9c1591d922ec738c240df"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-002-exception-characterization-tests.md": {
+    "mtime": 1788724713.3864357,
+    "seen": 1788726306.8094192,
+    "ast_hash": "11b966de4d923ce6fa5d3ed1f2a8c65b",
+    "semantic_hash": "11b966de4d923ce6fa5d3ed1f2a8c65b"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-003-centralize-database-url-fixture.md": {
+    "mtime": 1788724713.3953831,
+    "seen": 1788726306.80942,
+    "ast_hash": "30b35d09bda1166709bac69611890ff9",
+    "semantic_hash": "30b35d09bda1166709bac69611890ff9"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-004-module-owned-error-surface.md": {
+    "mtime": 1788724713.3953831,
+    "seen": 1788726306.8094208,
+    "ast_hash": "448bcb8308fd3ae82f119340a57ad013",
+    "semantic_hash": "448bcb8308fd3ae82f119340a57ad013"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-005-turso-configuration.md": {
+    "mtime": 1788724713.407391,
+    "seen": 1788726306.8094215,
+    "ast_hash": "87ec82510a80f15d827bbce4fc96bd5f",
+    "semantic_hash": "87ec82510a80f15d827bbce4fc96bd5f"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-006-libsql-connection-layer.md": {
+    "mtime": 1788724713.408392,
+    "seen": 1788726306.8094223,
+    "ast_hash": "28334a66ff276e02a59f4b165860a2be",
+    "semantic_hash": "28334a66ff276e02a59f4b165860a2be"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-007-concurrent-safe-init-db.md": {
+    "mtime": 1788724713.408392,
+    "seen": 1788726306.8094232,
+    "ast_hash": "dd59ee619e2d0205f2a7ae1514c9a2f3",
+    "semantic_hash": "dd59ee619e2d0205f2a7ae1514c9a2f3"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-008-startup-guard.md": {
+    "mtime": 1788724713.408392,
+    "seen": 1788726306.809424,
+    "ast_hash": "f1c2faf2904f6e8ff1219d94da9b8138",
+    "semantic_hash": "f1c2faf2904f6e8ff1219d94da9b8138"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-009-top-pii-entities-sql-aggregation.md": {
+    "mtime": 1788724713.4093914,
+    "seen": 1788726306.8094246,
+    "ast_hash": "b9b39b1afef12c592f7b926e3ab5142e",
+    "semantic_hash": "b9b39b1afef12c592f7b926e3ab5142e"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-010-batched-summary-read.md": {
+    "mtime": 1788724713.4133916,
+    "seen": 1788726306.8094254,
+    "ast_hash": "ff54305a8d48765cc02182359588b983",
+    "semantic_hash": "ff54305a8d48765cc02182359588b983"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-011-stats-endpoint-batched.md": {
+    "mtime": 1788724713.4168322,
+    "seen": 1788726306.809426,
+    "ast_hash": "dafb5de1381aa0667990a570397380ef",
+    "semantic_hash": "dafb5de1381aa0667990a570397380ef"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-012-admin-console-batched-reads.md": {
+    "mtime": 1788724713.424221,
+    "seen": 1788726306.809427,
+    "ast_hash": "4534bfa679f86b526a605daa5406352b",
+    "semantic_hash": "4534bfa679f86b526a605daa5406352b"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-013-data-migration-script.md": {
+    "mtime": 1788724713.4252222,
+    "seen": 1788726306.8094277,
+    "ast_hash": "9f1739ad8b1d29bad1e6e4fe19c35fa3",
+    "semantic_hash": "9f1739ad8b1d29bad1e6e4fe19c35fa3"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-014-deployment-cutover.md": {
+    "mtime": 1788724713.4252222,
+    "seen": 1788726306.8094285,
+    "ast_hash": "852161dba883abf5772b5f0dfbae228d",
+    "semantic_hash": "852161dba883abf5772b5f0dfbae228d"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-015-readme-and-deployment-docs.md": {
+    "mtime": 1788724713.426221,
+    "seen": 1788726306.8094292,
+    "ast_hash": "7b17b0e4b0e4d2f6cdff0ddfd4ca0edf",
+    "semantic_hash": "7b17b0e4b0e4d2f6cdff0ddfd4ca0edf"
+  },
+  ".agents/stories/PRD-007-turso-migration/STORY-016-two-instance-smoke-test.md": {
+    "mtime": 1788724713.426221,
+    "seen": 1788726306.8094301,
+    "ast_hash": "c67309859c5af4a868e46dfea323d1a2",
+    "semantic_hash": "c67309859c5af4a868e46dfea323d1a2"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-001-chat-history-configuration.md": {
+    "mtime": 1788724723.3855567,
+    "seen": 1788726306.8094308,
+    "ast_hash": "cb3100aed3422f6bfa7cdae8b154dd95",
+    "semantic_hash": "cb3100aed3422f6bfa7cdae8b154dd95"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-002-chat-session-schema.md": {
+    "mtime": 1788724723.3855567,
+    "seen": 1788726306.8094316,
+    "ast_hash": "9741c7377dd9d28737e80b375cd4e9e4",
+    "semantic_hash": "9741c7377dd9d28737e80b375cd4e9e4"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-003-init-db-tables-and-audit-column.md": {
+    "mtime": 1788724723.3863268,
+    "seen": 1788726306.8094323,
+    "ast_hash": "734a7e6d3d40a3bc22f187688a6b7f3f",
+    "semantic_hash": "734a7e6d3d40a3bc22f187688a6b7f3f"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-004-session-crud-functions.md": {
+    "mtime": 1788724723.3868644,
+    "seen": 1788726306.809433,
+    "ast_hash": "2259b9a42f859d7e927a9a312418084e",
+    "semantic_hash": "2259b9a42f859d7e927a9a312418084e"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-005-message-store-functions.md": {
+    "mtime": 1788724723.3873794,
+    "seen": 1788726306.809434,
+    "ast_hash": "07c86d667f6f2c4089eac2870373ed10",
+    "semantic_hash": "07c86d667f6f2c4089eac2870373ed10"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-006-chat-sessions-service.md": {
+    "mtime": 1788724723.3873794,
+    "seen": 1788726306.8094347,
+    "ast_hash": "db67f461b8caba62c61c910bbc11a33a",
+    "semantic_hash": "db67f461b8caba62c61c910bbc11a33a"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-007-ownership-signature-guard.md": {
+    "mtime": 1788724723.3873794,
+    "seen": 1788726306.8094354,
+    "ast_hash": "d543da3aa86da72a86fa7d02cf6472e2",
+    "semantic_hash": "d543da3aa86da72a86fa7d02cf6472e2"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-008-audit-log-session-id.md": {
+    "mtime": 1788724723.3923755,
+    "seen": 1788726306.809436,
+    "ast_hash": "7068116c0a188051598a92f13a46bfed",
+    "semantic_hash": "7068116c0a188051598a92f13a46bfed"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-009-pipeline-session-passthrough.md": {
+    "mtime": 1788724723.393376,
+    "seen": 1788726306.809437,
+    "ast_hash": "1f8a1c27475659be747b602e1f522186",
+    "semantic_hash": "1f8a1c27475659be747b602e1f522186"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-010-query-request-session-id.md": {
+    "mtime": 1788724723.3943753,
+    "seen": 1788726306.8094378,
+    "ast_hash": "184a1a1a0d660d89fa6f60e2e77786aa",
+    "semantic_hash": "184a1a1a0d660d89fa6f60e2e77786aa"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-011-audit-entry-session-id.md": {
+    "mtime": 1788724723.3943753,
+    "seen": 1788726306.8094387,
+    "ast_hash": "84e8b476a46776f884f53a3d73a45217",
+    "semantic_hash": "84e8b476a46776f884f53a3d73a45217"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-012-session-summary-and-formatting.md": {
+    "mtime": 1788724723.395376,
+    "seen": 1788726306.8094392,
+    "ast_hash": "e654bd34e8b625e61d295e97af507535",
+    "semantic_hash": "e654bd34e8b625e61d295e97af507535"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-013-chat-state-session-list-and-lazy-create.md": {
+    "mtime": 1788724723.395376,
+    "seen": 1788726306.80944,
+    "ast_hash": "b54a7d62a1c1ef444a8c840fd9adf4d1",
+    "semantic_hash": "b54a7d62a1c1ef444a8c840fd9adf4d1"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-014-transcript-persistence-write.md": {
+    "mtime": 1788724723.396378,
+    "seen": 1788726306.809441,
+    "ast_hash": "f4efecdf3523c73e90c168aa316c606b",
+    "semantic_hash": "f4efecdf3523c73e90c168aa316c606b"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-015-transcript-restore.md": {
+    "mtime": 1788724723.396378,
+    "seen": 1788726306.8094416,
+    "ast_hash": "9de752c354bf995ec70d2a4b2d9d2104",
+    "semantic_hash": "9de752c354bf995ec70d2a4b2d9d2104"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-016-session-rename-delete-logout.md": {
+    "mtime": 1788724723.3973758,
+    "seen": 1788726306.8094423,
+    "ast_hash": "ccfab05f2cc1d806a1321191941bdd17",
+    "semantic_hash": "ccfab05f2cc1d806a1321191941bdd17"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-017-rail-tokens-and-copy.md": {
+    "mtime": 1788724723.398377,
+    "seen": 1788726306.809443,
+    "ast_hash": "b6e11dd834b9cae778f038ba1f716ad9",
+    "semantic_hash": "b6e11dd834b9cae778f038ba1f716ad9"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-018-session-rail-component.md": {
+    "mtime": 1788724723.398377,
+    "seen": 1788726306.809444,
+    "ast_hash": "040ce06b0b9f9adcbf0d9bd23b15487b",
+    "semantic_hash": "040ce06b0b9f9adcbf0d9bd23b15487b"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-019-shell-layout-and-responsive.md": {
+    "mtime": 1788724723.398377,
+    "seen": 1788726306.8094447,
+    "ast_hash": "30d06b0d4c612f9924b81603b3074d2d",
+    "semantic_hash": "30d06b0d4c612f9924b81603b3074d2d"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-020-rail-design-guards.md": {
+    "mtime": 1788724723.3993747,
+    "seen": 1788726306.8094454,
+    "ast_hash": "3657ffa6972164693366d164c6da3ff3",
+    "semantic_hash": "3657ffa6972164693366d164c6da3ff3"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-021-two-instance-and-flag-off-smoke.md": {
+    "mtime": 1788724723.3993747,
+    "seen": 1788726306.8094463,
+    "ast_hash": "0a51cf564bf51a4d38126a26ec82e7de",
+    "semantic_hash": "0a51cf564bf51a4d38126a26ec82e7de"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-022-readme-and-env-docs.md": {
+    "mtime": 1788724723.4003775,
+    "seen": 1788726306.8094468,
+    "ast_hash": "6066f257366002ab41e46bb8b2c33982",
+    "semantic_hash": "6066f257366002ab41e46bb8b2c33982"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-023-untouched-app-guard-rescope.md": {
+    "mtime": 1788724723.4013753,
+    "seen": 1788726306.8094478,
+    "ast_hash": "0e5191ebf39831983a57289e40d7c4c5",
+    "semantic_hash": "0e5191ebf39831983a57289e40d7c4c5"
+  },
+  ".agents/stories/PRD-008-chat-sessions/STORY-024-stale-client-recovery.md": {
+    "mtime": 1788724723.4013753,
+    "seen": 1788726306.8094485,
+    "ast_hash": "3ffd3756b168a919357400b8786b2e27",
+    "semantic_hash": "3ffd3756b168a919357400b8786b2e27"
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1788724713.4272206,
+    "seen": 1788726306.8094492,
+    "ast_hash": "0aac555a9ed82c2ee20816a11ad55116",
+    "semantic_hash": "0aac555a9ed82c2ee20816a11ad55116"
+  },
+  "README.md": {
+    "mtime": 1788724713.42822,
+    "seen": 1788726306.80945,
+    "ast_hash": "d4c4f54296e346cee10385d6faea55d8",
+    "semantic_hash": "d4c4f54296e346cee10385d6faea55d8"
+  },
+  "chat_ui/AGENTS.md": {
+    "mtime": 1784771467.6901,
+    "seen": 1788726306.8094509,
+    "ast_hash": "00cf4f8ed59f47a41271a1eb60d755ee",
+    "semantic_hash": "00cf4f8ed59f47a41271a1eb60d755ee"
+  },
+  "chat_ui/CLAUDE.md": {
+    "mtime": 1784771467.6911004,
+    "seen": 1788726306.8094516,
+    "ast_hash": "771faa62feb60b7de901a397aebb29b0",
+    "semantic_hash": "771faa62feb60b7de901a397aebb29b0"
+  },
+  "docker-compose.yml": {
+    "mtime": 1788724713.480098,
+    "seen": 1788726306.8094523,
+    "ast_hash": "ae5f9a591989ed52e527368ca6db7cd6",
+    "semantic_hash": "ae5f9a591989ed52e527368ca6db7cd6"
+  },
+  "requirements.txt": {
+    "mtime": 1788724713.4810941,
+    "seen": 1788726306.809453,
+    "ast_hash": "b4b42cdf9832bd87bc68602416118cf3",
+    "semantic_hash": "b4b42cdf9832bd87bc68602416118cf3"
+  }
+}
