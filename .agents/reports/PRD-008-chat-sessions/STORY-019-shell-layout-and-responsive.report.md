@@ -3,7 +3,7 @@ story: STORY-019
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-019-shell-layout-and-responsive.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: pending
+commit: 2a880b5
 status: COMPLETE
 completed: 2026-09-07
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-07
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-019-shell-layout-and-responsive.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `pending`
+**Commit**: `2a880b5`
 
 ## Summary
 

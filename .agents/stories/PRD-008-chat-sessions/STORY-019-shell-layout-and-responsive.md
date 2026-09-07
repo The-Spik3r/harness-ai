@@ -12,7 +12,7 @@ labels: [ui, reflex, layout, design, a11y]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-019-shell-layout-and-responsive.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-019-shell-layout-and-responsive.report.md
-commit: null
+commit: 2a880b5
 depends_on: [STORY-018]
 blocks: [STORY-020, STORY-022]
 skills: [frontend-design, reflex-docs]
