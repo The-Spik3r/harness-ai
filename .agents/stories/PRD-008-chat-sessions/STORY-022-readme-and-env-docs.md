@@ -12,7 +12,7 @@ labels: [docs, readme, security]
 epic_branch: epic/PRD-008-chat-sessions
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-022-readme-and-env-docs.plan.md
 report: .agents/reports/PRD-008-chat-sessions/STORY-022-readme-and-env-docs.report.md
-commit: null
+commit: 7525223
 depends_on: [STORY-010, STORY-011, STORY-019, STORY-021]
 blocks: []
 skills: []

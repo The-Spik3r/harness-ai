@@ -3,7 +3,7 @@ story: STORY-022
 prd: PRD-008
 plan: .agents/plans/PRD-008-chat-sessions/completed/STORY-022-readme-and-env-docs.plan.md
 epic_branch: epic/PRD-008-chat-sessions
-commit: PENDING
+commit: 7525223
 status: COMPLETE
 completed: 2026-09-07
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-07
 
 **Plan**: `.agents/plans/PRD-008-chat-sessions/completed/STORY-022-readme-and-env-docs.plan.md`
 **Epic Branch**: `epic/PRD-008-chat-sessions`
-**Commit**: `PENDING`
+**Commit**: `7525223`
 
 ## Summary
 
