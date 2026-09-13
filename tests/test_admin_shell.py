@@ -141,7 +141,22 @@ APP_SOURCE_PATH = REPO_ROOT / "chat_ui" / "chat_ui" / "chat_ui.py"
 # "/" mapped to "index" (reflex_base/utils/format.py, format_route). These are
 # those stored keys, not URLs — the leading slash is added back before the
 # collision checks below.
-EXPECTED_PAGE_KEYS = ["admin", "admin/audit", "admin/stats", "index"]
+#
+# The three `reports` keys are the public Reports section's (not the console's);
+# listed here because this census is exhaustive for the whole app.
+EXPECTED_PAGE_KEYS = [
+    "admin",
+    "admin/audit",
+    "admin/stats",
+    "index",
+    "reports",
+    "reports/[prd_id]",
+    "reports/[prd_id]/[story_id]",
+]
+
+# The console's own routes -- what the sitemap exclusion below is about. The
+# Reports pages are public and belong in the sitemap, so they are not in here.
+CONSOLE_PAGE_KEYS = ["admin", "admin/audit", "admin/stats"]
 
 # Reserved by Reflex >=0.8; restated from tests/test_route_reservations.py, which
 # this story must leave unmodified. Asserting it from the console's side too means
@@ -802,7 +817,7 @@ def test_console_route_collides_with_nothing(pages_probe, route):
     assert path not in pages_probe["routes_after"]
 
 
-@pytest.mark.parametrize("route", sorted(set(EXPECTED_PAGE_KEYS) - {"index"}))
+@pytest.mark.parametrize("route", CONSOLE_PAGE_KEYS)
 def test_console_routes_are_kept_out_of_the_sitemap(pages_probe, route):
     """SitemapPlugin writes every registered route into the public sitemap.xml.
 

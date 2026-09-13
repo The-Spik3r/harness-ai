@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     CHAT_HISTORY_ENABLED: bool = True
     CHAT_SESSION_LIMIT: int = 50
 
+    # The Reports section (app/services/reports.py) reads the delivery record the
+    # story workflow writes under `.agents/`. Empty means `.agents` at the
+    # repository root. REPORTS_REPO_URL is where a report's commit SHA links to.
+    REPORTS_AGENTS_DIR: str = ""
+    REPORTS_REPO_URL: str = "https://github.com/The-Spik3r/harness-ai"
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:

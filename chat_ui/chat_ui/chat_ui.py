@@ -20,8 +20,11 @@ from chat_ui.components.admin_shell import (
     admin_page,
 )
 from chat_ui.components.register import register
+from chat_ui.components.reports import reports_detail_page, reports_feed_page
 from chat_ui.components.shell import header, login_gate, shell_body
 from chat_ui.components.summary import summary
+from chat_ui import reports_copy
+from chat_ui.reports_state import ROUTE_REPORTS, ReportsState
 from chat_ui.state import ChatState
 
 # Reflex's api_transformer mounts fastapi_app as a Starlette sub-app under a
@@ -156,6 +159,31 @@ app.add_page(
     route="/admin",
     on_load=rx.redirect(ROUTE_REGISTER, replace=True),
     context={"sitemap": None},
+)
+
+# The Reports section: public and read-only, so no gate and no token. Like the
+# console it is Reflex pages only -- nothing is added to the FastAPI app, and
+# `/reports*` is absent from the Caddyfile's @backend_routes matcher, so it falls
+# through to the static file server with every other page. The feed is one page
+# at two routes (the whole feed and one PRD's); `?status=` and `?q=` are query
+# parameters on either, not routes of their own.
+app.add_page(
+    reports_feed_page,
+    route=ROUTE_REPORTS,
+    title=reports_copy.PAGE_TITLE,
+    on_load=ReportsState.load_feed,
+)
+app.add_page(
+    reports_feed_page,
+    route=f"{ROUTE_REPORTS}/[prd_id]",
+    title=reports_copy.PAGE_TITLE,
+    on_load=ReportsState.load_feed,
+)
+app.add_page(
+    reports_detail_page,
+    route=f"{ROUTE_REPORTS}/[prd_id]/[story_id]",
+    title=reports_copy.PAGE_TITLE,
+    on_load=ReportsState.load_detail,
 )
 
 # Same api_transformer lifespan bypass as init_db() above: app.main's lifespan —

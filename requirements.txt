@@ -11,3 +11,4 @@ presidio-analyzer
 presidio-anonymizer
 spacy
 libsql==0.1.11
+python-frontmatter
