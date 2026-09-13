@@ -7,7 +7,11 @@ __pycache__/
 **/.env
 *.db
 .pytest_cache/
-.agents/
+# .agents/PRDs, stories and reports ship: the Reports section reads them.
+.agents/AGENT-template.md
+.agents/commands/
+.agents/plans/
+.agents/skills/
 .claude/
 chat_ui/.web/
 chat_ui/.states/

@@ -24,6 +24,7 @@
 - [Quickstart — Local](#quickstart--local)
 - [Quickstart — Docker](#quickstart--docker)
 - [Chat UI](#chat-ui)
+- [Reports](#reports)
 - [Persistence & Deployment](#persistence--deployment)
 - [Environment Variables](#environment-variables)
 - [API Reference](#api-reference)
@@ -234,6 +235,26 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 
 ---
 
+## Reports
+
+`/reports` is a read-only, navigable changelog of how this project was built: every story the workflow completed, newest first, read straight from `.agents/`. It needs no token — the PRDs, stories and implementation reports it renders are already public in the repository.
+
+| Route | Shows |
+|---|---|
+| `/reports` | Every story across every PRD, newest first |
+| `/reports?status=done` · `in-progress` · `planned` · `blocked` | The same feed, filtered by status |
+| `/reports?q=text` | The same feed, filtered by story id, title, PRD or commit |
+| `/reports/prd-008` | One PRD's stories; the sidebar marks it |
+| `/reports/prd-008/story-019` | One story's report: summary, acceptance criteria, files changed, validation results, and its neighbours in the PRD |
+
+Identifiers in the URL are the short ids in any case (`prd-008`, not `PRD-008-chat-sessions`); the folder is resolved by prefix. The filters are query parameters on either feed route, so a filtered view is a shareable link.
+
+What it reads, all through `app/services/reports.py`: `.agents/PRDs/*/index.md` for each PRD's name and progress, `.agents/stories/*/*.md` for titles and status, and `.agents/reports/*/*.report.md` for the report itself — frontmatter via `python-frontmatter`, sections by their fixed `##` headings. Parsed results are cached in memory and rebuilt when any of those files or folders changes. A missing `.agents/reports` renders an empty feed; a record that exists but cannot be read renders a distinct fault state; a single report with broken frontmatter is logged and left out without affecting the rest.
+
+Commit SHAs link to `REPORTS_REPO_URL`. The Docker image copies `.agents/PRDs`, `.agents/stories` and `.agents/reports` so the section has content in a container; point `REPORTS_AGENTS_DIR` elsewhere to read a different checkout.
+
+---
+
 ## Persistence & Deployment
 
 ### Where state lives
@@ -315,6 +336,8 @@ Four properties matter when you run it:
 | `PII_NLP_MODEL` | No | `en_core_web_lg` | spaCy model backing Presidio's analyzer. This is the only model the Dockerfile and the Quickstart install; naming a different one (e.g. `en_core_web_trf`) makes spaCy try to download it at startup, which is slow and fails outright if the name is unresolvable or the package needs a C++ toolchain to build. |
 | `CHAT_HISTORY_ENABLED` | No | `true` | Master switch for chat transcript persistence. `false` writes no transcript, reads none, and renders no session rail — the chat behaves exactly as it did before this release, from the same image. A supported configuration for a deployment that must not hold prompt text at rest, not a degraded mode. It governs the transcript only: a `session_id` sent to `POST /query` is still recorded on the audit row. |
 | `CHAT_SESSION_LIMIT` | No | `50` | How many chats the session rail lists per user. The rail states its window against your real total, so a capped list never reads as a complete one. A value below `1` is a **startup error**, not a clamp — an empty rail on an account that has chats is a silent lie. To turn persistence off, set `CHAT_HISTORY_ENABLED=false` instead. |
+| `REPORTS_AGENTS_DIR` | No | *(repo-root `.agents`)* | Directory the Reports section reads PRD boards, stories and reports from. |
+| `REPORTS_REPO_URL` | No | `https://github.com/The-Spik3r/harness-ai` | Repository a report's commit SHA links to, as `{REPORTS_REPO_URL}/commit/{sha}`. |
 
 Every setting in this table is read once at startup (`app/config.py`); changing any of them requires a restart.
 

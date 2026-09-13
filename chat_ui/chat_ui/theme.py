@@ -326,14 +326,16 @@ body {{
 /* Radix paints the real <input> inside its TextField wrapper, so inline props
    on the wrapper never reach the text the user types. State both colours
    outright rather than inheriting a token that depends on the appearance.
-   Four fields need it: the composer, the chat's session gate, the admin
-   console's token gate, and the register's filter field. */
-#chat_input, #user_id_input, #admin_token_input, #register_filter_input {{
+   Five fields need it: the composer, the chat's session gate, the admin
+   console's token gate, the register's filter field, and the reports search. */
+#chat_input, #user_id_input, #admin_token_input, #register_filter_input,
+#reports_search_input {{
   color: {INK} !important;
   background: transparent;
 }}
 #chat_input::placeholder, #user_id_input::placeholder,
-#admin_token_input::placeholder, #register_filter_input::placeholder {{
+#admin_token_input::placeholder, #register_filter_input::placeholder,
+#reports_search_input::placeholder {{
   color: {MUTE} !important;
   opacity: 1;  /* Firefox dims placeholders by default */
 }}
