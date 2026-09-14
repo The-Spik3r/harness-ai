@@ -18,3 +18,5 @@ chat_ui/.states/
 chat_ui/__pycache__/
 chat_ui/harness_ai.db
 chat_ui/reflex.log
+# README screenshots and demo video: repository documentation only.
+docs/
