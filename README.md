@@ -10,6 +10,12 @@
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#running-tests)
 
+<br/>
+
+<img src="docs/media/harness-demo.gif" alt="Harness IA demo: a prompt with personal data is masked, an injection attempt is denied, a repeated prompt is held, then the admin console and the reports section" width="900"/>
+
+<sub>A prompt with personal data is masked · an injection attempt is denied · a repeat is held · every verdict lands in the admin console. <a href="docs/media/harness-demo.mp4">Full-quality video (MP4)</a></sub>
+
 </div>
 
 ---
@@ -18,6 +24,7 @@
 
 - [Problem](#problem)
 - [Solution](#solution)
+- [Screenshots](#screenshots)
 - [Architecture](#architecture)
 - [Features](#features)
 - [Requirements](#requirements)
@@ -56,6 +63,23 @@ identity resolution + authorization  →  duplicate check (24h)  →  prompt-inj
 ```
 
 If either check fails, the request is rejected **before** it reaches the model provider, and the rejection is logged with the same rigor as a successful call. Redaction, by contrast, never rejects anything — it only masks. An unverified or unauthorized request never reaches the duplicate check at all.
+
+---
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Sign-in form asking for an access token](docs/screenshots/login.png) | ![Empty chat listing the three things the harness does](docs/screenshots/chat-empty.png) |
+| **Sign in** — every prompt is recorded against a verified identity. | **Chat** — the empty state names the three verdicts before anything is sent. |
+| ![Assistant reply with email, person and phone number masked](docs/screenshots/chat-pii-masked.png) | ![An injection attempt denied and a repeated prompt held](docs/screenshots/chat-blocked.png) |
+| **PII redaction** — names, emails and phone numbers are masked before and after the model. | **Blocked** — a matched injection pattern is *denied*; an exact repeat within 24h is *held*. |
+| ![Audit register with one denied row expanded](docs/screenshots/admin-audit-detail.png) | ![Summary figures for traffic, users and models](docs/screenshots/admin-stats.png) |
+| **Admin · Register** — every request, blocked or not, with the matched pattern and prompt hash. | **Admin · Summary** — totals across the whole audit table. |
+| ![Reports feed of completed stories](docs/screenshots/reports-feed.png) | ![A single story report in the light theme](docs/screenshots/reports-story-light.png) |
+| **Reports** — the build history, read straight from `.agents/`. | **Light theme** — one icon in every masthead switches the ground. |
+
+All captures were taken from a running instance with [agent-browser](https://www.npmjs.com/package/agent-browser); the personal data in them is invented.
 
 ---
 
@@ -219,6 +243,10 @@ http://localhost:8000/
 
 The chat UI and the REST API share the exact same process, port, and query pipeline (identity resolution → duplicate check → pattern check → PII redaction → OpenRouter call → audit log): a prompt sent from the chat produces the identical audit row a `curl -X POST /query` call would.
 
+<p align="center">
+  <img src="docs/screenshots/chat-blocked.png" alt="Chat transcript: a masked reply, an injection attempt denied, and a repeated prompt held" width="800"/>
+</p>
+
 **Session identity** — on first load, the chat presents a login form asking for a bearer token (the same credential issued by `scripts/manage_users.py` or `ADMIN_TOKEN`), rendered as a password-style input. The token is held only in a backend-only Reflex var (`_token`, never serialized to the client) and is never cached as a role — every message re-resolves the identity, and therefore the role, from the database via the same `identity.resolve()` used by `POST /query`. An invalid or expired token shows an inline error on the login form and never reaches the chat.
 
 **Message rendering** — your own messages render right-aligned; a successful model response renders as a left-aligned assistant bubble. A blocked message (duplicate within 24h, or a suspicious pattern match) renders as a distinct centered bubble carrying the same `reason` text the REST API returns — it is never silently dropped.
@@ -238,6 +266,10 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 ## Reports
 
 `/reports` is a read-only, navigable changelog of how this project was built: every story the workflow completed, newest first, read straight from `.agents/`. It needs no token — the PRDs, stories and implementation reports it renders are already public in the repository.
+
+<p align="center">
+  <img src="docs/screenshots/reports-story.png" alt="A story report: summary, acceptance criteria and the PRD sidebar" width="800"/>
+</p>
 
 | Route | Shows |
 |---|---|
