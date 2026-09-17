@@ -1,3 +1,4 @@
+import json
 import os
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
@@ -109,3 +110,57 @@ def test_api_key_never_appears_in_error_message():
         call_openrouter("hello", api_key="super-secret-key", client=client)
 
     assert "super-secret-key" not in str(exc_info.value)
+
+
+# --- PRD-010 STORY-003: characterization of today's OpenRouter payload ---
+#
+# Pinned before PRD-010 STORY-004. Assertions change only where a later
+# story cites the decision.
+
+
+def test_characterization_payload_shape_is_byte_identical():
+    client = _FakeClient(response=_response())
+
+    call_openrouter("hello", model="gpt-4", api_key="k", client=client)
+
+    payload = client.requests[0]["json"]
+    expected = {"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}]}
+    # json.dumps with sort_keys=False makes this an ordered comparison, not
+    # just an equal-set-of-keys one: a reordered payload would fail here
+    # even though `payload == expected` would still pass.
+    assert json.dumps(payload, sort_keys=False) == json.dumps(expected, sort_keys=False)
+
+
+def test_characterization_headers_and_url():
+    client = _FakeClient(response=_response())
+
+    call_openrouter("hello", model="gpt-4", api_key="k", client=client)
+
+    request = client.requests[0]
+    assert request["url"] == _API_URL
+    assert request["headers"] == {
+        "Authorization": "Bearer k",
+        "Content-Type": "application/json",
+    }
+
+
+def test_characterization_default_client_uses_todays_timeout(monkeypatch):
+    """AC 3: today's value (30.0). STORY-005 changes this deliberately,
+    citing PRD-010 at that point."""
+    captured = {}
+
+    class _StubHttpxClient:
+        def __init__(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+        def post(self, url, headers=None, json=None):
+            return _response()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(httpx, "Client", _StubHttpxClient)
+
+    call_openrouter("hello", api_key="k")
+
+    assert captured["kwargs"] == {"timeout": 30.0}

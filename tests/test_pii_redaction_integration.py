@@ -268,9 +268,16 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
     assert stats["top_pii_entities"] == []
 
 
+# PRD-010 STORY-003 deliberately extends tests/test_openrouter_client.py with
+# characterization tests pinning today's payload shape, headers/URL and default
+# timeout -- the guardrail STORY-004/005 must keep green when call_openrouter's
+# signature changes (PRD-010 Section 6.8 lists it "extended", same as this file
+# lists tests/test_integration.py's STORY-013 breaking change above). It moves
+# out of layer 1 (byte-unmodified) and stays covered by layer 2 below
+# (`test_no_pre_epic_test_function_was_removed_or_renamed`): additions are fine,
+# no existing test function may be removed or renamed.
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
-    "tests/test_openrouter_client.py",
     "tests/test_pattern_detector.py",
     "tests/test_route_reservations.py",
 ]

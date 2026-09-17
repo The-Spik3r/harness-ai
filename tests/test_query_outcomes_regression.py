@@ -209,3 +209,32 @@ def test_outcome_6_internal_failure_duplicate_storage(temp_db, monkeypatch):
     assert response.status_code == 500
     assert "Duplicate lookup failed" in response.json()["detail"]
     assert logged == []
+
+
+# --- PRD-010 STORY-003: characterization of the /query upstream call ---
+#
+# Pinned before PRD-010 STORY-004. Assertions change only where a later
+# story cites the decision. This is the pipeline-level counterpart to
+# tests/test_openrouter_client.py's characterization tests: it is what
+# STORY-004 must keep green when it changes call_openrouter's signature.
+
+
+def test_characterization_query_upstream_receives_prompt_model_and_no_api_key(
+    temp_db, monkeypatch
+):
+    received = {}
+
+    def _recording_success(prompt, model="gpt-4", api_key=None):
+        received["prompt"] = prompt
+        received["model"] = model
+        received["api_key"] = api_key
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _recording_success)
+
+    prompt = "characterization: pin today's upstream body before STORY-004"
+    response = client.post("/query", json={"prompt": prompt})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "SUCCESS"
+    assert received == {"prompt": prompt, "model": "gpt-4", "api_key": None}
