@@ -275,6 +275,25 @@ def test_openrouter_failure_logged_with_error_and_returns_502(temp_db, monkeypat
     assert entry.error_message == "boom"
 
 
+def test_null_content_openrouter_error_maps_to_502(temp_db, monkeypatch):
+    """PRD-010 STORY-005 AC5: the client's explicit null-content message is just
+    another OpenRouterError to the router, so the existing 502 mapping covers it
+    with no router change."""
+
+    def _raise_null_content_error(prompt, model="gpt-4", api_key=None):
+        raise OpenRouterError("OpenRouter returned no text content (finish_reason=length)")
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _raise_null_content_error)
+
+    before = _count_audit_rows()
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": "hello world"}
+    )
+
+    assert response.status_code == 502
+    assert _count_audit_rows() == before + 1
+
+
 def test_full_pipeline_latency_within_budget(temp_db, monkeypatch):
     def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
         return OpenRouterResult(response="fast", model_used=model, tokens_used=1)
