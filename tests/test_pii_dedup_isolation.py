@@ -8,6 +8,7 @@ import inspect
 import pathlib
 import re
 import subprocess
+from dataclasses import dataclass
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,7 @@ import app.services.query_pipeline as query_pipeline
 from app.services.duplicate_checker import (
     DuplicateCheckResult,
     check_duplicate,
+    dedup_key,
     hash_prompt,
 )
 from app.services.identity import Identity, hash_token
@@ -44,6 +46,17 @@ _PROMPT_B = "contact me at b@y.com"
 _REDACTED_BOTH = "contact me at <EMAIL_ADDRESS>"
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+@dataclass(frozen=True)
+class _Turn:
+    role: str
+    content: str
+
+
+def _key(user_id: str, prompt: str) -> str:
+    """The single-turn key run_query derives for this caller and raw prompt."""
+    return dedup_key(user_id, [_Turn("user", prompt)])
 
 
 @pytest.fixture
@@ -105,10 +118,12 @@ def test_distinct_pii_prompts_are_never_duplicates_of_each_other(temp_db, monkey
         json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
         headers=_JUAN_HEADERS,
     )
+    # PRD-009 STORY-005 (T1/T2): same sender, so a redacted-text hash would collide
+    # and block -- two users would pass regardless of what is hashed.
     second = client.post(
         "/query",
-        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_B},
-        headers=_MARIA_HEADERS,
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_B},
+        headers=_JUAN_HEADERS,
     )
 
     assert first.json()["status"] == "SUCCESS"
@@ -129,10 +144,12 @@ def test_identical_pii_prompt_is_still_blocked_as_duplicate(temp_db, monkeypatch
     assert first.json()["status"] == "SUCCESS"
 
     monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    # PRD-009 STORY-005 (T1/T2): dedup is per caller, so the control repeats the
+    # same user's send -- was María, which only blocked while the lookup was global.
     second = client.post(
         "/query",
-        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_A},
-        headers=_MARIA_HEADERS,
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
+        headers=_JUAN_HEADERS,
     )
 
     body = second.json()
@@ -197,9 +214,15 @@ def _changed_since_epic_base(path: str) -> list:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+# PRD-009 (Section 6.5; STORY-003 onward) owns duplicate_checker.py by design:
+# it adds dedup_key here and later rescopes check_duplicate. PRD-003's RF-6
+# promise -- dedup never sees masked text -- stays pinned behaviourally by
+# test_duplicate_checker_has_no_redaction_dependency, the hash_prompt census
+# and test_hash_prompt_only_ever_receives_raw_text. pattern_detector.py is
+# untouched by PRD-009 and stays pinned by source.
 @pytest.mark.parametrize(
     "path",
-    ["app/services/duplicate_checker.py", "app/services/pattern_detector.py"],
+    ["app/services/pattern_detector.py"],
 )
 def test_dedup_and_pattern_sources_unmodified_on_this_branch(path):
     """RF-6: this epic must not touch either module -- working tree included."""
@@ -223,9 +246,13 @@ def test_hash_prompt_is_plain_sha256_of_utf8_text():
 def test_check_duplicate_public_contract_is_stable():
     signature = inspect.signature(check_duplicate)
 
-    assert list(signature.parameters) == ["prompt"]
-    assert signature.parameters["prompt"].annotation is str
-    assert signature.parameters["prompt"].default is inspect.Parameter.empty
+    # PRD-009 Section 6.5 (STORY-007): was ["user_id", "prompt"] (STORY-005), and
+    # ["prompt"] before that. check_duplicate takes the key run_query derives;
+    # hashing moved into dedup_key, which builds it from raw text.
+    assert list(signature.parameters) == ["user_id", "key"]
+    for name in ("user_id", "key"):
+        assert signature.parameters[name].annotation is str
+        assert signature.parameters[name].default is inspect.Parameter.empty
     assert signature.return_annotation is DuplicateCheckResult
     assert [field.name for field in DuplicateCheckResult.__dataclass_fields__.values()] == [
         "is_duplicate",
@@ -262,9 +289,15 @@ def test_pipeline_runs_both_checks_before_any_redaction(temp_db, monkeypatch):
     real_pattern = query_pipeline.detect_suspicious_pattern
     real_redact = query_pipeline.redact
 
-    def _spy_duplicate(prompt):
-        calls.append(("check_duplicate", prompt))
-        return real_duplicate(prompt)
+    # PRD-009 Section 6.5 (STORY-007): signature only. check_duplicate now receives
+    # the key; mapping it back through a key built from the *raw* prompt keeps the
+    # assertion below unchanged -- a key derived from redacted text stays unmapped
+    # and fails it.
+    raw_for_key = {_key("juan@empresa.com", _PROMPT_A): _PROMPT_A}
+
+    def _spy_duplicate(user_id, key):
+        calls.append(("check_duplicate", raw_for_key.get(key, key)))
+        return real_duplicate(user_id, key)
 
     def _spy_pattern(prompt):
         calls.append(("detect_suspicious_pattern", prompt))
@@ -312,7 +345,7 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
 
         return _hash
 
-    # Two binding sites: audit_logger imported the name; check_duplicate uses the global.
+    # Two binding sites: audit_logger imported the name; dedup_key uses the global.
     monkeypatch.setattr(duplicate_checker, "hash_prompt", _spy("duplicate_checker"))
     monkeypatch.setattr(audit_logger, "hash_prompt", _spy("audit_logger"))
 
@@ -332,6 +365,11 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
 
     assert result.pii_redacted is True
     assert seen == [
+        # PRD-009 Section 6.5: run_query derives dedup_key before authorization
+        # (STORY-006), and dedup_key hashes the last turn through this module's
+        # hash_prompt -- still the caller's raw prompt, never redacted text.
+        # STORY-007: one duplicate_checker entry, not two -- check_duplicate
+        # receives that key and hashes nothing itself.
         ("duplicate_checker", _PROMPT_A),
         ("audit_logger", _PROMPT_A),
         ("audit_logger", raw_response),
@@ -341,7 +379,12 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
 
 
 def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
-    """A new call site must fail here so it gets re-checked for raw-text input."""
+    """A new call site must fail here so it gets re-checked for raw-text input.
+
+    Four sites after PRD-009 STORY-003 added dedup_key, three again since
+    STORY-007 removed check_duplicate's own hash; the name is kept so the census
+    changes stay visible in the diff.
+    """
     pattern = re.compile(r"(?<!def )hash_prompt\(")
     census = {}
     for path in sorted((_REPO_ROOT / "app").rglob("*.py")):
@@ -351,5 +394,10 @@ def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
 
     assert census == {
         "app/services/audit_logger.py": 2,
+        # PRD-009 Section 6.5 (STORY-007): back to one site -- dedup_key's last turn.
+        # check_duplicate takes the key and no longer hashes. The site receives raw
+        # text only: run_query passes the caller's prompt before any redaction, the
+        # same string audit_logger hashes; the prefix is hashed with hashlib
+        # directly, so it adds no site.
         "app/services/duplicate_checker.py": 1,
     }

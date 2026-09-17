@@ -37,7 +37,7 @@ from app.config import settings
 from app.services import chat_sessions
 from app.services.chat_sessions import ChatSessionError
 from app.services.authz import PERMISSION_QUERY_SUBMIT
-from app.services.duplicate_checker import DuplicateCheckError, hash_prompt
+from app.services.duplicate_checker import DuplicateCheckError, dedup_key, hash_prompt
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
@@ -59,6 +59,18 @@ from chat_ui.chat_ui.models import ChatMessage, ChatSessionSummary
 client = TestClient(app)
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+@dataclasses.dataclass(frozen=True)
+class _Turn:
+    role: str
+    content: str
+
+
+def _key(user_id: str, prompt: str) -> str:
+    """The single-turn key run_query derives for this caller and raw prompt."""
+    return dedup_key(user_id, [_Turn("user", prompt)])
+
 
 _AUTH_USER_ID = "juan@empresa.com"
 _AUTH_TOKEN = "test-user-token"
@@ -89,11 +101,15 @@ def _seed_duplicate(prompt: str, hours_ago: float = 2) -> str:
     timestamp = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime(
         _TIMESTAMP_FORMAT
     )
+    # PRD-009 STORY-007: the lookup matches on dedup_key, so a seeded prior query
+    # carries the key /query derives for this user and prompt. A row without one
+    # is a pre-PRD row and never matches (D6).
     insert_audit_log(
         AuditLog(
             timestamp=timestamp,
             user_id="juan@empresa.com",
             prompt_hash=hash_prompt(prompt),
+            dedup_key=_key("juan@empresa.com", prompt),
         )
     )
     return timestamp

@@ -4,6 +4,7 @@ os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -20,7 +21,7 @@ from app.db.models import AuditLog, User
 from app.main import app
 import app.services.query_pipeline as query_pipeline
 from app.services.authz import PERMISSION_QUERY_BYOK, PERMISSION_QUERY_SUBMIT
-from app.services.duplicate_checker import hash_prompt
+from app.services.duplicate_checker import dedup_key, hash_prompt
 from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
@@ -32,6 +33,17 @@ _AUTH_HEADERS = {"Authorization": f"Bearer {_AUTH_TOKEN}"}
 client = TestClient(app, headers=_AUTH_HEADERS)
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+@dataclass(frozen=True)
+class _Turn:
+    role: str
+    content: str
+
+
+def _key(user_id: str, prompt: str) -> str:
+    """The single-turn key run_query derives for this caller and raw prompt."""
+    return dedup_key(user_id, [_Turn("user", prompt)])
 
 
 @pytest.fixture
@@ -53,11 +65,15 @@ def _seed_duplicate(prompt: str, hours_ago: float = 2) -> str:
     timestamp = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime(
         _TIMESTAMP_FORMAT
     )
+    # PRD-009 STORY-007: the lookup matches on dedup_key, so a seeded prior query
+    # carries the key /query derives for this user and prompt. A row without one
+    # is a pre-PRD row and never matches (D6).
     insert_audit_log(
         AuditLog(
             timestamp=timestamp,
             user_id="juan@empresa.com",
             prompt_hash=hash_prompt(prompt),
+            dedup_key=_key("juan@empresa.com", prompt),
         )
     )
     return timestamp
@@ -315,9 +331,15 @@ def test_duplicate_and_pattern_checks_still_receive_the_raw_prompt(temp_db, monk
     real_check_duplicate = query_pipeline.check_duplicate
     real_detect = query_pipeline.detect_suspicious_pattern
 
-    def _spy_duplicate(prompt):
-        seen_duplicate.append(prompt)
-        return real_check_duplicate(prompt)
+    # PRD-009 Section 6.5 (STORY-007): signature only. check_duplicate now receives
+    # the key; mapping it back through a key built from the *raw* prompt keeps the
+    # assertion below unchanged -- a key derived from redacted text stays unmapped
+    # and fails it.
+    raw_for_key = {_key(_AUTH_USER_ID, _PII_PROMPT): _PII_PROMPT}
+
+    def _spy_duplicate(user_id, key):
+        seen_duplicate.append(raw_for_key.get(key, key))
+        return real_check_duplicate(user_id, key)
 
     def _spy_pattern(prompt):
         seen_pattern.append(prompt)

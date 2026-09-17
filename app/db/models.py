@@ -22,14 +22,16 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     pii_entities TEXT,
     role TEXT,
     denied_permission TEXT,
-    session_id TEXT
+    session_id TEXT,
+    dedup_key TEXT
 )
 """
 
 # Columns added after the initial schema shipped (PRD-003 PII telemetry; PRD-005
-# RBAC adds to this in STORY-009; PRD-008 STORY-002 adds session_id). CREATE
-# TABLE IF NOT EXISTS is a no-op against a database created before they existed,
-# so init_db() ALTERs in whichever of these an old file is missing.
+# RBAC adds to this in STORY-009; PRD-008 STORY-002 adds session_id; PRD-009
+# STORY-002 adds dedup_key). CREATE TABLE IF NOT EXISTS is a no-op against a
+# database created before they existed, so init_db() ALTERs in whichever of
+# these an old file is missing.
 #
 # Every entry here is also declared in CREATE_AUDIT_LOGS_TABLE above. The two are
 # not redundant: this mapping brings a database that predates a column up to
@@ -50,7 +52,27 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # Nullable with no default on purpose -- a POST /query that omits session_id
     # writes NULL, which is today's behaviour exactly (PRD Section 10).
     "session_id": "TEXT",
+    # PRD-009: the per-caller duplicate key, derived from a conversation rather
+    # than a string (PRD Section 6.2). Nullable with no default on purpose --
+    # rows written before the column existed stay NULL and are never backfilled
+    # (D6), and a NULL key can never match a duplicate lookup.
+    "dedup_key": "TEXT",
 }
+
+# The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
+# user_id, equality on dedup_key, range on timestamp. The three flag predicates
+# that lookup also applies filter the handful of rows left inside one user's key
+# range and are deliberately not indexed.
+#
+# Not UNIQUE, unlike idx_users_token_hash: the same key legitimately repeats --
+# a duplicate-blocked row, a failure or a denial carries the key of the request
+# it answered. init_db() must execute this *after* _add_missing_columns(): on a
+# database created before PRD-009, dedup_key does not exist until then, and an
+# index on a missing column fails the boot.
+CREATE_AUDIT_LOGS_DEDUP_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_audit_logs_dedup "
+    "ON audit_logs(user_id, dedup_key, timestamp)"
+)
 
 # Identity store (PRD-005). Lives in the same SQLite file as audit_logs -- no
 # second service, no ORM, stdlib only.
@@ -180,6 +202,12 @@ class AuditLog:
     # and _row_to_audit_log() maps it back on both read shapes -- the `SELECT *`
     # row and the json_object(...) the summary snapshot decodes.
     session_id: Optional[str] = None
+    # PRD-009. Same pattern as session_id: insert_audit_log() writes it and
+    # _row_to_audit_log() maps it back on both read shapes, as of STORY-002.
+    # Nothing sets a real key until STORY-006, and it is never exposed on
+    # GET /audit (D5). Declared after session_id to mirror the table, so id
+    # stays the trailing field.
+    dedup_key: Optional[str] = None
     id: Optional[int] = None
 
 

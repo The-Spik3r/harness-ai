@@ -260,3 +260,34 @@ def test_session_id_defaults_to_none_when_omitted(temp_db):
     fetched = get_audit_log(audit_id)
 
     assert fetched.session_id is None
+
+
+# PRD-009 STORY-006: log_query carries the duplicate key onto the row.
+
+
+def test_dedup_key_persisted_when_supplied(temp_db):
+    audit_id = log_query(
+        user_id="ana@empresa.com",
+        prompt="hello",
+        response="hi there",
+        dedup_key="k",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched is not None
+    assert fetched.dedup_key == "k"
+
+
+def test_dedup_key_defaults_to_none_when_omitted(temp_db):
+    """Callers that do not derive a key -- the router's foreign-session refusal
+    passes None explicitly, anything else omits it -- write NULL."""
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        response="hi there",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.dedup_key is None

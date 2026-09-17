@@ -91,10 +91,11 @@ def _audit_entries():
 def test_three_sends_in_one_session_share_one_session_id_in_the_audit(temp_db, monkeypatch):
     """AC 4, and PRD Section 5 story 8 stated as its example states it.
 
-    The three prompts are deliberately distinct. `check_duplicate` is a global
-    24h exact-match over the prompt hash (PRD Section 4, Out of Scope: this PRD
-    does not rescope it), so three identical sends would return two blocked rows
-    and measure the duplicate checker instead of the session column.
+    The three prompts are deliberately distinct. `check_duplicate` blocks the
+    same user's same prompt within 24h (PRD-009 rescoped it to a per-user
+    `dedup_key`; the session is not part of a single-turn key), so three
+    identical sends would return two blocked rows and measure the duplicate
+    checker instead of the session column.
     """
     monkeypatch.setattr("app.routers.query.call_openrouter", _fake_call_openrouter)
     session_id = _session_owned_by(_AUTH_USER_ID)

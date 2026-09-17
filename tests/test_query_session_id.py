@@ -34,6 +34,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import ast
 import pathlib
+import re
 import subprocess
 import uuid
 
@@ -352,6 +353,27 @@ def test_the_unknown_session_refusal_is_audited_too(temp_db, monkeypatch):
     assert _last_audit_row().session_id == unknown
 
 
+def test_the_403_refusal_row_carries_no_dedup_key(temp_db, monkeypatch):
+    """PRD-009 STORY-006: the refusal logs `dedup_key=None`, explicitly.
+
+    The row is `success=False`, so it can never match a duplicate lookup, and
+    the refusal happens before `run_query` -- the one place `/query` derives the
+    key. Computing it here too would be a second key call site to keep in step
+    for a row that is never read as a prior query.
+    """
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    foreign = _session_owned_by(_OTHER_USER_ID)
+    before = _count_audit_rows()
+
+    response = client.post(
+        "/query", json={"prompt": "the refused question", "session_id": foreign}
+    )
+
+    assert response.status_code == 403
+    assert _count_audit_rows() == before + 1
+    assert _last_audit_row().dedup_key is None
+
+
 def test_the_user_id_mismatch_403_still_writes_no_row(temp_db, monkeypatch):
     """The asymmetry, pinned here on purpose.
 
@@ -444,11 +466,30 @@ def _git(*args):
     """
     try:
         result = subprocess.run(
-            ["git", *args], cwd=_REPO_ROOT, capture_output=True, text=True, timeout=30
+            ["git", *args],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            # Not the locale default: cp1252 on Windows cannot decode every UTF-8
+            # byte a diff of these suites may carry.
+            encoding="utf-8",
+            timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout if result.returncode == 0 else None
+
+
+_ASSERTION_LINE = re.compile(r"^\s*(assert\b|with pytest\.raises\(|pytest\.raises\()")
+
+
+def _removed_assertion_lines(diff: str) -> list:
+    """Assertion lines a unified diff removes or rewrites (a rewrite is a `-` plus a `+`)."""
+    return [
+        line[1:].strip()
+        for line in diff.splitlines()
+        if line.startswith("-") and not line.startswith("---") and _ASSERTION_LINE.match(line[1:])
+    ]
 
 
 def test_the_three_pinned_suites_are_unmodified_in_the_working_tree():
@@ -459,14 +500,45 @@ def test_the_three_pinned_suites_are_unmodified_in_the_working_tree():
     claim about the diff, not about the exit code, and running them green proves
     only half of it. A story that quietly relaxed one of their assertions to
     accommodate `session_id` would still be green.
+
+    Narrowed from "no uncommitted edit at all" (PRD-009 STORY-007): that form
+    failed every later story mid-work for edits the epic's own PRD requires --
+    PRD-009 Section 6.5 adapts a spy signature and a seed helper in
+    test_query_router.py -- and passed again the moment they were committed, so
+    it guarded nothing a commit did not erase. What it exists to catch is a
+    relaxed assertion, and that is what it now pins: no uncommitted change,
+    staged or not, removes or rewrites an assertion line in these suites
+    (PRD-009 Section 11 states the same rule for its epic).
     """
-    unstaged = _git("diff", "--name-only")
-    staged = _git("diff", "--cached", "--name-only")
-    if unstaged is None or staged is None:
+    diff = _git("diff", "HEAD", "--unified=0", "--", *_PINNED_SUITES)
+    if diff is None:
         pytest.skip("git unavailable; the working tree's provenance is unverifiable here")
 
-    touched = set(unstaged.split()) | set(staged.split())
-    assert [s for s in _PINNED_SUITES if s in touched] == []
+    assert _removed_assertion_lines(diff) == []
+
+
+def test_removed_assertion_lines_catches_a_relaxed_assertion_and_ignores_helpers():
+    """The guard above is only as good as its parser, so the parser is pinned."""
+    diff = "\n".join(
+        [
+            "--- a/tests/test_query_router.py",
+            "+++ b/tests/test_query_router.py",
+            "@@ -60,1 +60,2 @@",
+            "-            prompt_hash=hash_prompt(prompt),",
+            "+            prompt_hash=hash_prompt(prompt),",
+            "+            dedup_key=_key(user, prompt),",
+            "@@ -180,1 +181,1 @@",
+            "-    assert response.status_code == 200",
+            "+    assert response.status_code in (200, 500)",
+            "@@ -200,1 +201,0 @@",
+            "-    with pytest.raises(ValueError):",
+        ]
+    )
+
+    assert _removed_assertion_lines(diff) == [
+        "assert response.status_code == 200",
+        "with pytest.raises(ValueError):",
+    ]
 
 
 def test_the_router_never_branches_on_the_history_flag():

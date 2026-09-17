@@ -17,11 +17,15 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import time
+
 import pytest
 
 from app.config import Settings, settings
+from app.db import database
 from app.db.database import count_audit_logs, get_connection, insert_audit_log, init_db
 from app.db.models import AuditLog
+from tests.conftest import _reset_database
 
 
 def _an_audit_row(user_id: str = "ana@empresa.com") -> AuditLog:
@@ -207,3 +211,93 @@ def test_db_connect_can_build_a_table_init_db_would_not(uninitialized_db, db_con
             "SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_probe'"
         ).fetchone()
     assert found is not None
+
+
+# --- The per-test reset survives a stream the server expired ------------------
+#
+# Full-suite runs lost one random test at setup to `STREAM_EXPIRED` from the
+# reset, never in isolation. The stream is killed on purpose here rather than
+# waited out: a stand-in client fails its first statements with the driver's
+# exact text, and the idle gate is held shut (`_client_used_at` = now) so the
+# app's own probe cannot rescue it first -- the window the reset must cover.
+
+_STREAM_EXPIRED = (
+    "Hrana: `api error: `status=400 Bad Request, "
+    'body={"message":"The stream has expired due to inactivity",'
+    '"code":"STREAM_EXPIRED"}``'
+)
+
+
+class _DeadClient:
+    """Fails `failures` statements with `message`, then delegates to `real`."""
+
+    def __init__(self, real, message: str = _STREAM_EXPIRED, failures: int = 1) -> None:
+        self._real = real
+        self._message = message
+        self._remaining = failures
+
+    def execute(self, sql, *parameters):
+        if self._remaining > 0:
+            self._remaining -= 1
+            raise ValueError(self._message)
+        return self._real.execute(sql, *parameters)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+@pytest.fixture
+def _client_cache_restored():
+    yield
+    database._client = None
+    database._client_key = None
+    database._client_used_at = 0.0
+
+
+def _install_behind_a_closed_gate(client) -> None:
+    database._client = client
+    database._client_used_at = time.monotonic()
+
+
+def _tables() -> list:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    return [row["name"] for row in rows]
+
+
+def test_reset_recovers_from_a_stream_expired_between_probe_and_statement(
+    temp_db, _client_cache_restored
+):
+    dead = _DeadClient(database._shared_client())
+    _install_behind_a_closed_gate(dead)
+
+    _reset_database()
+
+    assert database._client is not dead  # dropped and rebuilt, not reused
+    assert _tables() == []
+
+
+def test_reset_still_raises_a_failure_that_is_not_a_dead_stream(
+    temp_db, _client_cache_restored
+):
+    message = "Hrana: `stream error: `Error { message: \"SQLite error: disk I/O error\" }``"
+    unhealthy = _DeadClient(database._shared_client(), message=message)
+    _install_behind_a_closed_gate(unhealthy)
+
+    with pytest.raises(ValueError, match="disk I/O error"):
+        _reset_database()
+
+    assert database._client is unhealthy  # a statement failure keeps the client
+
+
+def test_reset_retries_once_not_in_a_loop(temp_db, monkeypatch, _client_cache_restored):
+    real = database._shared_client()
+    _install_behind_a_closed_gate(_DeadClient(real))
+    monkeypatch.setattr(
+        database.libsql, "connect", lambda url, auth_token=None: _DeadClient(real)
+    )
+
+    with pytest.raises(ValueError, match="STREAM_EXPIRED"):
+        _reset_database()

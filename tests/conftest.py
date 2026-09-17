@@ -59,6 +59,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import libsql  # noqa: E402  -- after the bootstrap, for symmetry with the rest
 
 from app.config import settings  # noqa: E402  -- must follow the bootstrap above
+from app.db import database  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 
 
@@ -93,7 +94,32 @@ def _reset_database() -> None:
     both the application and this suite predictable, so the fixtures hold to it
     too. The coupling costs nothing here -- these are `DROP` statements, and
     nothing about them depends on the module under test behaving correctly.
+
+    **One retry on a dead stream, and only on that.** The shared client's idle
+    probe (PRD-008 STORY-024) is a floor, not a guarantee: the app's own design
+    accepts that a stream can die between probe and statement, and recovers by
+    dropping the client so the *next* call rebuilds it. This fixture is the first
+    statement of every test, so without that second call the loss landed as a
+    setup ERROR on whichever unrelated test came next -- seen on
+    `test_summary.py` and `test_manage_users_cli.py` in full runs, as
+    `STREAM_EXPIRED`, never in isolation. Replaying is safe because every
+    statement here is idempotent (`DROP ... IF EXISTS`). Any other failure, and a
+    second dead stream in a row, still fails the test: a genuinely unreachable
+    server must stay loud.
     """
+    try:
+        _drop_every_table_and_index()
+    except ValueError as exc:
+        # __exit__'s rollback on a dead client may raise in turn; the expiry is
+        # then the context of what reaches us, not its message.
+        messages = (str(exc), str(exc.__context__ or ""))
+        if not any(database._is_dead_stream(message) for message in messages):
+            raise
+        database._invalidate_client()
+        _drop_every_table_and_index()
+
+
+def _drop_every_table_and_index() -> None:
     with get_connection() as conn:
         objects = conn.execute(
             "SELECT name, type FROM sqlite_master "

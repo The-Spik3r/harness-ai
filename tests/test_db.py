@@ -50,6 +50,7 @@ from app.db.errors import (
 )
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
+    CREATE_AUDIT_LOGS_DEDUP_INDEX,
     CREATE_AUDIT_LOGS_TABLE,
     CREATE_CHAT_MESSAGES_SESSION_INDEX,
     CREATE_CHAT_MESSAGES_TABLE,
@@ -186,6 +187,7 @@ def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
     # statement that stops being issued must fail here rather than leave this
     # test quietly passing on a schema init_db() no longer builds.
     for ddl in (
+        CREATE_AUDIT_LOGS_DEDUP_INDEX,  # PRD-009 STORY-002
         CREATE_CHAT_SESSIONS_TABLE,
         CREATE_CHAT_SESSIONS_USER_INDEX,
         CREATE_CHAT_MESSAGES_TABLE,
@@ -316,6 +318,10 @@ def _create_pre_chat_sessions_database(connect, url) -> None:
     converges. Here `session_id` is the only column in flight, so a change that
     dropped it from the migration path fails rather than hides in a set
     comparison.
+
+    PRD-009 note: since STORY-002 this shape is missing `dedup_key` too, so two
+    columns are in flight here. The tests on it still assert `session_id` by
+    name; isolating `dedup_key` is `_create_pre_dedup_key_database`'s job.
     """
     legacy = connect(url)
     legacy.execute(
@@ -347,6 +353,57 @@ def _create_pre_chat_sessions_database(connect, url) -> None:
         "INSERT INTO audit_logs (timestamp, user_id, prompt_hash, role) "
         "VALUES (?, ?, ?, ?)",
         ("2026-09-01T09:00:00Z", "carla@empresa.com", "pre008", "user"),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def _create_pre_dedup_key_database(connect, url) -> None:
+    """Builds the 20-column audit_logs table exactly as it shipped before
+    PRD-009 -- after PRD-008's session_id, before dedup_key -- with no index.
+
+    The fourth of these fixtures, and the only one where `dedup_key` is the sole
+    column in flight, for the reason `_create_pre_chat_sessions_database` gives
+    about `session_id`. The row carries a session_id so a test can show the
+    migration preserved it rather than rewrote it.
+    """
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT,
+            session_id TEXT
+        )
+        """
+    )
+    legacy.execute(
+        "INSERT INTO audit_logs (timestamp, user_id, prompt_hash, role, session_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (
+            "2026-09-15T09:00:00Z",
+            "carla@empresa.com",
+            "pre009",
+            "user",
+            "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        ),
     )
     legacy.commit()
     legacy.close()
@@ -600,6 +657,77 @@ def test_session_id_survives_the_batched_read(temp_db):
     ]
 
 
+def test_dedup_key_defaults_to_none_when_not_supplied(temp_db):
+    """PRD-009 STORY-002 AC 4: a row written without a key is indistinguishable
+    from one written before the column existed."""
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-16T09:00:00Z",
+            user_id="a",
+            prompt_hash="h9",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.dedup_key is None
+
+
+def test_dedup_key_round_trips(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-16T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h10",
+            denied_permission=None,
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            dedup_key="k",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched is not None
+    assert fetched.dedup_key == "k"
+    # The neighbours too, for the reason test_session_id_round_trips gives: a
+    # miscount in insert_audit_log's column list shifts every later value.
+    assert fetched.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert fetched.prompt_hash == "h10"
+    assert fetched.denied_permission is None
+
+    entries = list_audit_logs()
+    assert entries[0].dedup_key == "k"
+
+
+def test_dedup_key_survives_the_batched_read(temp_db):
+    """The other read shape: `_SUMMARY_SQL`'s hand-written `json_object(...)`.
+    A key read by the mapper but missing from that list fails the batched
+    `rows` figure on every call, so it is asserted, with one row carrying a key
+    and one not."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-16T09:10:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h11",
+            dedup_key="k",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-16T09:15:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="h12",
+        )
+    )
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    assert [row.dedup_key for row in snapshot.rows] == [None, "k"]
+
+
 def test_get_audit_log_missing_id_returns_none(temp_db):
     assert get_audit_log(999) is None
 
@@ -629,6 +757,7 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "role",
         "denied_permission",
         "session_id",  # PRD-008 STORY-002
+        "dedup_key",  # PRD-009 STORY-002
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -1619,6 +1748,32 @@ def test_audit_logs_added_columns_carries_a_nullable_session_id():
     assert "session_id TEXT" in CREATE_AUDIT_LOGS_TABLE
 
 
+def test_audit_logs_added_columns_carries_a_nullable_dedup_key():
+    """PRD-009 STORY-002. No default, on purpose (D6): rows written before the
+    column existed stay NULL and are never backfilled, and a NULL key can never
+    match a duplicate lookup.
+
+    Declared in both places, like session_id above.
+    """
+    assert AUDIT_LOGS_ADDED_COLUMNS["dedup_key"] == "TEXT"
+    assert "dedup_key TEXT" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_audit_logs_dedup_index_is_the_lookup_access_path():
+    """The column order is the lookup's (PRD-009 Section 6.3): equality on
+    user_id, equality on dedup_key, range on timestamp.
+
+    Not UNIQUE: the same key legitimately repeats -- a duplicate-blocked row, a
+    failure or a denial carries the key of the request it answered.
+    """
+    assert "CREATE INDEX IF NOT EXISTS" in CREATE_AUDIT_LOGS_DEDUP_INDEX
+    assert (
+        "idx_audit_logs_dedup ON audit_logs(user_id, dedup_key, timestamp)"
+        in CREATE_AUDIT_LOGS_DEDUP_INDEX
+    )
+    assert "UNIQUE" not in CREATE_AUDIT_LOGS_DEDUP_INDEX.upper()
+
+
 def test_every_added_column_is_also_declared_in_the_create():
     """The pair is the invariant, not a coincidence of this one column: a column
     in only the mapping means every fresh deployment ALTERs its own brand-new
@@ -1644,7 +1799,25 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     assert carried.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
 
     names = [field.name for field in dataclasses.fields(AuditLog)]
-    assert names[-2:] == ["session_id", "id"]
+    # PRD-009 STORY-002 appended dedup_key after session_id. The claim is
+    # unchanged: the surrogate key stays the trailing field.
+    assert names[-3:] == ["session_id", "dedup_key", "id"]
+
+
+def test_audit_log_carries_dedup_key_without_breaking_construction():
+    """PRD-009 STORY-002: optional and defaulted, so every existing keyword
+    construction of AuditLog -- log_query, the migration script -- is untouched."""
+    assert AuditLog(
+        timestamp="2026-09-16T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc"
+    ).dedup_key is None
+
+    carried = AuditLog(
+        timestamp="2026-09-16T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        dedup_key="k",
+    )
+    assert carried.dedup_key == "k"
 
 
 def test_stored_message_mirrors_the_chat_messages_columns():
@@ -1718,6 +1891,98 @@ def test_init_db_creates_the_chat_indexes(temp_db, index):
             "SELECT name FROM sqlite_master WHERE type='index' AND name=?", (index,)
         ).fetchone()
     assert row is not None
+
+
+def _dedup_index_rows(conn) -> list:
+    return [
+        row
+        for row in conn.execute("PRAGMA index_list(audit_logs)")
+        if row["name"] == "idx_audit_logs_dedup"
+    ]
+
+
+def _index_columns(conn, index) -> list:
+    rows = sorted(conn.execute(f"PRAGMA index_info({index})"), key=lambda r: r["seqno"])
+    return [row["name"] for row in rows]
+
+
+def test_init_db_creates_the_dedup_index_with_its_columns_in_order(temp_db):
+    """PRD-009 STORY-002 AC 2 on a fresh database: the index as *built*, not as
+    declared. The order is the lookup's access path (Section 6.3), so a
+    reordering is a regression even though every column is still present."""
+    with get_connection() as conn:
+        rows = _dedup_index_rows(conn)
+        columns = _index_columns(conn, "idx_audit_logs_dedup")
+
+    assert len(rows) == 1, rows
+    assert rows[0]["unique"] == 0
+    assert columns == ["user_id", "dedup_key", "timestamp"]
+
+
+def test_init_db_adds_a_nullable_dedup_key_column(temp_db):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info["dedup_key"]["type"] == "TEXT"
+    assert info["dedup_key"]["notnull"] == 0
+    assert info["dedup_key"]["dflt_value"] is None
+
+
+_DEDUP_LOOKUP_SQL = (
+    "SELECT timestamp FROM audit_logs "
+    "WHERE user_id = ? AND dedup_key = ? AND timestamp >= ? "
+    "AND success = 1 AND was_duplicate_blocked = 0 "
+    "AND denied_permission IS NULL "
+    "ORDER BY timestamp ASC LIMIT 1"
+)
+
+
+def test_dedup_lookup_shape_uses_the_dedup_index(temp_db):
+    """PRD-009 STORY-007 AC 3: `find_duplicate_timestamp`'s lookup (Section 6.3)
+    is served by idx_audit_logs_dedup. The SQL is spelled out, as
+    test_find_user_by_token_hash_uses_the_index spells its own;
+    test_find_duplicate_timestamp_sql_is_the_planned_shape keeps the two from
+    drifting."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-16T09:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h",
+            dedup_key="k",
+        )
+    )
+
+    with get_connection() as conn:
+        plan = " ".join(
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN " + _DEDUP_LOOKUP_SQL,
+                ("ana@empresa.com", "k", "2026-09-15T09:00:00Z"),
+            )
+        )
+
+    assert "idx_audit_logs_dedup" in plan, plan
+    assert "SCAN" not in plan.upper(), plan
+    assert (
+        database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-15T09:00:00Z")
+        == "2026-09-16T09:00:00Z"
+    )
+
+
+def test_find_duplicate_timestamp_sql_is_the_planned_shape():
+    """PRD-009 STORY-007 AC 1: the function runs exactly the SQL whose plan is
+    pinned above, and the control no longer reads prompt_hash (D5)."""
+    source = inspect.getsource(database.find_duplicate_timestamp)
+    queries = re.findall(r'"""(.*?)"""', source, re.S)
+
+    assert len(queries) == 1, queries
+    assert " ".join(queries[0].split()) == _DEDUP_LOOKUP_SQL
+    assert list(inspect.signature(database.find_duplicate_timestamp).parameters) == [
+        "user_id",
+        "dedup_key",
+        "since",
+    ]
+    assert "prompt_hash" not in source
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):
@@ -1872,6 +2137,83 @@ def test_init_db_migrates_a_pre_chat_sessions_database(uninitialized_db, db_conn
     assert count_audit_logs() == 2
     assert get_audit_log(2).user_id == "bob@empresa.com"
     assert get_audit_log(2).session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+
+def test_init_db_migrates_a_pre_dedup_key_database(uninitialized_db, db_connect):
+    """PRD-009 STORY-002 AC 2: a database created before this PRD gains
+    dedup_key and its index, the existing row reads NULL, and nothing is
+    rewritten.
+
+    `_add_missing_columns()` is **unmodified** by this story. This is evidence
+    for that path carrying the new column, and for the index statement running
+    only once the column exists -- placed before it, this test fails the boot.
+    """
+    _create_pre_dedup_key_database(db_connect, uninitialized_db)
+
+    init_db()
+
+    with get_connection() as conn:
+        assert "dedup_key" in _column_names(conn, "audit_logs")
+        assert len(_dedup_index_rows(conn)) == 1
+        assert _index_columns(conn, "idx_audit_logs_dedup") == [
+            "user_id",
+            "dedup_key",
+            "timestamp",
+        ]
+
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "carla@empresa.com"
+    assert preserved.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert preserved.dedup_key is None
+
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-16T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="def009",
+            dedup_key="k",
+        )
+    )
+    assert count_audit_logs() == 2
+    assert get_audit_log(2).dedup_key == "k"
+
+
+def test_init_db_creates_the_dedup_index_after_adding_the_column(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The story's ordering rule, pinned directly rather than only through its
+    symptom: the ALTER that adds dedup_key precedes the index on it, on the one
+    `_session()` connection that builds the whole schema."""
+    _create_pre_dedup_key_database(db_connect, uninitialized_db)
+    statements: list[str] = []
+    connections: list[object] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    def _record(conn):
+        proxy = _RecordingConnection(conn)
+        connections.append(proxy)
+        return proxy
+
+    _install(monkeypatch, _record)
+
+    init_db()
+
+    alter = [
+        i
+        for i, sql in enumerate(statements)
+        if "ALTER TABLE AUDIT_LOGS ADD COLUMN DEDUP_KEY" in " ".join(sql.upper().split())
+    ]
+    assert len(alter) == 1, statements
+    assert CREATE_AUDIT_LOGS_DEDUP_INDEX in statements, statements
+    assert alter[0] < statements.index(CREATE_AUDIT_LOGS_DEDUP_INDEX), statements
+    # check_database_reachable()'s probe plus the one bootstrap `_session()`.
+    assert len(connections) == 2
+    assert statements.count("SELECT 1") == 1, statements
 
 
 def test_bootstrap_disabled_creates_no_chat_tables(database_url, monkeypatch):
@@ -2729,6 +3071,10 @@ def test_two_init_db_calls_racing_on_session_id_both_converge(
     `_add_missing_columns()` is unmodified by this story. This is evidence for
     an existing guarantee carrying a new column, not for new code -- which is
     exactly what the story asked to be proven rather than assumed.
+
+    PRD-009 note: since STORY-002 `dedup_key` is in flight here too; the
+    assertions below still name `session_id`, and
+    `test_two_init_db_calls_racing_on_dedup_key_both_converge` isolates the other.
     """
     _create_pre_chat_sessions_database(db_connect, uninitialized_db)
     gate = threading.Barrier(2, timeout=30)
@@ -2748,6 +3094,42 @@ def test_two_init_db_calls_racing_on_session_id_both_converge(
     preserved = get_audit_log(1)
     assert preserved.user_id == "carla@empresa.com"
     assert preserved.session_id is None
+
+
+def test_two_init_db_calls_racing_on_dedup_key_both_converge(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """PRD-009 STORY-002 AC 3, asserted the way the session_id race above is.
+
+    The fixture is the pre-PRD-009 20-column shape, so `dedup_key` is the
+    **only** column in flight: both threads read a stale PRAGMA, both attempt
+    `ADD COLUMN dedup_key`, and `_is_duplicate_column()` turns the loser's
+    failure into convergence. Both then run `CREATE INDEX IF NOT EXISTS`, so the
+    single index afterwards shows that statement is race-safe too.
+
+    `_add_missing_columns()` is unmodified by this story -- evidence for an
+    existing guarantee carrying a new column, not for new code.
+    """
+    _create_pre_dedup_key_database(db_connect, uninitialized_db)
+    gate = threading.Barrier(2, timeout=30)
+    _install(monkeypatch, lambda conn: _GatedConnection(conn, gate))
+
+    failures = _run_concurrently(2, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+        index_rows = _dedup_index_rows(conn)
+
+    assert columns.count("dedup_key") == 1, columns
+    assert set(AUDIT_LOGS_ADDED_COLUMNS) <= set(columns)
+    assert len(index_rows) == 1, index_rows
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.user_id == "carla@empresa.com"
+    assert preserved.dedup_key is None
 
 
 def test_add_missing_columns_propagates_a_failure_that_is_not_a_duplicate_column(
