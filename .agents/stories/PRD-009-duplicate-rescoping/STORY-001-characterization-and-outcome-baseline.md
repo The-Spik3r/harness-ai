@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "1 - Pin and prepare"
-status: in-progress
+status: done
 labels: [backend, tests, security]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: .agents/plans/PRD-009-duplicate-rescoping/STORY-001-characterization-and-outcome-baseline.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-001-characterization-and-outcome-baseline.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-001-characterization-and-outcome-baseline.report.md
+commit: 9abef61
 depends_on: []
 blocks: [STORY-002, STORY-003, STORY-004]
 skills: []
