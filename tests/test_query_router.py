@@ -302,7 +302,7 @@ _REDACTED_PROMPT = "my email is <EMAIL_ADDRESS>, can you draft a reply?"
 
 def _capturing_openrouter(seen: list):
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response="drafted", model_used=model, tokens_used=9)
 
     return _call
@@ -574,7 +574,7 @@ def test_both_directions_redacted_in_one_request(temp_db, monkeypatch):
     seen = []
 
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response=_PII_RESPONSE, model_used=model, tokens_used=9)
 
     monkeypatch.setattr("app.routers.query.call_openrouter", _call)

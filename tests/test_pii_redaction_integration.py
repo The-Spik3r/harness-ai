@@ -62,7 +62,7 @@ def _capturing_openrouter(seen: list, response: str = _PII_RESPONSE):
     """Records the outbound prompt, then answers with PII of its own."""
 
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response=response, model_used=model, tokens_used=9)
 
     return _call

@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from app.config import settings
+from app.models.messages import Message
 from app.services.openrouter_client import (
     OpenRouterError,
     call_openrouter,
@@ -41,7 +42,7 @@ def _response(content="Hello!", tokens=45, status_code=200, body=None):
 def test_success_returns_response_model_and_tokens():
     client = _FakeClient(response=_response(content="Hello!", tokens=45))
 
-    result = call_openrouter("hello", model="gpt-4", api_key="req-key", client=client)
+    result = call_openrouter([Message("user", "hello")], model="gpt-4", api_key="req-key", client=client)
 
     assert result.response == "Hello!"
     assert result.model_used == "gpt-4"
@@ -51,7 +52,7 @@ def test_success_returns_response_model_and_tokens():
 def test_default_model_used_when_omitted():
     client = _FakeClient(response=_response())
 
-    result = call_openrouter("hello", api_key="req-key", client=client)
+    result = call_openrouter([Message("user", "hello")], api_key="req-key", client=client)
 
     assert result.model_used == "gpt-4"
     assert client.requests[0]["json"]["model"] == "gpt-4"
@@ -61,7 +62,7 @@ def test_per_request_api_key_overrides_env(monkeypatch):
     monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "env-key")
     client = _FakeClient(response=_response())
 
-    call_openrouter("hello", api_key="explicit-key", client=client)
+    call_openrouter([Message("user", "hello")], api_key="explicit-key", client=client)
 
     assert client.requests[0]["headers"]["Authorization"] == "Bearer explicit-key"
 
@@ -70,7 +71,7 @@ def test_falls_back_to_env_key_when_not_provided(monkeypatch):
     monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "env-key")
     client = _FakeClient(response=_response())
 
-    call_openrouter("hello", client=client)
+    call_openrouter([Message("user", "hello")], client=client)
 
     assert client.requests[0]["headers"]["Authorization"] == "Bearer env-key"
 
@@ -79,35 +80,35 @@ def test_missing_key_raises_config_error(monkeypatch):
     monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "")
 
     with pytest.raises(OpenRouterError, match="not configured"):
-        call_openrouter("hello", client=_FakeClient())
+        call_openrouter([Message("user", "hello")], client=_FakeClient())
 
 
 def test_network_error_raises_openrouter_error():
     client = _FakeClient(exc=httpx.ConnectTimeout("timed out"))
 
     with pytest.raises(OpenRouterError):
-        call_openrouter("hello", api_key="k", client=client)
+        call_openrouter([Message("user", "hello")], api_key="k", client=client)
 
 
 def test_non_2xx_status_raises_openrouter_error():
     client = _FakeClient(response=_response(status_code=500))
 
     with pytest.raises(OpenRouterError):
-        call_openrouter("hello", api_key="k", client=client)
+        call_openrouter([Message("user", "hello")], api_key="k", client=client)
 
 
 def test_malformed_response_body_raises_openrouter_error():
     client = _FakeClient(response=_response(body={"unexpected": "shape"}))
 
     with pytest.raises(OpenRouterError):
-        call_openrouter("hello", api_key="k", client=client)
+        call_openrouter([Message("user", "hello")], api_key="k", client=client)
 
 
 def test_api_key_never_appears_in_error_message():
     client = _FakeClient(exc=httpx.ConnectTimeout("timed out"))
 
     with pytest.raises(OpenRouterError) as exc_info:
-        call_openrouter("hello", api_key="super-secret-key", client=client)
+        call_openrouter([Message("user", "hello")], api_key="super-secret-key", client=client)
 
     assert "super-secret-key" not in str(exc_info.value)
 
@@ -121,7 +122,7 @@ def test_api_key_never_appears_in_error_message():
 def test_characterization_payload_shape_is_byte_identical():
     client = _FakeClient(response=_response())
 
-    call_openrouter("hello", model="gpt-4", api_key="k", client=client)
+    call_openrouter([Message("user", "hello")], model="gpt-4", api_key="k", client=client)
 
     payload = client.requests[0]["json"]
     expected = {"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}]}
@@ -134,7 +135,7 @@ def test_characterization_payload_shape_is_byte_identical():
 def test_characterization_headers_and_url():
     client = _FakeClient(response=_response())
 
-    call_openrouter("hello", model="gpt-4", api_key="k", client=client)
+    call_openrouter([Message("user", "hello")], model="gpt-4", api_key="k", client=client)
 
     request = client.requests[0]
     assert request["url"] == _API_URL
@@ -161,6 +162,38 @@ def test_characterization_default_client_uses_todays_timeout(monkeypatch):
 
     monkeypatch.setattr(httpx, "Client", _StubHttpxClient)
 
-    call_openrouter("hello", api_key="k")
+    call_openrouter([Message("user", "hello")], api_key="k")
 
     assert captured["kwargs"] == {"timeout": 30.0}
+
+
+# --- PRD-010 STORY-004: call_openrouter takes a list of Messages ---
+
+
+def test_multi_message_conversation_preserves_order_roles_and_content():
+    client = _FakeClient(response=_response())
+    messages = [
+        Message("system", "be terse"),
+        Message("user", "hi"),
+        Message("assistant", "hello"),
+        Message("user", "and now?"),
+    ]
+
+    call_openrouter(messages, model="gpt-4", api_key="k", client=client)
+
+    payload = client.requests[0]["json"]
+    assert payload["messages"] == [
+        {"role": "system", "content": "be terse"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "user", "content": "and now?"},
+    ]
+
+
+def test_empty_messages_raises_before_any_http_call():
+    client = _FakeClient(response=_response())
+
+    with pytest.raises(OpenRouterError):
+        call_openrouter([], api_key="k", client=client)
+
+    assert client.requests == []

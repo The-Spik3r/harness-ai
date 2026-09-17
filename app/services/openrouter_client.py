@@ -1,9 +1,10 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import httpx
 
 from app.config import settings
+from app.models.messages import Message
 
 _API_URL = "https://openrouter.ai/api/v1/chat/completions"
 _DEFAULT_MODEL = "gpt-4"
@@ -22,11 +23,14 @@ class OpenRouterResult:
 
 
 def call_openrouter(
-    prompt: str,
+    messages: Sequence[Message],
     model: str = _DEFAULT_MODEL,
     api_key: Optional[str] = None,
     client: Optional[httpx.Client] = None,
 ) -> OpenRouterResult:
+    if not messages:
+        raise OpenRouterError("messages must not be empty")
+
     resolved_key = api_key or settings.OPENROUTER_API_KEY
     if not resolved_key:
         raise OpenRouterError(
@@ -39,7 +43,7 @@ def call_openrouter(
     }
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": m.role, "content": m.content} for m in messages],
     }
 
     owns_client = client is None

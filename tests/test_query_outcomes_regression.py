@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from app.db.database import get_audit_log, get_connection, insert_user
 from app.db.models import AuditLog, User
 from app.main import app
+from app.models.messages import Message
 import app.services.query_pipeline as query_pipeline
 from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
@@ -224,8 +225,9 @@ def test_characterization_query_upstream_receives_prompt_model_and_no_api_key(
 ):
     received = {}
 
-    def _recording_success(prompt, model="gpt-4", api_key=None):
-        received["prompt"] = prompt
+    # PRD-010 STORY-004: upstream now receives list[Message]
+    def _recording_success(messages, model="gpt-4", api_key=None):
+        received["messages"] = messages
         received["model"] = model
         received["api_key"] = api_key
         return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
@@ -237,4 +239,8 @@ def test_characterization_query_upstream_receives_prompt_model_and_no_api_key(
 
     assert response.status_code == 200
     assert response.json()["status"] == "SUCCESS"
-    assert received == {"prompt": prompt, "model": "gpt-4", "api_key": None}
+    assert received == {
+        "messages": [Message("user", prompt)],
+        "model": "gpt-4",
+        "api_key": None,
+    }

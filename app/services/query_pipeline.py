@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Union
 
+from app.models.messages import Message
 from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
@@ -162,7 +163,7 @@ def run_query(
 
     try:
         openrouter_result = call_openrouter(
-            redacted_prompt, model=model, api_key=openrouter_api_key
+            [Message("user", redacted_prompt)], model=model, api_key=openrouter_api_key
         )
     except OpenRouterError as exc:
         log_query(
