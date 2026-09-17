@@ -766,25 +766,28 @@ def insert_audit_log(entry: AuditLog) -> int:
         return cursor.lastrowid
 
 
-def find_duplicate_timestamp(prompt_hash: str, since: str) -> Optional[str]:
+def find_duplicate_timestamp(user_id: str, prompt_hash: str, since: str) -> Optional[str]:
     with _session() as conn:
         # Only a row with a real verdict is a prior query: it reached the model,
         # or a content check blocked it (PRD-009 F4, D1). Failures (success = 0,
         # the output-redaction arm included, T6), policy denials (D1) and
         # duplicate blocks (D3: a blocked row must not chain the window) are
         # excluded. denied_permission is nullable, hence IS NULL, not = ''.
-        # Still global on prompt_hash until STORY-005 / STORY-007.
+        # Scoped to the caller (PRD-009 F5): another user's row never counts, so
+        # nobody can poison a colleague's window (T2); N accounts may each send
+        # a prompt once per window, accepted and left to PRD-013 (T1).
+        # Still matches on prompt_hash until STORY-007.
         row = conn.execute(
             """
             SELECT timestamp FROM audit_logs
-            WHERE prompt_hash = ? AND timestamp >= ?
+            WHERE user_id = ? AND prompt_hash = ? AND timestamp >= ?
               AND success = 1
               AND was_duplicate_blocked = 0
               AND denied_permission IS NULL
             ORDER BY timestamp ASC
             LIMIT 1
             """,
-            (prompt_hash, since),
+            (user_id, prompt_hash, since),
         ).fetchone()
         return row["timestamp"] if row is not None else None
 

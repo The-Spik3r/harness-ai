@@ -315,9 +315,9 @@ def test_duplicate_and_pattern_checks_still_receive_the_raw_prompt(temp_db, monk
     real_check_duplicate = query_pipeline.check_duplicate
     real_detect = query_pipeline.detect_suspicious_pattern
 
-    def _spy_duplicate(prompt):
+    def _spy_duplicate(user_id, prompt):
         seen_duplicate.append(prompt)
-        return real_check_duplicate(prompt)
+        return real_check_duplicate(user_id, prompt)
 
     def _spy_pattern(prompt):
         seen_pattern.append(prompt)

@@ -14,12 +14,13 @@ that already existed, rather than as a new test that silently started passing
 - failure rows (`OpenRouterError`, input `PiiRedactorError`), policy-denial rows
   (D1) and duplicate-blocked rows (D3) -> **STORY-004** (flipped; assertions
   now pin PRD-009 behaviour, each cited in place)
-- another user's row (T2) -> **STORY-005**
+- another user's row (T1/T2) -> **STORY-005** (flipped; assertions now pin
+  PRD-009 behaviour, each cited in place)
 
 A story that flips one of these must rewrite the assertion in place with a
-comment citing PRD-009 and its decision -- not delete the test. The module
-therefore mixes pre-PRD pins (STORY-005's) with flipped ones; each test's
-docstring says which kind it is. The six
+comment citing PRD-009 and its decision -- not delete the test. Every test in
+the module has now been flipped; each docstring still records the pre-PRD pin
+it started as. The six
 `/query` outcomes that must *not* change live separately, in
 `tests/test_query_outcomes_regression.py`.
 """
@@ -229,8 +230,10 @@ def test_pre_prd009_row_from_one_user_blocks_same_prompt_from_another_user(
     lookup has no `user_id` predicate, so Juan's answered prompt blocks María's
     identical one -- a prompt she never saw.
 
-    Expected to flip in **STORY-005** (lookup scoped by the authenticated
-    `user_id`). After it, both sends reach the model.
+    Flipped in **STORY-005** (PRD-009 T1/T2, F5): the lookup is scoped by the
+    authenticated `user_id`, so María's send reaches the model, and only her own
+    resend is blocked, against her own row. The name is kept because it
+    describes the pre-PRD pin this test was written against.
     """
     prompt = "summarise this week's incidents"
     calls = []
@@ -245,15 +248,30 @@ def test_pre_prd009_row_from_one_user_blocks_same_prompt_from_another_user(
     maria = client.post("/query", headers=_MARIA_HEADERS, json={"prompt": prompt})
 
     assert maria.status_code == 200
-    assert maria.json() == {
-        "status": "BLOCKED",
-        "reason": _DUPLICATE_REASON,
-        "first_query_at": juan_at,
-    }
-    assert len(calls) == 1
+    # PRD-009 STORY-005 (T1/T2): another user's row is no longer a prior query --
+    # was BLOCKED with first_query_at = juan_at.
+    assert maria.json()["status"] == "SUCCESS"
+    assert len(calls) == 2
     maria_entry = _latest_entry()
     assert maria_entry.user_id == _MARIA_ID
-    assert maria_entry.was_duplicate_blocked is True
+    assert maria_entry.was_duplicate_blocked is False
+    maria_at = maria_entry.timestamp
+
+    resend = client.post("/query", headers=_MARIA_HEADERS, json={"prompt": prompt})
+
+    # Her own success is the prior. Timestamps have one-second resolution, so
+    # maria_at may equal juan_at here; the "not the other user's timestamp"
+    # proof lives in tests/test_duplicate_checker.py, with seeded rows.
+    assert resend.status_code == 200
+    assert resend.json() == {
+        "status": "BLOCKED",
+        "reason": _DUPLICATE_REASON,
+        "first_query_at": maria_at,
+    }
+    assert len(calls) == 2
+    resend_entry = _latest_entry()
+    assert resend_entry.user_id == _MARIA_ID
+    assert resend_entry.was_duplicate_blocked is True
 
 
 def test_pre_prd009_duplicate_blocked_row_keeps_window_alive_after_original_ages_out(

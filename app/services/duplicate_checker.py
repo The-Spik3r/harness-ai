@@ -24,12 +24,12 @@ def hash_prompt(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
-def check_duplicate(prompt: str) -> DuplicateCheckResult:
+def check_duplicate(user_id: str, prompt: str) -> DuplicateCheckResult:
     prompt_hash = hash_prompt(prompt)
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime(_TIMESTAMP_FORMAT)
 
     try:
-        match = find_duplicate_timestamp(prompt_hash, cutoff)
+        match = find_duplicate_timestamp(user_id, prompt_hash, cutoff)
     except StorageError as exc:
         raise DuplicateCheckError(f"Duplicate lookup failed: {exc}") from exc
 

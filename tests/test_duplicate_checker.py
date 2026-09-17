@@ -28,6 +28,7 @@ from app.services.query_pipeline import run_query
 import app.services.query_pipeline as query_pipeline
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+_SEEDED_USER = "juan@empresa.com"
 
 
 def _timestamp(hours_ago: float) -> str:
@@ -40,7 +41,7 @@ def _seed(prompt_hash: str, hours_ago: float) -> str:
     insert_audit_log(
         AuditLog(
             timestamp=timestamp,
-            user_id="juan@empresa.com",
+            user_id=_SEEDED_USER,
             prompt_hash=prompt_hash,
         )
     )
@@ -49,10 +50,10 @@ def _seed(prompt_hash: str, hours_ago: float) -> str:
 
 def _seed_row(prompt_hash: str, hours_ago: float, **fields) -> str:
     timestamp = _timestamp(hours_ago)
+    fields.setdefault("user_id", _SEEDED_USER)
     insert_audit_log(
         AuditLog(
             timestamp=timestamp,
-            user_id="juan@empresa.com",
             prompt_hash=prompt_hash,
             **fields,
         )
@@ -61,7 +62,7 @@ def _seed_row(prompt_hash: str, hours_ago: float, **fields) -> str:
 
 
 def test_no_duplicate_when_no_matching_row(temp_db):
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
     assert result.is_duplicate is False
     assert result.first_query_at is None
 
@@ -69,7 +70,7 @@ def test_no_duplicate_when_no_matching_row(temp_db):
 def test_duplicate_detected_within_24h(temp_db):
     timestamp = _seed(hash_prompt("hello world"), hours_ago=2)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is True
     assert result.first_query_at == timestamp
@@ -78,7 +79,7 @@ def test_duplicate_detected_within_24h(temp_db):
 def test_not_duplicate_when_older_than_24h(temp_db):
     _seed(hash_prompt("hello world"), hours_ago=25)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is False
 
@@ -86,7 +87,7 @@ def test_not_duplicate_when_older_than_24h(temp_db):
 def test_boundary_just_inside_24h(temp_db):
     timestamp = _seed(hash_prompt("hello world"), hours_ago=23 + 59 / 60)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is True
     assert result.first_query_at == timestamp
@@ -95,7 +96,7 @@ def test_boundary_just_inside_24h(temp_db):
 def test_boundary_just_outside_24h(temp_db):
     _seed(hash_prompt("hello world"), hours_ago=24 + 1 / 60)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is False
 
@@ -105,7 +106,7 @@ def test_whitespace_difference_produces_different_hash_and_not_flagged(temp_db):
 
     _seed(hash_prompt("hello world"), hours_ago=2)
 
-    result = check_duplicate("hello world ")
+    result = check_duplicate(_SEEDED_USER, "hello world ")
 
     assert result.is_duplicate is False
 
@@ -115,7 +116,7 @@ def test_earliest_entry_returned_as_first_query_at(temp_db):
     earliest = _seed(prompt_hash, hours_ago=10)
     _seed(prompt_hash, hours_ago=3)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is True
     assert result.first_query_at == earliest
@@ -123,7 +124,7 @@ def test_earliest_entry_returned_as_first_query_at(temp_db):
 
 def test_malformed_db_raises_duplicate_check_error(uninitialized_db):
     with pytest.raises(DuplicateCheckError):
-        check_duplicate("anything")
+        check_duplicate(_SEEDED_USER, "anything")
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ def test_malformed_db_raises_duplicate_check_error(uninitialized_db):
 def test_failed_row_is_not_a_prior_query(temp_db):
     _seed_row(hash_prompt("hello world"), hours_ago=2, success=False)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is False
 
@@ -143,7 +144,7 @@ def test_policy_denied_row_is_not_a_prior_query(temp_db):
     # success defaults to True: a denial is logged success=1 (D1).
     _seed_row(hash_prompt("hello world"), hours_ago=2, denied_permission="query:submit")
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is False
 
@@ -151,7 +152,7 @@ def test_policy_denied_row_is_not_a_prior_query(temp_db):
 def test_duplicate_blocked_row_is_not_a_prior_query(temp_db):
     _seed_row(hash_prompt("hello world"), hours_ago=2, was_duplicate_blocked=True)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is False
 
@@ -164,7 +165,7 @@ def test_suspicious_pattern_row_is_a_prior_query(temp_db):
         suspicious_pattern="ignore previous instructions",
     )
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is True
     assert result.first_query_at == timestamp
@@ -176,7 +177,7 @@ def test_success_outside_window_and_blocked_row_inside_is_not_a_duplicate(temp_d
     _seed_row(prompt_hash, hours_ago=25)
     _seed_row(prompt_hash, hours_ago=2, was_duplicate_blocked=True)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is False
 
@@ -186,7 +187,7 @@ def test_first_query_at_skips_a_later_blocked_row_for_the_earlier_success(temp_d
     success_at = _seed_row(prompt_hash, hours_ago=10)
     _seed_row(prompt_hash, hours_ago=2, was_duplicate_blocked=True)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is True
     assert result.first_query_at == success_at
@@ -198,10 +199,36 @@ def test_earliest_qualifying_row_wins_over_an_earlier_failed_row(temp_db):
     _seed_row(prompt_hash, hours_ago=10, success=False)
     success_at = _seed_row(prompt_hash, hours_ago=3)
 
-    result = check_duplicate("hello world")
+    result = check_duplicate(_SEEDED_USER, "hello world")
 
     assert result.is_duplicate is True
     assert result.first_query_at == success_at
+
+
+# ---------------------------------------------------------------------------
+# PRD-009 STORY-005 (F5; T1/T2): the lookup is scoped by the authenticated user_id.
+# ---------------------------------------------------------------------------
+
+
+def test_row_from_a_different_user_is_not_a_prior_query(temp_db):
+    # T2: María's answered prompt cannot poison Juan's window.
+    _seed_row(hash_prompt("hello world"), hours_ago=2, user_id="maria@empresa.com")
+
+    result = check_duplicate(_SEEDED_USER, "hello world")
+
+    assert result.is_duplicate is False
+
+
+def test_own_row_is_found_when_another_users_row_is_earlier(temp_db):
+    # ORDER BY timestamp ASC applies inside the caller's own rows only.
+    prompt_hash = hash_prompt("hello world")
+    _seed_row(prompt_hash, hours_ago=10, user_id="maria@empresa.com")
+    own_at = _seed_row(prompt_hash, hours_ago=3)
+
+    result = check_duplicate(_SEEDED_USER, "hello world")
+
+    assert result.is_duplicate is True
+    assert result.first_query_at == own_at
 
 
 # ---------------------------------------------------------------------------
@@ -228,14 +255,14 @@ def _counting_success(calls: list):
 
 
 def test_retry_after_missing_submit_permission_denial_reaches_model(temp_db):
-    # A different, authorized user resends. The lookup is still global on
-    # prompt_hash in this story, so before STORY-004 the reviewer's denial row
-    # would have blocked Ana -- that is what this pins (D1).
+    # PRD-009 STORY-005: same user_id, role changed between sends -- per-user
+    # scope alone would let a different user through, so only D1 (a denial is
+    # not a prior query) explains the success.
     prompt = "summarise the quarterly risk register"
     calls = []
 
     denied = run_query(
-        identity=Identity(user_id="reviewer", role="auditor"),  # lacks query:submit
+        identity=Identity(user_id="ana", role="auditor"),  # lacks query:submit
         prompt=prompt,
         device=None,
         model="gpt-4",
@@ -364,3 +391,41 @@ def test_retry_after_output_redaction_failure_reaches_model(temp_db, monkeypatch
 
     assert isinstance(result, QuerySuccessResponse)
     assert len(calls) == 2
+
+
+def test_same_prompt_from_two_users_reaches_model_and_each_is_blocked_only_by_their_own_success(
+    temp_db,
+):
+    # PRD-009 STORY-005 (T2): María's success cannot poison Juan's window, and
+    # Juan's own resend is blocked against his own success, not hers. María's
+    # row is seeded hours earlier so the two timestamps are provably distinct.
+    prompt = "summarise this week's incidents"
+    juan = Identity(user_id="juan@empresa.com", role="user")
+    calls = []
+    maria_at = _seed_row(hash_prompt(prompt), hours_ago=3, user_id="maria@empresa.com")
+
+    first = run_query(
+        identity=juan,
+        prompt=prompt,
+        device=None,
+        model="gpt-4",
+        openrouter_api_key=None,
+        call_openrouter=_counting_success(calls),
+    )
+
+    assert isinstance(first, QuerySuccessResponse)
+    assert len(calls) == 1
+    juan_at = get_audit_log(_last_audit_id()).timestamp
+
+    resend = run_query(
+        identity=juan,
+        prompt=prompt,
+        device=None,
+        model="gpt-4",
+        openrouter_api_key=None,
+        call_openrouter=_fail_if_called,
+    )
+
+    assert isinstance(resend, QueryBlockedDuplicateResponse)
+    assert resend.first_query_at == juan_at
+    assert resend.first_query_at != maria_at

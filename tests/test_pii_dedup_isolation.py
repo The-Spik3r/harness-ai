@@ -105,10 +105,12 @@ def test_distinct_pii_prompts_are_never_duplicates_of_each_other(temp_db, monkey
         json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
         headers=_JUAN_HEADERS,
     )
+    # PRD-009 STORY-005 (T1/T2): same sender, so a redacted-text hash would collide
+    # and block -- two users would pass regardless of what is hashed.
     second = client.post(
         "/query",
-        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_B},
-        headers=_MARIA_HEADERS,
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_B},
+        headers=_JUAN_HEADERS,
     )
 
     assert first.json()["status"] == "SUCCESS"
@@ -129,10 +131,12 @@ def test_identical_pii_prompt_is_still_blocked_as_duplicate(temp_db, monkeypatch
     assert first.json()["status"] == "SUCCESS"
 
     monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    # PRD-009 STORY-005 (T1/T2): dedup is per caller, so the control repeats the
+    # same user's send -- was María, which only blocked while the lookup was global.
     second = client.post(
         "/query",
-        json={"user_id": "maria@empresa.com", "prompt": _PROMPT_A},
-        headers=_MARIA_HEADERS,
+        json={"user_id": "juan@empresa.com", "prompt": _PROMPT_A},
+        headers=_JUAN_HEADERS,
     )
 
     body = second.json()
@@ -229,9 +233,12 @@ def test_hash_prompt_is_plain_sha256_of_utf8_text():
 def test_check_duplicate_public_contract_is_stable():
     signature = inspect.signature(check_duplicate)
 
-    assert list(signature.parameters) == ["prompt"]
-    assert signature.parameters["prompt"].annotation is str
-    assert signature.parameters["prompt"].default is inspect.Parameter.empty
+    # PRD-009 Section 6.5 (STORY-005): was ["prompt"]. user_id comes first so
+    # STORY-007 only swaps the second parameter, prompt -> key.
+    assert list(signature.parameters) == ["user_id", "prompt"]
+    for name in ("user_id", "prompt"):
+        assert signature.parameters[name].annotation is str
+        assert signature.parameters[name].default is inspect.Parameter.empty
     assert signature.return_annotation is DuplicateCheckResult
     assert [field.name for field in DuplicateCheckResult.__dataclass_fields__.values()] == [
         "is_duplicate",
@@ -268,9 +275,9 @@ def test_pipeline_runs_both_checks_before_any_redaction(temp_db, monkeypatch):
     real_pattern = query_pipeline.detect_suspicious_pattern
     real_redact = query_pipeline.redact
 
-    def _spy_duplicate(prompt):
+    def _spy_duplicate(user_id, prompt):
         calls.append(("check_duplicate", prompt))
-        return real_duplicate(prompt)
+        return real_duplicate(user_id, prompt)
 
     def _spy_pattern(prompt):
         calls.append(("detect_suspicious_pattern", prompt))

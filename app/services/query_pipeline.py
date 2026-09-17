@@ -87,7 +87,10 @@ def run_query(
                 reason="Missing required permission",
             )
 
-    duplicate_result = check_duplicate(prompt)
+    # identity.user_id is the credential-resolved id, never the request body's,
+    # so a caller cannot choose whose window they are checked against
+    # (PRD-009 Section 9.1, F5).
+    duplicate_result = check_duplicate(identity.user_id, prompt)
 
     if duplicate_result.is_duplicate:
         log_query(

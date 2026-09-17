@@ -44,9 +44,9 @@ def test_forbidden_identity_blocked_before_check_duplicate(temp_db, monkeypatch)
     duplicate_calls = []
     real_check_duplicate = query_pipeline.check_duplicate
 
-    def _spy_check_duplicate(prompt):
+    def _spy_check_duplicate(user_id, prompt):
         duplicate_calls.append(prompt)
-        return real_check_duplicate(prompt)
+        return real_check_duplicate(user_id, prompt)
 
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_check_duplicate)
 
