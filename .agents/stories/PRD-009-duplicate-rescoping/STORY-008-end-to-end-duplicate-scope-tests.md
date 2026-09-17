@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "3 - Switch to the key"
-status: todo
+status: done
 labels: [backend, tests, security]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-008-end-to-end-duplicate-scope-tests.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-008-end-to-end-duplicate-scope-tests.report.md
+commit: 7302bd9
 depends_on: [STORY-007]
 blocks: [STORY-009]
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-008: End-to-end /query tests for every row of the what-counts table: two users, retry after failure, denial, chaining
