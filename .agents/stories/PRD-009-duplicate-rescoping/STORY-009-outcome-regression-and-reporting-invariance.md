@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Regress and document"
-status: todo
+status: done
 labels: [backend, tests, audit]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-009-outcome-regression-and-reporting-invariance.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-009-outcome-regression-and-reporting-invariance.report.md
+commit: 29e471e
 depends_on: [STORY-008]
 blocks: [STORY-010]
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-009: Six-outcome regression and /audit, /stats and admin-console invariance verified on the finished epic

@@ -6,7 +6,7 @@
 
 ## Progress
 
-8/10 stories done — 80%
+9/10 stories done — 90%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-009-duplicate-rescoping`. No per
 | STORY-006 | run_query computes dedup_key once and log_query writes it on all seven arms | feature | ✅ done | medium | [plan](../../plans/PRD-009-duplicate-rescoping/completed/STORY-006-pipeline-writes-dedup-key-on-every-arm.plan.md) | `d56f2c3` |
 | STORY-007 | check_duplicate(user_id, key) and the lookup match on dedup_key, with the pinned contract tests updated | feature | ✅ done | medium | [plan](../../plans/PRD-009-duplicate-rescoping/completed/STORY-007-lookup-matches-on-dedup-key.plan.md) | `c734df9` |
 | STORY-008 | End-to-end /query tests for every row of the what-counts table: two users, retry after failure, denial, chaining | technical | ✅ done | medium | [plan](../../plans/PRD-009-duplicate-rescoping/completed/STORY-008-end-to-end-duplicate-scope-tests.plan.md) | `7302bd9` |
-| STORY-009 | Six-outcome regression and /audit, /stats and admin-console invariance verified on the finished epic | technical | ⬜ todo | small | — | — |
+| STORY-009 | Six-outcome regression and /audit, /stats and admin-console invariance verified on the finished epic | technical | ✅ done | small | [plan](../../plans/PRD-009-duplicate-rescoping/completed/STORY-009-outcome-regression-and-reporting-invariance.plan.md) | `29e471e` |
 | STORY-010 | README documents the rescoped control, its trade-offs and the resolved multi-turn blocker; .env.example confirmed unchanged | technical | ⬜ todo | small | — | — |
 
 ## Status Icons
