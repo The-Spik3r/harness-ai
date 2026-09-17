@@ -7,12 +7,12 @@ type: enhancement
 priority: high
 complexity: medium
 phase: "1 - Model, settings, client"
-status: todo
+status: done
 labels: [backend, openrouter]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-004-openrouter-client-sends-messages.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-004-openrouter-client-sends-messages.report.md
+commit: 65451c1
 depends_on: [STORY-001, STORY-003]
 blocks: [STORY-005, STORY-007]
 skills: []
