@@ -12,11 +12,14 @@ that already existed, rather than as a new test that silently started passing
 (PRD-009 Section 2, "Pin before you change"; Risk 5). Who flips what:
 
 - failure rows (`OpenRouterError`, input `PiiRedactorError`), policy-denial rows
-  (D1) and duplicate-blocked rows (D3) -> **STORY-004**
+  (D1) and duplicate-blocked rows (D3) -> **STORY-004** (flipped; assertions
+  now pin PRD-009 behaviour, each cited in place)
 - another user's row (T2) -> **STORY-005**
 
 A story that flips one of these must rewrite the assertion in place with a
-comment citing PRD-009 and its decision -- not delete the test. The six
+comment citing PRD-009 and its decision -- not delete the test. The module
+therefore mixes pre-PRD pins (STORY-005's) with flipped ones; each test's
+docstring says which kind it is. The six
 `/query` outcomes that must *not* change live separately, in
 `tests/test_query_outcomes_regression.py`.
 """
@@ -115,8 +118,8 @@ def test_pre_prd009_openrouter_failure_row_blocks_same_prompt_retry(temp_db, mon
     `success=0` row an upstream failure leaves behind blocks the user's retry
     of the same prompt, which never got an answer.
 
-    Expected to flip in **STORY-004** (failed rows stop counting as a prior
-    query; PRD-009 Section 6.3). After it, the retry reaches the model.
+    Flipped in **STORY-004** (PRD-009 Section 6.3, F4): a `success=0` row is no
+    longer a prior query, so the retry reaches the model.
     """
     prompt = "draft the Q3 vendor summary"
 
@@ -128,16 +131,17 @@ def test_pre_prd009_openrouter_failure_row_blocks_same_prompt_retry(temp_db, mon
     assert failed_entry.success is False
     assert failed_entry.error_message == "boom"
 
-    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    calls = []
+    monkeypatch.setattr("app.routers.query.call_openrouter", _counting_success(calls))
     retry = client.post("/query", headers=_JUAN_HEADERS, json={"prompt": prompt})
 
     assert retry.status_code == 200
-    assert retry.json() == {
-        "status": "BLOCKED",
-        "reason": _DUPLICATE_REASON,
-        "first_query_at": failed_entry.timestamp,
-    }
-    assert _latest_entry().was_duplicate_blocked is True
+    # PRD-009 STORY-004 (Section 6.3, F4): failed rows no longer count -- was
+    # BLOCKED with first_query_at = failed_entry.timestamp.
+    assert retry.json()["status"] == "SUCCESS"
+    assert len(calls) == 1
+    assert _latest_entry().was_duplicate_blocked is False
+    assert _latest_entry().success is True
     assert _count_audit_rows() == 2
 
 
@@ -145,11 +149,11 @@ def test_pre_prd009_input_redactor_failure_row_blocks_same_prompt_retry(temp_db,
     """Pins pre-PRD-009 behaviour (defect #1, PRD-009 Section 1): the
     `success=0` row an input `PiiRedactorError` leaves behind blocks the retry.
 
-    Expected to flip in **STORY-004** (failed rows stop counting as a prior
-    query; PRD-009 Section 6.3). After it, the retry reaches the model.
+    Flipped in **STORY-004** (PRD-009 Section 6.3, F4): a `success=0` row is no
+    longer a prior query, so the retry reaches the model.
 
-    The real redactor is restored before the retry, so the block cannot be a
-    second redactor failure in disguise: it is the duplicate check alone.
+    The real redactor is restored before the retry, and the retry reaching the
+    model proves it: a second redactor failure would never call it.
     """
     prompt = "summarise the onboarding checklist"
     real_redact = query_pipeline.redact
@@ -163,15 +167,16 @@ def test_pre_prd009_input_redactor_failure_row_blocks_same_prompt_retry(temp_db,
     assert failed_entry.success is False
 
     monkeypatch.setattr(query_pipeline, "redact", real_redact)
+    calls = []
+    monkeypatch.setattr("app.routers.query.call_openrouter", _counting_success(calls))
     retry = client.post("/query", headers=_JUAN_HEADERS, json={"prompt": prompt})
 
     assert retry.status_code == 200
-    assert retry.json() == {
-        "status": "BLOCKED",
-        "reason": _DUPLICATE_REASON,
-        "first_query_at": failed_entry.timestamp,
-    }
-    assert _latest_entry().was_duplicate_blocked is True
+    # PRD-009 STORY-004 (Section 6.3, F4): failed rows no longer count -- was
+    # BLOCKED with first_query_at = failed_entry.timestamp.
+    assert retry.json()["status"] == "SUCCESS"
+    assert len(calls) == 1
+    assert _latest_entry().was_duplicate_blocked is False
     assert _count_audit_rows() == 2
 
 
@@ -183,8 +188,8 @@ def test_pre_prd009_policy_denial_row_blocks_same_user_resend_with_allowed_model
     prompt's hash, so the same user resending with an *allowed* model is held
     as a duplicate of the refusal.
 
-    Expected to flip in **STORY-004** (D1: a policy denial is not a prior
-    query). After it, the resend reaches the model.
+    Flipped in **STORY-004** (D1: a policy denial is not a prior query): the
+    resend reaches the model.
     """
     prompt = "compare the two supplier contracts"
     monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
@@ -200,18 +205,20 @@ def test_pre_prd009_policy_denial_row_blocks_same_user_resend_with_allowed_model
     assert denied.json()["required_permission"] == f"query:model:{_DISALLOWED_MODEL}"
     denial_entry = _latest_entry()
     assert denial_entry.denied_permission == f"query:model:{_DISALLOWED_MODEL}"
+    # success=1 on a denial is why the lookup needs `denied_permission IS NULL`.
     assert denial_entry.success is True
 
+    calls = []
+    monkeypatch.setattr("app.routers.query.call_openrouter", _counting_success(calls))
     resend = client.post(
         "/query", headers=_JUAN_HEADERS, json={"prompt": prompt, "model": "gpt-4"}
     )
 
     assert resend.status_code == 200
-    assert resend.json() == {
-        "status": "BLOCKED",
-        "reason": _DUPLICATE_REASON,
-        "first_query_at": denial_entry.timestamp,
-    }
+    # PRD-009 STORY-004 (D1): a policy denial is not a prior query -- was
+    # BLOCKED with first_query_at = denial_entry.timestamp.
+    assert resend.json()["status"] == "SUCCESS"
+    assert len(calls) == 1
     assert _count_audit_rows() == 2
 
 
@@ -259,10 +266,11 @@ def test_pre_prd009_duplicate_blocked_row_keeps_window_alive_after_original_ages
 
         t=-25h  A  success             (outside the window)
         t=-2h   B  duplicate-blocked   (inside the window)
-        t=now   same prompt -> BLOCKED, first_query_at = B
+        t=now   same prompt -> reaches the model (was: BLOCKED, first_query_at = B)
 
-    Expected to flip in **STORY-004** (D3: a duplicate-blocked row does not
-    extend the window). After it, the send reaches the model.
+    Flipped in **STORY-004** (D3, PRD-009 Section 6.4): a duplicate-blocked row
+    does not extend the window. The name is kept because it describes the
+    pre-PRD pin this test was written against; the assertions now pin D3.
 
     Seeded rather than sent: the ages are the point, and only a backdated row
     can have them.
@@ -287,14 +295,13 @@ def test_pre_prd009_duplicate_blocked_row_keeps_window_alive_after_original_ages
             success=True,
         )
     )
-    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    calls = []
+    monkeypatch.setattr("app.routers.query.call_openrouter", _counting_success(calls))
 
     response = client.post("/query", headers=_JUAN_HEADERS, json={"prompt": prompt})
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "BLOCKED",
-        "reason": _DUPLICATE_REASON,
-        "first_query_at": b_timestamp,
-    }
-    assert response.json()["first_query_at"] != a_timestamp
+    # PRD-009 STORY-004 (D3): a duplicate-blocked row no longer extends the
+    # window -- was BLOCKED with first_query_at = b_timestamp.
+    assert response.json()["status"] == "SUCCESS"
+    assert len(calls) == 1
