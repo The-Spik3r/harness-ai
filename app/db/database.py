@@ -21,6 +21,7 @@ from app.db.errors import (
 )
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
+    CREATE_AUDIT_LOGS_DEDUP_INDEX,
     CREATE_AUDIT_LOGS_TABLE,
     CREATE_CHAT_MESSAGES_SESSION_INDEX,
     CREATE_CHAT_MESSAGES_TABLE,
@@ -658,6 +659,14 @@ def init_db() -> None:
     column, `audit_logs.session_id`, and it needed no new code here -- it rides
     `_add_missing_columns()` below, which iterates the mapping it was already
     iterating.
+
+    PRD-009 STORY-002 adds one more column, `audit_logs.dedup_key`, on the same
+    path and with no new code in `_add_missing_columns()` either. It also adds
+    the first index on `audit_logs`, and that is the one statement in this block
+    whose position is load-bearing: on a database created before PRD-009 the
+    column does not exist until `_add_missing_columns()` has run, and an index
+    on a missing column fails the boot. So it sits on the line after. In steady
+    state it is one more `CREATE INDEX IF NOT EXISTS` no-op.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -666,6 +675,7 @@ def init_db() -> None:
     with _session() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
         _add_missing_columns(conn)
+        conn.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
         conn.execute(CREATE_USERS_TABLE)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
         conn.execute(CREATE_CHAT_SESSIONS_TABLE)
@@ -727,8 +737,8 @@ def insert_audit_log(entry: AuditLog) -> int:
                 response_hash, response_preview, model_used, tokens_used,
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
-                role, denied_permission, session_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                role, denied_permission, session_id, dedup_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -750,6 +760,7 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.role,
                 entry.denied_permission,
                 entry.session_id,
+                entry.dedup_key,
             ),
         )
         return cursor.lastrowid
@@ -803,6 +814,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         role=row["role"],
         denied_permission=row["denied_permission"],
         session_id=row["session_id"],
+        dedup_key=row["dedup_key"],
     )
 
 
@@ -1128,7 +1140,8 @@ SELECT
               'pii_entities', pii_entities,
               'role', role,
               'denied_permission', denied_permission,
-              'session_id', session_id))
+              'session_id', session_id,
+              'dedup_key', dedup_key))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
