@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "1 - Pin and prepare"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-003-conversation-dedup-key-function.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-003-conversation-dedup-key-function.report.md
+commit: 2603805
 depends_on: [STORY-001]
 blocks: [STORY-006]
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-003: dedup_key(user_id, turns): a pure, versioned key over a conversation, with single-turn as the empty-prefix case
