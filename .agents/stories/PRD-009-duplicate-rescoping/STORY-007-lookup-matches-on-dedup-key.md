@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Switch to the key"
-status: todo
+status: done
 labels: [backend, database, security]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-007-lookup-matches-on-dedup-key.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-007-lookup-matches-on-dedup-key.report.md
+commit: c734df9
 depends_on: [STORY-005, STORY-006]
 blocks: [STORY-008, STORY-010]
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-007: check_duplicate(user_id, key) and the lookup match on dedup_key, with the pinned contract tests updated
