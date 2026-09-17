@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Model, settings, client"
-status: todo
+status: done
 labels: [backend, openrouter, security]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-005-generation-params-timeout-and-null-content.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-005-generation-params-timeout-and-null-content.report.md
+commit: 4914674
 depends_on: [STORY-002, STORY-004]
 blocks: [STORY-007, STORY-016]
 skills: []
@@ -28,11 +28,11 @@ As a compliance admin, I want generation parameters limited to a validated allow
 
 ## Acceptance Criteria
 
-- [ ] Given [app/services/openrouter_client.py](../../../app/services/openrouter_client.py), when it is read, then it defines a frozen `GenerationParams(temperature, max_tokens, top_p, stop)` (all `Optional`, default `None`), `UnsupportedParameterError`, and `GenerationParams.from_mapping(raw)`. `call_openrouter` gains `params: Optional[GenerationParams] = None`, and the payload includes **only** the non-`None` fields.
-- [ ] Given `from_mapping({"logit_bias": {}, "tools": [], "stream": True, "temperature": 0.2})`, when it is called, then it raises `UnsupportedParameterError` naming all three unsupported keys, sorted. Given `temperature=3`, `top_p=0`, `max_tokens=0`, or `stop` with five sequences or a non-str element, then each raises `UnsupportedParameterError` naming the field and its allowed range. All checks happen before any HTTP call (test with a client that fails if used).
-- [ ] Given `params=None` and one user message, when the payload is recorded, then STORY-003's characterization assertion still holds byte for byte.
-- [ ] Given `settings.OPENROUTER_TIMEOUT_SECONDS = 7.5` (monkeypatched) and no `client`, when `call_openrouter` builds its client, then `httpx.Client` is constructed with `timeout=7.5`. The module constant `_TIMEOUT_SECONDS` is removed, and STORY-003's `timeout=30.0` assertion is updated with a `# PRD-010 STORY-005: timeout from settings (default 120.0)` comment.
-- [ ] Given an upstream 200 whose `choices[0].message.content` is `null`, when parsed, then `OpenRouterError` is raised with `"OpenRouter returned no text content (finish_reason=<value>)"`. If `message.tool_calls` is present, the message adds `"tool calls are not supported (PRD-016)"`. Through `POST /query` that maps to 502 (test), and the API key never appears in either message.
+- [x] Given [app/services/openrouter_client.py](../../../app/services/openrouter_client.py), when it is read, then it defines a frozen `GenerationParams(temperature, max_tokens, top_p, stop)` (all `Optional`, default `None`), `UnsupportedParameterError`, and `GenerationParams.from_mapping(raw)`. `call_openrouter` gains `params: Optional[GenerationParams] = None`, and the payload includes **only** the non-`None` fields.
+- [x] Given `from_mapping({"logit_bias": {}, "tools": [], "stream": True, "temperature": 0.2})`, when it is called, then it raises `UnsupportedParameterError` naming all three unsupported keys, sorted. Given `temperature=3`, `top_p=0`, `max_tokens=0`, or `stop` with five sequences or a non-str element, then each raises `UnsupportedParameterError` naming the field and its allowed range. All checks happen before any HTTP call (test with a client that fails if used).
+- [x] Given `params=None` and one user message, when the payload is recorded, then STORY-003's characterization assertion still holds byte for byte.
+- [x] Given `settings.OPENROUTER_TIMEOUT_SECONDS = 7.5` (monkeypatched) and no `client`, when `call_openrouter` builds its client, then `httpx.Client` is constructed with `timeout=7.5`. The module constant `_TIMEOUT_SECONDS` is removed, and STORY-003's `timeout=30.0` assertion is updated with a `# PRD-010 STORY-005: timeout from settings (default 120.0)` comment.
+- [x] Given an upstream 200 whose `choices[0].message.content` is `null`, when parsed, then `OpenRouterError` is raised with `"OpenRouter returned no text content (finish_reason=<value>)"`. If `message.tool_calls` is present, the message adds `"tool calls are not supported (PRD-016)"`. Through `POST /query` that maps to 502 (test), and the API key never appears in either message.
 
 ## Technical Notes
 
