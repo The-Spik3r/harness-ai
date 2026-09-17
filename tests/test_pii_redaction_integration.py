@@ -297,10 +297,22 @@ _TEST_DEF = re.compile(r"^(?:async )?def (test_\w+)", re.MULTILINE)
 
 
 def _git(*args):
-    """Run a git command at the repo root; None when git/history is unavailable."""
+    """Run a git command at the repo root; None when git/history is unavailable.
+
+    Decoded as UTF-8 explicitly: `text=True` alone uses the locale encoding, which
+    is cp1252 on Windows, and `git show` of a UTF-8 test file (`tests/reports_fixture.py`'s
+    `❌` carries byte 0x9d, undefined in cp1252) then dies in subprocess's reader
+    thread, leaving stdout None -- read
+    below as "git show failed" for a file git served perfectly well.
+    """
     try:
         result = subprocess.run(
-            ["git", *args], cwd=_REPO_ROOT, capture_output=True, text=True, timeout=30
+            ["git", *args],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
         return None
