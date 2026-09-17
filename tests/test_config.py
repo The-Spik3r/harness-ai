@@ -361,3 +361,89 @@ def test_env_example_says_what_the_off_state_does():
     assert block.count("\n") >= 2, "one line cannot say what the off state does"
     for token in ("false", "transcript", "rail", "prd-008"):
         assert token in block, f"the CHAT_HISTORY_ENABLED comment never mentions {token!r}"
+
+
+# --- PRD-010 STORY-002: upstream timeout, context limits, pipeline workers --
+#
+# Nothing reads these settings yet. What is asserted here is that each has
+# the documented default, and that a value of 0 or negative fails at
+# construction with a message naming the setting and what it controls.
+
+
+def test_multiturn_pipeline_settings_available_with_documented_defaults():
+    """AC 1 / AC 3: all four settings exist with PRD-010 Section 9.3's defaults."""
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.OPENROUTER_TIMEOUT_SECONDS == 120.0
+    assert result.CONTEXT_MAX_MESSAGES == 100
+    assert result.CONTEXT_MAX_CHARACTERS == 200_000
+    assert result.PIPELINE_MAX_WORKERS == 32
+
+
+@pytest.mark.parametrize("value", [0, 0.0, -1, "0"])
+def test_openrouter_timeout_seconds_at_or_below_zero_is_a_startup_error(value):
+    """AC 2: names the setting, the value received, and its purpose."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_TIMEOUT_SECONDS=value)
+
+    message = str(exc_info.value)
+    assert "OPENROUTER_TIMEOUT_SECONDS" in message
+    assert "upstream request timeout in seconds" in message
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("CONTEXT_MAX_MESSAGES", 0),
+        ("CONTEXT_MAX_MESSAGES", -1),
+        ("CONTEXT_MAX_MESSAGES", "0"),
+        ("CONTEXT_MAX_CHARACTERS", 0),
+        ("CONTEXT_MAX_CHARACTERS", -1),
+        ("CONTEXT_MAX_CHARACTERS", "0"),
+        ("PIPELINE_MAX_WORKERS", 0),
+        ("PIPELINE_MAX_WORKERS", -1),
+        ("PIPELINE_MAX_WORKERS", "0"),
+    ],
+)
+def test_a_pipeline_size_setting_below_one_is_a_startup_error(field, value):
+    """AC 3: each of the three integer settings, in the _validate_chat_session_limit style.
+
+    `"0"` sits alongside the ints for the same reason CHAT_SESSION_LIMIT's
+    equivalent test does: the environment supplies strings, and pydantic
+    coerces before the validator runs.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, **{field: value})
+
+    assert field in str(exc_info.value)
+
+
+def test_pipeline_size_settings_accept_the_boundary_value_of_one():
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        CONTEXT_MAX_MESSAGES=1,
+        CONTEXT_MAX_CHARACTERS=1,
+        PIPELINE_MAX_WORKERS=1,
+    )
+
+    assert result.CONTEXT_MAX_MESSAGES == 1
+    assert result.CONTEXT_MAX_CHARACTERS == 1
+    assert result.PIPELINE_MAX_WORKERS == 1
+
+
+def test_settings_construct_without_the_multiturn_pipeline_vars(monkeypatch):
+    """The defaults are the module's, not a developer's exported environment."""
+    for var in (
+        "OPENROUTER_TIMEOUT_SECONDS",
+        "CONTEXT_MAX_MESSAGES",
+        "CONTEXT_MAX_CHARACTERS",
+        "PIPELINE_MAX_WORKERS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    fresh = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert fresh.OPENROUTER_TIMEOUT_SECONDS == 120.0
+    assert fresh.CONTEXT_MAX_MESSAGES == 100
+    assert fresh.CONTEXT_MAX_CHARACTERS == 200_000
+    assert fresh.PIPELINE_MAX_WORKERS == 32
