@@ -2,8 +2,8 @@
 target_prd: PRD-010
 slug: multi-turn-pipeline
 title: Multi-turn pipeline
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-010-multi-turn-pipeline/PRD.md
 depends_on: [PRD-009]
 blocks: [PRD-011, PRD-012, PRD-013, PRD-014]
 estimated_stories: 16-20
