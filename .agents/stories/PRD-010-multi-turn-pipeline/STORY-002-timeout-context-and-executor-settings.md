@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Model, settings, client"
-status: todo
+status: done
 labels: [backend, config]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-002-timeout-context-and-executor-settings.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-002-timeout-context-and-executor-settings.report.md
+commit: 6c7048e
 depends_on: []
 blocks: [STORY-005, STORY-006, STORY-008]
 skills: []
