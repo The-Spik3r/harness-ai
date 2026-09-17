@@ -197,9 +197,15 @@ def _changed_since_epic_base(path: str) -> list:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+# PRD-009 (Section 6.5; STORY-003 onward) owns duplicate_checker.py by design:
+# it adds dedup_key here and later rescopes check_duplicate. PRD-003's RF-6
+# promise -- dedup never sees masked text -- stays pinned behaviourally by
+# test_duplicate_checker_has_no_redaction_dependency, the hash_prompt census
+# and test_hash_prompt_only_ever_receives_raw_text. pattern_detector.py is
+# untouched by PRD-009 and stays pinned by source.
 @pytest.mark.parametrize(
     "path",
-    ["app/services/duplicate_checker.py", "app/services/pattern_detector.py"],
+    ["app/services/pattern_detector.py"],
 )
 def test_dedup_and_pattern_sources_unmodified_on_this_branch(path):
     """RF-6: this epic must not touch either module -- working tree included."""
@@ -341,7 +347,11 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
 
 
 def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
-    """A new call site must fail here so it gets re-checked for raw-text input."""
+    """A new call site must fail here so it gets re-checked for raw-text input.
+
+    Four sites since PRD-009 STORY-003 added dedup_key; the name is kept so the
+    census change stays visible in the diff.
+    """
     pattern = re.compile(r"(?<!def )hash_prompt\(")
     census = {}
     for path in sorted((_REPO_ROOT / "app").rglob("*.py")):
@@ -351,5 +361,9 @@ def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
 
     assert census == {
         "app/services/audit_logger.py": 2,
-        "app/services/duplicate_checker.py": 1,
+        # PRD-009 STORY-003 (Section 6.5): the second site is dedup_key's last turn.
+        # It still receives raw text only -- the caller's own turn content, the same
+        # string check_duplicate and audit_logger hash; the prefix is hashed with
+        # hashlib directly, so it adds no site. No production caller exists yet.
+        "app/services/duplicate_checker.py": 2,
     }
