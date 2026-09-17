@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Pin and prepare"
-status: todo
+status: done
 labels: [backend, database, migration]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-002-dedup-key-column-and-index.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-002-dedup-key-column-and-index.report.md
+commit: c8b303b
 depends_on: [STORY-001]
 blocks: [STORY-006]
 skills: []

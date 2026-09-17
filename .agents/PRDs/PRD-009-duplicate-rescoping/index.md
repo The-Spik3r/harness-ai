@@ -6,7 +6,7 @@
 
 ## Progress
 
-1/10 stories done — 10%
+2/10 stories done — 20%
 
 ## Stories
 
@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-009-duplicate-rescoping`. No per
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Characterization tests of today's duplicate lookup and the six-outcome /query baseline, on untouched production code | technical | ✅ done | medium | [plan](../../plans/PRD-009-duplicate-rescoping/completed/STORY-001-characterization-and-outcome-baseline.plan.md) | `9abef61` |
-| STORY-002 | audit_logs.dedup_key column and idx_audit_logs_dedup, converged by init_db() and round-tripped by AuditLog | technical | ⬜ todo | small | — | — |
+| STORY-002 | audit_logs.dedup_key column and idx_audit_logs_dedup, converged by init_db() and round-tripped by AuditLog | technical | ✅ done | small | [plan](../../plans/PRD-009-duplicate-rescoping/completed/STORY-002-dedup-key-column-and-index.plan.md) | `c8b303b` |
 | STORY-003 | dedup_key(user_id, turns): a pure, versioned key over a conversation, with single-turn as the empty-prefix case | feature | ⬜ todo | small | — | — |
 | STORY-004 | Duplicate lookup ignores failed, policy-denied and duplicate-blocked rows | bug | ⬜ todo | medium | — | — |
 | STORY-005 | Duplicate lookup scoped by the authenticated user_id | bug | ⬜ todo | small | — | — |
