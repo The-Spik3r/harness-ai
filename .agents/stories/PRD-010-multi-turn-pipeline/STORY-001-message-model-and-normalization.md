@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Model, settings, client"
-status: in-progress
+status: done
 labels: [backend, models]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: .agents/plans/PRD-010-multi-turn-pipeline/STORY-001-message-model-and-normalization.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-001-message-model-and-normalization.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-001-message-model-and-normalization.report.md
+commit: a41155f
 depends_on: []
 blocks: [STORY-004, STORY-007, STORY-011]
 skills: []

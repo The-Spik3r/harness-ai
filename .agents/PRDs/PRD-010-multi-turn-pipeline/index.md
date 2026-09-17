@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/18 stories done — 0%
+1/18 stories done — 6%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Message model, Role type and OpenAI content normalization | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/STORY-001-message-model-and-normalization.plan.md) | — |
+| STORY-001 | Message model, Role type and OpenAI content normalization | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-001-message-model-and-normalization.plan.md) | `a41155f` |
 | STORY-002 | Settings: upstream timeout, context limits and pipeline executor size | technical | ⬜ todo | small | — | — |
 | STORY-003 | Characterize today's OpenRouter request payload and /query upstream body | technical | ⬜ todo | small | — | — |
 | STORY-004 | call_openrouter takes a list of Messages; the pipeline passes one user message | enhancement | ⬜ todo | medium | — | — |
