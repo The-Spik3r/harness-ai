@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Model, settings, client"
-status: todo
+status: done
 labels: [backend, tests, regression]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-003-openrouter-payload-characterization.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-003-openrouter-payload-characterization.report.md
+commit: 1459475
 depends_on: []
 blocks: [STORY-004]
 skills: []

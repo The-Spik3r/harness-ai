@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/18 stories done — 11%
+3/18 stories done — 17%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Message model, Role type and OpenAI content normalization | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-001-message-model-and-normalization.plan.md) | `a41155f` |
 | STORY-002 | Settings: upstream timeout, context limits and pipeline executor size | technical | ✅ done | small | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-002-timeout-context-and-executor-settings.plan.md) | `6c7048e` |
-| STORY-003 | Characterize today's OpenRouter request payload and /query upstream body | technical | ⬜ todo | small | — | — |
+| STORY-003 | Characterize today's OpenRouter request payload and /query upstream body | technical | ✅ done | small | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-003-openrouter-payload-characterization.plan.md) | `1459475` |
 | STORY-004 | call_openrouter takes a list of Messages; the pipeline passes one user message | enhancement | ⬜ todo | medium | — | — |
 | STORY-005 | GenerationParams allowlist, configurable timeout and explicit null-content error | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Dedicated pipeline executor; /query async with its body off the event loop; ChatState uses it | technical | ⬜ todo | medium | — | — |
