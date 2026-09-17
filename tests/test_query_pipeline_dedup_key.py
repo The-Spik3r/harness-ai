@@ -9,8 +9,8 @@ a row written with a NULL key can never serve as a prior query, so a forgotten
 arm silently disables the control for that path. So there is one case per arm,
 each asserting against the row that arm actually wrote.
 
-This story only *writes* the key. The lookup still matches on `prompt_hash`
-until STORY-007, which is why the duplicate arm below is seeded the ordinary way.
+This story only *writes* the key. STORY-007 switched the lookup to it, so the
+duplicate arm below is blocked *because* its seeded send's row carries the key.
 """
 
 import inspect
@@ -156,8 +156,8 @@ def test_every_arm_writes_one_row_carrying_the_single_turn_key(
 ):
     """STORY-006 AC 3: exactly one row per arm, keyed, never NULL."""
     if seed_first:
-        # The lookup still matches on prompt_hash (STORY-007 switches it), so a
-        # same-user success is what makes the send under test the blocked one.
+        # The lookup matches on dedup_key (STORY-007), so a same-user success --
+        # whose row carries the same key -- makes the send under test the blocked one.
         run_query(device=None, **dict(kwargs, call_openrouter=_fake_call_openrouter))
 
     before = _count_audit_rows()

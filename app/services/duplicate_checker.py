@@ -24,12 +24,13 @@ def hash_prompt(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
-def check_duplicate(user_id: str, prompt: str) -> DuplicateCheckResult:
-    prompt_hash = hash_prompt(prompt)
+# key is dedup_key(user_id, turns) (PRD-009 Section 6.2): hashing happens there,
+# from raw text. Named key, not dedup_key, so it does not shadow that function.
+def check_duplicate(user_id: str, key: str) -> DuplicateCheckResult:
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime(_TIMESTAMP_FORMAT)
 
     try:
-        match = find_duplicate_timestamp(user_id, prompt_hash, cutoff)
+        match = find_duplicate_timestamp(user_id, key, cutoff)
     except StorageError as exc:
         raise DuplicateCheckError(f"Duplicate lookup failed: {exc}") from exc
 

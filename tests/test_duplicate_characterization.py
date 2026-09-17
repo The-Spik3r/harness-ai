@@ -30,6 +30,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -44,7 +45,7 @@ from app.db.database import (
 from app.db.models import AuditLog, User
 from app.main import app
 import app.services.query_pipeline as query_pipeline
-from app.services.duplicate_checker import hash_prompt
+from app.services.duplicate_checker import dedup_key, hash_prompt
 from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
@@ -59,6 +60,17 @@ _MARIA_HEADERS = {"Authorization": f"Bearer {_MARIA_TOKEN}"}
 client = TestClient(app)
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+@dataclass(frozen=True)
+class _Turn:
+    role: str
+    content: str
+
+
+def _key(user_id: str, prompt: str) -> str:
+    """The single-turn key run_query derives for this caller and raw prompt."""
+    return dedup_key(user_id, [_Turn("user", prompt)])
 _DUPLICATE_REASON = "Duplicate query within 24 hours"
 _DISALLOWED_MODEL = "not-a-real-model"
 
@@ -291,7 +303,9 @@ def test_pre_prd009_duplicate_blocked_row_keeps_window_alive_after_original_ages
     pre-PRD pin this test was written against; the assertions now pin D3.
 
     Seeded rather than sent: the ages are the point, and only a backdated row
-    can have them.
+    can have them. Both rows carry the key /query derives (PRD-009 STORY-007),
+    so the blocked row is matchable on everything but its flag: SUCCESS proves
+    D3, not merely that a NULL-keyed row never matches (D6).
     """
     prompt = "list the open procurement tickets"
     a_timestamp = _timestamp(hours_ago=25)
@@ -301,6 +315,7 @@ def test_pre_prd009_duplicate_blocked_row_keeps_window_alive_after_original_ages
             timestamp=a_timestamp,
             user_id=_JUAN_ID,
             prompt_hash=hash_prompt(prompt),
+            dedup_key=_key(_JUAN_ID, prompt),
             success=True,
         )
     )
@@ -309,6 +324,7 @@ def test_pre_prd009_duplicate_blocked_row_keeps_window_alive_after_original_ages
             timestamp=b_timestamp,
             user_id=_JUAN_ID,
             prompt_hash=hash_prompt(prompt),
+            dedup_key=_key(_JUAN_ID, prompt),
             was_duplicate_blocked=True,
             success=True,
         )

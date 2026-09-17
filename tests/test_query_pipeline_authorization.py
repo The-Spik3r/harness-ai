@@ -44,9 +44,11 @@ def test_forbidden_identity_blocked_before_check_duplicate(temp_db, monkeypatch)
     duplicate_calls = []
     real_check_duplicate = query_pipeline.check_duplicate
 
-    def _spy_check_duplicate(user_id, prompt):
-        duplicate_calls.append(prompt)
-        return real_check_duplicate(user_id, prompt)
+    # PRD-009 Section 6.5 (STORY-007): signature only -- check_duplicate now
+    # receives the key. What this test asserts (it never ran) is unchanged.
+    def _spy_check_duplicate(user_id, key):
+        duplicate_calls.append(key)
+        return real_check_duplicate(user_id, key)
 
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_check_duplicate)
 

@@ -111,8 +111,9 @@ def run_query(
 
     # identity.user_id is the credential-resolved id, never the request body's,
     # so a caller cannot choose whose window they are checked against
-    # (PRD-009 Section 9.1, F5).
-    duplicate_result = check_duplicate(identity.user_id, prompt)
+    # (PRD-009 Section 9.1, F5). The key is the one derived above, once
+    # (STORY-007): the control checks exactly what every row records.
+    duplicate_result = check_duplicate(identity.user_id, key)
 
     if duplicate_result.is_duplicate:
         log_query(

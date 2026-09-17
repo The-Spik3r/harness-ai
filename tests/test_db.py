@@ -1928,10 +1928,21 @@ def test_init_db_adds_a_nullable_dedup_key_column(temp_db):
     assert info["dedup_key"]["dflt_value"] is None
 
 
+_DEDUP_LOOKUP_SQL = (
+    "SELECT timestamp FROM audit_logs "
+    "WHERE user_id = ? AND dedup_key = ? AND timestamp >= ? "
+    "AND success = 1 AND was_duplicate_blocked = 0 "
+    "AND denied_permission IS NULL "
+    "ORDER BY timestamp ASC LIMIT 1"
+)
+
+
 def test_dedup_lookup_shape_uses_the_dedup_index(temp_db):
-    """The SQL is PRD-009 Section 6.3's lookup, spelled out here because
-    `find_duplicate_timestamp` does not take this shape until STORY-007. This
-    proves the index serves that access path before anything depends on it."""
+    """PRD-009 STORY-007 AC 3: `find_duplicate_timestamp`'s lookup (Section 6.3)
+    is served by idx_audit_logs_dedup. The SQL is spelled out, as
+    test_find_user_by_token_hash_uses_the_index spells its own;
+    test_find_duplicate_timestamp_sql_is_the_planned_shape keeps the two from
+    drifting."""
     insert_audit_log(
         AuditLog(
             timestamp="2026-09-16T09:00:00Z",
@@ -1945,18 +1956,33 @@ def test_dedup_lookup_shape_uses_the_dedup_index(temp_db):
         plan = " ".join(
             row["detail"]
             for row in conn.execute(
-                "EXPLAIN QUERY PLAN "
-                "SELECT timestamp FROM audit_logs "
-                "WHERE user_id = ? AND dedup_key = ? AND timestamp >= ? "
-                "AND success = 1 AND was_duplicate_blocked = 0 "
-                "AND denied_permission IS NULL "
-                "ORDER BY timestamp ASC LIMIT 1",
+                "EXPLAIN QUERY PLAN " + _DEDUP_LOOKUP_SQL,
                 ("ana@empresa.com", "k", "2026-09-15T09:00:00Z"),
             )
         )
 
     assert "idx_audit_logs_dedup" in plan, plan
     assert "SCAN" not in plan.upper(), plan
+    assert (
+        database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-15T09:00:00Z")
+        == "2026-09-16T09:00:00Z"
+    )
+
+
+def test_find_duplicate_timestamp_sql_is_the_planned_shape():
+    """PRD-009 STORY-007 AC 1: the function runs exactly the SQL whose plan is
+    pinned above, and the control no longer reads prompt_hash (D5)."""
+    source = inspect.getsource(database.find_duplicate_timestamp)
+    queries = re.findall(r'"""(.*?)"""', source, re.S)
+
+    assert len(queries) == 1, queries
+    assert " ".join(queries[0].split()) == _DEDUP_LOOKUP_SQL
+    assert list(inspect.signature(database.find_duplicate_timestamp).parameters) == [
+        "user_id",
+        "dedup_key",
+        "since",
+    ]
+    assert "prompt_hash" not in source
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):

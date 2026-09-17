@@ -766,7 +766,7 @@ def insert_audit_log(entry: AuditLog) -> int:
         return cursor.lastrowid
 
 
-def find_duplicate_timestamp(user_id: str, prompt_hash: str, since: str) -> Optional[str]:
+def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Optional[str]:
     with _session() as conn:
         # Only a row with a real verdict is a prior query: it reached the model,
         # or a content check blocked it (PRD-009 F4, D1). Failures (success = 0,
@@ -776,18 +776,22 @@ def find_duplicate_timestamp(user_id: str, prompt_hash: str, since: str) -> Opti
         # Scoped to the caller (PRD-009 F5): another user's row never counts, so
         # nobody can poison a colleague's window (T2); N accounts may each send
         # a prompt once per window, accepted and left to PRD-013 (T1).
-        # Still matches on prompt_hash until STORY-007.
+        # Matches on dedup_key (PRD-009 STORY-007, Section 6.3), served by
+        # idx_audit_logs_dedup. The evidence column is still written but no longer
+        # read here: it is what /audit reports (D5). A pre-PRD row has a NULL key
+        # and never matches, since NULL = ? is never true -- a one-off gap of at
+        # most 24h after deploy, accepted (D6, T8, Risk 3).
         row = conn.execute(
             """
             SELECT timestamp FROM audit_logs
-            WHERE user_id = ? AND prompt_hash = ? AND timestamp >= ?
+            WHERE user_id = ? AND dedup_key = ? AND timestamp >= ?
               AND success = 1
               AND was_duplicate_blocked = 0
               AND denied_permission IS NULL
             ORDER BY timestamp ASC
             LIMIT 1
             """,
-            (user_id, prompt_hash, since),
+            (user_id, dedup_key, since),
         ).fetchone()
         return row["timestamp"] if row is not None else None
 
