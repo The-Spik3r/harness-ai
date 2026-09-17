@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Switch to the key"
-status: todo
+status: done
 labels: [backend, api, audit]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-006-pipeline-writes-dedup-key-on-every-arm.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-006-pipeline-writes-dedup-key-on-every-arm.report.md
+commit: d56f2c3
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-007]
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-006: run_query computes dedup_key once and log_query writes it on all seven arms
