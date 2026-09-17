@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Regress and document"
-status: todo
+status: done
 labels: [docs, security]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-010-readme-and-env-documentation.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-010-readme-and-env-documentation.report.md
+commit: 599f9df
 depends_on: [STORY-007, STORY-009]
 blocks: []
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-010: README documents the rescoped control, its trade-offs and the resolved multi-turn blocker; .env.example confirmed unchanged
