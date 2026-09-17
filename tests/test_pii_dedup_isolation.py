@@ -325,7 +325,8 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
 
         return _hash
 
-    # Two binding sites: audit_logger imported the name; check_duplicate uses the global.
+    # Two binding sites: audit_logger imported the name; check_duplicate and
+    # dedup_key use the global.
     monkeypatch.setattr(duplicate_checker, "hash_prompt", _spy("duplicate_checker"))
     monkeypatch.setattr(audit_logger, "hash_prompt", _spy("audit_logger"))
 
@@ -345,6 +346,10 @@ def test_hash_prompt_only_ever_receives_raw_text(temp_db, monkeypatch):
 
     assert result.pii_redacted is True
     assert seen == [
+        # PRD-009 Section 6.5 (STORY-006): run_query derives dedup_key before
+        # authorization, and dedup_key hashes the last turn through this module's
+        # hash_prompt -- still the caller's raw prompt, never redacted text.
+        ("duplicate_checker", _PROMPT_A),
         ("duplicate_checker", _PROMPT_A),
         ("audit_logger", _PROMPT_A),
         ("audit_logger", raw_response),

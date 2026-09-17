@@ -352,6 +352,27 @@ def test_the_unknown_session_refusal_is_audited_too(temp_db, monkeypatch):
     assert _last_audit_row().session_id == unknown
 
 
+def test_the_403_refusal_row_carries_no_dedup_key(temp_db, monkeypatch):
+    """PRD-009 STORY-006: the refusal logs `dedup_key=None`, explicitly.
+
+    The row is `success=False`, so it can never match a duplicate lookup, and
+    the refusal happens before `run_query` -- the one place `/query` derives the
+    key. Computing it here too would be a second key call site to keep in step
+    for a row that is never read as a prior query.
+    """
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    foreign = _session_owned_by(_OTHER_USER_ID)
+    before = _count_audit_rows()
+
+    response = client.post(
+        "/query", json={"prompt": "the refused question", "session_id": foreign}
+    )
+
+    assert response.status_code == 403
+    assert _count_audit_rows() == before + 1
+    assert _last_audit_row().dedup_key is None
+
+
 def test_the_user_id_mismatch_403_still_writes_no_row(temp_db, monkeypatch):
     """The asymmetry, pinned here on purpose.
 

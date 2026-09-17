@@ -60,6 +60,13 @@ def query(
         #    of the audited refusal. That it may name a row the caller does not
         #    own is expected -- `audit_logs` is append-only and Section 9
         #    already accepts orphaned session ids on it.
+        # 5. `dedup_key=None`, explicitly (PRD-009 STORY-006). This row is
+        #    `success=False`, so it can never match a duplicate lookup (PRD-009
+        #    Section 6.3). No key is computed here because the refusal happens
+        #    before `run_query`, the single place that defines the key for
+        #    `/query`; deriving it again here would be a second key call site to
+        #    keep in step, for a row that can never be read as a prior query.
+        #    The `None` is spelled out so it reads as a decision, not an omission.
         #
         # Inside the `try` so a storage failure during the check maps to the
         # same 500 as one during the pipeline, through the chain below rather
@@ -76,6 +83,7 @@ def query(
                 error_message=_FOREIGN_SESSION_DETAIL,
                 role=identity.role,
                 session_id=request.session_id,
+                dedup_key=None,  # see 5. above
             )
             raise HTTPException(status_code=403, detail=_FOREIGN_SESSION_DETAIL)
 

@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import Callable, Optional, Union
 
 from app.models.schemas import (
@@ -14,7 +15,7 @@ from app.services.authz import (
     authorize,
     authorize_model,
 )
-from app.services.duplicate_checker import check_duplicate
+from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
 from app.services.pattern_detector import detect_suspicious_pattern
@@ -28,6 +29,14 @@ QueryPipelineResult = Union[
 ]
 
 
+@dataclass(frozen=True)
+class _UserTurn:
+    """The one turn `/query` has: satisfies `DedupTurn` structurally (PRD-009 Section 6.2)."""
+
+    content: str
+    role: str = field(default="user", init=False)
+
+
 def _deny(
     identity: Identity,
     prompt: str,
@@ -38,6 +47,12 @@ def _deny(
     # on. Required means a forgotten arm is a TypeError, not a NULL nobody
     # notices for a release. (PRD-008 STORY-009)
     session_id: Optional[str],
+    # Required for the same reason as session_id: a forgotten arm is a
+    # TypeError, not a NULL key. A NULL-key row can never serve as a prior query
+    # once the lookup matches on the key, which silently disables the control
+    # for that path (PRD-009 Risk 6). The name shadows the imported dedup_key()
+    # inside this helper, harmlessly -- it only passes the value on.
+    dedup_key: Optional[str],
     exc: PermissionDenied,
     reason: str,
 ) -> QueryBlockedForbiddenResponse:
@@ -49,6 +64,7 @@ def _deny(
         role=identity.role,
         denied_permission=exc.permission,
         session_id=session_id,
+        dedup_key=dedup_key,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -62,11 +78,17 @@ def run_query(
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
     session_id: Optional[str] = None,
 ) -> QueryPipelineResult:
+    # Computed once, before authorization, on purpose (PRD-009 Section 6.1): it is
+    # pure, so it cannot change the check order, and every row this function writes
+    # -- denials included -- carries it. A ValueError here is a programming error
+    # (a single user turn always keys), so it is not caught.
+    key = dedup_key(identity.user_id, [_UserTurn(prompt)])
+
     try:
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
         return _deny(
-            identity, prompt, device, session_id=session_id, exc=exc,
+            identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
             reason="Missing required permission",
         )
 
@@ -74,7 +96,7 @@ def run_query(
         authorize_model(identity, model)
     except PermissionDenied as exc:
         return _deny(
-            identity, prompt, device, session_id=session_id, exc=exc,
+            identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
             reason="Model not permitted for this role",
         )
 
@@ -83,7 +105,7 @@ def run_query(
             authorize(identity, PERMISSION_QUERY_BYOK)
         except PermissionDenied as exc:
             return _deny(
-                identity, prompt, device, session_id=session_id, exc=exc,
+                identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
                 reason="Missing required permission",
             )
 
@@ -100,6 +122,7 @@ def run_query(
             was_duplicate_blocked=True,
             success=True,
             session_id=session_id,
+            dedup_key=key,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -115,6 +138,7 @@ def run_query(
             suspicious_pattern=pattern_result.pattern,
             success=True,
             session_id=session_id,
+            dedup_key=key,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -131,6 +155,7 @@ def run_query(
             success=False,
             error_message=str(exc),
             session_id=session_id,
+            dedup_key=key,
         )
         raise
 
@@ -147,6 +172,7 @@ def run_query(
             success=False,
             error_message=str(exc),
             session_id=session_id,
+            dedup_key=key,
         )
         raise
 
@@ -165,6 +191,7 @@ def run_query(
             pii_detected_input=bool(input_entities),
             pii_entities=input_entities,
             session_id=session_id,
+            dedup_key=key,
         )
         raise
 
@@ -182,6 +209,7 @@ def run_query(
         pii_detected_output=bool(output_entities),
         pii_entities=masked_entities,
         session_id=session_id,
+        dedup_key=key,
     )
 
     return QuerySuccessResponse(

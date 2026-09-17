@@ -26,6 +26,7 @@ def log_query(
     role: Optional[str] = None,
     denied_permission: Optional[str] = None,
     session_id: Optional[str] = None,
+    dedup_key: Optional[str] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -47,5 +48,6 @@ def log_query(
         role=role,
         denied_permission=denied_permission,
         session_id=session_id,
+        dedup_key=dedup_key,
     )
     return insert_audit_log(entry)
