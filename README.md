@@ -150,7 +150,7 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | **Single entry point** | `POST /query` intercepts every prompt/response pair; nothing reaches OpenRouter without passing through it. |
 | **Chat UI** | A browser-based chat served from the same port and process as the API, running through the identical pipeline as `POST /query`. |
 | **Role-based access control** | Every request is resolved to a verified `Identity` from a per-user bearer token — no self-declared `user_id` is trusted. Three fixed roles (`admin`, `auditor`, `user`) each hold an explicit permission set; deny-by-default for any unmapped role or permission. `ADMIN_TOKEN` remains a break-glass admin credential, not the primary auth mechanism. |
-| **Duplicate blocking** | Exact-match (word-for-word) detection of repeated prompts within a rolling 24-hour window. |
+| **Duplicate blocking** | Exact-match (word-for-word) detection of a prompt the **same account** already had answered within a rolling 24-hour window. Scoped per user, never across users — see [Duplicate detection scope](#duplicate-detection-scope). |
 | **Prompt-injection blocking** | Case-insensitive substring match against a maintained pattern list. |
 | **PII redaction** | [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt before it reaches OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a request, and the audit log keeps the raw text. English-only in this release. |
 | **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
@@ -158,6 +158,32 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
 | **Model-agnostic** | Works with any model OpenRouter serves — Claude, GPT, or others — with no code changes. |
+
+### Duplicate detection scope
+
+A duplicate is **the same account sending the same prompt, in the same conversation context, within 24 hours of a prior query**. The account is the authenticated identity, never the request body's `user_id`, and the prompt is the raw text, never the redacted one.
+
+**What counts as a prior query:**
+
+- A request that reached the model and succeeded.
+- A request blocked by the suspicious-pattern check — resending an injection attempt is still held.
+
+**What does not:**
+
+- **Failures.** An upstream `502` or a redaction `500` produced no answer, so retrying the same prompt goes through.
+- **Policy denials.** A disallowed model, BYOK without `query:byok`, a missing permission, or a foreign `session_id`: the corrected retry goes through.
+- **Duplicate blocks.** A held repeat does not extend the window. A prompt is allowed again 24 hours after it was *answered*, however many times it was held in between.
+- **Other users' rows.** Two accounts sending the same text are both answered, and nobody can hold a colleague's prompt for a day by sending it first.
+- **Rows written before this release.** They carry no duplicate key and never match.
+
+Excluding a row from the lookup does not remove it from the record: every one of these attempts still writes its audit row, and `GET /audit`, `GET /stats` and the admin console report exactly what they did before.
+
+Two weaknesses are accepted on purpose:
+
+- **One repeat per account.** Because the scope is per user, N accounts can each send the same prompt once per window. Accounts are admin-provisioned with `scripts/manage_users.py`, which bounds N; per-user rate limits and token budgets that close the gap are planned as PRD-013 and are not built yet.
+- **A one-off gap right after upgrading.** Rows written before this release have no key, so a prompt answered in the 24 hours before the upgrade can be sent once more after it. The gap closes on its own 24 hours after deploy; no backfill is run.
+
+Every case above has an end-to-end test in `tests/test_duplicate_scope.py`. The full threat reasoning — including what the rescoping made stronger — is in [PRD-009, Section 9.2](.agents/PRDs/PRD-009-duplicate-rescoping/PRD.md#92-threat-reasoning).
 
 ---
 
@@ -326,7 +352,7 @@ Treat multi-instance as *unblocked*, not *delivered*.
 
 With the local file gone, every `POST /query` makes network round trips it never used to — one for the duplicate check, one for the audit write. Retry, circuit-breaker, and offline-buffering behavior are deliberately outside the current scope, which has a consequence worth knowing before you size a deployment rather than during an incident: **a transient database outage fails requests instead of degrading them.** Endpoints that previously could not fail on storage now can.
 
-There is one existing exception, preserved on purpose: duplicate checking still degrades gracefully — a storage failure there lets the query through rather than rejecting it, because a failed duplicate check is not a reason to deny a user. Resilience work is the first item on the roadmap beyond this migration.
+There is no exception for the duplicate check. A storage failure during the duplicate lookup returns `500`, and the query never reaches the model — the check fails closed, as `tests/test_query_router.py::test_duplicate_check_storage_failure_returns_500` asserts. An earlier version of this section said the opposite; the code never did. Letting a failed check through would turn every database outage into a window with no duplicate control, which would be a security decision, not a resilience detail. Resilience work is the first item on the roadmap beyond this migration.
 
 ### Migrating an existing SQLite deployment
 
@@ -432,7 +458,7 @@ A `session_id` the caller does not own is refused at the boundary, beside the `u
 
 ### `POST /query` — blocked (duplicate)
 
-Send the exact same prompt again within 24 hours:
+Send the exact same prompt again from the same account, within 24 hours of it being answered:
 
 ```json
 {
@@ -441,6 +467,8 @@ Send the exact same prompt again within 24 hours:
   "first_query_at": "2026-07-04T10:30:00Z"
 }
 ```
+
+`first_query_at` is the earliest qualifying occurrence in the window — an answered or pattern-blocked send, never a failure or an earlier held repeat. See [Duplicate detection scope](#duplicate-detection-scope).
 
 ### `POST /query` — blocked (suspicious pattern)
 
@@ -636,11 +664,11 @@ Everything below this line is **intended direction, not current behavior**. The 
 
 ### Multi-turn context
 
-A chat session today is a **saved transcript, not a conversation the model remembers**. Every send is one user turn, alone: the stored history is rendered on your screen and is never added to the prompt. Sending it is the natural next step, and it is deferred for one specific reason rather than for lack of interest.
+A chat session today is a **saved transcript, not a conversation the model remembers**. Every send is one user turn, alone: the stored history is rendered on your screen and is never added to the prompt. Sending it is the natural next step, and one prerequisite for it is now in place.
 
-**It breaks duplicate detection.** `check_duplicate` hashes the whole prompt against a global 24-hour window, with no user scope and no session scope. In a real conversation *"yes"*, *"go on"* and *"thanks"* recur constantly, and today they would be held as duplicates of each other across every user on the deployment. Persisted sessions do not create that problem — they make it unavoidable, because they are what makes a real conversation possible in the first place.
+**Duplicate detection is no longer the blocker.** It was: the check used to hash the whole prompt against a global 24-hour window, so *"yes"*, *"go on"* and *"thanks"* would have been held as duplicates of each other across every user. The key is now defined over a conversation rather than a string. `dedup_key(user_id, turns)` in `app/services/duplicate_checker.py` combines the user, the last user turn, and a hash of every turn before it; a `POST /query` send is the one-turn case, with an empty prefix. The same *"yes"* from another user, or after a different exchange, is a different key. That answers the question the [OpenAI-compatible endpoint](#openai-compatible-endpoint) section posed about what to hash in a multi-turn `messages` array. See [Duplicate detection scope](#duplicate-detection-scope).
 
-Rescoping that hash — minimally to `session_id + prompt`, more likely to `user_id + session_id + prompt` — is a change to the product's central security control, and it deserves its own threat reasoning and its own tests rather than arriving as a side effect of a persistence release. It is the same open question the [OpenAI-compatible endpoint](#openai-compatible-endpoint) section already poses about what to hash in a multi-turn `messages` array; sessions make answering it a prerequisite instead of a nicety. `chat_messages` is deliberately shaped so that work is a read away from its input.
+**What remains is the pipeline, owned by PRD-010.** `run_query`, `QueryRequest` and the chat UI still accept one prompt rather than a list of turns, so nothing yet feeds the key a real history. That work passes the conversation to the same function; it does not redefine what a duplicate is. `chat_messages` is deliberately shaped so its input is a read away. Tool-role turns are refused by the key rather than guessed at, so tool calling will have to decide how they count.
 
 ### OpenAI-compatible endpoint
 
@@ -656,7 +684,7 @@ This would be a translation layer, not a second pipeline: it maps the `messages`
 Open design questions:
 
 - How `user_id` and device are carried — a custom header, or the standard's optional `user` field.
-- What gets hashed for duplicate detection in a multi-turn conversation — the last user turn only, or the full `messages` array. A coding agent resends most of its context every turn, so a naive whole-array hash would almost never collide, and a last-turn hash would block legitimate retries.
+- ~~What gets hashed for duplicate detection in a multi-turn conversation.~~ **Answered:** the last user turn plus a hash of the preceding turns, per user — the key `POST /query` already uses, with a non-empty prefix. An agent that resends an unchanged history and repeats its last turn is a duplicate; one whose history has moved on is not. See [Multi-turn context](#multi-turn-context).
 - Whether `stream: true` can be supported at all, given the harness must inspect a complete response before releasing it. A partial answer is buffering upstream and re-emitting as SSE once the checks pass — streaming-shaped, not streaming-latency.
 
 ### MCP servers and agent skills
