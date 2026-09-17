@@ -7,17 +7,17 @@ type: bug
 priority: high
 complexity: small
 phase: "2 - Rescope the lookup"
-status: todo
+status: done
 labels: [backend, database, security]
 epic_branch: epic/PRD-009-duplicate-rescoping
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-009-duplicate-rescoping/completed/STORY-005-lookup-scoped-by-user.plan.md
+report: .agents/reports/PRD-009-duplicate-rescoping/STORY-005-lookup-scoped-by-user.report.md
+commit: 3d0c86b
 depends_on: [STORY-004]
 blocks: [STORY-007]
 skills: []
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # STORY-005: Duplicate lookup scoped by the authenticated user_id
