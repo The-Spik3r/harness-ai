@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Pipeline over messages"
-status: todo
+status: done
 labels: [backend, api, concurrency, chat-ui]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-006-dedicated-pipeline-executor.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-006-dedicated-pipeline-executor.report.md
+commit: d265843
 depends_on: [STORY-002]
 blocks: [STORY-012, STORY-014]
 skills: []
