@@ -6,6 +6,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from chat_ui.chat_ui.copy import (
+    TAG_CONTEXT_LIMIT,
+    CONTEXT_LIMIT_HEADLINE,
+    CONTEXT_LIMIT_NEW_CHAT_NOTICE,
+    CONTEXT_LIMIT_DETAIL_TEMPLATE,
+    FOOTER_TRIMMED_TEMPLATE,
+    FOOTER_TRIMMED_SINGLE_TEMPLATE,
     LOGIN_PROMPT_TITLE,
     COMPOSER_PLACEHOLDER,
     WELCOME_MESSAGE_CONTENT,
@@ -933,3 +939,103 @@ def test_no_rail_string_is_written_as_a_literal_in_the_component(name):
         f"{name}'s text is inlined in session_rail.py as a literal; "
         f"render it as copy.{name}"
     )
+
+
+# --- STORY-013: the context-limit bubble and the trimmed-history note -----
+# Appended, never edited above: `tests/test_copy.py` is one of the two suites
+# `tests/test_untouched_app.py` pins by census, and every test above this line
+# is untouched. Same rule the STORY-017 banner states.
+
+
+# The six strings STORY-013 adds. Named in one tuple so a rename fails at
+# import rather than silently shrinking the coverage below.
+_CONTEXT_LIMIT_VOCABULARY = (
+    TAG_CONTEXT_LIMIT,
+    CONTEXT_LIMIT_HEADLINE,
+    CONTEXT_LIMIT_NEW_CHAT_NOTICE,
+    CONTEXT_LIMIT_DETAIL_TEMPLATE,
+    FOOTER_TRIMMED_TEMPLATE,
+    FOOTER_TRIMMED_SINGLE_TEMPLATE,
+)
+
+# The prose the reader actually sees in the bubble. The tag is excluded because
+# tags are the one place this interface shouts, and the detail template is
+# excluded from the sentence-case check because it opens with a placeholder.
+_CONTEXT_LIMIT_PROSE = (CONTEXT_LIMIT_HEADLINE, CONTEXT_LIMIT_NEW_CHAT_NOTICE)
+
+
+def test_every_context_limit_string_exists_and_is_not_empty():
+    """AC 4: the new constants are covered, and none is a blank placeholder."""
+    for text in _CONTEXT_LIMIT_VOCABULARY:
+        assert isinstance(text, str)
+        assert text.strip(), f"{text!r} is blank"
+
+
+def test_the_context_limit_copy_is_the_wording_the_prd_fixed():
+    """PRD-010 Section 8 quotes both sentences verbatim, so they are pinned.
+
+    The PRD argues the wording, not just the intent: "the refusal copy says
+    what is too long and what to do... It does not say 'context limit', and it
+    does not apologize." A paraphrase would satisfy the test below and still
+    lose that argument, so the exact strings are asserted here.
+    """
+    assert CONTEXT_LIMIT_HEADLINE == "This chat is too long to send."
+    assert CONTEXT_LIMIT_NEW_CHAT_NOTICE == "Start a new chat to continue."
+    assert TAG_CONTEXT_LIMIT == "TOO LONG"
+
+
+def test_the_context_limit_copy_names_no_mechanism_and_does_not_apologize():
+    """AC 4, the half that is about absence.
+
+    `frontend-design`, quoted by PRD Section 8: "Name things by what people
+    control and recognize, never by how the system is built", and "Errors don't
+    apologize, and they are never vague about what happened."
+
+    "context", "limit" and "token" are the three mechanism words available
+    here: the first two name the setting (`CONTEXT_MAX_CHARACTERS`), the third
+    names a unit this PRD deliberately does not use -- characters are the proxy
+    (PRD Section 4, *Out of Scope*), so promising tokens would be a lie as well
+    as jargon.
+
+    The non-emptiness assertion comes first on purpose: a constant renamed to
+    `""` would satisfy every `not in` below and pass a test that proves
+    nothing.
+    """
+    for text in _CONTEXT_LIMIT_VOCABULARY:
+        assert text.strip(), f"{text!r} is blank; the absence checks below would pass vacuously"
+
+    for text in _CONTEXT_LIMIT_VOCABULARY:
+        lowered = text.lower()
+        for mechanism in ("context", "limit", "token"):
+            assert mechanism not in lowered, f"{text!r} names the mechanism: {mechanism!r}"
+        for apology in ("sorry", "apolog", "unfortunately", "oops"):
+            assert apology not in lowered, f"{text!r} apologizes"
+        for vague in ("something went wrong", "an error", "try again later"):
+            assert vague not in lowered, f"{text!r} is vague: {vague!r}"
+
+    for text in _CONTEXT_LIMIT_PROSE:
+        assert text == text[0].upper() + text[1:], f"{text!r} is not sentence case"
+        assert not text.isupper(), f"{text!r} shouts"
+
+    # The tag is the exception, and it is asserted rather than skipped.
+    assert TAG_CONTEXT_LIMIT.isupper(), "the rail tags are the one place this interface shouts"
+
+
+def test_the_trimmed_footer_note_reads_as_a_sentence_for_one_and_many():
+    """AC 3: the footer note's two forms, including the verb.
+
+    PRD Section 5, story 2's example is the plural; the story's AC 3 fixes the
+    singular. The singular is a complete string with no `{count}`, spelling the
+    1 out the way `PII_BADGE_SINGLE_TEMPLATE` does.
+
+    The verb is asserted separately from the noun because "1 earlier exchange
+    were not sent" is the exact regression a later edit to the plural template
+    would produce, and it would still contain "exchange".
+    """
+    assert FOOTER_TRIMMED_SINGLE_TEMPLATE == "1 earlier exchange was not sent to the model"
+    assert "{count}" not in FOOTER_TRIMMED_SINGLE_TEMPLATE
+    assert FOOTER_TRIMMED_TEMPLATE.format(count=3) == (
+        "3 earlier exchanges were not sent to the model"
+    )
+    assert "exchange was" in FOOTER_TRIMMED_SINGLE_TEMPLATE
+    assert "exchanges were" in FOOTER_TRIMMED_TEMPLATE

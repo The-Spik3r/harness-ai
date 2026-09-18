@@ -8,6 +8,7 @@ from app.config import settings
 from app.db.models import ChatSession, StoredMessage
 from app.models.messages import Message
 from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
@@ -23,6 +24,7 @@ from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation, run_query
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
+    CONTEXT_LIMIT_DETAIL_TEMPLATE,
     LOGIN_INVALID_TOKEN_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
@@ -1226,10 +1228,39 @@ class ChatState(rx.State):
                     prompt=text,
                     required_permission=result.required_permission,
                 )
+            elif isinstance(result, QueryBlockedContextLimitResponse):
+                bubble = ChatMessage(
+                    kind="context_limit",
+                    # The pipeline's reason, stored but not shown: the bubble
+                    # renders copy.CONTEXT_LIMIT_HEADLINE instead, the way the
+                    # failure kinds render their own headline over a `content`
+                    # the user never sees. Keeping the reason on the row is
+                    # what makes the restored transcript and the audit row
+                    # agree about why this send did not happen.
+                    content=result.reason,
+                    prompt=text,
+                    # "characters 250113 of 200000". Deliberately not the audit
+                    # row's "context limit: characters 250113 > 200000": that
+                    # one is for an operator reading a table, this one is for
+                    # the person who just pressed send. Built here, at send
+                    # time, so a restored bubble reproduces it from the
+                    # persisted `detail` column with no recomputation.
+                    detail=CONTEXT_LIMIT_DETAIL_TEMPLATE.format(
+                        unit=result.limit,
+                        actual=result.actual,
+                        maximum=result.maximum,
+                    ),
+                    # `history_trimmed` stays 0 for the reason the arms above
+                    # leave it there: no exchange was dropped from an answer,
+                    # because there was no answer.
+                )
             else:
-                # Unreachable for the current QueryResponse union -- kept so a
-                # fifth member added later without updating this chain surfaces
-                # as a visible bubble instead of an unhandled exception.
+                # Unreachable: this chain now covers all five members of
+                # QueryResponse (STORY-013 added the fifth). Kept so a sixth
+                # member added later without updating the chain surfaces as a
+                # visible bubble instead of an unhandled exception -- the same
+                # "no silent drops" guarantee `render_fallback` makes at the
+                # render layer.
                 bubble = ChatMessage(
                     kind="internal_error",
                     content="internal_error",

@@ -304,22 +304,26 @@ async def test_chat_state_send_forbidden_response_renders_its_own_bubble_not_inj
 
 
 @pytest.mark.asyncio
-async def test_chat_state_send_context_limit_lands_on_interim_internal_error_bubble(
+async def test_chat_state_send_context_limit_renders_a_context_limit_bubble(
     temp_db, monkeypatch
 ):
-    """PRD-010 STORY-008: pins the *gap*, not the wanted behaviour.
+    """PRD-010 STORY-013: replaces STORY-008's interim `internal_error` pin.
 
-    `QueryBlockedContextLimitResponse` is the fifth member of the response
-    union and `_do_send`'s isinstance chain knows four, so an over-limit send
-    falls through to the catch-all `else` and shows an `internal_error` bubble
-    reading "Unhandled response type". That is wrong for a user -- nothing
-    crashed, their conversation was too long -- and it is accepted for this
-    commit only.
+    STORY-008 added `QueryBlockedContextLimitResponse` as the fifth member of
+    the response union but left `_do_send`'s isinstance chain knowing four, so
+    an over-limit send fell through to the catch-all `else` and showed an
+    `internal_error` bubble reading "Unhandled response type" -- wrong for a
+    user, because nothing crashed. That test's docstring promised "STORY-013 is
+    expected to delete it and assert the bubble instead", and this is that.
 
-    # replaced by STORY-013, which adds the real `context_limit` bubble naming
-    # the limit and the counts. This test exists so the gap is visible in the
-    # suite rather than discovered in the UI, and STORY-013 is expected to
-    # delete it and assert the bubble instead.
+    `content` is the pipeline's reason and is deliberately *not* what the
+    bubble shows: `render_context_limit` draws `CONTEXT_LIMIT_HEADLINE` over
+    it, the way the failure kinds draw their own headline. Keeping the reason
+    on the row is what makes the restored transcript and the audit row agree.
+
+    `detail` is "<unit> <actual> of <maximum>", deliberately a different shape
+    from the audit row's "context limit: characters 12 > 10". The row is for an
+    operator reading a table; this is for the person who just pressed send.
     """
 
     def _fake_run_query(
@@ -338,12 +342,12 @@ async def test_chat_state_send_context_limit_lands_on_interim_internal_error_bub
     state = _make_state()
     await _send(state, "hello world")
 
-    assert state.messages[-1].kind == "internal_error"
-    assert state.messages[-1].content == "internal_error"
-    assert (
-        state.messages[-1].detail
-        == "Unhandled response type: QueryBlockedContextLimitResponse"
-    )
+    assert state.messages[-1].kind == "context_limit"
+    assert state.messages[-1].content == "Conversation exceeds context limit"
+    assert state.messages[-1].detail == "characters 12 of 10"
+    assert state.messages[-1].prompt == "hello world"
+    # No exchange was dropped from an answer, because there was no answer.
+    assert state.messages[-1].history_trimmed == 0
 
 
 @pytest.mark.asyncio
@@ -1455,6 +1459,16 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
             ),
             "forbidden",
         ),
+        # PRD-010 STORY-013: the eighth kind, persisted like the rest.
+        (
+            QueryBlockedContextLimitResponse(
+                reason="Conversation exceeds context limit",
+                limit="characters",
+                maximum=10,
+                actual=12,
+            ),
+            "context_limit",
+        ),
         (OpenRouterError("upstream timeout"), "upstream_error"),
         (PiiRedactorError("redactor down"), "internal_error"),
     ],
@@ -1463,6 +1477,7 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
         "duplicate",
         "injection",
         "forbidden",
+        "context_limit",
         "upstream_error",
         "internal_error",
     ],
@@ -1819,6 +1834,18 @@ def _fields(bubble: ChatMessage) -> dict:
             ),
             "forbidden",
         ),
+        # PRD-010 STORY-013: AC 2 says the bubble renders "live or restored",
+        # and `_fields` covers `content` and `detail` -- the two the bubble
+        # actually draws from -- so this case is the restored half of it.
+        (
+            QueryBlockedContextLimitResponse(
+                reason="Conversation exceeds context limit",
+                limit="characters",
+                maximum=10,
+                actual=12,
+            ),
+            "context_limit",
+        ),
         (OpenRouterError("upstream timeout"), "upstream_error"),
         (PiiRedactorError("redactor down"), "internal_error"),
     ],
@@ -1827,6 +1854,7 @@ def _fields(bubble: ChatMessage) -> dict:
         "duplicate",
         "injection",
         "forbidden",
+        "context_limit",
         "upstream_error",
         "internal_error",
     ],
@@ -3163,3 +3191,46 @@ def test_logout_closes_the_disclosure():
     state.logout()
 
     assert state.rail_expanded is False
+
+
+@pytest.mark.asyncio
+async def test_a_restored_context_limit_bubble_keeps_its_copy_and_is_marked_restored(
+    temp_db, monkeypatch
+):
+    """PRD-010 STORY-013, AC 2's "live or restored" clause.
+
+    `test_every_bubble_kind_survives_the_round_trip` already covers the fields
+    (`content` and `detail` among them) for this kind. What it does not assert
+    is `restored`, which is the field `_entry` reads to keep a rehydrated
+    bubble out of the `.hx-entry` mount animation -- PRD-008 Section 6.1's
+    "Switching sessions does not animate". Without it a reload animates the
+    refusal into place, which is invisible in a diff and obvious on screen.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit="messages",
+            maximum=100,
+            actual=101,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    restored = [
+        m for m in (await _restore(state.active_session_id)).messages
+        if m.kind == "context_limit"
+    ]
+
+    assert restored
+    for bubble in restored:
+        assert bubble.content == "Conversation exceeds context limit"
+        assert bubble.detail == "messages 101 of 100"
+        assert bubble.restored is True
