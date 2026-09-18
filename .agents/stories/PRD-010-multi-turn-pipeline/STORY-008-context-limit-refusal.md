@@ -12,7 +12,7 @@ labels: [backend, api, audit]
 epic_branch: epic/PRD-010-multi-turn-pipeline
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-008-context-limit-refusal.plan.md
 report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-008-context-limit-refusal.report.md
-commit: null
+commit: e4de634
 depends_on: [STORY-002, STORY-007]
 blocks: [STORY-009, STORY-013, STORY-016]
 skills: []
