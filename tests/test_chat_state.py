@@ -28,6 +28,7 @@ from app.db.errors import StorageError
 from app.db.models import AuditLog, StoredMessage, User
 from app.main import app
 from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
@@ -300,6 +301,49 @@ async def test_chat_state_send_forbidden_response_renders_its_own_bubble_not_inj
     assert state.messages[-1].kind != "injection"
     assert state.messages[-1].content == "Model not permitted for this role"
     assert state.messages[-1].required_permission == "query:model:gpt-4"
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_context_limit_lands_on_interim_internal_error_bubble(
+    temp_db, monkeypatch
+):
+    """PRD-010 STORY-008: pins the *gap*, not the wanted behaviour.
+
+    `QueryBlockedContextLimitResponse` is the fifth member of the response
+    union and `_do_send`'s isinstance chain knows four, so an over-limit send
+    falls through to the catch-all `else` and shows an `internal_error` bubble
+    reading "Unhandled response type". That is wrong for a user -- nothing
+    crashed, their conversation was too long -- and it is accepted for this
+    commit only.
+
+    # replaced by STORY-013, which adds the real `context_limit` bubble naming
+    # the limit and the counts. This test exists so the gap is visible in the
+    # suite rather than discovered in the UI, and STORY-013 is expected to
+    # delete it and assert the bubble instead.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit="characters",
+            maximum=10,
+            actual=12,
+        )
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1].kind == "internal_error"
+    assert state.messages[-1].content == "internal_error"
+    assert (
+        state.messages[-1].detail
+        == "Unhandled response type: QueryBlockedContextLimitResponse"
+    )
 
 
 @pytest.mark.asyncio

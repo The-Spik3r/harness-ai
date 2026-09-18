@@ -1,7 +1,9 @@
-from typing import Callable, Optional, Sequence, Union
+from typing import Callable, Literal, Optional, Sequence, Tuple, Union
 
+from app.config import settings
 from app.models.messages import Message
 from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
@@ -31,7 +33,10 @@ QueryPipelineResult = Union[
     QueryBlockedDuplicateResponse,
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
+    QueryBlockedContextLimitResponse,
 ]
+
+ContextLimit = Literal["messages", "characters"]
 
 
 class InvalidConversationError(Exception):
@@ -62,6 +67,36 @@ def _inspection_target(messages: Sequence[Message]) -> str:
     for caller-supplied history -- no ingress in this PRD accepts one.
     """
     return messages[-1].content
+
+
+def _context_limit_exceeded(
+    messages: Sequence[Message],
+) -> Optional[Tuple[ContextLimit, int, int]]:
+    """The limit this conversation breaks as (limit, maximum, actual), or None.
+
+    Messages are checked first and the function returns on the first breach
+    (PRD-010 D2), so a conversation over both limits is reported as `messages`
+    and the character count is never computed for it. Only one limit is ever
+    reported: a body naming both would imply they were measured independently.
+
+    Both maxima are read off `settings` **here, per call** rather than captured
+    at import. Two reasons: a process that read them once could not be
+    reconfigured without a restart, and every test in this suite sets them with
+    `monkeypatch.setattr(settings, ...)`, which a module-level constant would
+    silently ignore (STORY-008 Technical Notes).
+
+    The comparison is strict `>`: a conversation exactly at the maximum is
+    within the limit, not over it.
+    """
+    message_count = len(messages)
+    if message_count > settings.CONTEXT_MAX_MESSAGES:
+        return "messages", settings.CONTEXT_MAX_MESSAGES, message_count
+
+    character_count = sum(len(message.content) for message in messages)
+    if character_count > settings.CONTEXT_MAX_CHARACTERS:
+        return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
+
+    return None
 
 
 def _deny(
@@ -145,7 +180,42 @@ def run_conversation(
                 reason="Missing required permission",
             )
 
-    # context limit (STORY-008)
+    # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).
+    #
+    # The position is the decision. It sits **after** all three authorization
+    # arms, so a caller without `query:submit` is told they lack the permission
+    # and learns nothing about how this deployment is configured. It sits
+    # **before** check_duplicate, so an over-limit conversation neither consults
+    # the duplicate window nor lands in it -- it never got a verdict, so it is
+    # not a query anyone asked twice.
+    #
+    # `success=False`, unlike the three arms below, and that is not an
+    # oversight. A duplicate/suspicious/forbidden row is `success=True` because
+    # a verdict was reached and the row itself names it in a dedicated column.
+    # `audit_logs` has no column for "over the context limit" and this story
+    # adds none, so the reason goes in `error_message` with success unset --
+    # the same shape the upstream-error arm uses. It also makes the row
+    # unusable as a prior query (PRD-009 Section 6.3), which is exactly right
+    # for an attempt that never reached the model. The cost is that these rows
+    # count against `success_rate`; PRD Section 9.2 T7 accepts it.
+    exceeded = _context_limit_exceeded(messages)
+    if exceeded is not None:
+        limit, maximum, actual = exceeded
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=f"context limit: {limit} {actual} > {maximum}",
+            session_id=session_id,
+            dedup_key=key,
+        )
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit=limit,
+            maximum=maximum,
+            actual=actual,
+        )
 
     # Step 4: duplicate.
     #

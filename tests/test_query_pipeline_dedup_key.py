@@ -229,15 +229,20 @@ def _log_query_call_sources(source: str) -> list:
 
 
 def test_every_log_query_call_site_in_the_pipeline_passes_dedup_key():
-    """The guard for the eighth arm nobody has written yet.
+    """The guard for the next arm nobody has written yet.
+
+    It has already earned that: STORY-008's context-limit arm is the eighth,
+    and this test is what required it to carry the key.
 
     Checks for the keyword rather than one exact expression: `_deny`'s call
-    passes `dedup_key=dedup_key` (its required parameter) and the six others
+    passes `dedup_key=dedup_key` (its required parameter) and the seven others
     pass `dedup_key=key`.
     """
     calls = _log_query_call_sources(inspect.getsource(query_pipeline))
 
-    assert len(calls) == 7, f"expected seven log_query call sites, found {len(calls)}"
+    # Eight since PRD-010 STORY-008 added the context-limit arm -- the arm
+    # this count was written to catch. Raise it again with the ninth.
+    assert len(calls) == 8, f"expected eight log_query call sites, found {len(calls)}"
 
     missing = [call for call in calls if "dedup_key=" not in call]
     assert missing == [], f"log_query call sites not passing dedup_key: {missing}"

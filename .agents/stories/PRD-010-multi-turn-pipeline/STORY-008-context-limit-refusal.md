@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline over messages"
-status: todo
+status: done
 labels: [backend, api, audit]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-008-context-limit-refusal.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-008-context-limit-refusal.report.md
 commit: null
 depends_on: [STORY-002, STORY-007]
 blocks: [STORY-009, STORY-013, STORY-016]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # STORY-008: Context-limit refusal: response model, audited pipeline arm, /query passthrough

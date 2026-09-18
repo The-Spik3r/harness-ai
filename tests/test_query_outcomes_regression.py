@@ -23,6 +23,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.db.database import get_audit_log, get_connection, insert_user
 from app.db.models import AuditLog, User
 from app.main import app
@@ -210,6 +211,42 @@ def test_outcome_6_internal_failure_duplicate_storage(temp_db, monkeypatch):
     assert response.status_code == 500
     assert "Duplicate lookup failed" in response.json()["detail"]
     assert logged == []
+
+
+def test_outcome_7_context_limit(temp_db, monkeypatch):
+    """PRD-010 STORY-008: the seventh outcome, and the one intended behaviour
+    change this PRD makes to `/query` (PRD Section 6.5).
+
+    200 with a `BLOCKED` body, like the other three blocks -- no new status
+    code (PRD Section 10). The body is asserted as an exact dict on purpose:
+    `QueryResponse` is a plain, non-discriminated `Union` whose four blocked
+    members all carry `status: "BLOCKED"`, so this is what proves FastAPI
+    serializes the new member as itself rather than matching a sibling and
+    dropping `limit`, `maximum` and `actual` on the way out.
+
+    The limit is monkeypatched small rather than sending 200,001 characters:
+    the production default is what `app/config.py` pins, and this test is about
+    the refusal, not the number.
+    """
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 50)
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+
+    before = _count_audit_rows()
+    response = client.post("/query", json={"prompt": "a" * 51})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "BLOCKED",
+        "reason": "Conversation exceeds context limit",
+        "limit": "characters",
+        "maximum": 50,
+        "actual": 51,
+    }
+    assert _count_audit_rows() == before + 1
+    row = _latest_entry()
+    assert row.success is False
+    assert row.error_message == "context limit: characters 51 > 50"
+    assert row.dedup_key is not None
 
 
 # --- PRD-010 STORY-003: characterization of the /query upstream call ---

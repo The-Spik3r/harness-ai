@@ -1,13 +1,17 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
 from app.models.schemas import (
     AuditQueryEntry,
     AuditResponse,
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
     QueryRequest,
+    QueryResponse,
     QuerySuccessResponse,
     StatsResponse,
 )
@@ -82,6 +86,42 @@ def test_query_blocked_forbidden_response_shape():
         "reason": "Model not permitted for this role",
         "required_permission": "query:model:anthropic/claude-3.5-sonnet",
     }
+
+
+def test_query_blocked_context_limit_response_shape():
+    """PRD-010 STORY-008 AC1: the body of PRD Section 10, field for field."""
+    response = QueryBlockedContextLimitResponse(
+        reason="Conversation exceeds context limit",
+        limit="characters",
+        maximum=200000,
+        actual=250113,
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Conversation exceeds context limit",
+        "limit": "characters",
+        "maximum": 200000,
+        "actual": 250113,
+    }
+
+
+def test_query_blocked_context_limit_response_is_a_member_of_query_response():
+    """AC1: it is reachable through the union `POST /query` declares, which is
+    what makes the router a passthrough rather than a place needing a new arm."""
+    assert QueryBlockedContextLimitResponse in get_args(QueryResponse)
+
+
+@pytest.mark.parametrize("value", ["tokens", "MESSAGES", "", "bytes"])
+def test_query_blocked_context_limit_response_refuses_an_unknown_limit(value):
+    """The `Literal` is the contract, not a hint: only the two configured
+    maxima exist, and a third name would describe a check nobody runs."""
+    with pytest.raises(ValidationError):
+        QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit=value,
+            maximum=10,
+            actual=12,
+        )
 
 
 def test_audit_response_shape():
