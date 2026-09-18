@@ -12,7 +12,7 @@ labels: [backend, db, migration]
 epic_branch: epic/PRD-010-multi-turn-pipeline
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-010-chat-messages-history-trimmed-column.plan.md
 report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-010-chat-messages-history-trimmed-column.report.md
-commit: null
+commit: 113633c
 depends_on: []
 blocks: [STORY-012]
 skills: []
