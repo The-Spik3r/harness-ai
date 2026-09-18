@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Pipeline over messages"
-status: todo
+status: done
 labels: [backend, tests, security]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-009-multi-turn-pipeline-invariant-tests.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-009-multi-turn-pipeline-invariant-tests.report.md
 commit: null
 depends_on: [STORY-007, STORY-008]
 blocks: [STORY-016]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # STORY-009: Multi-turn pipeline invariants: check order, raw hashing, redaction, duplicate scope, no ingress
