@@ -12,7 +12,7 @@ labels: [chat-ui, backend, history]
 epic_branch: epic/PRD-010-multi-turn-pipeline
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-012-chat-state-sends-history.plan.md
 report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-012-chat-state-sends-history.report.md
-commit: null
+commit: e5bf0e0
 depends_on: [STORY-006, STORY-007, STORY-010, STORY-011]
 blocks: [STORY-013, STORY-014, STORY-015, STORY-017]
 skills: []

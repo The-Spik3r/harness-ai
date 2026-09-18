@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-012-chat-state-sends-history.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: PENDING
+commit: e5bf0e0
 status: COMPLETE
 completed: 2026-09-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-18
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-012-chat-state-sends-history.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `PENDING`
+**Commit**: `e5bf0e0`
 
 ## Summary
 
@@ -42,7 +42,7 @@ Verified end to end on the real stack: send 1's upstream payload is one message;
 | `tests/test_history_off_integration.py` **unmodified** | ✅ (`git diff --stat` empty, 9 passed) |
 | New suite `tests/test_chat_history_send.py` | ✅ 8 passed |
 | Full suite | ✅ **2206 passed, 25 skipped, 0 failed** (166 s) |
-| E2E | ✅ 5/6 — the live model call is deferred (below) |
+| E2E | ✅ 6/6 — including the live model call |
 
 There is no linter or formatter in this repo; "validate" is pytest against the local libSQL dev server.
 
@@ -102,7 +102,36 @@ Run headless against the real stack — real pipeline, real Presidio redaction, 
 | 3 | `test_chat_state.py` + `test_session_rail.py` green | ✅ |
 | 4 | Full suite green | ✅ |
 | 5 | Send 2 carries send 1's exchange (payloads above) | ✅ |
-| 6 | **Live model answers "what did I just ask?" with the first question** | ⏸ deferred — run immediately after this commit at the user's direction; it spends real OpenRouter credit, so it was not run unattended |
+| 6 | **Live model answers "what did I just ask?" with the first question** | ✅ — run after the commit, at the user's direction (below) |
+
+### The live run (PRD Section 11, *MVP definition*)
+
+Run through the real `ChatState` path with the real OpenRouter client and
+`gpt-4`. **`DATABASE_URL` was overridden to the local libSQL dev server**: the
+`.env` in this working copy points at the hosted Turso database, and a
+verification run has no business writing sessions, transcript rows and audit
+rows into production. The model call is the only part that left the machine.
+
+Upstream payload, send 2, as the provider received it:
+
+```json
+[{"role": "user",      "content": "What is 2+2?"},
+ {"role": "assistant", "content": "2 + 2 = **4**"},
+ {"role": "user",      "content": "what did I just ask?"}]
+```
+
+Transcript:
+
+```
+user       'What is 2+2?'
+assistant  '2 + 2 = **4**'
+user       'what did I just ask?'
+assistant  'You just asked what is 2+2.'          model=gpt-4  tokens=46
+```
+
+The second answer names the first question, which is the MVP definition of this
+PRD. `history_trimmed` is `0` on both assistant bubbles, and both error slots
+are empty.
 
 ## Known State Handed to STORY-013
 
