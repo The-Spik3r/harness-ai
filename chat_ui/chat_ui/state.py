@@ -4,21 +4,23 @@ from typing import Optional
 
 import reflex as rx
 
+from app.config import settings
 from app.db.models import ChatSession, StoredMessage
+from app.models.messages import Message
 from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
     QuerySuccessResponse,
 )
-from app.services import chat_sessions
+from app.services import chat_history, chat_sessions
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity, resolve
 from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
-from app.services.query_pipeline import run_query
+from app.services.query_pipeline import run_conversation, run_query
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
     LOGIN_INVALID_TOKEN_ERROR,
@@ -49,6 +51,14 @@ def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
     their absence is the schema's decision rather than an oversight --
     `app/db/models.py`: "a stored '2m ago' is wrong the moment it is read back."
     STORY-015 recomputes them from `first_query_at` on load.
+
+    **`history_trimmed` is the one optional field written without `or None`**
+    (PRD-010 STORY-012), and the exception is the whole point of the column.
+    `app/db/database.py:1722`: it "is the one optional field here where `0` and
+    `NULL` say different things -- 'this send dropped nothing' against 'written
+    before the feature existed'". Every other field here means *absent* when it
+    is falsy, so `or None` tidies; here it would erase the distinction the
+    column exists to record, on every row that dropped nothing.
     """
     return StoredMessage(
         session_id=session_id,
@@ -64,6 +74,7 @@ def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
         required_permission=bubble.required_permission or None,
         first_query_at=bubble.first_query_at or None,
         detail=bubble.detail or None,
+        history_trimmed=bubble.history_trimmed,
     )
 
 
@@ -90,6 +101,14 @@ def _to_chat_message(row: StoredMessage) -> ChatMessage:
 
     `row.created_at` and `row.id` are not mapped: `ChatMessage` has no field for
     either, and `id` is the ordering `list_chat_messages` has already applied.
+
+    **`history_trimmed` is read with `or 0` although it was written raw**, and
+    the asymmetry is deliberate and one-directional (PRD-010 STORY-012). The
+    write side keeps `0` and `NULL` apart because the column can say both; a
+    Reflex Var cannot be None, so this side collapses them into the `0` that
+    `tokens_used` and `audit_id` above already use. Nothing is lost on the
+    screen: both mean "no trimmed-history note" to STORY-013's footer, and the
+    row keeps the distinction for whoever reads the table.
     """
     relative_info = ""
     release_info = ""
@@ -111,6 +130,7 @@ def _to_chat_message(row: StoredMessage) -> ChatMessage:
         duplicate_relative_info=relative_info,
         duplicate_release_info=release_info,
         detail=row.detail or "",
+        history_trimmed=row.history_trimmed or 0,
         # This bubble was already part of the conversation before the reader
         # opened it, so it does not arrive: `bubbles.py` withholds PRD-004's
         # entry animation from it, and a session switch is therefore silent
@@ -953,6 +973,15 @@ class ChatState(rx.State):
                 self.pending = False
             return
 
+        # Survives the rest of this send, and is re-applied in `finally`.
+        # `_append_and_persist`'s successful `touch` clears `sessions_error` --
+        # correctly, it has just proved the rail writable -- and would otherwise
+        # wipe a history-read failure raised seconds earlier, leaving the user
+        # with a silently shortened conversation and no notice. A read fault and
+        # a write success are different facts about the same rail, and the one
+        # that is still true at the end of the send is the one that shows.
+        history_error = ""
+
         try:
             async with self:
                 self.input_text = ""
@@ -960,6 +989,18 @@ class ChatState(rx.State):
                 # Read through the lock into a local, like `model` above: a
                 # background task has no exclusive access outside the block.
                 session_id = self.active_session_id
+                # Did this chat exist *before* this send? Captured here because
+                # it cannot be asked later: the lazy create below replaces
+                # `session_id` with a real id, so by the time the pipeline call
+                # is made, "is there a session" is true for every send.
+                #
+                # The distinction is the first send of a new chat, which has no
+                # answered exchange behind it and must take the `run_query`
+                # path -- same function, same arguments as today (PRD-010 F8;
+                # STORY-012 AC 2). `assemble` would return [] for it anyway, so
+                # the two are behaviourally identical and only this local keeps
+                # them apart.
+                had_session = bool(session_id)
                 device = None
                 try:
                     if (
@@ -1017,28 +1058,89 @@ class ChatState(rx.State):
                             self.sessions_total += 1
 
             try:
-                # PRD-010 STORY-006: the pipeline call runs on the dedicated
-                # pipeline executor, not the event loop's default executor --
-                # the same pool session-rail reads and admin snapshots use via
-                # asyncio.to_thread, and the one this change stops starving.
-                result = await run_in_pipeline(
-                    run_query,
-                    identity=identity,
-                    prompt=text,
-                    device=device,
-                    model=model,
-                    openrouter_api_key=None,
-                    call_openrouter=call_openrouter,
-                    # `or None` is defensive, not currently reachable: the
-                    # branch above always replaces an empty active_session_id
-                    # with either a real id or None. It is kept because
-                    # active_session_id is a str var whose unset value is ""
-                    # while log_query takes Optional[str], so any future edit
-                    # that lets "" through here would silently write an
-                    # empty-string conversation id onto audit rows instead of
-                    # NULL -- a value that reads as a session but joins to none.
-                    session_id=session_id or None,
-                )
+                # PRD-010 F8: the branch selects the pipeline **input**, not
+                # persistence. It is the one place in this class that names
+                # CHAT_HISTORY_ENABLED, and the flag is read explicitly rather
+                # than inferred from an empty `assemble` result, because that
+                # is what keeps the off path provably identical: same function,
+                # same arguments, no extra read. PRD-008's "no caller branches
+                # on the flag" still holds everywhere else here, and
+                # `tests/test_chat_state.py` pins the reference to this
+                # function alone.
+                if had_session and settings.CHAT_HISTORY_ENABLED:
+                    try:
+                        # STORY-011's one read, on the dedicated pipeline
+                        # executor (STORY-006) like the pipeline call below:
+                        # `assemble` is synchronous and touches the database,
+                        # so it never runs on the event loop.
+                        history = await run_in_pipeline(
+                            chat_history.assemble, identity, session_id
+                        )
+                    except ChatSessionError as exc:
+                        # The twin of the failed-`create` arm above: a rail that
+                        # will not read does not block the composer (PRD-004
+                        # Risk 3). The turn goes without history rather than
+                        # not at all, and the same slot carries the fact.
+                        history = []
+                        history_error = str(exc)
+                        async with self:
+                            self.sessions_error = history_error
+
+                    # `fit` is pure, so it runs inline -- there is nothing for
+                    # the executor to get off the loop.
+                    #
+                    # The limits are read here, per send, for the reason
+                    # `query_pipeline._context_limit_exceeded` gives for its own
+                    # per-call reads: a value captured once could not be
+                    # reconfigured without a restart, and every test that sets
+                    # them with monkeypatch.setattr(settings, ...) would be
+                    # silently ignored by a module-level constant.
+                    #
+                    # They must be *these* settings. `fit` accepts on `<=`
+                    # where the pipeline refuses on `>`, over the identical two
+                    # counts, so a conversation trimmed here is never then
+                    # refused downstream -- but only while both halves are
+                    # measuring against the same pair of numbers.
+                    messages, trimmed = chat_history.fit(
+                        history,
+                        Message("user", text),
+                        settings.CONTEXT_MAX_MESSAGES,
+                        settings.CONTEXT_MAX_CHARACTERS,
+                    )
+                    result = await run_in_pipeline(
+                        run_conversation,
+                        identity=identity,
+                        messages=messages,
+                        device=device,
+                        model=model,
+                        openrouter_api_key=None,
+                        call_openrouter=call_openrouter,
+                        session_id=session_id or None,
+                    )
+                else:
+                    trimmed = 0
+                    # PRD-010 STORY-006: the pipeline call runs on the dedicated
+                    # pipeline executor, not the event loop's default executor --
+                    # the same pool session-rail reads and admin snapshots use via
+                    # asyncio.to_thread, and the one this change stops starving.
+                    result = await run_in_pipeline(
+                        run_query,
+                        identity=identity,
+                        prompt=text,
+                        device=device,
+                        model=model,
+                        openrouter_api_key=None,
+                        call_openrouter=call_openrouter,
+                        # `or None` is defensive, not currently reachable: the
+                        # branch above always replaces an empty active_session_id
+                        # with either a real id or None. It is kept because
+                        # active_session_id is a str var whose unset value is ""
+                        # while log_query takes Optional[str], so any future edit
+                        # that lets "" through here would silently write an
+                        # empty-string conversation id onto audit rows instead of
+                        # NULL -- a value that reads as a session but joins to none.
+                        session_id=session_id or None,
+                    )
             except OpenRouterError as exc:
                 await self._append_and_persist(
                     ChatMessage(
@@ -1089,6 +1191,14 @@ class ChatState(rx.State):
                     audit_id=result.audit_id,
                     pii_redacted=result.pii_redacted,
                     pii_entities=result.pii_entities_masked,
+                    # On the answer, and on nothing else. `trimmed` is 0 on the
+                    # off path and on any send that dropped nothing, so a
+                    # bubble never carries a positive number it did not earn
+                    # (STORY-012 AC 3). The blocked and failed arms below keep
+                    # the field's 0 default, which is the honest value: no
+                    # exchange was dropped from an answer, because there was no
+                    # answer.
+                    history_trimmed=trimmed,
                 )
             elif isinstance(result, QueryBlockedDuplicateResponse):
                 relative_info, release_info = format_duplicate_info(
@@ -1131,6 +1241,12 @@ class ChatState(rx.State):
         finally:
             async with self:
                 self.pending = False
+                # In `finally` rather than after the append, so the notice
+                # survives every exit from this send -- including the
+                # upstream/internal-error arms, which return before the append
+                # above and would otherwise drop it.
+                if history_error:
+                    self.sessions_error = history_error
 
     @rx.event(background=True)
     async def retry_message(self, prompt: str):

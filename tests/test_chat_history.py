@@ -860,37 +860,3 @@ def test_assemble_and_fit_never_read_the_context_settings():
         "redact",
     }, names
 
-
-def test_no_production_module_imports_chat_history_yet():
-    """STORY-011 ships the module; STORY-012 is its first caller.
-
-    The same criterion STORY-001 held itself to -- "`messages.py` is imported
-    only by its tests" -- which is what makes this story provably unable to
-    change any existing behaviour.
-
-    **STORY-012 deletes this test.** Saying so here is what keeps it from being
-    read later as a prohibition on using the module.
-    """
-    root = pathlib.Path(__file__).resolve().parents[1]
-    module = root / "app" / "services" / "chat_history.py"
-
-    offenders = []
-    for path in sorted(
-        list((root / "app").rglob("*.py"))
-        + list((root / "chat_ui").rglob("*.py"))
-        + list((root / "scripts").rglob("*.py"))
-    ):
-        if path == module:
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                targets = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                targets = [node.module or ""] + [alias.name for alias in node.names]
-            else:
-                continue
-            if any("chat_history" in target for target in targets):
-                offenders.append(f"{path.relative_to(root)}:{node.lineno}")
-
-    assert offenders == [], offenders

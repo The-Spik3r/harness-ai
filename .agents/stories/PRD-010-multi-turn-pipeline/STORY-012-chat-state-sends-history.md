@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Chat sends history"
-status: todo
+status: done
 labels: [chat-ui, backend, history]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-012-chat-state-sends-history.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-012-chat-state-sends-history.report.md
 commit: null
 depends_on: [STORY-006, STORY-007, STORY-010, STORY-011]
 blocks: [STORY-013, STORY-014, STORY-015, STORY-017]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # STORY-012: ChatState sends session history through run_conversation; flag-off path unchanged
