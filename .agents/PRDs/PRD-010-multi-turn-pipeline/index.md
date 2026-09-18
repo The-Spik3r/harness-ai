@@ -6,7 +6,7 @@
 
 ## Progress
 
-6/18 stories done — 33%
+7/18 stories done — 39%
 
 ## Stories
 
@@ -20,7 +20,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 | STORY-004 | call_openrouter takes a list of Messages; the pipeline passes one user message | enhancement | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-004-openrouter-client-sends-messages.plan.md) | `65451c1` |
 | STORY-005 | GenerationParams allowlist, configurable timeout and explicit null-content error | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-005-generation-params-timeout-and-null-content.plan.md) | `4914674` |
 | STORY-006 | Dedicated pipeline executor; /query async with its body off the event loop; ChatState uses it | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-006-dedicated-pipeline-executor.plan.md) | `d265843` |
-| STORY-007 | run_conversation over messages; run_query becomes a one-message adapter | feature | ⬜ todo | large | — | — |
+| STORY-007 | run_conversation over messages; run_query becomes a one-message adapter | feature | ✅ done | large | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-007-run-conversation-and-query-adapter.plan.md) | `0096e2e` |
 | STORY-008 | Context-limit refusal: response model, audited pipeline arm, /query passthrough | feature | ⬜ todo | medium | — | — |
 | STORY-009 | Multi-turn pipeline invariants: check order, raw hashing, redaction, duplicate scope, no ingress | technical | ⬜ todo | medium | — | — |
 | STORY-010 | chat_messages.history_trimmed column, converged by init_db() | technical | ⬜ todo | small | — | — |

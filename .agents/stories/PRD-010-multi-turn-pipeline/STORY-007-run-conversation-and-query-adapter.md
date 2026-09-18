@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Pipeline over messages"
-status: todo
+status: done
 labels: [backend, pipeline, pii, duplicates]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-007-run-conversation-and-query-adapter.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-007-run-conversation-and-query-adapter.report.md
+commit: 0096e2e
 depends_on: [STORY-001, STORY-004, STORY-005]
 blocks: [STORY-008, STORY-009, STORY-012]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # STORY-007: run_conversation over messages; run_query becomes a one-message adapter
