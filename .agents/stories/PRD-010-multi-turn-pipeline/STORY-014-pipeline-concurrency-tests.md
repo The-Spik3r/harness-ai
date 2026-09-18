@@ -12,7 +12,7 @@ labels: [backend, tests, concurrency]
 epic_branch: epic/PRD-010-multi-turn-pipeline
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-014-pipeline-concurrency-tests.plan.md
 report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-014-pipeline-concurrency-tests.report.md
-commit: null
+commit: 0b0a077
 depends_on: [STORY-006, STORY-012]
 blocks: [STORY-018]
 skills: []
