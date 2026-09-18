@@ -12,7 +12,7 @@ labels: [backend, tests, security]
 epic_branch: epic/PRD-010-multi-turn-pipeline
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-009-multi-turn-pipeline-invariant-tests.plan.md
 report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-009-multi-turn-pipeline-invariant-tests.report.md
-commit: null
+commit: 90f07f1
 depends_on: [STORY-007, STORY-008]
 blocks: [STORY-016]
 skills: []

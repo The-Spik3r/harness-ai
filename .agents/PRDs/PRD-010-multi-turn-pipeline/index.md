@@ -6,7 +6,7 @@
 
 ## Progress
 
-8/18 stories done — 44%
+9/18 stories done — 50%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 | STORY-006 | Dedicated pipeline executor; /query async with its body off the event loop; ChatState uses it | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-006-dedicated-pipeline-executor.plan.md) | `d265843` |
 | STORY-007 | run_conversation over messages; run_query becomes a one-message adapter | feature | ✅ done | large | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-007-run-conversation-and-query-adapter.plan.md) | `0096e2e` |
 | STORY-008 | Context-limit refusal: response model, audited pipeline arm, /query passthrough | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-008-context-limit-refusal.plan.md) | `e4de634` |
-| STORY-009 | Multi-turn pipeline invariants: check order, raw hashing, redaction, duplicate scope, no ingress | technical | ⬜ todo | medium | — | — |
+| STORY-009 | Multi-turn pipeline invariants: check order, raw hashing, redaction, duplicate scope, no ingress | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-009-multi-turn-pipeline-invariant-tests.plan.md) | `90f07f1` |
 | STORY-010 | chat_messages.history_trimmed column, converged by init_db() | technical | ⬜ todo | small | — | — |
 | STORY-011 | chat_history.assemble (answered exchanges only) and fit (drop oldest whole exchanges) | feature | ⬜ todo | medium | — | — |
 | STORY-012 | ChatState sends session history through run_conversation; flag-off path unchanged | feature | ⬜ todo | large | — | — |
