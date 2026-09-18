@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [backend, tests, concurrency]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-014-pipeline-concurrency-tests.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-014-pipeline-concurrency-tests.report.md
 commit: null
 depends_on: [STORY-006, STORY-012]
 blocks: [STORY-018]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # STORY-014: Concurrency: blocked upstream calls do not stall /health, /query or the chat
