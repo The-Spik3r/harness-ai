@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-011-chat-history-assemble-and-fit.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: PENDING
+commit: a3eccae
 status: COMPLETE
 completed: 2026-09-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-18
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-011-chat-history-assemble-and-fit.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `PENDING`
+**Commit**: `a3eccae`
 
 ## Summary
 

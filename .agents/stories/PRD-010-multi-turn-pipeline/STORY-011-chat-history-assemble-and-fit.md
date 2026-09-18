@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Chat sends history"
-status: todo
+status: done
 labels: [backend, chat, history]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-011-chat-history-assemble-and-fit.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-011-chat-history-assemble-and-fit.report.md
+commit: a3eccae
 depends_on: [STORY-001]
 blocks: [STORY-012]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # STORY-011: chat_history.assemble (answered exchanges only) and fit (drop oldest whole exchanges)

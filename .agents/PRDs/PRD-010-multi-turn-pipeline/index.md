@@ -6,7 +6,7 @@
 
 ## Progress
 
-10/18 stories done — 56%
+11/18 stories done — 61%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 | STORY-008 | Context-limit refusal: response model, audited pipeline arm, /query passthrough | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-008-context-limit-refusal.plan.md) | `e4de634` |
 | STORY-009 | Multi-turn pipeline invariants: check order, raw hashing, redaction, duplicate scope, no ingress | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-009-multi-turn-pipeline-invariant-tests.plan.md) | `90f07f1` |
 | STORY-010 | chat_messages.history_trimmed column, converged by init_db() | technical | ✅ done | small | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-010-chat-messages-history-trimmed-column.plan.md) | `113633c` |
-| STORY-011 | chat_history.assemble (answered exchanges only) and fit (drop oldest whole exchanges) | feature | ⬜ todo | medium | — | — |
+| STORY-011 | chat_history.assemble (answered exchanges only) and fit (drop oldest whole exchanges) | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-011-chat-history-assemble-and-fit.plan.md) | `a3eccae` |
 | STORY-012 | ChatState sends session history through run_conversation; flag-off path unchanged | feature | ⬜ todo | large | — | — |
 | STORY-013 | Chat UI: context_limit bubble and 'earlier exchanges not sent' footer note | feature | ⬜ todo | medium | — | — |
 | STORY-014 | Concurrency: blocked upstream calls do not stall /health, /query or the chat | technical | ⬜ todo | medium | — | — |
