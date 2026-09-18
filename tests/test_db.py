@@ -17,6 +17,7 @@ from app.config import settings
 from app.db import database
 from app.db.database import (
     SUMMARY_FIGURES,
+    append_chat_message,
     check_database_reachable,
     count_active_users,
     count_audit_logs,
@@ -34,6 +35,7 @@ from app.db.database import (
     insert_audit_log,
     insert_user,
     list_audit_logs,
+    list_chat_messages,
     list_users,
     set_user_token_hash,
     summary_snapshot,
@@ -50,6 +52,7 @@ from app.db.errors import (
 )
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
+    CHAT_MESSAGES_ADDED_COLUMNS,
     CREATE_AUDIT_LOGS_DEDUP_INDEX,
     CREATE_AUDIT_LOGS_TABLE,
     CREATE_CHAT_MESSAGES_SESSION_INDEX,
@@ -194,6 +197,11 @@ def test_init_db_issues_no_alter_when_schema_is_current(temp_db, monkeypatch):
         CREATE_CHAT_MESSAGES_SESSION_INDEX,
     ):
         assert ddl in statements, ddl
+
+
+#: The session the pre-PRD-010 fixture seeds, named once so the fixture and the
+#: tests that read its transcript back cannot drift apart.
+_PRE_010_SESSION_ID = "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
 
 
 def _create_pre_pii_database(connect, url) -> None:
@@ -403,6 +411,73 @@ def _create_pre_dedup_key_database(connect, url) -> None:
             "pre009",
             "user",
             "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+        ),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def _create_pre_history_trimmed_database(connect, url) -> None:
+    """Builds the transcript schema exactly as it shipped before PRD-010: the
+    15-column chat_messages of PRD-008 STORY-002, with no history_trimmed.
+
+    The fifth of these fixtures and the first to predate a *chat* column rather
+    than an audit one, so audit_logs and chat_sessions are created from their
+    current constants rather than by hand -- `history_trimmed` has to be the
+    only column in flight, for the reason `_create_pre_dedup_key_database`'s
+    docstring gives about `dedup_key`. A fixture missing an audit column too
+    would migrate this one incidentally and could not show that *this* column
+    converges.
+
+    One session and one message are seeded so a test can show the migration
+    preserved the transcript rather than rewrote it.
+    """
+    legacy = connect(url)
+    legacy.execute(CREATE_AUDIT_LOGS_TABLE)
+    legacy.execute(CREATE_CHAT_SESSIONS_TABLE)
+    legacy.execute(
+        """
+        CREATE TABLE chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            prompt TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            audit_id INTEGER,
+            pii_redacted INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            pattern TEXT,
+            required_permission TEXT,
+            first_query_at TEXT,
+            detail TEXT
+        )
+        """
+    )
+    legacy.execute(
+        "INSERT INTO chat_sessions "
+        "(session_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (
+            _PRE_010_SESSION_ID,
+            "carla@empresa.com",
+            "a chat from before",
+            "2026-09-17T09:00:00Z",
+            "2026-09-17T09:00:00Z",
+        ),
+    )
+    legacy.execute(
+        "INSERT INTO chat_messages "
+        "(session_id, kind, content, created_at, model_used, tokens_used) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            _PRE_010_SESSION_ID,
+            "assistant",
+            "an answer",
+            "2026-09-17T09:00:01Z",
+            "openai/gpt-4o-mini",
+            7,
         ),
     )
     legacy.commit()
@@ -1578,7 +1653,11 @@ def test_init_db_is_idempotent_for_users_table(temp_db):
 def test_init_db_adds_users_table_to_pre_rbac_database(uninitialized_db, db_connect):
     """A new *table* needs no ALTER-based migration: CREATE TABLE IF NOT EXISTS
     reaches an existing database file, unlike a new column. This is why
-    _add_missing_columns stays audit_logs-specific."""
+    `users` needed no entry in any added-columns mapping.
+
+    PRD-010 STORY-010 gave `_add_missing_columns` a second *table* to converge
+    (`chat_messages`), not a second mechanism -- the argument here is unchanged:
+    tables arrive through CREATE, columns through ALTER."""
     _create_pre_pii_database(db_connect, uninitialized_db)  # audit_logs only -- no users table
 
     init_db()
@@ -1820,6 +1899,71 @@ def test_audit_log_carries_dedup_key_without_breaking_construction():
     assert carried.dedup_key == "k"
 
 
+def test_chat_messages_added_columns_carries_a_nullable_history_trimmed():
+    """PRD-010 STORY-010. Nullable with no default, and the distinction is the
+    feature: NULL is "written before this PRD" and 0 is "this send dropped
+    nothing", so a restored transcript can tell a pre-feature row from a send
+    that trimmed nothing. INTEGER NOT NULL DEFAULT 0 would report both as the
+    second, which is a footer that lies about what was sent.
+
+    Declared in both places, like every migrated column on audit_logs above.
+    """
+    assert CHAT_MESSAGES_ADDED_COLUMNS == {"history_trimmed": "INTEGER"}
+    assert "history_trimmed INTEGER" in CREATE_CHAT_MESSAGES_TABLE
+    assert "NOT NULL" not in CHAT_MESSAGES_ADDED_COLUMNS["history_trimmed"].upper()
+    assert "DEFAULT" not in CHAT_MESSAGES_ADDED_COLUMNS["history_trimmed"].upper()
+
+
+def test_every_chat_messages_added_column_is_also_declared_in_the_create():
+    """The twin of test_every_added_column_is_also_declared_in_the_create, one
+    table over. Same invariant and the same reason: a column in only the mapping
+    means every fresh deployment ALTERs its own brand-new table on first boot."""
+    declared = _declared_columns(CREATE_CHAT_MESSAGES_TABLE)
+    for name in CHAT_MESSAGES_ADDED_COLUMNS:
+        assert name in declared, f"{name} is migrated in but never created"
+
+
+def test_chat_messages_added_columns_declaring_not_null_also_declare_a_default():
+    """The twin of test_added_columns_declaring_not_null_also_declare_a_default.
+
+    Vacuous today -- the mapping holds one nullable column -- and written for
+    the entry after it: SQLite rejects ADD COLUMN NOT NULL without a DEFAULT,
+    and the violation surfaces only against a database that predates the column,
+    so it passes every fresh-database test and breaks on exactly the deployments
+    the migration exists to serve.
+    """
+    for name, ddl in CHAT_MESSAGES_ADDED_COLUMNS.items():
+        declaration = ddl.upper()
+        if "NOT NULL" in declaration:
+            assert "DEFAULT" in declaration, (
+                f"{name}: NOT NULL requires a DEFAULT -- "
+                f"SQLite rejects ADD COLUMN NOT NULL without one"
+            )
+            assert "DEFAULT NULL" not in declaration, (
+                f"{name}: DEFAULT NULL does not satisfy NOT NULL"
+            )
+
+
+def test_stored_message_carries_history_trimmed_without_breaking_construction():
+    """PRD-010 STORY-010: optional and defaulted, so every existing keyword
+    construction of StoredMessage -- _to_stored_message, the ownership tests --
+    is untouched. Declared after detail so the dataclass mirrors the table and
+    created_at / id stay the trailing fields, as AuditLog keeps id trailing.
+    """
+    assert (
+        StoredMessage(session_id="s", kind="user", content="hola").history_trimmed
+        is None
+    )
+
+    carried = StoredMessage(
+        session_id="s", kind="assistant", content="hey", history_trimmed=3
+    )
+    assert carried.history_trimmed == 3
+
+    names = [field.name for field in dataclasses.fields(StoredMessage)]
+    assert names[-3:] == ["history_trimmed", "created_at", "id"]
+
+
 def test_stored_message_mirrors_the_chat_messages_columns():
     """The real long-run risk in this file is the dataclass and the table
     drifting apart as later stories add fields. Compared mechanically here so
@@ -2036,6 +2180,23 @@ def test_chat_messages_table_matches_its_ddl(temp_db):
         assert columns[name]["notnull"] == 1, f"{name} must be NOT NULL"
 
 
+def test_init_db_adds_a_nullable_history_trimmed_column(temp_db):
+    """PRD-010 STORY-010 AC 1, on the built table rather than the constant.
+
+    The twin of test_init_db_adds_a_nullable_dedup_key_column, one table over.
+    `dflt_value is None` is the load-bearing third assertion: a DEFAULT 0 would
+    make every pre-feature row read as "this send dropped nothing".
+    """
+    with get_connection() as conn:
+        info = {
+            row["name"]: row for row in conn.execute("PRAGMA table_info(chat_messages)")
+        }
+
+    assert info["history_trimmed"]["type"] == "INTEGER"
+    assert info["history_trimmed"]["notnull"] == 0
+    assert info["history_trimmed"]["dflt_value"] is None
+
+
 @pytest.mark.parametrize("field", ["duplicate_relative_info", "duplicate_release_info"])
 def test_chat_messages_table_stores_no_humanized_duplicate_copy(temp_db, field):
     """PRD Section 6: "the humanized copy is recomputed on load, not stored, so
@@ -2177,6 +2338,123 @@ def test_init_db_migrates_a_pre_dedup_key_database(uninitialized_db, db_connect)
     )
     assert count_audit_logs() == 2
     assert get_audit_log(2).dedup_key == "k"
+
+
+def test_init_db_migrates_a_pre_history_trimmed_database(
+    uninitialized_db, db_connect
+):
+    """PRD-010 STORY-010 AC 2: a database whose chat_messages predates this PRD
+    gains history_trimmed, the existing message reads NULL, and no row is
+    rewritten.
+
+    `_add_missing_columns()` is *generalized* by this story but behaviourally
+    unchanged -- it took its table and mapping as parameters so this second call
+    site could exist. This is evidence for that path carrying a chat column,
+    exactly as the two tests above are for the audit ones.
+    """
+    _create_pre_history_trimmed_database(db_connect, uninitialized_db)
+
+    init_db()
+
+    with get_connection() as conn:
+        assert "history_trimmed" in _column_names(conn, "chat_messages")
+
+    (preserved,) = list_chat_messages(_PRE_010_SESSION_ID, "carla@empresa.com")
+    assert preserved.history_trimmed is None
+    assert preserved.content == "an answer"
+    assert preserved.tokens_used == 7
+    assert preserved.model_used == "openai/gpt-4o-mini"
+    assert preserved.created_at == "2026-09-17T09:00:01Z"
+
+    append_chat_message(
+        StoredMessage(
+            session_id=_PRE_010_SESSION_ID,
+            kind="assistant",
+            content="a newer answer",
+            history_trimmed=2,
+        ),
+        _PRE_010_SESSION_ID,
+        "carla@empresa.com",
+    )
+
+    restored = list_chat_messages(_PRE_010_SESSION_ID, "carla@empresa.com")
+    assert [message.history_trimmed for message in restored] == [None, 2]
+
+
+def test_init_db_adds_the_history_trimmed_column_after_creating_the_table(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The story's ordering rule, pinned directly rather than only through its
+    symptom: CREATE_CHAT_MESSAGES_TABLE precedes the ALTER that adds
+    history_trimmed, on the one `_session()` connection that builds the whole
+    schema.
+
+    The mirror of test_init_db_creates_the_dedup_index_after_adding_the_column
+    below, and the opposite ordering for the opposite reason: an index needs its
+    column to exist first, a column pass needs its *table* to exist first.
+    """
+    _create_pre_history_trimmed_database(db_connect, uninitialized_db)
+    statements: list[str] = []
+    connections: list[object] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    def _record(conn):
+        proxy = _RecordingConnection(conn)
+        connections.append(proxy)
+        return proxy
+
+    _install(monkeypatch, _record)
+
+    init_db()
+
+    alter = [
+        i
+        for i, sql in enumerate(statements)
+        if "ALTER TABLE CHAT_MESSAGES ADD COLUMN HISTORY_TRIMMED"
+        in " ".join(sql.upper().split())
+    ]
+    assert len(alter) == 1, statements
+    assert CREATE_CHAT_MESSAGES_TABLE in statements, statements
+    assert statements.index(CREATE_CHAT_MESSAGES_TABLE) < alter[0], statements
+    # check_database_reachable()'s probe plus the one bootstrap `_session()`.
+    assert len(connections) == 2
+
+
+def test_init_db_adds_no_history_trimmed_alter_to_a_fresh_database(
+    uninitialized_db, monkeypatch
+):
+    """The other half of the ordering rule, and the one a symptom cannot show.
+
+    On a database with no tables at all, CREATE_CHAT_MESSAGES_TABLE declares the
+    column itself, so the pass that follows must find it and issue **nothing**.
+    A pass placed before the CREATE would instead read "no columns" from a
+    PRAGMA against a table that does not exist -- indistinguishable from a table
+    missing every column -- and ALTER a table that is not there, which fails
+    every boot. This test is what makes that regression visible here rather than
+    on first deployment.
+    """
+    statements: list[str] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    _install(monkeypatch, _RecordingConnection)
+
+    init_db()
+
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER" in sql.upper() for sql in statements), statements
+    assert CREATE_CHAT_MESSAGES_TABLE in statements, statements
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        assert "history_trimmed" in _column_names(conn, "chat_messages")
 
 
 def test_init_db_creates_the_dedup_index_after_adding_the_column(
@@ -2998,6 +3276,11 @@ def test_add_missing_columns_treats_an_existing_column_as_success(
     The users-table assertion is not incidental: it proves the statements
     *after* the swallowed failures still landed, i.e. that a converging instance
     finishes its migration rather than committing a half-built schema.
+
+    Since PRD-010 STORY-010 this covers **both** tables that migrate columns.
+    The proxy blanks every `PRAGMA table_info`, and `init_db()` now runs a pass
+    over `chat_messages` too, so that ALTER also fires against a table that
+    already has the column and must converge the same way.
     """
     _install(monkeypatch, _StaleReadConnection)
 
@@ -3006,12 +3289,17 @@ def test_add_missing_columns_treats_an_existing_column_as_success(
     monkeypatch.undo()
     with get_connection() as conn:
         columns = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+        chat_columns = _column_names(conn, "chat_messages")
         users = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
         ).fetchone()
 
     for name in AUDIT_LOGS_ADDED_COLUMNS:
         assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
+    for name in CHAT_MESSAGES_ADDED_COLUMNS:
+        assert chat_columns.count(name) == 1, (
+            f"{name} present {chat_columns.count(name)} times"
+        )
     assert users is not None, "the statements after the swallowed failures were lost"
 
 
@@ -3130,6 +3418,45 @@ def test_two_init_db_calls_racing_on_dedup_key_both_converge(
     preserved = get_audit_log(1)
     assert preserved.user_id == "carla@empresa.com"
     assert preserved.dedup_key is None
+
+
+def test_two_init_db_calls_racing_on_history_trimmed_both_converge(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """PRD-010 STORY-010 AC 3, asserted the way the two audit races above are.
+
+    The fixture's chat_messages is the pre-PRD-010 15-column shape and its
+    audit_logs is current, so `history_trimmed` is the **only** column in
+    flight: both threads read a stale PRAGMA, both attempt
+    `ADD COLUMN history_trimmed`, and `_is_duplicate_column()` turns the loser's
+    failure into convergence rather than a container that will not boot.
+
+    Each thread now crosses the reusable barrier twice, once per table, because
+    `_GatedConnection` gates on every `PRAGMA table_info` and `init_db()` reads
+    two. Both threads run the identical path, so the cycles match; an asymmetric
+    one would raise `BrokenBarrierError` inside the 30 s timeout and fail this
+    test rather than hang the suite.
+    """
+    _create_pre_history_trimmed_database(db_connect, uninitialized_db)
+    gate = threading.Barrier(2, timeout=30)
+    _install(monkeypatch, lambda conn: _GatedConnection(conn, gate))
+
+    failures = _run_concurrently(2, init_db)
+
+    assert not failures, f"a concurrent init_db() raised: {failures}"
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = _column_names(conn, "chat_messages")
+
+    assert columns.count("history_trimmed") == 1, columns
+    assert set(CHAT_MESSAGES_ADDED_COLUMNS) <= set(columns)
+    assert len(columns) == len(set(columns)), "a column was added twice"
+
+    (preserved,) = list_chat_messages(_PRE_010_SESSION_ID, "carla@empresa.com")
+    assert preserved.content == "an answer"
+    assert preserved.tokens_used == 7
+    assert preserved.history_trimmed is None
 
 
 def test_add_missing_columns_propagates_a_failure_that_is_not_a_duplicate_column(

@@ -21,6 +21,7 @@ from app.db.errors import (
 )
 from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
+    CHAT_MESSAGES_ADDED_COLUMNS,
     CREATE_AUDIT_LOGS_DEDUP_INDEX,
     CREATE_AUDIT_LOGS_TABLE,
     CREATE_CHAT_MESSAGES_SESSION_INDEX,
@@ -667,6 +668,19 @@ def init_db() -> None:
     column does not exist until `_add_missing_columns()` has run, and an index
     on a missing column fails the boot. So it sits on the line after. In steady
     state it is one more `CREATE INDEX IF NOT EXISTS` no-op.
+
+    PRD-010 STORY-010 adds `chat_messages.history_trimmed`, which makes
+    `chat_messages` the second table to need a column convergence. So
+    `_add_missing_columns()` now takes the table and the mapping to apply and is
+    called twice from this block, once per table -- the same guarantee run
+    again, not a second mechanism. The `chat_messages` pass sits **after**
+    `CREATE_CHAT_MESSAGES_TABLE`, and that position is load-bearing the way the
+    dedup index's is, for the opposite reason: on a fresh database the table
+    does not exist until that CREATE, and `PRAGMA table_info` against a missing
+    table reports no columns, which is indistinguishable from a table missing
+    every column -- so a pass placed earlier would try to ALTER a table that is
+    not there. In steady state it costs one more `PRAGMA table_info` and issues
+    no `ALTER`.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -674,18 +688,21 @@ def init_db() -> None:
     check_database_reachable()
     with _session() as conn:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
-        _add_missing_columns(conn)
+        _add_missing_columns(conn, "audit_logs", AUDIT_LOGS_ADDED_COLUMNS)
         conn.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
         conn.execute(CREATE_USERS_TABLE)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
         conn.execute(CREATE_CHAT_SESSIONS_TABLE)
         conn.execute(CREATE_CHAT_SESSIONS_USER_INDEX)
         conn.execute(CREATE_CHAT_MESSAGES_TABLE)
+        _add_missing_columns(conn, "chat_messages", CHAT_MESSAGES_ADDED_COLUMNS)
         conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
 
 
-def _add_missing_columns(conn: _Connection) -> None:
-    """Brings a pre-existing audit_logs table up to the current schema.
+def _add_missing_columns(
+    conn: _Connection, table: str, columns: dict[str, str]
+) -> None:
+    """Brings a pre-existing `table` up to the current schema.
 
     Additive only: existing rows keep their data and take the column default.
     That constraint is unchanged; what STORY-007 adds is convergence.
@@ -715,14 +732,24 @@ def _add_missing_columns(conn: _Connection) -> None:
     than on the driver's. A re-raised `StorageError` is not a `ValueError`, so
     it passes back out through `_session()` untouched rather than being parsed
     twice.
+
+    **PRD-010 STORY-010 made the table and the mapping parameters**, because
+    `chat_messages.history_trimmed` needs exactly the convergence above and
+    nothing about it is audit-specific. Two calls rather than one loop over a
+    list of tables: `init_db()` has to run the passes at different points in its
+    block -- `audit_logs` before `CREATE_AUDIT_LOGS_DEDUP_INDEX`, which reads a
+    migrated column, and `chat_messages` after `CREATE_CHAT_MESSAGES_TABLE`,
+    without which there is no table to interrogate on a fresh database. The body
+    is unchanged: the same pre-check, the same single tolerated failure, the
+    same `PRAGMA` read per table.
     """
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")}
-    for name, ddl in AUDIT_LOGS_ADDED_COLUMNS.items():
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, ddl in columns.items():
         if name in existing:
             continue
         try:
             with _translated():
-                conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}")
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
         except StorageError as exc:
             if not _is_duplicate_column(exc, name):
                 raise
@@ -1614,12 +1641,16 @@ def _row_to_stored_message(row: _Row) -> StoredMessage:
     the same shape `users.active` has -- so it gets the same `bool()` that
     `_row_to_user` gives that column, and for the same reason.
 
-    `tokens_used` and `audit_id` are pointedly *not* coerced. Both are `INTEGER`
-    columns against `Optional[int]` fields, and an `int()` around them would turn
-    a genuine `NULL` into `0` -- a lie on a bubble that never called a model, and
-    indistinguishable from a real zero-token response. The driver returns Python
-    integers for INTEGER columns already; there is nothing to convert and
-    everything to lose by converting.
+    `tokens_used`, `audit_id` and `history_trimmed` are pointedly *not* coerced.
+    All three are `INTEGER` columns against `Optional[int]` fields, and an
+    `int()` around them would turn a genuine `NULL` into `0` -- a lie on a bubble
+    that never called a model, and indistinguishable from a real zero-token
+    response. On `history_trimmed` (PRD-010) the lie is worse, because both
+    values are meaningful and the column is how a reload reproduces the footer:
+    `0` says "this send dropped nothing" and `NULL` says "this row was written
+    before the feature existed". The driver returns Python integers for INTEGER
+    columns already; there is nothing to convert and everything to lose by
+    converting.
     """
     return StoredMessage(
         session_id=row["session_id"],
@@ -1635,6 +1666,7 @@ def _row_to_stored_message(row: _Row) -> StoredMessage:
         required_permission=row["required_permission"],
         first_query_at=row["first_query_at"],
         detail=row["detail"],
+        history_trimmed=row["history_trimmed"],
         created_at=row["created_at"],
         id=row["id"],
     )
@@ -1687,6 +1719,13 @@ def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -
     `insert_user` stamps its own; `id` is always the column's, never the
     dataclass's, because `AUTOINCREMENT` is what makes it the transcript's order.
 
+    **`history_trimmed` gets no `or None` and no `int()`** (PRD-010). It is the
+    one optional field here where `0` and `NULL` say different things -- "this
+    send dropped nothing" against "written before the feature existed" -- so the
+    normalization the next paragraph describes for `pii_entities`, where `""`
+    and `NULL` mean the same thing, would destroy information here rather than
+    tidy it.
+
     `pii_entities` is normalized: `""` is stored as `NULL`, exactly as
     `app/services/audit_logger.py:45` already stores an empty entity list. The
     difference matters one layer up -- `"".split(",")` is `[""]`, a phantom
@@ -1703,9 +1742,9 @@ def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -
             INSERT INTO chat_messages (
                 session_id, kind, content, created_at, prompt, model_used,
                 tokens_used, audit_id, pii_redacted, pii_entities, pattern,
-                required_permission, first_query_at, detail
+                required_permission, first_query_at, detail, history_trimmed
             )
-            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS (
                  SELECT 1 FROM chat_sessions
                   WHERE session_id = ? AND user_id = ?
@@ -1726,6 +1765,7 @@ def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -
                 message.required_permission,
                 message.first_query_at,
                 message.detail,
+                message.history_trimmed,
                 session_id,
                 user_id,
             ),

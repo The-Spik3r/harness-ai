@@ -2225,8 +2225,14 @@ def test_the_rehydration_reads_every_stored_field():
     transcripts quietly losing a field. The AST walk makes that drift fail a
     test rather than a review.
 
-    `session_id`, `created_at` and `id` are excluded: `ChatMessage` has no
-    field for any of them, and `id` is the ordering the store already applied.
+    The excused fields are **derived**, not listed: a stored field is excused
+    exactly while `ChatMessage` has nowhere to put it. `session_id`, `created_at`
+    and `id` are permanent members (`id` is the ordering the store already
+    applied); `history_trimmed` is a temporary one, added to `chat_messages` by
+    PRD-010 STORY-010 with the matching bubble field and mappers due in
+    STORY-012. The literal below is what makes that temporary: the moment
+    STORY-012 adds `ChatMessage.history_trimmed`, the derived set shrinks, this
+    assertion fails, and the mapping becomes required rather than remembered.
     """
     tree = ast.parse(pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8"))
     fn = next(
@@ -2242,11 +2248,10 @@ def test_the_rehydration_reads_every_stored_field():
         and node.value.id == "row"
     }
 
-    expected = {f.name for f in dataclasses.fields(StoredMessage)} - {
-        "session_id",
-        "created_at",
-        "id",
-    }
+    stored = {f.name for f in dataclasses.fields(StoredMessage)}
+    excused = stored - set(ChatMessage.model_fields)
+    assert excused == {"session_id", "created_at", "id", "history_trimmed"}, excused
+    expected = stored - excused
 
     assert expected <= read, f"_to_chat_message drops {sorted(expected - read)}"
 

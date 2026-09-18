@@ -930,6 +930,11 @@ def _transcript(session_id: str) -> list[dict]:
             "required_permission": "query:submit",
             "first_query_at": "2026-09-04T10:00:00Z",
             "detail": f"the detail line for message {index}",
+            # PRD-010 STORY-010. Distinct per message, and 0 on the first: the
+            # round trip below is an equality over the whole dict, so a column
+            # dropped between instances shows up here rather than as a footer
+            # that reads differently after a reload on the other instance.
+            "history_trimmed": index,
         }
         for index, kind in enumerate(_TRANSCRIPT_KINDS)
     ]

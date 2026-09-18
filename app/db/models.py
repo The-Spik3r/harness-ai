@@ -138,6 +138,11 @@ CREATE_CHAT_SESSIONS_USER_INDEX = (
 # lossier model is how a reloaded transcript would come to read differently from
 # the conversation the user actually had.
 #
+# One column is ahead of that mirror for now: PRD-010 STORY-010 adds
+# history_trimmed here, and STORY-012 adds the matching ChatMessage field and
+# the two mappers. The gap is a story wide, deliberately -- the column has to
+# exist before there is anything to persist into it.
+#
 # Two of ChatMessage's fields deliberately have **no column**:
 # duplicate_relative_info and duplicate_release_info. They are humanized copy,
 # recomputed on load so they stay relative to *now* (PRD Section 6); a stored
@@ -166,9 +171,33 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     pattern TEXT,
     required_permission TEXT,
     first_query_at TEXT,
-    detail TEXT
+    detail TEXT,
+    history_trimmed INTEGER
 )
 """
+
+# The second added-columns mapping, and the first over a table that is not
+# audit_logs (PRD-010 STORY-010). CREATE TABLE IF NOT EXISTS is a no-op against
+# a chat_messages created before this PRD, so init_db() ALTERs the column in --
+# the same convergence AUDIT_LOGS_ADDED_COLUMNS above describes, run for a
+# second table rather than reimplemented for one.
+#
+# Every entry here is also declared in CREATE_CHAT_MESSAGES_TABLE above, and the
+# two are not redundant for the reason the audit mapping gives: this brings an
+# old database up to date, the CREATE is what a fresh one is built to, and a
+# column listed in only one of them means every new deployment ALTERs its own
+# brand-new table on first boot.
+#
+# Nullable with no default on purpose, and the distinction is the point. NULL
+# means "this row was written before the feature existed"; 0 means "this send
+# dropped nothing". INTEGER NOT NULL DEFAULT 0 would report every restored
+# pre-PRD row as the second, which is a footer that lies about what was sent.
+# Additive only: no drops, renames, or type changes. Every NOT NULL entry would
+# need a non-NULL DEFAULT -- SQLite rejects ADD COLUMN NOT NULL without one.
+#
+# Nothing writes a non-NULL value yet: STORY-012 does, through ChatMessage and
+# chat_ui/chat_ui/state.py's _to_stored_message.
+CHAT_MESSAGES_ADDED_COLUMNS = {"history_trimmed": "INTEGER"}
 
 # (session_id, id) is list_chat_messages' read exactly: every message of one
 # session, in key order.
@@ -252,5 +281,14 @@ class StoredMessage:
     required_permission: Optional[str] = None
     first_query_at: Optional[str] = None
     detail: Optional[str] = None
+    # PRD-010: how many whole earlier exchanges chat_history.fit dropped from the
+    # send this row answered (STORY-011), carried on the assistant row so a
+    # reloaded transcript renders the same footer note the live bubble showed
+    # (STORY-013). Declared after detail to mirror the table, so created_at and
+    # id stay the trailing fields.
+    #
+    # Optional[int], not int: None is "written before this PRD", 0 is "this send
+    # dropped nothing", and only a nullable field can say both.
+    history_trimmed: Optional[int] = None
     created_at: Optional[str] = None  # append_chat_message() stamps it when omitted
     id: Optional[int] = None

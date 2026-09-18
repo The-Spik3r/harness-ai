@@ -716,6 +716,7 @@ def test_each_of_the_seven_kinds_round_trips_unchanged(temp_db, kind, metadata):
         "required_permission",
         "first_query_at",
         "detail",
+        "history_trimmed",
         "created_at",
     ):
         assert getattr(restored, field_name) == getattr(written, field_name), field_name
@@ -740,6 +741,64 @@ def test_tokens_used_and_audit_id_round_trip_as_integers(temp_db):
     assert isinstance(restored.tokens_used, int)
     assert restored.audit_id == 99
     assert isinstance(restored.audit_id, int)
+
+
+def test_history_trimmed_round_trips_as_an_integer(temp_db):
+    """PRD-010 STORY-010 AC 4. An integer, and the same integer.
+
+    `isinstance` for the reason the test above gives: a driver handing back
+    `"3"` compares unequal and would be caught, but one handing back `3.0` would
+    not. The neighbouring fields are asserted on the same row because
+    `history_trimmed` is the last of fifteen INSERT placeholders, and a
+    miscounted one shifts every value left without changing the row count.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", tokens_used=1234, history_trimmed=3),
+        session_id,
+        "ana",
+    )
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.history_trimmed == 3
+    assert isinstance(restored.history_trimmed, int)
+    assert restored.content == "assistant content"
+    assert restored.tokens_used == 1234
+
+
+def test_history_trimmed_zero_round_trips_as_zero(temp_db):
+    """The value an `or None` in append_chat_message would silently swallow.
+
+    Every other optional field there is normalized with `or None`, because ""
+    and NULL mean the same thing for them. They do not here: 0 is "this send
+    dropped nothing" and NULL is "written before the feature existed", so the
+    one field that must not take that treatment needs the one test that notices.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", history_trimmed=0), session_id, "ana"
+    )
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.history_trimmed == 0
+    assert restored.history_trimmed is not None
+
+
+def test_absent_history_trimmed_reads_back_as_none_not_zero(temp_db):
+    """The other half, and the one an `int()` in the row mapper would break.
+
+    A row written before PRD-010 -- or by any path that does not set the field
+    -- must read back None. Coerced to 0 it would claim the send dropped
+    nothing, which is a footer note about history that was never computed.
+    """
+    session_id = _seeded_session()
+    append_chat_message(_stored(session_id, "user"), session_id, "ana")
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.history_trimmed is None
 
 
 def test_absent_tokens_used_and_audit_id_read_back_as_none_not_zero(temp_db):
