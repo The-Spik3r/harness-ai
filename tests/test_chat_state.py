@@ -568,22 +568,18 @@ async def test_chat_state_pending_resets_on_all_outcomes(temp_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_state_concurrent_send_guard(temp_db, monkeypatch):
     called_count = 0
-    async def _slow_to_thread(fn, *args, **kwargs):
-        # _do_send offloads two different callables now: the lazy session
-        # create and the pipeline call. Count only the pipeline, so
-        # `called_count` keeps meaning "run_query ran once" rather than
-        # "something was offloaded once", and hand each caller the return
-        # type it actually expects.
+
+    # PRD-010 STORY-006: run_query now runs through run_in_pipeline, not
+    # asyncio.to_thread -- the lazy session create is the only offload left on
+    # asyncio.to_thread, so this no longer needs to branch on which callable
+    # was handed to a patched asyncio.to_thread.
+    async def _slow_run_in_pipeline(fn, *args, **kwargs):
         nonlocal called_count
         await asyncio.sleep(0.05)
-        if fn is chat_state_mod.run_query:
-            called_count += 1
-            return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
-        return await asyncio.get_running_loop().run_in_executor(
-            None, lambda: fn(*args, **kwargs)
-        )
+        called_count += 1
+        return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
 
-    monkeypatch.setattr(chat_state_mod.asyncio, "to_thread", _slow_to_thread)
+    monkeypatch.setattr(chat_state_mod, "run_in_pipeline", _slow_run_in_pipeline)
 
     state = _make_state()
     task1 = asyncio.create_task(_send(state, "first prompt"))

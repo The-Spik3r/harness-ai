@@ -17,6 +17,7 @@ from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity, resolve
 from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
+from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
@@ -1016,7 +1017,11 @@ class ChatState(rx.State):
                             self.sessions_total += 1
 
             try:
-                result = await asyncio.to_thread(
+                # PRD-010 STORY-006: the pipeline call runs on the dedicated
+                # pipeline executor, not the event loop's default executor --
+                # the same pool session-rail reads and admin snapshots use via
+                # asyncio.to_thread, and the one this change stops starving.
+                result = await run_in_pipeline(
                     run_query,
                     identity=identity,
                     prompt=text,

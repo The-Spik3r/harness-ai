@@ -15,6 +15,7 @@ from app.main import app
 from app.services.identity import hash_token
 import app.services.authz as authz
 import app.services.pii_redactor as pii_redactor
+from app.services import pipeline_executor
 
 client = TestClient(app)
 
@@ -146,6 +147,20 @@ def test_lifespan_fails_fast_even_with_only_admin_token_configured(
     with pytest.raises(authz.RbacNotBootstrappedError):
         with TestClient(app):
             pass
+
+
+def test_lifespan_shuts_down_the_pipeline_executor(monkeypatch, temp_db):
+    """PRD-010 STORY-006 AC5: pipeline_executor.shutdown() runs on app
+    shutdown, following the same `with TestClient(app):` pattern the other
+    lifespan tests in this file use to exercise startup *and* teardown."""
+    monkeypatch.setattr(settings, "RBAC_ENABLED", False)
+    calls = []
+    monkeypatch.setattr(pipeline_executor, "shutdown", lambda: calls.append(1))
+
+    with TestClient(app):
+        assert calls == []
+
+    assert calls == [1]
 
 
 def test_lifespan_fails_when_the_database_is_unreachable(monkeypatch):
