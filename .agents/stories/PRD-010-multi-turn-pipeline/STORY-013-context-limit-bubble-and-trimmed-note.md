@@ -12,7 +12,7 @@ labels: [chat-ui, frontend, copy]
 epic_branch: epic/PRD-010-multi-turn-pipeline
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-013-context-limit-bubble-and-trimmed-note.plan.md
 report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-013-context-limit-bubble-and-trimmed-note.report.md
-commit: null
+commit: 36b6088
 depends_on: [STORY-008, STORY-012]
 blocks: [STORY-016]
 skills: [frontend-design]

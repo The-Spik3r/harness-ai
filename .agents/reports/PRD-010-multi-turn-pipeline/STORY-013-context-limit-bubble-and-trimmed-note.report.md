@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-013-context-limit-bubble-and-trimmed-note.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: PENDING
+commit: 36b6088
 status: COMPLETE
 completed: 2026-09-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-18
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-013-context-limit-bubble-and-trimmed-note.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `PENDING`
+**Commit**: `36b6088`
 
 ## Summary
 
