@@ -16,7 +16,7 @@ completed: 2026-09-18
 
 ## Summary
 
-One new test module, `tests/test_pipeline_concurrency.py` (648 lines, five tests), turns the
+One new test module, `tests/test_pipeline_concurrency.py` (664 lines, five tests), turns the
 PRD's operator claim into an assertion. `_BlockingUpstream` is an injected `call_openrouter`
 that parks its first N callers on a `threading.Event` and announces each arrival on a
 `Condition`, so a test waits for "all ten are genuinely inside the upstream" as a fact rather
@@ -56,7 +56,9 @@ code under test; nothing in `app/` or `chat_ui/` needed a fix.
 | AC 5 manual smoke, `HARNESS_SLOW_SMOKE=1 … -s` | ✅ 1 passed (69.08s) |
 | Ordering/leak check: `test_pipeline_concurrency.py` then `test_pipeline_executor.py` | ✅ 13 passed, 1 skipped |
 | Neighbouring suites (`test_query_router`, `test_chat_state`, `test_chat_history_send`, `test_history_off_integration`) | ✅ 196 passed |
-| Full suite `pytest -q tests/` | ✅ **2224 passed, 26 skipped, 0 failed** (179.38s) |
+| Full suite `pytest -q tests/` | ✅ **2224 passed, 26 skipped, 0 failed** (226.92s) |
+| Flake check: module × 5 consecutive runs | ✅ 4 passed, 1 skipped each (~6.4s, stable) |
+| Flake check: each arm alone in a fresh process | ✅ passed (3.1–4.1s) |
 
 There is no linter or formatter in this repo; "validate" is pytest against the local libSQL
 dev server.
@@ -69,14 +71,34 @@ Against `ThreadingHTTPServer` on a free port, delaying 60 s per request, with
 ```
 [STORY-014 AC 5 manual smoke]
   upstream delay:        60.0s
-  /health while blocked: 15.0ms
-  ten chat sends total:  67.73s
+  /health while blocked: 16.0ms
+  ten chat sends total:  61.70s
 ```
 
-**`/health` answered in 15 ms while ten chat sends were blocked for a full minute on a real
+**`/health` answered in 16 ms while ten chat sends were blocked for a full minute on a real
 socket** — the PRD's "< 1 s" with three orders of magnitude to spare. The ten sends
-completing in 67.73 s rather than ~600 s is the other half of the claim: they ran
-concurrently on the dedicated pool, not one after another.
+completing in 61.70 s rather than ~600 s is the other half of the claim: they ran
+concurrently on the dedicated pool, not one after another. (An earlier run of this arm, before
+the `_warm_presidio` fix below, read 15.0 ms / 67.73 s — the extra six seconds were the spaCy
+model loading inside the measured window.)
+
+### A flaky arm, found and fixed after the first commit
+
+`test_health_answers_while_ten_query_calls_are_blocked` failed on a re-run after the initial
+commit, having passed every earlier time. It was a real defect in the test, not noise, and it
+is worth recording how it read: **the module was measuring a cold start as if it were
+concurrency.**
+
+`ASGITransport` runs no lifespan, so `pii_redactor.load()` — which both `app/main.py` and
+`chat_ui/chat_ui/chat_ui.py` call at startup — never ran. The first pipeline call therefore
+paid a multi-second spaCy model load *inside* the blocked window, while nine sibling threads
+contended for the GIL, and the module's ten-second backstop was intermittently missed. The
+timings confirm the diagnosis rather than merely tolerating it: with an autouse
+`_warm_presidio` fixture restoring the production precondition, the module went from 11–17 s
+per run to a steady ~6.4 s, and the manual smoke's ten sends from 67.73 s to 61.70 s.
+
+The fix restores what production does at startup; it does not relax a bound. Verified with
+five consecutive module runs and each arm alone in a fresh process, all green.
 
 ### A note on suite flakiness during validation
 
@@ -93,13 +115,13 @@ mean restarting the container, not bisecting the code.
 
 | File | Action | Lines |
 |------|--------|-------|
-| `tests/test_pipeline_concurrency.py` | CREATE | +648 |
+| `tests/test_pipeline_concurrency.py` | CREATE | +664 |
 
 No production file was touched, which is what the plan required of this story.
 
 ## Deviations from Plan
 
-Four, all within the tasks as written:
+Five:
 
 1. **The `/health` thread spy goes on `route.dependant.call`, not on `app.main.health`.**
    Task 9 said "wrap `app.main.health` with a spy". The route captures the function object at
@@ -120,7 +142,10 @@ Four, all within the tasks as written:
 3. **AC 3 seeds sessions via `chat_sessions.create`** rather than by driving a first send —
    the plan offered both and asked which was used. `create` is the cheaper of the two and
    keeps the arm's upstream stub untouched before the blocking send.
-4. **The manual smoke drops the `/query` probe the plan sketched.** Once `_API_URL` points at
+4. **An autouse `_warm_presidio` fixture, not in the plan.** Added after the flaky arm
+   described above; the plan did not anticipate that `ASGITransport` skipping the lifespan
+   would move a cold model load inside the measured window.
+5. **The manual smoke drops the `/query` probe the plan sketched.** Once `_API_URL` points at
    the 60 s server, *every* ingress hits it, so a `/query` there would measure the slow
    upstream rather than the pool's freedom, and its 60 s wait would say nothing. The `/health`
    probe is the one the story's AC 5 actually names ("ten chat sends and a `/health` probe"),

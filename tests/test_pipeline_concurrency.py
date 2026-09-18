@@ -54,7 +54,7 @@ from app.config import settings
 from app.db.database import get_connection, insert_user
 from app.db.models import User
 from app.main import app
-from app.services import chat_sessions, pipeline_executor
+from app.services import chat_sessions, pii_redactor, pipeline_executor
 from app.services.identity import hash_token, resolve
 from app.services.openrouter_client import OpenRouterResult
 
@@ -76,6 +76,22 @@ _HARD_TIMEOUT = 10.0
 _FAST = 1.0
 
 _BLOCKED = 10
+
+
+@pytest.fixture(autouse=True)
+def _warm_presidio():
+    """Load the PII analyzer before any timing window opens.
+
+    Both ingresses call `pii_redactor.load()` at startup -- `app/main.py`'s
+    lifespan and `chat_ui/chat_ui/chat_ui.py`'s -- so in production the spaCy
+    model is in memory long before the first request. `ASGITransport` runs no
+    lifespan, so without this the *first* pipeline call would pay a multi-second
+    model load, inside the blocked window, while nine sibling threads contend
+    for the GIL. That made this module intermittently miss its ten-second
+    backstop: a cold start being measured as if it were concurrency. Warming it
+    here restores the production precondition rather than relaxing the bound.
+    """
+    pii_redactor.load()
 
 
 @pytest.fixture
