@@ -23,7 +23,6 @@ from typing import get_args
 import pytest
 
 import app.models.messages as messages_module
-import app.services.query_pipeline as query_pipeline
 from app.models.messages import (
     Message,
     MessageNormalizationError,
@@ -284,11 +283,13 @@ def test_normalize_messages_refuses_a_string_or_non_sequence(raw):
     ["summarise this week's incidents", "acentuación y emoji 🙂", ""],
     ids=["ascii", "non-ascii", "empty"],
 )
-def test_message_list_keys_like_the_pipeline_user_turn_today(prompt):
-    # STORY-007 deletes _UserTurn: replace this reference with the pinned digest
-    # from test_dedup_key.py:74, never delete the assertion.
+def test_message_list_keys_like_a_structural_user_turn(prompt):
+    # PRD-010 STORY-007 deletes query_pipeline._UserTurn: this now compares
+    # against the file's own local `_Turn` stand-in (same pattern already used
+    # by test_multi_turn_message_list_matches_structural_turns below), instead
+    # of a private pipeline class. The assertion itself is unchanged.
     assert dedup_key(_JUAN, [Message("user", prompt)]) == dedup_key(
-        _JUAN, [query_pipeline._UserTurn(prompt)]
+        _JUAN, [_Turn("user", prompt)]
     )
 
 
