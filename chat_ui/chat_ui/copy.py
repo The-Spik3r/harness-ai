@@ -60,6 +60,7 @@ TAG_INJECTION = "DENIED"
 TAG_FORBIDDEN = "FORBIDDEN"
 TAG_UPSTREAM = "UPSTREAM"
 TAG_INTERNAL = "FAULT"
+TAG_CONTEXT_LIMIT = "TOO LONG"
 TAG_UNKNOWN = "LOGGED"
 
 SUCCESS_ROLE_LABEL = "assistant"
@@ -77,6 +78,14 @@ PII_BADGE_SINGLE_TEMPLATE = "1 PII type masked in this exchange: {entities}"
 FOOTER_SEPARATOR = " · "
 FOOTER_TOKENS_LABEL = "tokens"
 FOOTER_AUDIT_PREFIX = "#"
+# What `chat_history.fit` dropped from the send this footer belongs to. The
+# only footer item that is about the send rather than about the answer.
+#
+# Plural and singular are two constants, not one with a conditional "s",
+# because the singular also changes the verb -- the same reason the PII badge
+# above carries its own singular (copy.py:69-73).
+FOOTER_TRIMMED_TEMPLATE = "{count} earlier exchanges were not sent to the model"
+FOOTER_TRIMMED_SINGLE_TEMPLATE = "1 earlier exchange was not sent to the model"
 
 # --- Recovery actions ----------------------------------------------------
 RETRY_LABEL = "Retry"
@@ -101,6 +110,20 @@ UPSTREAM_ERROR_HEADLINE = "OpenRouter did not answer."
 INTERNAL_ERROR_PREFIX = "The harness failed before the model"
 INTERNAL_ERROR_HEADLINE = "The harness failed before reaching the model."
 DETAIL_LABEL = "Detail"
+
+# The chat is over a configured maximum, so this send did not happen. The copy
+# says what is too long and what to do instead; it never says "context limit",
+# which is the name of the setting, not of the problem (PRD-010 Section 8,
+# frontend-design: "name things by what people control and recognize, never by
+# how the system is built"). It does not apologize -- nothing failed, and the
+# next step belongs to the reader.
+CONTEXT_LIMIT_HEADLINE = "This chat is too long to send."
+CONTEXT_LIMIT_NEW_CHAT_NOTICE = "Start a new chat to continue."
+# The counts, in the data voice, e.g. "characters 250113 of 200000". The
+# placeholder is `unit` and not `limit` because the value it takes is
+# "characters" or "messages" -- a unit the reader recognizes -- and because
+# "limit" is one of the words this bubble's copy must not contain.
+CONTEXT_LIMIT_DETAIL_TEMPLATE = "{unit} {actual} of {maximum}"
 
 # --- Session fallbacks ---------------------------------------------------
 # The two strings a session row falls back to. Both are failures of the

@@ -28,3 +28,22 @@ def test_chat_message_metadata_fields():
     assert msg.model_used == "gpt-4"
     assert msg.tokens_used == 45
     assert msg.audit_id == 127
+
+
+def test_footer_trimmed_copy_constants():
+    """PRD-010 STORY-013: the footer's trimmed-history note, both forms."""
+    assert copy.FOOTER_TRIMMED_SINGLE_TEMPLATE == (
+        "1 earlier exchange was not sent to the model"
+    )
+    assert copy.FOOTER_TRIMMED_TEMPLATE.format(count=3) == (
+        "3 earlier exchanges were not sent to the model"
+    )
+
+
+def test_chat_message_carries_history_trimmed():
+    """Verify ChatMessage carries history_trimmed, defaulting to 0 (no note)."""
+    msg = ChatMessage(kind="assistant", content="Hello", history_trimmed=3)
+    assert msg.history_trimmed == 3
+    # 0 is the value that must render no note at all, which is what keeps an
+    # untrimmed footer the one it was before this story.
+    assert ChatMessage(kind="assistant", content="Hello").history_trimmed == 0

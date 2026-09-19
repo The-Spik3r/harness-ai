@@ -200,6 +200,12 @@ def render_assistant(message) -> rx.Component:
         rx.fragment(),
     )
 
+    trimmed_note = rx.cond(
+        message.history_trimmed == 1,
+        copy.FOOTER_TRIMMED_SINGLE_TEMPLATE,
+        copy.FOOTER_TRIMMED_TEMPLATE.format(count=message.history_trimmed),
+    )
+
     footer = rx.cond(
         message.model_used != "",
         _evidence(
@@ -211,6 +217,17 @@ def render_assistant(message) -> rx.Component:
             copy.FOOTER_SEPARATOR,
             copy.FOOTER_AUDIT_PREFIX,
             message.audit_id,
+            # STORY-013: the only footer item about the send rather than the
+            # answer, so it comes last. The separator travels inside the
+            # conditional with the note, so a footer can never end on a
+            # dangling " · ". With `history_trimmed == 0` the false arm is
+            # `rx.fragment()`, which mounts no node and no text -- that is
+            # what makes the untrimmed footer the one it was before.
+            rx.cond(
+                message.history_trimmed > 0,
+                rx.el.span(copy.FOOTER_SEPARATOR, trimmed_note),
+                rx.fragment(),
+            ),
             margin_top="0.7rem",
             padding_top="0.5rem",
             border_top=f"1px solid {theme.RULE}",
@@ -328,6 +345,58 @@ def render_forbidden(message) -> rx.Component:
                     margin_top="0.5rem",
                 ),
                 rx.fragment(),
+            ),
+        ),
+    )
+
+
+def render_context_limit(message) -> rx.Component:
+    """Held for length, not judged: the send did not happen, nothing is wrong
+    with what was written, and the next step belongs to the reader.
+
+    `INK_HELD`, shared with `render_duplicate`, and chosen on measured
+    contrast. `INK_FORBIDDEN` was the closer semantic match -- a configured
+    maximum is a rule of the deployment, and like `render_forbidden` this
+    bubble offers no retry -- but it is below AA on the light ground (4.28 on
+    PAPER, 4.44 on its own tint), which is why it is the one verdict pair
+    missing from `_INK_ON_TINT` in `tests/test_contrast.py`. `INK_HELD` clears
+    the threshold in both palettes and means the right thing anyway: held, not
+    rejected. The tag carries the distinction between the two kinds.
+
+    No recovery action. The session rail's "New chat" is that control, it is
+    always on screen, and a bubble-local duplicate of it would scroll out of
+    the viewport and give the interface two controls for one job.
+    """
+    ink, tint = theme.INK_HELD, theme.TINT_HELD
+    return _entry(
+        message,
+        _rail(ink),
+        _tag(copy.TAG_CONTEXT_LIMIT, ink),
+        _panel(
+            ink,
+            tint,
+            # The copy constant, not `message.content` -- `content` holds the
+            # pipeline's "Conversation exceeds context limit", which belongs on
+            # the row so the restored transcript and the audit row agree, and
+            # not on the screen. `render_internal_error` splits them the same
+            # way.
+            _prose(copy.CONTEXT_LIMIT_HEADLINE),
+            rx.cond(
+                message.detail != "",
+                _evidence(
+                    f"{copy.DETAIL_LABEL}: ",
+                    message.detail,
+                    color=ink,
+                    margin_top="0.5rem",
+                ),
+                rx.fragment(),
+            ),
+            rx.box(
+                copy.CONTEXT_LIMIT_NEW_CHAT_NOTICE,
+                font_family=theme.FONT_BODY,
+                font_size=theme.TEXT_DATA,
+                color=ink,
+                margin_top="0.5rem",
             ),
         ),
     )

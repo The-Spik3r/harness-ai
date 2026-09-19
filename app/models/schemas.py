@@ -99,11 +99,36 @@ class QueryBlockedForbiddenResponse(BaseModel):
     required_permission: str
 
 
+class QueryBlockedContextLimitResponse(BaseModel):
+    """A conversation refused for being over a configured context limit (PRD-010 D2).
+
+    `limit` names *which* of the two configured maxima was hit, and only ever
+    one is reported: `run_conversation` checks messages first and returns on the
+    first breach, so a conversation over both is reported as `messages`. That is
+    deliberate -- a caller shortening a conversation to fit the message count
+    will be told about the character count on the next attempt, and a body that
+    named both would imply the two were measured independently when the second
+    was never reached.
+
+    `maximum` is the configured limit as read for *that call*
+    (`CONTEXT_MAX_MESSAGES` / `CONTEXT_MAX_CHARACTERS`), not a constant: it is
+    echoed back so a client can see the bound it broke without reading the
+    server's configuration.
+    """
+
+    status: Literal["BLOCKED"] = "BLOCKED"
+    reason: str
+    limit: Literal["messages", "characters"]
+    maximum: int
+    actual: int
+
+
 QueryResponse = Union[
     QuerySuccessResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
+    QueryBlockedContextLimitResponse,
 ]
 
 

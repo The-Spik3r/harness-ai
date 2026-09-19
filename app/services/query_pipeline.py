@@ -1,7 +1,9 @@
-from dataclasses import dataclass, field
-from typing import Callable, Optional, Union
+from typing import Callable, Literal, Optional, Sequence, Tuple, Union
 
+from app.config import settings
+from app.models.messages import Message
 from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
@@ -17,7 +19,12 @@ from app.services.authz import (
 )
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
-from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
+from app.services.openrouter_client import (
+    GenerationParams,
+    OpenRouterError,
+    OpenRouterResult,
+    call_openrouter,
+)
 from app.services.pattern_detector import detect_suspicious_pattern
 from app.services.pii_redactor import PiiRedactorError, redact
 
@@ -26,15 +33,70 @@ QueryPipelineResult = Union[
     QueryBlockedDuplicateResponse,
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
+    QueryBlockedContextLimitResponse,
 ]
 
+ContextLimit = Literal["messages", "characters"]
 
-@dataclass(frozen=True)
-class _UserTurn:
-    """The one turn `/query` has: satisfies `DedupTurn` structurally (PRD-009 Section 6.2)."""
 
-    content: str
-    role: str = field(default="user", init=False)
+class InvalidConversationError(Exception):
+    """The conversation is structurally malformed: a programming error.
+
+    Unreachable from any ingress in this PRD (Section 9.2 invariants) --
+    run_query always builds one well-formed user turn, and ChatState's
+    history is built only from stored, already-answered exchanges (D4).
+    Raised before dedup_key, authorization, or any log_query call, so it
+    writes no audit row. Neither the router nor ChatState catches it.
+    """
+
+
+def _validate_conversation(messages: Sequence[Message]) -> None:
+    if not messages:
+        raise InvalidConversationError("messages must not be empty")
+    if any(m.role == "tool" for m in messages):
+        raise InvalidConversationError("tool turns are not supported (PRD-016)")
+    if messages[-1].role != "user":
+        raise InvalidConversationError("the last message must be a user turn")
+
+
+def _inspection_target(messages: Sequence[Message]) -> str:
+    """PROVISIONAL (PRD-010 D6): the last user turn. PRD-011 replaces this.
+
+    Sufficient for chat history: every earlier user turn was itself the last
+    user turn of a send that already passed inspection (D4). Not sufficient
+    for caller-supplied history -- no ingress in this PRD accepts one.
+    """
+    return messages[-1].content
+
+
+def _context_limit_exceeded(
+    messages: Sequence[Message],
+) -> Optional[Tuple[ContextLimit, int, int]]:
+    """The limit this conversation breaks as (limit, maximum, actual), or None.
+
+    Messages are checked first and the function returns on the first breach
+    (PRD-010 D2), so a conversation over both limits is reported as `messages`
+    and the character count is never computed for it. Only one limit is ever
+    reported: a body naming both would imply they were measured independently.
+
+    Both maxima are read off `settings` **here, per call** rather than captured
+    at import. Two reasons: a process that read them once could not be
+    reconfigured without a restart, and every test in this suite sets them with
+    `monkeypatch.setattr(settings, ...)`, which a module-level constant would
+    silently ignore (STORY-008 Technical Notes).
+
+    The comparison is strict `>`: a conversation exactly at the maximum is
+    within the limit, not over it.
+    """
+    message_count = len(messages)
+    if message_count > settings.CONTEXT_MAX_MESSAGES:
+        return "messages", settings.CONTEXT_MAX_MESSAGES, message_count
+
+    character_count = sum(len(message.content) for message in messages)
+    if character_count > settings.CONTEXT_MAX_CHARACTERS:
+        return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
+
+    return None
 
 
 def _deny(
@@ -69,21 +131,30 @@ def _deny(
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
 
-def run_query(
+def run_conversation(
     identity: Identity,
-    prompt: str,
+    messages: Sequence[Message],
     device: Optional[str],
     model: str,
     openrouter_api_key: Optional[str],
+    params: Optional[GenerationParams] = None,
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
     session_id: Optional[str] = None,
 ) -> QueryPipelineResult:
-    # Computed once, before authorization, on purpose (PRD-009 Section 6.1): it is
-    # pure, so it cannot change the check order, and every row this function writes
-    # -- denials included -- carries it. A ValueError here is a programming error
-    # (a single user turn always keys), so it is not caught.
-    key = dedup_key(identity.user_id, [_UserTurn(prompt)])
+    # Step 0 (PRD Section 6.1): structural validation, before anything else
+    # can run -- a malformed conversation is a programming error, not an
+    # outcome, so it writes no audit row.
+    _validate_conversation(messages)
+    # Guaranteed by validation: the last message is always role == "user".
+    prompt = messages[-1].content
 
+    # Step 1: computed once, before authorization, on purpose (PRD-009
+    # Section 6.1): it is pure, so it cannot change the check order, and
+    # every row this function writes -- denials included -- carries it.
+    # dedup_key runs over the raw conversation as received (STORY-007).
+    key = dedup_key(identity.user_id, messages)
+
+    # Step 2: authorize / model / BYOK.
     try:
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
@@ -109,10 +180,49 @@ def run_query(
                 reason="Missing required permission",
             )
 
+    # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).
+    #
+    # The position is the decision. It sits **after** all three authorization
+    # arms, so a caller without `query:submit` is told they lack the permission
+    # and learns nothing about how this deployment is configured. It sits
+    # **before** check_duplicate, so an over-limit conversation neither consults
+    # the duplicate window nor lands in it -- it never got a verdict, so it is
+    # not a query anyone asked twice.
+    #
+    # `success=False`, unlike the three arms below, and that is not an
+    # oversight. A duplicate/suspicious/forbidden row is `success=True` because
+    # a verdict was reached and the row itself names it in a dedicated column.
+    # `audit_logs` has no column for "over the context limit" and this story
+    # adds none, so the reason goes in `error_message` with success unset --
+    # the same shape the upstream-error arm uses. It also makes the row
+    # unusable as a prior query (PRD-009 Section 6.3), which is exactly right
+    # for an attempt that never reached the model. The cost is that these rows
+    # count against `success_rate`; PRD Section 9.2 T7 accepts it.
+    exceeded = _context_limit_exceeded(messages)
+    if exceeded is not None:
+        limit, maximum, actual = exceeded
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=f"context limit: {limit} {actual} > {maximum}",
+            session_id=session_id,
+            dedup_key=key,
+        )
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit=limit,
+            maximum=maximum,
+            actual=actual,
+        )
+
+    # Step 4: duplicate.
+    #
     # identity.user_id is the credential-resolved id, never the request body's,
     # so a caller cannot choose whose window they are checked against
-    # (PRD-009 Section 9.1, F5). The key is the one derived above, once
-    # (STORY-007): the control checks exactly what every row records.
+    # (PRD-009 Section 9.1, F5). The key is the one derived above, once: the
+    # control checks exactly what every row records.
     duplicate_result = check_duplicate(identity.user_id, key)
 
     if duplicate_result.is_duplicate:
@@ -130,7 +240,8 @@ def run_query(
             first_query_at=duplicate_result.first_query_at,
         )
 
-    pattern_result = detect_suspicious_pattern(prompt)
+    # Step 5: patterns, on the provisional inspection target only (D6).
+    pattern_result = detect_suspicious_pattern(_inspection_target(messages))
     if pattern_result.is_suspicious:
         log_query(
             user_id=identity.user_id,
@@ -146,24 +257,45 @@ def run_query(
             pattern=pattern_result.pattern,
         )
 
-    try:
-        redacted_prompt, input_entities = redact(prompt)
-    except PiiRedactorError as exc:
-        log_query(
-            user_id=identity.user_id,
-            prompt=prompt,
-            device=device,
-            success=False,
-            error_message=str(exc),
-            session_id=session_id,
-            dedup_key=key,
-        )
-        raise
+    # Step 6: redact every message (D5) -- history must never leave the
+    # process unmasked, whatever its source. Only the last user turn's
+    # entities count toward the audit's PII fields (D7): re-redacting
+    # history that already passed once is not a new PII event, or every
+    # later row of a session would misreport one (PRD Section 6.7).
+    redacted_messages: list[Message] = []
+    input_entities: list[str] = []
+    last_index = len(messages) - 1
+    for index, message in enumerate(messages):
+        try:
+            redacted_content, entities = redact(message.content)
+        except PiiRedactorError as exc:
+            log_query(
+                user_id=identity.user_id,
+                prompt=prompt,
+                device=device,
+                success=False,
+                error_message=str(exc),
+                session_id=session_id,
+                dedup_key=key,
+            )
+            raise
+        redacted_messages.append(Message(message.role, redacted_content))
+        if index == last_index:
+            input_entities = entities
 
+    # Step 7: upstream. params is forwarded only when set: the existing
+    # injected call_openrouter stubs across the suite have signature
+    # (messages, model, api_key) and raise TypeError on an unexpected
+    # params= keyword (PRD-010 STORY-005 Technical Notes).
     try:
-        openrouter_result = call_openrouter(
-            redacted_prompt, model=model, api_key=openrouter_api_key
-        )
+        if params is not None:
+            openrouter_result = call_openrouter(
+                redacted_messages, model=model, api_key=openrouter_api_key, params=params
+            )
+        else:
+            openrouter_result = call_openrouter(
+                redacted_messages, model=model, api_key=openrouter_api_key
+            )
     except OpenRouterError as exc:
         log_query(
             user_id=identity.user_id,
@@ -177,6 +309,7 @@ def run_query(
         )
         raise
 
+    # Step 8: redact response, audit, return.
     try:
         redacted_response, output_entities = redact(openrouter_result.response)
     except PiiRedactorError as exc:
@@ -220,4 +353,24 @@ def run_query(
         tokens_used=openrouter_result.tokens_used,
         pii_redacted=bool(masked_entities),
         pii_entities_masked=masked_entities,
+    )
+
+
+def run_query(
+    identity: Identity,
+    prompt: str,
+    device: Optional[str],
+    model: str,
+    openrouter_api_key: Optional[str],
+    call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
+    session_id: Optional[str] = None,
+) -> QueryPipelineResult:
+    return run_conversation(
+        identity,
+        [Message("user", prompt)],
+        device,
+        model,
+        openrouter_api_key,
+        call_openrouter=call_openrouter,
+        session_id=session_id,
     )

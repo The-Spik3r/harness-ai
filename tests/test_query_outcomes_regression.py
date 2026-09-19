@@ -23,9 +23,11 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.db.database import get_audit_log, get_connection, insert_user
 from app.db.models import AuditLog, User
 from app.main import app
+from app.models.messages import Message
 import app.services.query_pipeline as query_pipeline
 from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
@@ -209,3 +211,73 @@ def test_outcome_6_internal_failure_duplicate_storage(temp_db, monkeypatch):
     assert response.status_code == 500
     assert "Duplicate lookup failed" in response.json()["detail"]
     assert logged == []
+
+
+def test_outcome_7_context_limit(temp_db, monkeypatch):
+    """PRD-010 STORY-008: the seventh outcome, and the one intended behaviour
+    change this PRD makes to `/query` (PRD Section 6.5).
+
+    200 with a `BLOCKED` body, like the other three blocks -- no new status
+    code (PRD Section 10). The body is asserted as an exact dict on purpose:
+    `QueryResponse` is a plain, non-discriminated `Union` whose four blocked
+    members all carry `status: "BLOCKED"`, so this is what proves FastAPI
+    serializes the new member as itself rather than matching a sibling and
+    dropping `limit`, `maximum` and `actual` on the way out.
+
+    The limit is monkeypatched small rather than sending 200,001 characters:
+    the production default is what `app/config.py` pins, and this test is about
+    the refusal, not the number.
+    """
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 50)
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+
+    before = _count_audit_rows()
+    response = client.post("/query", json={"prompt": "a" * 51})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "BLOCKED",
+        "reason": "Conversation exceeds context limit",
+        "limit": "characters",
+        "maximum": 50,
+        "actual": 51,
+    }
+    assert _count_audit_rows() == before + 1
+    row = _latest_entry()
+    assert row.success is False
+    assert row.error_message == "context limit: characters 51 > 50"
+    assert row.dedup_key is not None
+
+
+# --- PRD-010 STORY-003: characterization of the /query upstream call ---
+#
+# Pinned before PRD-010 STORY-004. Assertions change only where a later
+# story cites the decision. This is the pipeline-level counterpart to
+# tests/test_openrouter_client.py's characterization tests: it is what
+# STORY-004 must keep green when it changes call_openrouter's signature.
+
+
+def test_characterization_query_upstream_receives_prompt_model_and_no_api_key(
+    temp_db, monkeypatch
+):
+    received = {}
+
+    # PRD-010 STORY-004: upstream now receives list[Message]
+    def _recording_success(messages, model="gpt-4", api_key=None):
+        received["messages"] = messages
+        received["model"] = model
+        received["api_key"] = api_key
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _recording_success)
+
+    prompt = "characterization: pin today's upstream body before STORY-004"
+    response = client.post("/query", json={"prompt": prompt})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "SUCCESS"
+    assert received == {
+        "messages": [Message("user", prompt)],
+        "model": "gpt-4",
+        "api_key": None,
+    }

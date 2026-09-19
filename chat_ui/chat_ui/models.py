@@ -20,6 +20,18 @@ class ChatMessage(pydantic.BaseModel):
     duplicate_relative_info: str = ""
     duplicate_release_info: str = ""
     detail: str = ""
+    # PRD-010: how many whole earlier exchanges `chat_history.fit` dropped from
+    # the send this bubble answers (STORY-011/012). Carried here, rendered by
+    # STORY-013's footer note -- this story only moves the number.
+    #
+    # `int`, where the column it round-trips through is `Optional[int]`
+    # (`app/db/models.py:290-292`). A Reflex Var cannot be None on the wire, so
+    # the bubble's 0 has to cover both of the column's meanings -- "this send
+    # dropped nothing" and "this row was written before the feature existed" --
+    # and only the column keeps them apart. That is the right way round: the
+    # distinction matters to whoever reads the table later, and it changes
+    # nothing a bubble renders, because both mean "no note".
+    history_trimmed: int = 0
     # Was this bubble read back from the database, or has it just arrived?
     #
     # The only field here that is about *presentation* rather than about the

@@ -453,7 +453,8 @@ def _log_query_call_sources(source: str) -> list:
 
     The `from app.services.audit_logger import log_query` line is not followed
     by `(`, so it is excluded without needing to be special-cased -- which is
-    also why AC 2's `grep -n "log_query(" ...` reports exactly seven.
+    also why AC 2's `grep -n "log_query(" ...` reports exactly eight
+    (seven when AC 2 was written; the context-limit arm is STORY-008's).
     """
     calls = []
     marker = "log_query("
@@ -475,22 +476,27 @@ def _log_query_call_sources(source: str) -> list:
 
 
 def test_every_log_query_call_site_in_the_pipeline_passes_session_id():
-    """AC 2, and the guard for the eighth arm nobody has written yet.
+    """AC 2, and the guard for the next arm nobody has written yet.
+
+    It has already earned that: STORY-008's context-limit arm is the eighth,
+    and this test is what required it to pass `session_id=` like the rest.
 
     The defect this story is most likely to ship is one forgotten
-    `session_id=` among seven call sites, and six of the seven are on paths a
+    `session_id=` among eight call sites, and seven of the eight are on paths a
     reviewer never exercises by hand. Counting the call sites and checking each
     one turns that into a failing test named after the problem, rather than a
     NULL discovered in a compliance report months later.
 
     A raw `source.count("session_id=session_id")` would not do: the three
     `_deny(...)` call sites pass the same expression, so the string appears ten
-    times while only seven of them are `log_query` arguments.
+    times while only eight of them are `log_query` arguments.
     """
     source = inspect.getsource(query_pipeline)
     calls = _log_query_call_sources(source)
 
-    assert len(calls) == 7, f"expected seven log_query call sites, found {len(calls)}"
+    # Eight since PRD-010 STORY-008 added the context-limit arm -- the arm
+    # this count was written to catch. Raise it again with the ninth.
+    assert len(calls) == 8, f"expected eight log_query call sites, found {len(calls)}"
 
     missing = [call for call in calls if "session_id=session_id" not in call]
     assert missing == [], f"log_query call sites not passing session_id: {missing}"

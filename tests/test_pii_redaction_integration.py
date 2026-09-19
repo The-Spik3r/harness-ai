@@ -62,7 +62,7 @@ def _capturing_openrouter(seen: list, response: str = _PII_RESPONSE):
     """Records the outbound prompt, then answers with PII of its own."""
 
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response=response, model_used=model, tokens_used=9)
 
     return _call
@@ -268,9 +268,16 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
     assert stats["top_pii_entities"] == []
 
 
+# PRD-010 STORY-003 deliberately extends tests/test_openrouter_client.py with
+# characterization tests pinning today's payload shape, headers/URL and default
+# timeout -- the guardrail STORY-004/005 must keep green when call_openrouter's
+# signature changes (PRD-010 Section 6.8 lists it "extended", same as this file
+# lists tests/test_integration.py's STORY-013 breaking change above). It moves
+# out of layer 1 (byte-unmodified) and stays covered by layer 2 below
+# (`test_no_pre_epic_test_function_was_removed_or_renamed`): additions are fine,
+# no existing test function may be removed or renamed.
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
-    "tests/test_openrouter_client.py",
     "tests/test_pattern_detector.py",
     "tests/test_route_reservations.py",
 ]
@@ -377,6 +384,20 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_the_chat_modules_are_unchanged_since_prd_006_began -> retired
 #   - test_the_pinned_suites_are_byte_unmodified ->
 #     test_no_test_was_removed_from_the_six_pinned_suites
+#
+# PRD-010 STORY-012 renames one `tests/test_chat_state.py` guard, and the rename
+# is the record of a rule that was deliberately narrowed rather than dropped.
+# PRD-008 said "no caller branches on the flag", and the test asserted
+# `ChatState` names CHAT_HISTORY_ENABLED zero times. PRD-010 F8 grants this one
+# caller exactly one read, to select the pipeline *input* rather than
+# persistence: "reading the flag keeps the off path provably identical: same
+# function, same arguments, no extra read." The replacement asserts the grant
+# and its limit -- one reference, and only inside `_do_send` -- in the shape
+# `tests/test_session_rail.py::test_the_flag_is_named_once_and_only_at_the_surface`
+# already uses for the rail's own exemption. Nothing stopped being checked; what
+# the flag may not do (reach persistence, or any other method here) still fails.
+#   - test_chat_state_never_names_the_history_flag ->
+#     test_chat_state_names_the_history_flag_once_and_only_in_do_send
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_schemas.py": {"test_query_request_missing_user_id_raises"},
     "tests/test_query_router.py": {
@@ -388,6 +409,7 @@ _DELIBERATELY_SUPERSEDED_TESTS = {
         "test_chat_state_submit_valid_user_id_clears_error_and_sets_user",
         "test_chat_state_reset_user_id_clears_error",
         "test_reset_user_id_clears_the_transcript",
+        "test_chat_state_never_names_the_history_flag",
     },
     "tests/test_untouched_app.py": {
         "test_no_file_under_app_changed_since_prd_006_began",

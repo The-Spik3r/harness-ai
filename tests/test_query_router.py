@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,8 @@ from app.db.database import (
 )
 from app.db.models import AuditLog, User
 from app.main import app
+import app.routers.query as query_router_module
+from app.services import chat_sessions
 import app.services.query_pipeline as query_pipeline
 from app.services.authz import PERMISSION_QUERY_BYOK, PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import dedup_key, hash_prompt
@@ -275,6 +278,25 @@ def test_openrouter_failure_logged_with_error_and_returns_502(temp_db, monkeypat
     assert entry.error_message == "boom"
 
 
+def test_null_content_openrouter_error_maps_to_502(temp_db, monkeypatch):
+    """PRD-010 STORY-005 AC5: the client's explicit null-content message is just
+    another OpenRouterError to the router, so the existing 502 mapping covers it
+    with no router change."""
+
+    def _raise_null_content_error(prompt, model="gpt-4", api_key=None):
+        raise OpenRouterError("OpenRouter returned no text content (finish_reason=length)")
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _raise_null_content_error)
+
+    before = _count_audit_rows()
+    response = client.post(
+        "/query", json={"user_id": "juan@empresa.com", "prompt": "hello world"}
+    )
+
+    assert response.status_code == 502
+    assert _count_audit_rows() == before + 1
+
+
 def test_full_pipeline_latency_within_budget(temp_db, monkeypatch):
     def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
         return OpenRouterResult(response="fast", model_used=model, tokens_used=1)
@@ -302,7 +324,7 @@ _REDACTED_PROMPT = "my email is <EMAIL_ADDRESS>, can you draft a reply?"
 
 def _capturing_openrouter(seen: list):
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response="drafted", model_used=model, tokens_used=9)
 
     return _call
@@ -574,7 +596,7 @@ def test_both_directions_redacted_in_one_request(temp_db, monkeypatch):
     seen = []
 
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response=_PII_RESPONSE, model_used=model, tokens_used=9)
 
     monkeypatch.setattr("app.routers.query.call_openrouter", _call)
@@ -745,3 +767,62 @@ def test_existing_success_fields_unchanged_alongside_new_signal(temp_db, monkeyp
         "pii_entities_masked": ["EMAIL_ADDRESS"],
     }
     assert isinstance(body["audit_id"], int)
+
+
+# --- PRD-010 STORY-006: thread placement (PRD Risk 2) ---
+
+
+def test_pipeline_body_runs_on_dedicated_executor_thread(temp_db, monkeypatch):
+    """`_handle_query`'s whole body -- the foreign-session `owns()` check, both
+    `log_query` call sites, and the injected `call_openrouter` -- runs on the
+    pipeline executor's threads, never on anyio's shared threadpool.
+
+    `owns()` is patched on the shared `chat_sessions` module object, since
+    `app/routers/query.py` calls it as `chat_sessions.owns(...)`. The two
+    `log_query` call sites are patched separately because each module bound
+    its own name at import time: the router's own (the foreign-session
+    refusal) and the pipeline's (every other arm, exercised here by a normal
+    send).
+    """
+    thread_names = []
+    real_owns = chat_sessions.owns
+    real_router_log_query = query_router_module.log_query
+    real_pipeline_log_query = query_pipeline.log_query
+
+    def _spy_owns(identity, session_id):
+        thread_names.append(threading.current_thread().name)
+        return real_owns(identity, session_id)
+
+    def _spy_router_log_query(**kwargs):
+        thread_names.append(threading.current_thread().name)
+        return real_router_log_query(**kwargs)
+
+    def _spy_pipeline_log_query(**kwargs):
+        thread_names.append(threading.current_thread().name)
+        return real_pipeline_log_query(**kwargs)
+
+    def _spy_call_openrouter(messages, model="gpt-4", api_key=None):
+        thread_names.append(threading.current_thread().name)
+        return OpenRouterResult(response="ok", model_used=model, tokens_used=1)
+
+    monkeypatch.setattr(chat_sessions, "owns", _spy_owns)
+    monkeypatch.setattr("app.routers.query.log_query", _spy_router_log_query)
+    monkeypatch.setattr(query_pipeline, "log_query", _spy_pipeline_log_query)
+    monkeypatch.setattr("app.routers.query.call_openrouter", _spy_call_openrouter)
+
+    # Foreign session: owns() returns False, and the router's own log_query runs.
+    # A canonical UUID4 -- QueryRequest.session_id rejects anything else with a
+    # 422 before the route body ever runs (app/models/schemas.py).
+    foreign_response = client.post(
+        "/query",
+        json={"prompt": "hi", "session_id": "11111111-1111-4111-8111-111111111111"},
+    )
+    assert foreign_response.status_code == 403
+
+    # Normal send: the pipeline's own log_query and the injected
+    # call_openrouter both run.
+    normal_response = client.post("/query", json={"prompt": "hello there"})
+    assert normal_response.status_code == 200
+
+    assert thread_names
+    assert all(name.startswith("pipeline") for name in thread_names)

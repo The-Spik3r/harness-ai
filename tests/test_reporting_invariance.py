@@ -16,6 +16,10 @@ exactly what the pipeline writes today:
   prompt: the evidence column stayed global; only the key is per caller.
 - A successful `/query` still issues one duplicate lookup and one audit insert
   (Section 11 quality indicators: no added round trip).
+- PRD-010 STORY-016 adds one section: a **multi-turn** send whose PII is only in
+  turn 1 is counted exactly as its single-turn equivalent is, because history
+  re-redaction is not a new PII event (PRD-010 Section 6.7, D7). Additions only
+  -- PRD-009's fixed seed, its ledger constants and its assertions are untouched.
 
 One reporting-path diff exists and is not a reporting change: STORY-002 added
 `dedup_key` to `_SUMMARY_SQL`'s `rows` JSON, so the batched rows decode into the
@@ -45,7 +49,8 @@ from app.main import app
 from app.models.schemas import AuditQueryEntry
 import app.services.query_pipeline as query_pipeline
 from app.services.duplicate_checker import hash_prompt
-from app.services.identity import hash_token
+from app.models.messages import Message
+from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
 from chat_ui.chat_ui.admin_models import AuditRow
@@ -381,3 +386,189 @@ def test_successful_query_issues_one_duplicate_lookup_and_one_audit_insert(
     assert len(lookups) == 1, audit
     assert len(inserts) == 1, audit
     assert "dedup_key = ?" in lookups[0], lookups[0]
+
+
+# --------------------------------------------------------------------------
+# PRD-010 STORY-016 -- D7: a multi-turn send is counted like its single-turn
+# equivalent, and history PII is not a new PII event
+# --------------------------------------------------------------------------
+#
+# PRD-010 Section 6.7 (D7): `pii_detected_input` and `pii_entities` keep their
+# current meaning -- entities in the **new** user turn, plus the output.
+# Entities found while re-redacting history are not recorded again, because "one
+# email in turn 1 would mark every later row of the session as a PII event,
+# inflating `pii_detected_queries` in `/stats` and the admin console, and
+# misdescribing sends that contained no new PII".
+#
+# `tests/test_query_pipeline_multiturn.py` pins that on the audit row. This
+# section pins the consequence D7 was written for: the figure an operator reads.
+#
+# **Driven through `run_conversation` directly, not through an ingress.** No
+# router accepts a `messages` field and `tests/test_schemas.py` forbids one, so
+# there is no HTTP way to make a multi-turn send. The ingress is not what D7 is
+# about -- the audit row is -- so the send is made in-process and every figure
+# is then read back over HTTP exactly as the fixed-seed tests read it.
+
+#: PII in the first turn and never in the last, so the D5/D7 split is visible:
+#: masked on the way upstream, absent from the audit row's PII fields. The same
+#: pair `tests/test_query_pipeline_multiturn.py` uses.
+_PII_EMAIL = "jane@corp.com"
+_PII_PLACEHOLDER = "<EMAIL_ADDRESS>"
+_PII_PROMPT = f"my email is {_PII_EMAIL}, can you draft a reply?"
+_FOLLOW_UP_PROMPT = "thanks, make it shorter"
+
+
+def _fake_success_messages(messages, model="gpt-4", api_key=None, params=None):
+    """`_fake_success`'s multi-turn twin. The reply names no entity of its own,
+    so the output half of D7 contributes nothing and the figures below are about
+    the input half alone."""
+    return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+
+def _figures() -> tuple[int, int, int, int]:
+    snapshot = summary_snapshot()
+    return (
+        snapshot.total_recorded,
+        snapshot.unique_users,
+        snapshot.successful_queries,
+        snapshot.pii_detected_queries,
+    )
+
+
+def _deltas(before, after) -> tuple[int, ...]:
+    return tuple(a - b for b, a in zip(before, after))
+
+
+def _multi_turn_pair(call_openrouter):
+    """Juan's two sends: the PII prompt, then a PII-free follow-up carrying it
+    as history. Returns the first result, whose `audit_id` the callers need."""
+    identity = Identity(user_id=_JUAN_ID, role="user")
+    first = query_pipeline.run_conversation(
+        identity=identity,
+        messages=[Message("user", _PII_PROMPT)],
+        device=None,
+        model="gpt-4",
+        openrouter_api_key=None,
+        call_openrouter=call_openrouter,
+    )
+    second = query_pipeline.run_conversation(
+        identity=identity,
+        messages=[
+            Message("user", _PII_PROMPT),
+            Message("assistant", first.response),
+            Message("user", _FOLLOW_UP_PROMPT),
+        ],
+        device=None,
+        model="gpt-4",
+        openrouter_api_key=None,
+        call_openrouter=call_openrouter,
+    )
+    return first, second
+
+
+def test_multi_turn_pii_in_turn_one_is_counted_like_the_single_turn_equivalent(
+    temp_db, monkeypatch
+):
+    """D7 at the reporting surfaces, asserted as a comparison.
+
+    Two arms, two users, one database. Juan sends the PII prompt and then a
+    PII-free follow-up **carrying it as history**; Maria sends the same two
+    prompts as ordinary single-turn `POST /query` requests. Both arms are read
+    as deltas over `summary_snapshot()`, and the claim is that they are equal.
+
+    **A comparison rather than a hard-coded number, because that is the actual
+    claim.** "Every other figure matches the single-turn equivalent" is not
+    "`pii_detected_queries == 1`"; a regression that double-counted both arms
+    would satisfy a literal and fail this.
+
+    **Two users, because one would collide.** Juan's single-turn conversation
+    and a repeat of the same prompt share a `dedup_key`, and a duplicate block
+    is a different row than a success -- it would make the arms differ for a
+    reason that has nothing to do with PII.
+    """
+    start = _figures()
+
+    first, second = _multi_turn_pair(_fake_success_messages)
+    assert first.status == "SUCCESS"
+    assert second.status == "SUCCESS"
+    multi_turn = _deltas(start, _figures())
+
+    middle = _figures()
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fake_success)
+    for prompt in (_PII_PROMPT, _FOLLOW_UP_PROMPT):
+        response = client.post("/query", headers=_MARIA_HEADERS, json={"prompt": prompt})
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "SUCCESS"
+    single_turn = _deltas(middle, _figures())
+
+    # Every figure, not just the PII one: two sends, one new user, two
+    # successes, and exactly one PII event in each arm.
+    assert multi_turn == single_turn
+    assert multi_turn == (2, 1, 2, 1)
+
+
+def test_the_follow_up_row_records_no_pii_although_history_carried_it(temp_db):
+    """The row behind the figure, and the D5 half that must still hold.
+
+    D7 is about what is **recorded**. The redaction itself is unaffected: the
+    history turn still reaches upstream masked. Asserting only the empty audit
+    fields would be satisfied by a pipeline that stopped redacting history
+    altogether, which is the one outcome D5 forbids.
+    """
+    seen: list = []
+
+    def _recording(messages, model="gpt-4", api_key=None, params=None):
+        seen.append(list(messages))
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    first, _ = _multi_turn_pair(_recording)
+
+    follow_up = get_audit_log(_latest_id())
+    assert follow_up.pii_detected_input is False
+    assert not (follow_up.pii_entities or "")
+
+    # D5: the history turn went upstream masked, and the raw address never did.
+    last_sent = seen[-1]
+    assert len(last_sent) == 3
+    assert _PII_PLACEHOLDER in last_sent[0].content
+    assert not any(_PII_EMAIL in message.content for message in last_sent)
+
+    # The turn-1 row, for contrast: the same address, recorded, because it was
+    # new that send.
+    first_row = get_audit_log(first.audit_id)
+    assert first_row.pii_detected_input is True
+    assert "EMAIL_ADDRESS" in (first_row.pii_entities or "")
+
+
+def test_audit_and_stats_expose_the_multi_turn_row_with_no_new_field(temp_db):
+    """`GET /audit` and `GET /stats` report the multi-turn send exactly as they
+    report a single-turn one: same entry shape, same `StatsResponse` keys, no
+    field added by the move to conversations."""
+    _multi_turn_pair(_fake_success_messages)
+
+    audit = client.get("/audit", headers=_ADMIN_HEADERS)
+    assert audit.status_code == 200
+    body = audit.json()
+    assert body["total"] == 2
+    assert len(body["queries"]) == 2
+    for entry in body["queries"]:
+        assert set(entry) == set(AuditQueryEntry.model_fields)
+        assert "dedup_key" not in entry
+
+    stats = client.get("/stats", headers=_ADMIN_HEADERS)
+    assert stats.status_code == 200
+    assert set(stats.json()) == {
+        "total_queries",
+        "blocked_duplicates",
+        "blocked_suspicious",
+        "unique_users",
+        "success_rate",
+        "top_models",
+        "top_users",
+        "pii_detected_queries",
+        "top_pii_entities",
+    }
+    # One of the two sends carried new PII; the other only carried it in
+    # history (D7).
+    assert stats.json()["pii_detected_queries"] == 1
+    assert summary_snapshot().rows == list_audit_logs(limit=2)

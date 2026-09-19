@@ -5,6 +5,7 @@ import reflex as rx
 from chat_ui import copy, theme
 from chat_ui.components.bubbles import (
     render_assistant,
+    render_context_limit,
     render_duplicate,
     render_fallback,
     render_forbidden,
@@ -19,7 +20,14 @@ from chat_ui.state import ChatState
 
 def message_bubble(message) -> rx.Component:
     """One rx.match over `kind`, one arm per pipeline outcome. A seventh
-    outcome later is one new arm, not another level of nesting."""
+    outcome later is one new arm, not another level of nesting -- and PRD-010
+    STORY-013 was that seventh, so the shape held.
+
+    Order is the pipeline's: the conversation, then the three blocks, then the
+    two failures, then the default. `context_limit` sits with the blocks
+    because that is what it is -- a refusal with a `BLOCKED` status, not a
+    fault. It must stay above `render_fallback`, which is the arm that exists
+    so an unknown kind is still logged rather than dropped."""
     return rx.match(
         message.kind,
         ("user", render_user(message)),
@@ -27,6 +35,7 @@ def message_bubble(message) -> rx.Component:
         ("duplicate", render_duplicate(message)),
         ("injection", render_injection(message)),
         ("forbidden", render_forbidden(message)),
+        ("context_limit", render_context_limit(message)),
         ("upstream_error", render_upstream_error(message)),
         ("internal_error", render_internal_error(message)),
         render_fallback(message),

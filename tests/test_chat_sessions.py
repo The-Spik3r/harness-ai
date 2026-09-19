@@ -716,6 +716,7 @@ def test_each_of_the_seven_kinds_round_trips_unchanged(temp_db, kind, metadata):
         "required_permission",
         "first_query_at",
         "detail",
+        "history_trimmed",
         "created_at",
     ):
         assert getattr(restored, field_name) == getattr(written, field_name), field_name
@@ -740,6 +741,64 @@ def test_tokens_used_and_audit_id_round_trip_as_integers(temp_db):
     assert isinstance(restored.tokens_used, int)
     assert restored.audit_id == 99
     assert isinstance(restored.audit_id, int)
+
+
+def test_history_trimmed_round_trips_as_an_integer(temp_db):
+    """PRD-010 STORY-010 AC 4. An integer, and the same integer.
+
+    `isinstance` for the reason the test above gives: a driver handing back
+    `"3"` compares unequal and would be caught, but one handing back `3.0` would
+    not. The neighbouring fields are asserted on the same row because
+    `history_trimmed` is the last of fifteen INSERT placeholders, and a
+    miscounted one shifts every value left without changing the row count.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", tokens_used=1234, history_trimmed=3),
+        session_id,
+        "ana",
+    )
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.history_trimmed == 3
+    assert isinstance(restored.history_trimmed, int)
+    assert restored.content == "assistant content"
+    assert restored.tokens_used == 1234
+
+
+def test_history_trimmed_zero_round_trips_as_zero(temp_db):
+    """The value an `or None` in append_chat_message would silently swallow.
+
+    Every other optional field there is normalized with `or None`, because ""
+    and NULL mean the same thing for them. They do not here: 0 is "this send
+    dropped nothing" and NULL is "written before the feature existed", so the
+    one field that must not take that treatment needs the one test that notices.
+    """
+    session_id = _seeded_session()
+    append_chat_message(
+        _stored(session_id, "assistant", history_trimmed=0), session_id, "ana"
+    )
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.history_trimmed == 0
+    assert restored.history_trimmed is not None
+
+
+def test_absent_history_trimmed_reads_back_as_none_not_zero(temp_db):
+    """The other half, and the one an `int()` in the row mapper would break.
+
+    A row written before PRD-010 -- or by any path that does not set the field
+    -- must read back None. Coerced to 0 it would claim the send dropped
+    nothing, which is a footer note about history that was never computed.
+    """
+    session_id = _seeded_session()
+    append_chat_message(_stored(session_id, "user"), session_id, "ana")
+
+    (restored,) = list_chat_messages(session_id, "ana")
+
+    assert restored.history_trimmed is None
 
 
 def test_absent_tokens_used_and_audit_id_read_back_as_none_not_zero(temp_db):
@@ -1327,12 +1386,40 @@ def test_no_module_outside_the_service_branches_on_chat_history_enabled():
     guard to shelter a configuration helper is the worse trade, and hiding the
     same branch behind a service call to pass this glob unedited would be
     dodging the tripwire rather than answering it.
+
+    **The fourth entry, added by PRD-010 STORY-012, and what it was granted
+    for.** PRD-010 F8 gives `ChatState._do_send` one read of the flag, to
+    select the pipeline **input**: with history on and a chat that already
+    existed, the send carries that chat's answered exchanges through
+    `run_conversation`; otherwise it calls `run_query` with today's arguments.
+    The PRD anticipates the objection this allowlist exists to raise, and
+    answers it: "`chat_sessions` already no-ops when history is off, so
+    `assemble` would return `[]` anyway, but reading the flag keeps the off
+    path provably identical: same function, same arguments, no extra read." An
+    inferred branch would send every off-path turn through a different function
+    than it uses today, which is precisely the regression
+    `tests/test_history_off_integration.py` exists to prevent.
+
+    What was **not** granted is the thing this rule was written against. The
+    data path is untouched: `_append_and_persist` still branches on
+    `session_id` alone, and every read still goes through the service and still
+    cannot tell "off" from "none yet". So persistence continues to answer the
+    flag's question without asking it, which is `list_for`'s property and the
+    one that matters.
+
+    Like the rail's entry above, the grant is held to its scope by a narrow
+    guard in the module's own suite:
+    `tests/test_chat_state.py::test_chat_state_names_the_history_flag_once_and_only_in_do_send`
+    fails on a second reference anywhere in `state.py` -- in `login`, in
+    `select_session`, in `_append_and_persist` -- so what is admitted here is
+    one read in one function, not a module-wide exemption.
     """
     root = pathlib.Path(__file__).resolve().parents[1]
     allowed = {
         root / "app" / "config.py",
         root / "app" / "services" / "chat_sessions.py",
         root / "chat_ui" / "chat_ui" / "components" / "session_rail.py",
+        root / "chat_ui" / "chat_ui" / "state.py",
     }
 
     offenders = []

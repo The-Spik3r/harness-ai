@@ -1,19 +1,23 @@
 """Startup-guard coverage for the chat UI entry point.
 
-Two guards live here now, both for the same structural reason:
+Three lifespan concerns live here now:
 
   * PRD-005 STORY-016's RBAC bootstrap guard, registered as a lifespan task.
   * PRD-007 STORY-008's database reachability guard, which fires from init_db()
     at *import* time -- so for this ingress it is not a lifespan task at all,
     and the probe that exercises it must observe a failed import rather than a
     running app.
+  * PRD-010 STORY-006's pipeline-executor shutdown, registered as an
+    `@asynccontextmanager` lifespan task -- the same registration mechanism as
+    the RBAC guard, checked the same way.
 
 app/main.py's lifespan never runs under Reflex's api_transformer mount (see
 chat_ui/chat_ui/chat_ui.py's comments) -- init_db(), pii_redactor.load(),
-authz.load(), and now authz.check_bootstrap() are all duplicated there. This
-runs in a subprocess with PYTHONPATH set to chat_ui/, exactly like
-tests/test_chat_components_import.py, so importing chat_ui.chat_ui here
-never puts the inner package on this process's sys.path.
+authz.load(), authz.check_bootstrap(), and now the pipeline executor's
+shutdown are all duplicated there. This runs in a subprocess with PYTHONPATH
+set to chat_ui/, exactly like tests/test_chat_components_import.py, so
+importing chat_ui.chat_ui here never puts the inner package on this process's
+sys.path.
 """
 
 import json
@@ -46,6 +50,9 @@ except Exception as exc:
 
 tasks = chat_ui_module.app.get_lifespan_tasks()
 result["guard_registered"] = chat_ui_module.authz.check_bootstrap in tasks
+result["pipeline_shutdown_registered"] = (
+    chat_ui_module._pipeline_executor_lifespan in tasks
+)
 
 try:
     chat_ui_module.authz.check_bootstrap()
@@ -91,6 +98,12 @@ def test_check_bootstrap_raises_against_empty_users_table(_empty_rbac_env):
     result = _run_probe(_empty_rbac_env)
     assert not result["errors"], result["errors"]
     assert result["raised"] is True
+
+
+def test_pipeline_executor_shutdown_registered_as_chat_ui_lifespan_task(_empty_rbac_env):
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["pipeline_shutdown_registered"] is True
 
 
 # --------------------------------------------------------------------------

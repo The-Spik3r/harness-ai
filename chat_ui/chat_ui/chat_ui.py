@@ -1,4 +1,5 @@
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -9,7 +10,7 @@ import reflex as rx
 
 from app.db.database import init_db
 from app.main import app as fastapi_app
-from app.services import authz, pii_redactor
+from app.services import authz, pii_redactor, pipeline_executor
 
 from chat_ui import theme
 from chat_ui.components.admin_shell import (
@@ -201,3 +202,17 @@ app.register_lifespan_task(authz.load)
 # seeded users would boot the chat UI straight into a silent 401 wall
 # instead of refusing to start.
 app.register_lifespan_task(authz.check_bootstrap)
+
+# Same bypass again (STORY-006): app.main's lifespan shuts the pipeline
+# executor down on exit, and this ingress never runs app.main's lifespan. A
+# bare generator function is rejected by register_lifespan_task
+# (InvalidLifespanTaskTypeError); wrapped in @asynccontextmanager it is
+# entered once at Reflex startup and its teardown runs at Reflex shutdown --
+# the same "yield, then clean up" shape app/main.py's own lifespan uses.
+@asynccontextmanager
+async def _pipeline_executor_lifespan():
+    yield
+    pipeline_executor.shutdown()
+
+
+app.register_lifespan_task(_pipeline_executor_lifespan)

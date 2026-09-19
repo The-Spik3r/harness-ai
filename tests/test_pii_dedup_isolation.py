@@ -83,7 +83,7 @@ def _fail_if_called(*args, **kwargs):
 
 def _capturing_openrouter(seen: list, response: str = "ok"):
     def _call(prompt, model="gpt-4", api_key=None):
-        seen.append(prompt)
+        seen.append(prompt[-1].content)  # PRD-010 STORY-004: upstream now receives list[Message]
         return OpenRouterResult(response=response, model_used=model, tokens_used=5)
 
     return _call

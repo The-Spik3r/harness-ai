@@ -28,6 +28,7 @@ from app.db.errors import StorageError
 from app.db.models import AuditLog, StoredMessage, User
 from app.main import app
 from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
@@ -291,7 +292,7 @@ async def test_chat_state_send_forbidden_response_renders_its_own_bubble_not_inj
             required_permission="query:model:gpt-4",
         )
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+    _stub_pipeline(monkeypatch, _fake_run_query)
 
     state = _make_state()
     await _send(state, "hello world")
@@ -300,6 +301,53 @@ async def test_chat_state_send_forbidden_response_renders_its_own_bubble_not_inj
     assert state.messages[-1].kind != "injection"
     assert state.messages[-1].content == "Model not permitted for this role"
     assert state.messages[-1].required_permission == "query:model:gpt-4"
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_context_limit_renders_a_context_limit_bubble(
+    temp_db, monkeypatch
+):
+    """PRD-010 STORY-013: replaces STORY-008's interim `internal_error` pin.
+
+    STORY-008 added `QueryBlockedContextLimitResponse` as the fifth member of
+    the response union but left `_do_send`'s isinstance chain knowing four, so
+    an over-limit send fell through to the catch-all `else` and showed an
+    `internal_error` bubble reading "Unhandled response type" -- wrong for a
+    user, because nothing crashed. That test's docstring promised "STORY-013 is
+    expected to delete it and assert the bubble instead", and this is that.
+
+    `content` is the pipeline's reason and is deliberately *not* what the
+    bubble shows: `render_context_limit` draws `CONTEXT_LIMIT_HEADLINE` over
+    it, the way the failure kinds draw their own headline. Keeping the reason
+    on the row is what makes the restored transcript and the audit row agree.
+
+    `detail` is "<unit> <actual> of <maximum>", deliberately a different shape
+    from the audit row's "context limit: characters 12 > 10". The row is for an
+    operator reading a table; this is for the person who just pressed send.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit="characters",
+            maximum=10,
+            actual=12,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1].kind == "context_limit"
+    assert state.messages[-1].content == "Conversation exceeds context limit"
+    assert state.messages[-1].detail == "characters 12 of 10"
+    assert state.messages[-1].prompt == "hello world"
+    # No exchange was dropped from an answer, because there was no answer.
+    assert state.messages[-1].history_trimmed == 0
 
 
 @pytest.mark.asyncio
@@ -314,7 +362,7 @@ async def test_chat_state_send_reresolves_role_on_every_call(temp_db, monkeypatc
         recorded_roles.append(identity.role)
         return QuerySuccessResponse(response="ok", audit_id=1, model_used=model, tokens_used=1)
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+    _stub_pipeline(monkeypatch, _fake_run_query)
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -340,7 +388,7 @@ def test_chat_state_holds_no_token_or_role_var():
 async def test_chat_state_send_when_credential_revoked_mid_session_appends_internal_error(
     temp_db, monkeypatch
 ):
-    monkeypatch.setattr(chat_state_mod, "run_query", _fail_if_called)
+    _stub_pipeline(monkeypatch, _fail_if_called)
     deactivate_user(_AUTH_USER_ID)
 
     state = _make_state()
@@ -355,7 +403,7 @@ async def test_chat_state_send_pii_redactor_error_appends_system_bubble(temp_db,
     def _raise_pii_error(*args, **kwargs):
         raise PiiRedactorError("PII analysis failed: model error")
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _raise_pii_error)
+    _stub_pipeline(monkeypatch, _raise_pii_error)
 
     state = _make_state()
     await _send(state, "hello world")
@@ -372,7 +420,7 @@ async def test_chat_state_send_openrouter_error_appends_upstream_error_bubble(te
     def _raise_openrouter_error(*args, **kwargs):
         raise OpenRouterError("upstream timeout")
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _raise_openrouter_error)
+    _stub_pipeline(monkeypatch, _raise_openrouter_error)
 
     state = _make_state()
     await _send(state, "hello world")
@@ -389,7 +437,7 @@ async def test_chat_state_send_duplicate_check_error_appends_internal_error_bubb
     def _raise_duplicate_check_error(*args, **kwargs):
         raise DuplicateCheckError("db locked")
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _raise_duplicate_check_error)
+    _stub_pipeline(monkeypatch, _raise_duplicate_check_error)
 
     state = _make_state()
     await _send(state, "hello world")
@@ -406,7 +454,7 @@ async def test_chat_state_send_unexpected_exception_appends_system_bubble(temp_d
     def _raise_unexpected(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _raise_unexpected)
+    _stub_pipeline(monkeypatch, _raise_unexpected)
 
     state = _make_state()
     await _send(state, "hello world")
@@ -431,7 +479,7 @@ async def test_chat_state_send_passes_resolved_identity_and_prompt_to_run_query(
             response="ok", audit_id=1, model_used=model, tokens_used=1
         )
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+    _stub_pipeline(monkeypatch, _fake_run_query)
 
     state = _make_state()
     await _send(state, "hello world")
@@ -550,17 +598,17 @@ async def test_chat_state_pending_resets_on_all_outcomes(temp_db, monkeypatch):
     assert state.pending is False
 
     # PiiRedactorError
-    monkeypatch.setattr(chat_state_mod, "run_query", lambda *a, **kw: (_ for _ in ()).throw(PiiRedactorError("pii err")))
+    _stub_pipeline(monkeypatch, lambda *a, **kw: (_ for _ in ()).throw(PiiRedactorError("pii err")))
     await _send(state, "pii prompt")
     assert state.pending is False
 
     # OpenRouterError
-    monkeypatch.setattr(chat_state_mod, "run_query", lambda *a, **kw: (_ for _ in ()).throw(OpenRouterError("or err")))
+    _stub_pipeline(monkeypatch, lambda *a, **kw: (_ for _ in ()).throw(OpenRouterError("or err")))
     await _send(state, "or prompt")
     assert state.pending is False
 
     # Unexpected Exception
-    monkeypatch.setattr(chat_state_mod, "run_query", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+    _stub_pipeline(monkeypatch, lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
     await _send(state, "boom prompt")
     assert state.pending is False
 
@@ -568,22 +616,18 @@ async def test_chat_state_pending_resets_on_all_outcomes(temp_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_state_concurrent_send_guard(temp_db, monkeypatch):
     called_count = 0
-    async def _slow_to_thread(fn, *args, **kwargs):
-        # _do_send offloads two different callables now: the lazy session
-        # create and the pipeline call. Count only the pipeline, so
-        # `called_count` keeps meaning "run_query ran once" rather than
-        # "something was offloaded once", and hand each caller the return
-        # type it actually expects.
+
+    # PRD-010 STORY-006: run_query now runs through run_in_pipeline, not
+    # asyncio.to_thread -- the lazy session create is the only offload left on
+    # asyncio.to_thread, so this no longer needs to branch on which callable
+    # was handed to a patched asyncio.to_thread.
+    async def _slow_run_in_pipeline(fn, *args, **kwargs):
         nonlocal called_count
         await asyncio.sleep(0.05)
-        if fn is chat_state_mod.run_query:
-            called_count += 1
-            return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
-        return await asyncio.get_running_loop().run_in_executor(
-            None, lambda: fn(*args, **kwargs)
-        )
+        called_count += 1
+        return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
 
-    monkeypatch.setattr(chat_state_mod.asyncio, "to_thread", _slow_to_thread)
+    monkeypatch.setattr(chat_state_mod, "run_in_pipeline", _slow_run_in_pipeline)
 
     state = _make_state()
     task1 = asyncio.create_task(_send(state, "first prompt"))
@@ -710,7 +754,7 @@ async def test_chat_state_send_passes_selected_model(temp_db, monkeypatch):
             tokens_used=10,
         )
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+    _stub_pipeline(monkeypatch, _fake_run_query)
 
     state = _make_state()
     state.selected_model = "claude-3-sonnet"
@@ -733,7 +777,7 @@ async def test_chat_state_send_populates_device_from_router_headers(temp_db, mon
             tokens_used=10,
         )
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+    _stub_pipeline(monkeypatch, _fake_run_query)
 
     state = _make_state()
     class MockHeaders:
@@ -760,7 +804,7 @@ async def test_chat_state_send_device_fallback_when_headers_missing(temp_db, mon
             tokens_used=10,
         )
 
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
+    _stub_pipeline(monkeypatch, _fake_run_query)
 
     state = _make_state()
     object.__setattr__(state, "router", None)
@@ -953,6 +997,49 @@ def _backdate_session(session_id: str, hours_ago: float) -> None:
         )
 
 
+def _stub_pipeline(monkeypatch, fake):
+    """Install one stub on both of `_do_send`'s pipeline entry points.
+
+    PRD-010 STORY-012: with history on, a send into a chat that already existed
+    goes through `run_conversation`, and the first send of a new chat through
+    `run_query`. A test that stubs only `run_query` therefore stubs only the
+    first send of each chat -- and its *second* send would reach the real
+    pipeline and the real `call_openrouter`, which most tests in this module do
+    not patch. The failure mode is an outbound request, not a red assertion,
+    which is exactly the kind a helper should make impossible.
+
+    Every call site here that patched `run_query` meant "stub the pipeline", so
+    this says that instead. The shim forwards `messages[-1].content` as
+    `prompt`, which is what `run_query` itself does
+    (`app/services/query_pipeline.py:359-376`), so a stub written against the
+    single-turn signature -- including one that raises -- keeps working
+    unchanged.
+    """
+    monkeypatch.setattr(chat_state_mod, "run_query", fake)
+
+    def _via_conversation(
+        identity,
+        messages,
+        device,
+        model,
+        openrouter_api_key,
+        params=None,
+        call_openrouter=None,
+        session_id=None,
+    ):
+        return fake(
+            identity,
+            messages[-1].content,
+            device,
+            model,
+            openrouter_api_key,
+            call_openrouter,
+            session_id,
+        )
+
+    monkeypatch.setattr(chat_state_mod, "run_conversation", _via_conversation)
+
+
 def _capturing_run_query(result=None, captured=None):
     """A run_query stand-in that records the session_id it was handed."""
     if result is None:
@@ -1053,7 +1140,7 @@ async def test_first_send_creates_exactly_one_session_titled_from_the_prompt(
 ):
     """AC 4. One session, titled by formatting.derive_title through the
     service's injected-callable seam, and active_session_id names its row."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "summarise the Q3 vendor spend")
@@ -1072,9 +1159,7 @@ async def test_active_session_id_is_set_before_run_query_is_called(
     placed before the pipeline call from one placed after it: both leave the
     same row behind, but only the former puts the id on the audit row."""
     captured = {}
-    monkeypatch.setattr(
-        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
-    )
+    _stub_pipeline(monkeypatch, _capturing_run_query(captured=captured))
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1091,9 +1176,7 @@ async def test_second_send_reuses_the_session_and_creates_no_second_row(
 ):
     """AC 5. Lazy means once per chat, not once per send."""
     captured = {}
-    monkeypatch.setattr(
-        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
-    )
+    _stub_pipeline(monkeypatch, _capturing_run_query(captured=captured))
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1132,9 +1215,7 @@ async def test_run_query_receives_the_active_session_id_on_every_outcome(
     pipeline runs, so which verdict comes back cannot change whether the record
     names the conversation."""
     captured = {}
-    monkeypatch.setattr(
-        chat_state_mod, "run_query", _capturing_run_query(result, captured)
-    )
+    _stub_pipeline(monkeypatch, _capturing_run_query(result, captured))
 
     state = _make_state()
     await _send(state, "a prompt")
@@ -1154,9 +1235,7 @@ async def test_history_off_creates_no_session_and_passes_none_to_run_query(
     every audit row instead of NULL."""
     monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
     captured = {}
-    monkeypatch.setattr(
-        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
-    )
+    _stub_pipeline(monkeypatch, _capturing_run_query(captured=captured))
 
     state = _make_state()
     await _send(state, "a prompt")
@@ -1169,11 +1248,32 @@ async def test_history_off_creates_no_session_and_passes_none_to_run_query(
     assert state.pending is False
 
 
-def test_chat_state_never_names_the_history_flag():
-    """AC 7's structural half. PRD Section 6, verbatim: "No caller branches on
-    the flag." tests/test_chat_sessions.py asserts this across every module
-    under app/ and chat_ui/; this pins it for the one module this story edits,
-    where the temptation is highest."""
+def test_chat_state_names_the_history_flag_once_and_only_in_do_send():
+    """One read, in one function -- the grant, and its limit.
+
+    **This test was reversed, on the record.** It began as PRD-008 STORY-013's
+    `test_chat_state_never_names_the_history_flag`, whose whole claim was that
+    `ChatState` names the flag zero times: "PRD Section 6, verbatim: 'No caller
+    branches on the flag.'" PRD-010 F8 grants this one caller exactly one
+    branch, and states why: "The branch on `CHAT_HISTORY_ENABLED` is explicit
+    because it selects the pipeline **input**, not persistence. `chat_sessions`
+    already no-ops when history is off, so `assemble` would return `[]` anyway,
+    but reading the flag keeps the off path provably identical: same function,
+    same arguments, no extra read."
+
+    So the rule is narrowed rather than dropped, and what it now forbids is the
+    thing it always meant to forbid: the flag leaking into this class's logic.
+    A read in `login`, in `select_session`, in `_read_transcript`, or -- worst
+    -- in `_append_and_persist`, would be persistence branching on the flag,
+    which is what `chat_sessions` exists to own and what PRD-008's rule was
+    written against. Each of those still fails here.
+
+    The shape is `tests/test_session_rail.py`'s
+    `test_the_flag_is_named_once_and_only_at_the_surface`, which holds the
+    rail's own one-read exemption to one read in one named function. Two
+    exemptions now exist, and both are policed the same way, which is what
+    keeps a granted exception from reading later as a licence.
+    """
     tree = ast.parse(
         pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8")
     )
@@ -1183,7 +1283,18 @@ def test_chat_state_never_names_the_history_flag():
         if (isinstance(node, ast.Attribute) and node.attr == "CHAT_HISTORY_ENABLED")
         or (isinstance(node, ast.Name) and node.id == "CHAT_HISTORY_ENABLED")
     ]
-    assert named == [], "ChatState branches on the flag"
+    assert len(named) == 1, f"the flag is named {len(named)} times"
+
+    do_send = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_do_send"
+    )
+    assert any(
+        (isinstance(n, ast.Attribute) and n.attr == "CHAT_HISTORY_ENABLED")
+        or (isinstance(n, ast.Name) and n.id == "CHAT_HISTORY_ENABLED")
+        for n in ast.walk(do_send)
+    ), "the flag is not read in _do_send() itself"
 
 
 @pytest.mark.asyncio
@@ -1197,9 +1308,7 @@ async def test_a_session_error_while_creating_sets_the_error_and_still_sends(
 
     monkeypatch.setattr(chat_state_mod.chat_sessions, "create", _raise)
     captured = {}
-    monkeypatch.setattr(
-        chat_state_mod, "run_query", _capturing_run_query(captured=captured)
-    )
+    _stub_pipeline(monkeypatch, _capturing_run_query(captured=captured))
 
     state = _make_state()
     await _send(state, "a prompt")
@@ -1240,7 +1349,7 @@ async def test_pending_clears_when_session_creation_raises(temp_db, monkeypatch)
         raise ChatSessionError("create failed: store is down")
 
     monkeypatch.setattr(chat_state_mod.chat_sessions, "create", _raise)
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "a prompt")
@@ -1277,7 +1386,7 @@ async def test_a_send_persists_the_user_bubble_and_the_assistant_bubble(
     bubbles: the first send opens the session *after* the user bubble is
     already on screen, so that bubble has no session to be filed under (see the
     plan's Deviations)."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1300,7 +1409,7 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
     The only assertion that distinguishes the two orderings -- both leave the
     same row behind, and only this one fails if the write moves ahead of the
     append."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     observed = []
     real_append = chat_sessions.append_message
 
@@ -1350,6 +1459,16 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
             ),
             "forbidden",
         ),
+        # PRD-010 STORY-013: the eighth kind, persisted like the rest.
+        (
+            QueryBlockedContextLimitResponse(
+                reason="Conversation exceeds context limit",
+                limit="characters",
+                maximum=10,
+                actual=12,
+            ),
+            "context_limit",
+        ),
         (OpenRouterError("upstream timeout"), "upstream_error"),
         (PiiRedactorError("redactor down"), "internal_error"),
     ],
@@ -1358,6 +1477,7 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
         "duplicate",
         "injection",
         "forbidden",
+        "context_limit",
         "upstream_error",
         "internal_error",
     ],
@@ -1377,7 +1497,7 @@ async def test_every_bubble_kind_is_persisted(
 
     else:
         _fake = _capturing_run_query(outcome)
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake)
+    _stub_pipeline(monkeypatch, _fake)
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1394,13 +1514,7 @@ async def test_the_assistant_row_stores_the_redacted_response(temp_db, monkeypat
     the presence of the redacted string in this one."""
     raw = "reach me at juan@empresa.com"
     redacted = "reach me at <EMAIL>"
-    monkeypatch.setattr(
-        chat_state_mod,
-        "run_query",
-        _capturing_run_query(
-            QuerySuccessResponse(
-                response=redacted, audit_id=1, model_used="gpt-4", tokens_used=1
-            )
+    _stub_pipeline(monkeypatch, _capturing_run_query( QuerySuccessResponse( response=redacted, audit_id=1, model_used="gpt-4", tokens_used=1)
         ),
     )
 
@@ -1420,7 +1534,7 @@ async def test_a_successful_write_touches_the_session_and_moves_it_to_the_front(
 ):
     """AC 4. `updated_at` moves and the in-state rail reorders so the active
     chat is first."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     older = create_chat_session(_AUTH_USER_ID, "Older chat")
     newer = create_chat_session(_AUTH_USER_ID, "Newer chat")
@@ -1461,7 +1575,7 @@ async def test_the_first_send_puts_the_new_chat_at_the_front_of_the_rail(
     and it is the only state in which a create still happens, so it is the
     state this assertion has to be made from.
     """
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     existing = create_chat_session(_AUTH_USER_ID, "Older chat")
     _backdate_session(existing, hours_ago=3)
@@ -1486,7 +1600,7 @@ async def test_a_failed_append_keeps_the_turn_on_screen_and_reports_it(
     """AC 5 and AC 8, and PRD Risk 5 in one test: "the model answered, the
     audit row is written, and then the transcript insert fails -- a naive
     implementation raises and the user loses a paid, logged answer."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     monkeypatch.setattr(
         chat_state_mod.chat_sessions, "append_message", _raise_chat_session_error
     )
@@ -1514,7 +1628,7 @@ async def test_a_storage_error_that_escaped_wrapping_still_does_not_lose_the_tur
 
     Patches `append_chat_message` -- the function AC 8 names -- so the service's
     own `_wrapped` arm is exercised end to end rather than bypassed."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     def _raise_storage_error(*args, **kwargs):
         raise StorageError("connection reset")
@@ -1538,7 +1652,7 @@ async def test_a_failed_touch_does_not_report_a_lost_turn(temp_db, monkeypatch):
     """AC 6: "a failed reorder is cosmetic and must not surface as a lost
     turn." The row *is* in the database, so the transcript notice must stay
     empty -- claiming "not saved" here would be a falsehood in the interface."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     def _raise(*args, **kwargs):
         raise ChatSessionError("touch failed: store is down")
@@ -1568,7 +1682,7 @@ async def test_history_off_writes_nothing_and_says_nothing(temp_db, monkeypatch)
     exactly as it does today." Reached without this class naming the flag --
     the service returns None and the helper's guard falls through."""
     monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", False)
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     def _refuse(*args, **kwargs):
         raise AssertionError("no transcript write may be attempted")
@@ -1720,6 +1834,18 @@ def _fields(bubble: ChatMessage) -> dict:
             ),
             "forbidden",
         ),
+        # PRD-010 STORY-013: AC 2 says the bubble renders "live or restored",
+        # and `_fields` covers `content` and `detail` -- the two the bubble
+        # actually draws from -- so this case is the restored half of it.
+        (
+            QueryBlockedContextLimitResponse(
+                reason="Conversation exceeds context limit",
+                limit="characters",
+                maximum=10,
+                actual=12,
+            ),
+            "context_limit",
+        ),
         (OpenRouterError("upstream timeout"), "upstream_error"),
         (PiiRedactorError("redactor down"), "internal_error"),
     ],
@@ -1728,6 +1854,7 @@ def _fields(bubble: ChatMessage) -> dict:
         "duplicate",
         "injection",
         "forbidden",
+        "context_limit",
         "upstream_error",
         "internal_error",
     ],
@@ -1754,7 +1881,7 @@ async def test_every_bubble_kind_survives_the_round_trip(
 
     else:
         _fake = _capturing_run_query(outcome)
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake)
+    _stub_pipeline(monkeypatch, _fake)
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1790,7 +1917,7 @@ async def test_the_restored_transcript_is_in_id_order(temp_db, monkeypatch):
     """AC 2: "in `id ASC` order". The write side pins this shape in
     `test_a_send_persists_the_user_bubble_and_the_assistant_bubble`; this is
     the same shape read back, one send longer."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "one")
@@ -1817,12 +1944,7 @@ async def test_a_restored_duplicate_recomputes_its_relative_copy(temp_db, monkey
     two_hours = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime(
         _TIMESTAMP_FORMAT
     )
-    monkeypatch.setattr(
-        chat_state_mod,
-        "run_query",
-        _capturing_run_query(
-            QueryBlockedDuplicateResponse(reason="Duplicate", first_query_at=two_hours)
-        ),
+    _stub_pipeline(monkeypatch, _capturing_run_query( QueryBlockedDuplicateResponse(reason="Duplicate", first_query_at=two_hours)),
     )
 
     state = _make_state()
@@ -1862,18 +1984,7 @@ async def test_a_restored_assistant_keeps_its_footer_and_pii_badge(
 ):
     """AC 6: the same model_used, tokens_used and #audit_id, and the same
     entity list in the PII badge."""
-    monkeypatch.setattr(
-        chat_state_mod,
-        "run_query",
-        _capturing_run_query(
-            QuerySuccessResponse(
-                response="redacted answer",
-                audit_id=99,
-                model_used="gpt-4",
-                tokens_used=123,
-                pii_redacted=True,
-                pii_entities_masked=["EMAIL", "PHONE"],
-            )
+    _stub_pipeline(monkeypatch, _capturing_run_query( QuerySuccessResponse( response="redacted answer", audit_id=99, model_used="gpt-4", tokens_used=123, pii_redacted=True, pii_entities_masked=["EMAIL", "PHONE"],)
         ),
     )
 
@@ -1906,7 +2017,7 @@ async def test_a_message_with_no_pii_entities_restores_to_an_empty_list(
     """The phantom entity the column's own docstring predicted for this story
     by name: `"".split(",")` is `[""]`, one entity on a message that had
     none."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1951,7 +2062,7 @@ async def test_a_restored_bubble_keeps_the_prompt_its_actions_consume(
 
     else:
         _fake = _capturing_run_query(outcome)
-    monkeypatch.setattr(chat_state_mod, "run_query", _fake)
+    _stub_pipeline(monkeypatch, _fake)
 
     state = _make_state()
     await _send(state, "first prompt")
@@ -1971,7 +2082,7 @@ async def test_a_restored_bubble_keeps_the_prompt_its_actions_consume(
 async def test_login_opens_the_most_recently_active_chat(temp_db, monkeypatch):
     """AC 1: "the most recently active session becomes active and its
     transcript is rendered"."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     older_state = _make_state()
     await _send(older_state, "older one")
@@ -2020,7 +2131,7 @@ async def test_a_switch_replaces_the_transcript_and_moves_the_active_id(
 ):
     """AC 2: `self.messages` is replaced by that session's stored messages and
     `active_session_id` moves."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     first = _make_state()
     await _send(first, "alpha one")
@@ -2045,7 +2156,7 @@ async def test_a_switch_replaces_the_transcript_and_moves_the_active_id(
 @pytest.mark.asyncio
 async def test_a_switch_touches_nothing_else(temp_db, monkeypatch):
     """AC 3: "the model selector and the signed-in user are untouched"."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     other = _make_state()
     await _send(other, "one")
@@ -2067,7 +2178,7 @@ async def test_a_switch_is_refused_while_pending(temp_db, monkeypatch):
     """AC 8: swapping the transcript out from under an in-flight send would
     append the answer to the wrong conversation, so the switch is refused --
     the guard `edit_and_resend` already applies."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     other = _make_state()
     await _send(other, "one")
@@ -2185,8 +2296,17 @@ def test_the_rehydration_reads_every_stored_field():
     transcripts quietly losing a field. The AST walk makes that drift fail a
     test rather than a review.
 
-    `session_id`, `created_at` and `id` are excluded: `ChatMessage` has no
-    field for any of them, and `id` is the ordering the store already applied.
+    The excused fields are **derived**, not listed: a stored field is excused
+    exactly while `ChatMessage` has nowhere to put it. `session_id`, `created_at`
+    and `id` are permanent members (`id` is the ordering the store already
+    applied).
+
+    `history_trimmed` was the temporary fourth, added to `chat_messages` by
+    PRD-010 STORY-010 a story before the bubble field existed. **STORY-012
+    landed it**, so the derived set shrank and the literal below lost it exactly
+    as this docstring said it would -- the assertion failed, and the mapping is
+    now required rather than remembered. The mechanism did its job once; it is
+    left in place, unchanged, for the next column.
     """
     tree = ast.parse(pathlib.Path(chat_state_mod.__file__).read_text(encoding="utf-8"))
     fn = next(
@@ -2202,11 +2322,10 @@ def test_the_rehydration_reads_every_stored_field():
         and node.value.id == "row"
     }
 
-    expected = {f.name for f in dataclasses.fields(StoredMessage)} - {
-        "session_id",
-        "created_at",
-        "id",
-    }
+    stored = {f.name for f in dataclasses.fields(StoredMessage)}
+    excused = stored - set(ChatMessage.model_fields)
+    assert excused == {"session_id", "created_at", "id"}, excused
+    expected = stored - excused
 
     assert expected <= read, f"_to_chat_message drops {sorted(expected - read)}"
 
@@ -2259,7 +2378,7 @@ async def test_new_chat_clears_the_active_id_and_the_transcript_and_writes_nothi
 ):
     """AC 1: `active_session_id` and `messages` are cleared and no row is
     written."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "first subject")
@@ -2291,7 +2410,7 @@ def test_new_chat_twice_with_no_send_leaves_no_session(temp_db):
 async def test_new_chat_then_a_send_creates_exactly_one_session(temp_db, monkeypatch):
     """AC 1's second half: "the next send creates the session". The first chat
     stays in the rail; the new one joins it."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "first subject")
@@ -2314,7 +2433,7 @@ async def test_rename_persists_and_updates_the_rail_without_moving_the_row(
 ):
     """AC 3: the title persists, the rail updates, and `updated_at` is not
     touched -- so the row does not move under the user's cursor."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     older_state = _make_state()
     await _send(older_state, "older subject")
@@ -2360,7 +2479,7 @@ async def test_a_blank_rename_is_refused_and_the_existing_title_stands(
 ):
     """AC 4. Refused silently: the refusal is of the input, not of the system,
     and the title standing is the whole feedback."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "keep this title")
@@ -2382,7 +2501,7 @@ async def test_a_rename_survives_the_next_send_and_is_never_re_derived(
 ):
     """Technical Notes: "a rename that re-derives on the next send would
     silently undo the user's edit". derive_title runs once, at creation."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "summarise the Q3 vendor spend")
@@ -2402,7 +2521,7 @@ async def test_a_rename_survives_the_next_send_and_is_never_re_derived(
 async def test_a_rename_is_stored_stripped(temp_db, monkeypatch):
     """The other half of AC 4's whitespace rule: a title that is not blank but
     is padded is one rename, not two different ones."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "anything")
@@ -2420,7 +2539,7 @@ async def test_delete_removes_the_session_and_its_messages_and_no_audit_row(
 ):
     """AC 5: the session and its messages are removed, the rail drops the row,
     and the audit trail is untouched across the delete."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "delete me")
@@ -2469,7 +2588,7 @@ async def test_deleting_the_active_session_lands_on_the_next_most_recent(
     temp_db, monkeypatch
 ):
     """AC 6: the UI lands on the next most recent session."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     older_state = _make_state()
     await _send(older_state, "older one")
@@ -2502,7 +2621,7 @@ async def test_deleting_the_last_session_lands_on_the_empty_state(
     temp_db, monkeypatch
 ):
     """AC 6's other arm: "or on the empty state if none remains"."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "the only chat")
@@ -2523,7 +2642,7 @@ async def test_deleting_a_non_active_session_leaves_the_transcript_alone(
 ):
     """AC 6 read the other way: a chat the reader is not looking at changes
     the rail and nothing else."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     other_state = _make_state()
     await _send(other_state, "the doomed chat")
@@ -2556,7 +2675,7 @@ async def test_a_failed_read_after_a_delete_never_lands_on_the_deleted_transcrip
     deliberate divergence from select_session -- whose transcript is still a
     real conversation when its read fails, and whose is not here.
     """
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     older_state = _make_state()
     await _send(older_state, "older one")
@@ -2590,7 +2709,7 @@ async def test_logout_clears_every_session_var_and_every_row_survives(
 ):
     """AC 8, and the story's central distinction: logout() clears state,
     delete_session() deletes rows."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "first chat")
@@ -2625,7 +2744,7 @@ async def test_logout_clears_every_session_var_and_every_row_survives(
 @pytest.mark.asyncio
 async def test_signing_back_in_lists_the_sessions_again(temp_db, monkeypatch):
     """AC 9: the rows survived, so the rail comes back."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     state = _make_state()
     await _send(state, "first chat")
@@ -2659,7 +2778,7 @@ async def test_a_foreign_session_id_changes_nothing(temp_db, monkeypatch, handle
     WHERE on the freshly resolved Identity and returns False for a foreign id,
     an unknown id and history-off alike.
     """
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
 
     foreign = _seed_other_user_session("Not yours")
     foreign_title_before = _title_of(foreign, _OTHER_USER_ID)
@@ -2768,7 +2887,7 @@ async def test_login_records_the_true_total_not_the_capped_length(
     Three sessions, a limit of two: the rail lists two and must still know there
     are three. `len(self.sessions)` could never produce the 3.
     """
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     state = _make_state()
     for text in ("first", "second", "third"):
         _new_chat(state)
@@ -2810,7 +2929,7 @@ async def test_retry_sessions_reloads_the_list_and_clears_the_fault(
     temp_db, monkeypatch
 ):
     """AC 6's second half. The fault state offers an action, and this is it."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     seeded = _make_state()
     await _send(seeded, "a real chat")
 
@@ -2828,7 +2947,7 @@ async def test_retry_sessions_reloads_the_list_and_clears_the_fault(
 async def test_retry_sessions_leaves_the_transcript_alone(temp_db, monkeypatch):
     """It re-reads the list and nothing else: the transcript on screen is still
     a real conversation, so a failed *rail* read must not cost the chat."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     state = _make_state()
     await _send(state, "a real chat")
     active, messages = state.active_session_id, list(state.messages)
@@ -2945,7 +3064,7 @@ async def test_a_landed_delete_moves_the_total_and_disarms_the_confirmation(
     """The scope line counts the account, not the page, so a delete has to move
     it -- and the confirmation was about a row that no longer exists, so leaving
     it armed would arm whichever chat lands in its place."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     state = _make_state()
     await _send(state, "first chat")
     first = state.active_session_id
@@ -2965,7 +3084,7 @@ async def test_a_landed_delete_moves_the_total_and_disarms_the_confirmation(
 async def test_a_send_that_creates_a_session_moves_the_total(temp_db, monkeypatch):
     """The other half: lazy creation adds a chat that did not exist, so the
     total moves with the create exactly as it moves with a delete."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     state = _make_state()
     assert state.sessions_total == 0
 
@@ -2981,7 +3100,7 @@ async def test_logout_clears_the_rails_modes_and_its_total(temp_db, monkeypatch)
     """A half-typed rename is one person's words about one person's chat, and an
     armed confirmation naming a chat the next reader cannot see is the rail's
     version of the misattribution `logout` already refuses for the bubbles."""
-    monkeypatch.setattr(chat_state_mod, "run_query", _capturing_run_query())
+    _stub_pipeline(monkeypatch, _capturing_run_query())
     state = _make_state()
     await _send(state, "first chat")
     _handler(state, "begin_rename")(state, state.active_session_id, "Quarterly close")
@@ -3072,3 +3191,46 @@ def test_logout_closes_the_disclosure():
     state.logout()
 
     assert state.rail_expanded is False
+
+
+@pytest.mark.asyncio
+async def test_a_restored_context_limit_bubble_keeps_its_copy_and_is_marked_restored(
+    temp_db, monkeypatch
+):
+    """PRD-010 STORY-013, AC 2's "live or restored" clause.
+
+    `test_every_bubble_kind_survives_the_round_trip` already covers the fields
+    (`content` and `detail` among them) for this kind. What it does not assert
+    is `restored`, which is the field `_entry` reads to keep a rehydrated
+    bubble out of the `.hx-entry` mount animation -- PRD-008 Section 6.1's
+    "Switching sessions does not animate". Without it a reload animates the
+    refusal into place, which is invisible in a diff and obvious on screen.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit="messages",
+            maximum=100,
+            actual=101,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "first prompt")
+    await _send(state, "second prompt")
+
+    restored = [
+        m for m in (await _restore(state.active_session_id)).messages
+        if m.kind == "context_limit"
+    ]
+
+    assert restored
+    for bubble in restored:
+        assert bubble.content == "Conversation exceeds context limit"
+        assert bubble.detail == "messages 101 of 100"
+        assert bubble.restored is True

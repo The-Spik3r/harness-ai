@@ -12,6 +12,15 @@ _LOCAL_SCHEME = "http://"
 # sqlite:////absolute, and sqlite:///:memory:.
 _SQLITE_SCHEME = "sqlite:"
 
+# What each PRD-010 pipeline-size setting controls, quoted by its validator
+# so the message says why 0 or a negative value is rejected, not just that
+# it is.
+_PIPELINE_LIMIT_DESCRIPTIONS = {
+    "CONTEXT_MAX_MESSAGES": "the maximum number of messages a conversation may carry into the pipeline",
+    "CONTEXT_MAX_CHARACTERS": "the maximum total characters across message contents in a conversation",
+    "PIPELINE_MAX_WORKERS": "the number of threads in the dedicated pipeline executor",
+}
+
 
 def _scheme_of(url: str) -> str:
     """The scheme part of a URL, and the only part of one any message quotes.
@@ -90,6 +99,28 @@ class Settings(BaseSettings):
     REPORTS_AGENTS_DIR: str = ""
     REPORTS_REPO_URL: str = "https://github.com/The-Spik3r/harness-ai"
 
+    # Multi-turn pipeline (PRD-010). Defaults and startup validation land now;
+    # no production code reads these yet -- each field names the story that
+    # becomes its consumer.
+
+    # Upstream request timeout in seconds, replacing the hard-coded 30.0.
+    # Consumed by STORY-005's call_openrouter.
+    OPENROUTER_TIMEOUT_SECONDS: float = 120.0
+
+    # Max messages a conversation may carry into the pipeline. Consumed by
+    # STORY-008's context-limit refusal.
+    CONTEXT_MAX_MESSAGES: int = 100
+
+    # Max total characters across message contents in a conversation -- the
+    # sum of len(message.content) over all messages. Characters, not tokens,
+    # is a documented proxy (PRD-010 Section 4, Out of Scope). Consumed by
+    # STORY-008's context-limit refusal.
+    CONTEXT_MAX_CHARACTERS: int = 200_000
+
+    # Size of the dedicated pipeline executor thread pool, off the shared
+    # anyio/default-executor pools. Consumed by STORY-006.
+    PIPELINE_MAX_WORKERS: int = 32
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -144,6 +175,28 @@ class Settings(BaseSettings):
                 "number of sessions the rail lists per user; 0 would render an "
                 "empty rail for a user who has sessions. To turn transcript "
                 "persistence off, set CHAT_HISTORY_ENABLED=false instead."
+            )
+        return value
+
+    @field_validator("OPENROUTER_TIMEOUT_SECONDS")
+    @classmethod
+    def _validate_openrouter_timeout_seconds(cls, value: float) -> float:
+        """A non-positive timeout would hang forever or fail every call instantly (PRD-010)."""
+        if value <= 0:
+            raise ValueError(
+                f"OPENROUTER_TIMEOUT_SECONDS must be greater than 0, got {value}. "
+                "It is the upstream request timeout in seconds."
+            )
+        return value
+
+    @field_validator("CONTEXT_MAX_MESSAGES", "CONTEXT_MAX_CHARACTERS", "PIPELINE_MAX_WORKERS")
+    @classmethod
+    def _validate_positive_pipeline_setting(cls, value: int, info) -> int:
+        """Each of these bounds a resource that cannot be 0 or negative (PRD-010)."""
+        if value < 1:
+            description = _PIPELINE_LIMIT_DESCRIPTIONS[info.field_name]
+            raise ValueError(
+                f"{info.field_name} must be at least 1, got {value}. It is {description}."
             )
         return value
 
