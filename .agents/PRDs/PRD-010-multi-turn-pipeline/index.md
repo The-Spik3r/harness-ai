@@ -6,7 +6,7 @@
 
 ## Progress
 
-15/18 stories done — 83%
+16/18 stories done — 89%
 
 ## Stories
 
@@ -29,7 +29,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 | STORY-013 | Chat UI: context_limit bubble and 'earlier exchanges not sent' footer note | feature | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-013-context-limit-bubble-and-trimmed-note.plan.md) | `36b6088` |
 | STORY-014 | Concurrency: blocked upstream calls do not stall /health, /query or the chat | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-014-pipeline-concurrency-tests.plan.md) | `0b0a077` |
 | STORY-015 | Measure added per-send latency of history assembly and per-turn redaction at 20 exchanges | spike | ✅ done | small | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-015-history-latency-measurement.plan.md) | `0a95158` |
-| STORY-016 | Seven-outcome /query regression and chat UI regression on the finished epic | technical | ⬜ todo | medium | — | — |
+| STORY-016 | Seven-outcome /query regression and chat UI regression on the finished epic | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-016-seven-outcome-and-chat-ui-regression.plan.md) | `233b208` |
 | STORY-017 | Two-instance smoke: a multi-turn chat continued across instances | technical | ⬜ todo | medium | — | — |
 | STORY-018 | README: multi-turn context shipped, limits and trade-offs; .env.example settings | technical | ⬜ todo | small | — | — |
 

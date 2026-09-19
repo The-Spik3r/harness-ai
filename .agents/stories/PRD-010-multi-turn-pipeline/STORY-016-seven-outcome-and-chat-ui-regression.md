@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [tests, regression, api, chat-ui]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-016-seven-outcome-and-chat-ui-regression.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-016-seven-outcome-and-chat-ui-regression.report.md
+commit: 233b208
 depends_on: [STORY-005, STORY-008, STORY-009, STORY-013]
 blocks: [STORY-018]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # STORY-016: Seven-outcome /query regression and chat UI regression on the finished epic

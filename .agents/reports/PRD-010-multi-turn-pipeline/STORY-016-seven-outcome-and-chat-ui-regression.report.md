@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-016-seven-outcome-and-chat-ui-regression.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: PENDING
+commit: 233b208
 status: COMPLETE
 completed: 2026-09-19
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-19
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-016-seven-outcome-and-chat-ui-regression.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `PENDING`
+**Commit**: `233b208`
 
 ## Summary
 
