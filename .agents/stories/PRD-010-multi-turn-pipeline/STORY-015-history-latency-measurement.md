@@ -7,17 +7,17 @@ type: spike
 priority: medium
 complexity: small
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [backend, performance, pii]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-015-history-latency-measurement.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-015-history-latency-measurement.report.md
+commit: 0a95158
 depends_on: [STORY-012]
 blocks: [STORY-018]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # STORY-015: Measure added per-send latency of history assembly and per-turn redaction at 20 exchanges

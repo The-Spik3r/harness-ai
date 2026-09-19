@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-015-history-latency-measurement.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: PENDING
+commit: 0a95158
 status: COMPLETE
 completed: 2026-09-19
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-19
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-015-history-latency-measurement.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `PENDING`
+**Commit**: `0a95158`
 
 ## Summary
 
