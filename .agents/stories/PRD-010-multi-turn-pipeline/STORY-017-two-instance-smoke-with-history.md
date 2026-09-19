@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [tests, smoke, db]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-017-two-instance-smoke-with-history.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-017-two-instance-smoke-with-history.report.md
+commit: 92b2d2a
 depends_on: [STORY-012]
 blocks: [STORY-018]
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # STORY-017: Two-instance smoke: a multi-turn chat continued across instances

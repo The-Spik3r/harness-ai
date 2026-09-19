@@ -3,7 +3,7 @@ story: STORY-017
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-017-two-instance-smoke-with-history.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: PENDING
+commit: 92b2d2a
 status: COMPLETE
 completed: 2026-09-19
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-19
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-017-two-instance-smoke-with-history.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `PENDING`
+**Commit**: `92b2d2a`
 
 ## Summary
 
