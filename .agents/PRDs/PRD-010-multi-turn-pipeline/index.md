@@ -6,7 +6,7 @@
 
 ## Progress
 
-17/18 stories done — 94%
+18/18 stories done — 100%
 
 ## Stories
 
@@ -31,7 +31,7 @@ All stories commit on the epic branch `epic/PRD-010-multi-turn-pipeline`. No per
 | STORY-015 | Measure added per-send latency of history assembly and per-turn redaction at 20 exchanges | spike | ✅ done | small | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-015-history-latency-measurement.plan.md) | `0a95158` |
 | STORY-016 | Seven-outcome /query regression and chat UI regression on the finished epic | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-016-seven-outcome-and-chat-ui-regression.plan.md) | `233b208` |
 | STORY-017 | Two-instance smoke: a multi-turn chat continued across instances | technical | ✅ done | medium | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-017-two-instance-smoke-with-history.plan.md) | `92b2d2a` |
-| STORY-018 | README: multi-turn context shipped, limits and trade-offs; .env.example settings | technical | ⬜ todo | small | — | — |
+| STORY-018 | README: multi-turn context shipped, limits and trade-offs; .env.example settings | technical | ✅ done | small | [plan](../../plans/PRD-010-multi-turn-pipeline/completed/STORY-018-readme-and-env-documentation.plan.md) | `e6c2749` |
 
 ## Status Icons
 - ⬜ todo

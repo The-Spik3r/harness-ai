@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-010
 plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-018-readme-and-env-documentation.plan.md
 epic_branch: epic/PRD-010-multi-turn-pipeline
-commit: TBD
+commit: e6c2749
 status: COMPLETE
 completed: 2026-09-19
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-19
 
 **Plan**: `.agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-018-readme-and-env-documentation.plan.md`
 **Epic Branch**: `epic/PRD-010-multi-turn-pipeline`
-**Commit**: `TBD`
+**Commit**: `e6c2749`
 
 ## Summary
 

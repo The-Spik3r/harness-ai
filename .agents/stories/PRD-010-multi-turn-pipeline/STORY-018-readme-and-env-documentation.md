@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-010-multi-turn-pipeline
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-010-multi-turn-pipeline/completed/STORY-018-readme-and-env-documentation.plan.md
+report: .agents/reports/PRD-010-multi-turn-pipeline/STORY-018-readme-and-env-documentation.report.md
+commit: e6c2749
 depends_on: [STORY-014, STORY-015, STORY-016, STORY-017]
 blocks: []
 skills: []
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # STORY-018: README: multi-turn context shipped, limits and trade-offs; .env.example settings
