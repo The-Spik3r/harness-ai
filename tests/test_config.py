@@ -447,3 +447,29 @@ def test_settings_construct_without_the_multiturn_pipeline_vars(monkeypatch):
     assert fresh.CONTEXT_MAX_MESSAGES == 100
     assert fresh.CONTEXT_MAX_CHARACTERS == 200_000
     assert fresh.PIPELINE_MAX_WORKERS == 32
+
+
+def test_env_example_documents_every_multiturn_pipeline_var_with_a_comment():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in (
+        "OPENROUTER_TIMEOUT_SECONDS",
+        "CONTEXT_MAX_MESSAGES",
+        "CONTEXT_MAX_CHARACTERS",
+        "PIPELINE_MAX_WORKERS",
+    ):
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_multiturn_pipeline_vars_appear_in_settings_field_order():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [
+        "OPENROUTER_TIMEOUT_SECONDS",
+        "CONTEXT_MAX_MESSAGES",
+        "CONTEXT_MAX_CHARACTERS",
+        "PIPELINE_MAX_WORKERS",
+    ]
+
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)

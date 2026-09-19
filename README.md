@@ -155,6 +155,7 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | **PII redaction** | [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt before it reaches OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a request, and the audit log keeps the raw text. English-only in this release. |
 | **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
 | **Persisted chat sessions** | The chat UI holds named, per-conversation transcripts in Turso — restored on reload, on a new browser session, and from any instance sharing the database. Each transcript is readable only by the account that wrote it; no admin surface exposes one. `CHAT_HISTORY_ENABLED=false` turns the whole feature off, from the same image. |
+| **Multi-turn context** | The chat sends the conversation, not just the latest message: every answered exchange in the session that fits the configured limits goes upstream, redacted, on every send. The pipeline takes a list of messages; `POST /query` is the one-message case and is unchanged. See [Multi-turn context](#multi-turn-context). |
 | **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
 | **Model-agnostic** | Works with any model OpenRouter serves — Claude, GPT, or others — with no code changes. |
@@ -184,6 +185,26 @@ Two weaknesses are accepted on purpose:
 - **A one-off gap right after upgrading.** Rows written before this release have no key, so a prompt answered in the 24 hours before the upgrade can be sent once more after it. The gap closes on its own 24 hours after deploy; no backfill is run.
 
 Every case above has an end-to-end test in `tests/test_duplicate_scope.py`. The full threat reasoning — including what the rescoping made stronger — is in [PRD-009, Section 9.2](.agents/PRDs/PRD-009-duplicate-rescoping/PRD.md#92-threat-reasoning).
+
+### Multi-turn context
+
+**A chat session is now a conversation the model remembers.** Each send carries the session's earlier exchanges to the model, not just the latest message. The pipeline itself takes a list of messages rather than a string; `POST /query` sends a one-message list and behaves exactly as it did before this release.
+
+**History is built from answered exchanges only.** Each stored assistant reply carries the prompt that produced it, and those pairs — oldest first — are the history. A send that was held as a duplicate, blocked on a pattern, denied by policy, refused for length, or that failed upstream contributes nothing, and neither does the message that caused it. A side effect worth knowing: because the pair is recovered from the reply, the first question of a new chat reaches the model as history even though the question itself is not stored (see *Known limitations* under [Chat UI](#chat-ui)).
+
+**History is always redacted.** Every message on every send goes through PII redaction before it leaves the process — history included, whatever wrote it. Stored prompts are raw, so this is enforced at the pipeline rather than trusted from the store. Presidio's `<ENTITY_TYPE>` placeholders are not re-detected, so an already-masked reply passes through unchanged.
+
+**The duplicate check sees the conversation, not the string.** `dedup_key(user_id, turns)` combines the user, the last user turn, and a hash of every turn before it, so *"yes"* after one exchange and *"yes"* after another are different queries. That key shipped with the previous release; this one is what finally feeds it a real history. See [Duplicate detection scope](#duplicate-detection-scope).
+
+**Oldest exchanges are dropped when a chat outgrows the limits, and the answer says so.** `CONTEXT_MAX_MESSAGES` (default `100`) and `CONTEXT_MAX_CHARACTERS` (default `200000`) bound what a conversation may carry. The chat UI drops whole exchanges from the oldest end — never half of one — until both hold, and the reply's footer reads `3 earlier exchanges were not sent to the model`. Nothing is deleted: the transcript on your screen is complete, and only what went upstream was trimmed.
+
+**The pipeline refuses a conversation that is still over the limit.** Refuse, not silently truncate: a client that trims knows what it dropped, and a server that trims does not. The refusal is a `200` with `"status": "BLOCKED"`, naming the limit, the maximum and the actual — see [`POST /query` — blocked (context limit)](#post-query--blocked-context-limit). In the chat it renders as a held bubble reading *This chat is too long to send.*, with *Start a new chat to continue.* One case reaches it from a single message: a prompt over `CONTEXT_MAX_CHARACTERS` is now refused where it previously went upstream. That is the one behaviour change on `POST /query` in this release.
+
+**`CHAT_HISTORY_ENABLED=false` keeps the chat single-turn.** The flag already governed whether transcripts are stored; it now also selects what the chat sends. With it off, each send carries one user turn, exactly as before — same image, same code path.
+
+**What it costs.** Measured on a session of 20 exchanges (41 messages, ~19k characters) against a local database: **about 0.93 s added per send** (p50 926 ms, p95 961 ms), growing roughly 23 ms per message. Reading the history is not the cost — that is 5 ms; **re-redacting every turn is ~97% of it**. A deployment that finds this too slow has two levers today, `CONTEXT_MAX_MESSAGES` and `PII_REDACTION_ENABLED`, and the second one turns off a security control. The measurement script is `scripts/measure_history_latency.py`.
+
+**Slow conversations no longer stall the process.** Long contexts mean long upstream calls, so the whole pipeline runs on its own bounded thread pool (`PIPELINE_MAX_WORKERS`, default `32`) rather than the shared server pool. `tests/test_pipeline_concurrency.py` proves it: with ten sends parked inside the upstream, `/health` answers in under a second and an eleventh query is answered in under a second — from `POST /query` and from the chat's history path alike. With the pool set to 10, the eleventh send queues, and `/health` still answers.
 
 ---
 
@@ -282,7 +303,11 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 **Known limitations (MVP)**
 
 - No token-by-token streaming — the full response renders once available, same as `POST /query` today.
-- **No multi-turn context.** A session is a saved transcript, not a conversation the model remembers: every send is one user turn, alone, and prior turns are never included in the prompt. See [Multi-turn context](#multi-turn-context) for why, and what it would cost to change.
+- **The context limits are characters, not tokens.** `CONTEXT_MAX_CHARACTERS` counts characters across message contents — a deliberate proxy, because counting tokens means carrying a per-model tokenizer the harness does not have. Budget conservatively: for English prose, ~200,000 characters is roughly 50,000 tokens, and code runs denser.
+- **Prompt-injection patterns are checked on the newest user turn only.** History is redacted but not re-inspected. For the chat that is sufficient — every earlier user turn was itself the newest turn of a send that passed. It is *not* sufficient for history a caller supplies, which is one reason no such ingress exists yet; per-role inspection of whole conversations is PRD-011, and this behaviour is provisional until it lands.
+- **The PII audit fields describe the new turn and the output, not the history.** `pii_detected_input` and `pii_entities` on an audit row cover the message you just sent plus the model's reply. Entities found while re-masking history are masked but not recorded again — otherwise one email in the first turn would mark every later send of that session as a PII event and inflate the figures in `/stats` and the admin console.
+- **The first send of two new chats with the same text is still a duplicate.** Two brand-new chats both start as a single turn, so within 24 hours the second is indistinguishable from repeating a `POST /query` call — and that is held, by design. Once a chat has an exchange behind it its history is part of the key, so *"yes"* after two different conversations is two different queries. See [Duplicate detection scope](#duplicate-detection-scope).
+- **Redacted history can make answers less precise.** The model sees `<PERSON>` where you wrote a name, in every earlier turn as well as the current one, so a conversation that turns on the specifics of masked data will read as vaguer than the transcript on your screen. The trade is deliberate: unmasked text never leaves the process.
 - **The first turn of a brand-new chat is not saved.** The session row is created after your prompt is already on screen — deliberately, so a slow write never delays what you typed — so reloading a first conversation begins at the assistant's reply. Every turn after it is saved in full.
 - Two tabs open on the same chat do not see each other's writes. Each loads its own view and the second one to write simply wins.
 - A denied query (missing permission, disallowed model, or BYOK without `query:byok`) renders as an in-thread bubble, not a session error — the same rendering path as a duplicate or injection block.
@@ -394,6 +419,10 @@ Four properties matter when you run it:
 | `PII_NLP_MODEL` | No | `en_core_web_lg` | spaCy model backing Presidio's analyzer. This is the only model the Dockerfile and the Quickstart install; naming a different one (e.g. `en_core_web_trf`) makes spaCy try to download it at startup, which is slow and fails outright if the name is unresolvable or the package needs a C++ toolchain to build. |
 | `CHAT_HISTORY_ENABLED` | No | `true` | Master switch for chat transcript persistence. `false` writes no transcript, reads none, and renders no session rail — the chat behaves exactly as it did before this release, from the same image. A supported configuration for a deployment that must not hold prompt text at rest, not a degraded mode. It governs the transcript only: a `session_id` sent to `POST /query` is still recorded on the audit row. |
 | `CHAT_SESSION_LIMIT` | No | `50` | How many chats the session rail lists per user. The rail states its window against your real total, so a capped list never reads as a complete one. A value below `1` is a **startup error**, not a clamp — an empty rail on an account that has chats is a silent lie. To turn persistence off, set `CHAT_HISTORY_ENABLED=false` instead. |
+| `OPENROUTER_TIMEOUT_SECONDS` | No | `120.0` | How long to wait for the upstream model provider, in seconds. Was a hard-coded 30 s, which is too short for a long conversation. Must be greater than `0` — a non-positive value would either hang forever or fail every call instantly, so it is a **startup error**. |
+| `CONTEXT_MAX_MESSAGES` | No | `100` | Most messages a conversation may carry into the pipeline, counting every user and assistant turn plus the new one. Checked before `CONTEXT_MAX_CHARACTERS`, and the only limit reported when both are broken. The chat UI trims to fit before sending; a conversation still over it is refused. Must be at least `1`. |
+| `CONTEXT_MAX_CHARACTERS` | No | `200000` | Most characters a conversation may carry, summed over message contents. **Characters, not tokens** — a deliberate proxy, since counting tokens means carrying a per-model tokenizer the harness does not have. Roughly 50k tokens of English; code runs denser. Must be at least `1`. |
+| `PIPELINE_MAX_WORKERS` | No | `32` | Threads in the dedicated pipeline executor. The whole pipeline runs here rather than on the server's shared pool, which is what keeps `/health` and other queries answering while long upstream calls are in flight. Sizing it below the number of concurrent sends queues them; it does not drop them. Must be at least `1`. |
 | `REPORTS_AGENTS_DIR` | No | *(repo-root `.agents`)* | Directory the Reports section reads PRD boards, stories and reports from. |
 | `REPORTS_REPO_URL` | No | `https://github.com/The-Spik3r/harness-ai` | Repository a report's commit SHA links to, as `{REPORTS_REPO_URL}/commit/{sha}`. |
 
@@ -493,6 +522,24 @@ The full pattern list (case-insensitive substring match): `ignore previous instr
 ```
 
 Model-allowlist and BYOK (`openrouter_api_key`) refusals return `200` with this shape, not `403` — the caller is authenticated and allowed to call the endpoint, but the content of the request is what's refused. This is the same rendering path as a duplicate or injection block.
+
+### `POST /query` — blocked (context limit)
+
+```json
+{
+  "status": "BLOCKED",
+  "reason": "Conversation exceeds context limit",
+  "limit": "characters",
+  "maximum": 200000,
+  "actual": 250113
+}
+```
+
+**This is the only outcome this release adds** — the six before it are unchanged, request and response alike. `limit` is `messages` or `characters`, and **only one is ever reported**: the message count is checked first and returns immediately, so a conversation over both is reported as `messages`. A caller that shortens to fit the count is told about the character count on the next attempt; naming both would imply the two were measured independently when the second was never reached. `maximum` is the limit as configured for that call, echoed back so a client can see the bound it broke without reading the server's configuration.
+
+The check sits after authorization and before the duplicate check. After, so a caller without `query:submit` learns nothing about how the deployment is configured; before, so an over-limit conversation neither consults the 24-hour window nor lands in it — it never got a verdict, so it is not a query anyone asked twice. The attempt is still audited, as `success=false` with `error_message` naming the limit — the same shape an upstream failure writes, and no new `audit_logs` column. `GET /audit` and `GET /stats` are unchanged; these rows count against `success_rate`, which is accepted.
+
+For `POST /query` the reachable case is a single prompt over `CONTEXT_MAX_CHARACTERS` (200,000 by default, ≈50k tokens of English), which previously went upstream. See [Multi-turn context](#multi-turn-context).
 
 ### `GET /audit` (requires `audit:read:all` or `audit:read:own`)
 
@@ -650,25 +697,17 @@ The credential is valid, but the role lacks the permission that endpoint require
 - [x] PII redaction on input/output
 - [x] Role-based access control (RBAC)
 - [x] Chat sessions — persisted, per-conversation transcripts
+- [x] [Multi-turn context](#multi-turn-context) — the chat sends its history, so a session is a conversation
 
 ### Planned
 
 - [ ] Semantic (not just exact-match) duplicate detection
-- [ ] [Multi-turn context](#multi-turn-context) — sending a chat's history to the model, so a session becomes a conversation
 - [ ] Configurable, per-deployment pattern lists
 - [ ] [OpenAI-compatible endpoint](#openai-compatible-endpoint) — drop-in use from OpenCode and other coding agents
 - [ ] [MCP servers and agent skills](#mcp-servers-and-agent-skills) — code-writing tools behind the same pipeline
 - [ ] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations
 
 Everything below this line is **intended direction, not current behavior**. The only ingress that exists today is `POST /query`.
-
-### Multi-turn context
-
-A chat session today is a **saved transcript, not a conversation the model remembers**. Every send is one user turn, alone: the stored history is rendered on your screen and is never added to the prompt. Sending it is the natural next step, and one prerequisite for it is now in place.
-
-**Duplicate detection is no longer the blocker.** It was: the check used to hash the whole prompt against a global 24-hour window, so *"yes"*, *"go on"* and *"thanks"* would have been held as duplicates of each other across every user. The key is now defined over a conversation rather than a string. `dedup_key(user_id, turns)` in `app/services/duplicate_checker.py` combines the user, the last user turn, and a hash of every turn before it; a `POST /query` send is the one-turn case, with an empty prefix. The same *"yes"* from another user, or after a different exchange, is a different key. That answers the question the [OpenAI-compatible endpoint](#openai-compatible-endpoint) section posed about what to hash in a multi-turn `messages` array. See [Duplicate detection scope](#duplicate-detection-scope).
-
-**What remains is the pipeline, owned by PRD-010.** `run_query`, `QueryRequest` and the chat UI still accept one prompt rather than a list of turns, so nothing yet feeds the key a real history. That work passes the conversation to the same function; it does not redefine what a duplicate is. `chat_messages` is deliberately shaped so its input is a read away. Tool-role turns are refused by the key rather than guessed at, so tool calling will have to decide how they count.
 
 ### OpenAI-compatible endpoint
 
@@ -679,7 +718,7 @@ OPENAI_BASE_URL=http://localhost:8000/v1
 OPENAI_API_KEY=<harness token — never the OpenRouter key>
 ```
 
-This would be a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate → pattern → PII → OpenRouter → audit flow, and maps a block back onto the standard's error shape, so the calling tool surfaces an ordinary API error instead of a malformed completion. The harness becomes the only component holding the real OpenRouter key.
+This would be a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate → pattern → PII → OpenRouter → audit flow, and maps a block back onto the standard's error shape, so the calling tool surfaces an ordinary API error instead of a malformed completion. The harness becomes the only component holding the real OpenRouter key. Half of that is now built: the pipeline already takes a `messages` list, redacts every turn and keys the duplicate check over the conversation — see [Multi-turn context](#multi-turn-context). What does not exist is the HTTP ingress, and the trust model for `system` and `assistant` turns a caller supplies, which is what this section is still about.
 
 Open design questions:
 
