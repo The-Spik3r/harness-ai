@@ -6,7 +6,7 @@
 
 ## Progress
 
-3/13 stories done — 23%
+4/13 stories done — 31%
 
 ## Stories
 
@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-011-pattern-policy`. No per-stor
 | STORY-001 | Characterize today's substring detector before anything moves | technical | ✅ done | small | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-001-pattern-detector-characterization.plan.md) | `29743aa` |
 | STORY-002 | Word-boundary and regex pattern compilation | feature | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-002-word-and-regex-compilation.plan.md) | `116e0aa` |
 | STORY-003 | Code-span stripping and the outside_code scope | feature | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-003-code-span-stripping-and-scope.plan.md) | `a7f75a2` |
-| STORY-004 | Four pattern-policy settings with startup validators | technical | ⬜ todo | small | — | — |
+| STORY-004 | Four pattern-policy settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-004-pattern-settings.plan.md) | `782842b` |
 | STORY-005 | pattern_config: built-in policy, YAML loading, startup validation | feature | ⬜ todo | large | — | — |
 | STORY-006 | Profiles and the role inspection matrix | feature | ⬜ todo | medium | — | — |
 | STORY-007 | pattern_config.load() in both lifespans, and a working sample file | technical | ⬜ todo | small | — | — |
