@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Configuration and profiles"
-status: todo
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-005-pattern-config-load-and-validate.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-005-pattern-config-load-and-validate.report.md
+commit: 534ca17
 depends_on: [STORY-002, STORY-003, STORY-004]
 blocks: [STORY-006, STORY-007]
 skills: []
