@@ -146,3 +146,92 @@ def has_nested_quantifier(pattern: str) -> bool:
     nothing here should be read as a guarantee that an accepted pattern is
     safe."""
     return bool(_NESTED_QUANTIFIER.search(pattern))
+
+
+# --- PRD-011 STORY-003: code-span stripping --------------------------------
+
+#: An opening code fence: up to three leading spaces (CommonMark's tolerance
+#: for an indented fence), then three or more backticks or tildes, then the
+#: rest of the line. `re.MULTILINE` and not `re.DOTALL` because fence
+#: detection is line-based -- `^` and `$` must mean line edges, and the span
+#: is found by a second search rather than by one regex spanning both fences.
+#: The trailing `[^\n]*` swallows the info string (```python), so the whole
+#: opening line belongs to the span and the language name is stripped with it.
+_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})[^\n]*$", re.MULTILINE)
+
+#: An inline code span: one, two or three backticks, a body, then the same run
+#: again. `(?!\1)` on each body character is what lets ``a `b` c`` keep its
+#: inner single backticks -- they are not the two-backtick delimiter, so the
+#: body swallows them. `[^\n]` is what keeps a span inside one line, per
+#: PRD-011 Section 6.5 ("inline spans -- single, double or triple backticks
+#: within a line"). A lone unmatched backtick simply never matches.
+_INLINE_SPAN = re.compile(r"(`{1,3})((?:(?!\1)[^\n])*)\1")
+
+
+def _blank(text: str) -> str:
+    """`text` with every non-newline character replaced by a newline: same
+    length, same newline positions, no surviving words."""
+    return re.sub(r"[^\n]", "\n", text)
+
+
+def strip_code_spans(text: str) -> str:
+    """`text` with fenced blocks and inline backtick spans blanked out, for a
+    list carrying `scope: outside_code` (PRD-011 Section 6.5, F2).
+
+    Two passes. Fences first: an opening fence is three or more backticks or
+    tildes at the start of a line, and its closer is a run of the **same**
+    character **at least as long**, alone on its line -- so ``` does not close
+    a ~~~ block, and a ``` line inside a ````` block is content. An
+    unterminated fence runs to the end of the text. Inline spans second, over
+    the already-blanked text, which is why a backtick inside a fenced block
+    can never open one.
+
+    Blanking, not deleting: every non-newline character of the span becomes a
+    newline, so `len(strip_code_spans(text)) == len(text)` and a match offset
+    in the result still points at the same character of the original. It is
+    also what stops the lines either side of a stripped block from fusing
+    into one phrase. Note the converse, which is deliberate: because a blanked
+    span is whitespace and a `word` pattern joins its tokens with `\\s+`, a
+    phrase still matches *across* a stripped span. Wrapping the middle word of
+    an injection phrase in backticks is therefore not an evasion.
+
+    **A heuristic over markup, not a code parser.** Unfenced source gets no
+    protection from it at all: a coding agent that pastes a bare file keeps
+    every word in it, and a four-space-indented block -- CommonMark's other
+    code construct -- is not recognised here and keeps its text too. This is
+    exactly why the `code` profile's answer to `@Override` is not to rely on
+    stripping but to not load the keyword list at all (PRD-011 Section 6.5);
+    stripping is the second line, not the first. Read that sentence before
+    concluding that a `tool` turn's code is safe from the keyword list.
+
+    Lists carrying `scope: everywhere` are never passed through this function,
+    which is how a fence is prevented from hiding an injection phrase
+    (PRD-011 Section 9.2, T6).
+
+    No caller yet, by design. `inspect()` (STORY-008) computes at most two
+    variants of a message's content -- raw and stripped -- and hands each list
+    the one its scope asks for, so the stripping happens **once per message
+    per scope requested, not once per pattern** (PRD-011 Section 7/F2 and Risk
+    8). That budget cannot be enforced from here: this function has no view of
+    the message walk, so it is the caller's to keep."""
+    out = []
+    pos = 0
+    while True:
+        opening = _FENCE_OPEN.search(text, pos)
+        if opening is None:
+            out.append(text[pos:])
+            break
+        out.append(text[pos:opening.start()])
+        delimiter = opening.group(1)
+        closer = re.compile(
+            r"^ {0,3}" + re.escape(delimiter[0]) + r"{%d,}[ \t]*$" % len(delimiter),
+            re.MULTILINE,
+        )
+        closing = closer.search(text, opening.end())
+        end = closing.end() if closing else len(text)
+        out.append(_blank(text[opening.start():end]))
+        pos = end
+
+    # Second, and only now: a backtick inside a fenced block has already
+    # become a newline, so it cannot open a span across unrelated text.
+    return _INLINE_SPAN.sub(lambda span: _blank(span.group(0)), "".join(out))

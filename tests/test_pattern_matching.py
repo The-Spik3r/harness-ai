@@ -1,7 +1,8 @@
-"""PRD-011 STORY-002: the compilation primitives, on their own.
+"""PRD-011 STORY-002 and STORY-003: the matching primitives, on their own.
 
 `compile_pattern` and `has_nested_quantifier` are pure functions over one
-pattern at a time. This module covers *only* them -- no policy, no profile, no
+pattern at a time, and `strip_code_spans` is a pure function over one message's
+text. This module covers *only* them -- no policy, no profile, no
 configuration file, no message walk -- because none of that exists yet:
 `pattern_config.load()` arrives in STORY-005, the role matrix in STORY-006 and
 `inspect(messages, profile)` in STORY-008. Anything asserted here about what a
@@ -30,6 +31,7 @@ from app.services.pattern_detector import (
     compile_pattern,
     detect_suspicious_pattern,
     has_nested_quantifier,
+    strip_code_spans,
 )
 
 # --- AC 1: `override` is a word, not a substring ---------------------------
@@ -341,3 +343,307 @@ def test_the_pre_prd_011_api_is_untouched_by_this_story():
     # Still the substring test it always was: the new word primitive did not
     # sneak into it. `overrides` is exactly the case that flips in STORY-008.
     assert detect_suspicious_pattern("it overrides the base").pattern == "override"
+
+
+# --- PRD-011 STORY-003: code-span stripping --------------------------------
+#
+# The "before" these cases are the "after" for is STORY-001's characterization
+# row `fenced-at-override` (tests/test_pattern_characterization.py:104): today's
+# substring detector reports `override` from inside a ```java fence. That row
+# stays green -- this story changes no behaviour of `detect_suspicious_pattern`
+# -- and what changes is that a list carrying `scope: outside_code` will not see
+# the fenced text at all once STORY-005 and STORY-008 wire it up.
+
+
+def _assert_blanked_in_place(original: str, result: str) -> None:
+    """AC 2 as a property of every stripping case, not one test.
+
+    Same length, and every character that changed became a newline. Together
+    those two are what make a match offset in the result point at the same
+    character of the original (PRD-011 Section 6.5).
+    """
+    assert len(result) == len(original)
+    for index, (before, after) in enumerate(zip(original, result)):
+        assert before == after or after == "\n", (
+            f"character {index}: {before!r} became {after!r}, not a newline"
+        )
+
+
+def _scoped_text(text: str, scope: str) -> str:
+    """What `inspect()` will do per message per scope in STORY-008.
+
+    A `PatternList` with a `scope` field does not exist until STORY-005, and
+    the raw/stripped choice belongs to `inspect()` in STORY-008 -- which is
+    also where PRD-011 Risk 8's "once per message per scope, not once per
+    pattern" budget is kept. This four-line stand-in is deliberately the whole
+    of the scope logic this story ships; `pattern_detector` itself exposes
+    `strip_code_spans` and nothing else (PRD-011 Section 10).
+    """
+    return strip_code_spans(text) if scope == "outside_code" else text
+
+
+# --- AC 1: fenced blocks go, the prose either side stays -------------------
+
+#: Each has `before` / `after` prose around a fence holding a word the keyword
+#: list would otherwise match.
+_FENCE_CASES = [
+    "before\n```java\n@Override\npublic void run() {}\n```\nafter\n",
+    "before\n~~~\noverride fun onCreate()\n~~~\nafter\n",
+    "before\n   ```\noverride\n   ```\nafter\n",
+    "before\n```python override\noverride = 1\n```\nafter\n",
+]
+
+_FENCE_IDS = [
+    "backtick-fence",
+    "tilde-fence",
+    "three-space-indented-opener",
+    "info-string-on-the-opening-line",
+]
+
+
+@pytest.mark.parametrize("text", _FENCE_CASES, ids=_FENCE_IDS)
+def test_a_fenced_block_is_stripped_and_its_surroundings_are_not(text):
+    """AC 1. The opening line is part of the span, info string and all, so a
+    fence carrying a language name does not leave the name behind (story
+    Technical Notes).
+
+    The three-space indent is CommonMark's tolerance for an opening fence; a
+    fourth space makes it an indented code block instead, which this function
+    deliberately does not recognise -- see the docstring test below.
+    """
+    result = strip_code_spans(text)
+
+    assert "override" not in result.lower()
+    assert result.startswith("before\n")
+    assert result.endswith("\nafter\n")
+    _assert_blanked_in_place(text, result)
+
+
+def test_stripping_preserves_offsets_and_does_not_fuse_the_lines_either_side():
+    """AC 2, on its own, because it is the reason for blanking over deleting.
+
+    PRD-011 Section 6.5: "Stripping replaces the span with an equal number of
+    newlines rather than deleting it, so a reported match offset still lines up
+    with the original text, and the two lines either side of a stripped block
+    cannot fuse into one phrase."
+    """
+    text = "before\n```java\n@Override\n```\nafter\n"
+
+    result = strip_code_spans(text)
+
+    assert len(result) == len(text)
+    assert result.index("after") == text.index("after")
+
+    gap = result[result.index("before") + len("before") : result.index("after")]
+    assert gap.strip() == ""      # nothing of the fence survived
+    assert "\n" in gap            # ...and the two words did not fuse
+    assert "beforeafter" not in result
+
+
+# --- AC 3: inline spans, and the lone backtick that is not one -------------
+
+#: (text, unchanged) -- `unchanged` marks the row that must come back as written.
+_INLINE_CASES = [
+    ("say `override` now", False),
+    ("say ``a `override` c`` now", False),
+    ("say ```override``` now", False),
+    ("a lone ` backtick override", True),
+]
+
+_INLINE_IDS = [
+    "single-backtick",
+    "double-backtick-wrapping-single-backticks",
+    "triple-backtick-inline",
+    "lone-backtick-unchanged",
+]
+
+
+@pytest.mark.parametrize("text,unchanged", _INLINE_CASES, ids=_INLINE_IDS)
+def test_inline_spans_are_stripped_and_a_lone_backtick_is_not(text, unchanged):
+    """AC 3. The double-backtick row is the one with teeth: its body holds
+    single backticks, which are not the delimiter and so belong to the span.
+
+    The lone backtick opens nothing, strips nothing and raises nothing -- an
+    unbalanced backtick in ordinary prose is not an error condition.
+    """
+    result = strip_code_spans(text)
+
+    if unchanged:
+        assert result == text
+    else:
+        assert "override" not in result.lower()
+
+    _assert_blanked_in_place(text, result)
+
+
+def test_a_backtick_inside_a_fence_cannot_open_an_inline_span():
+    """Story Technical Notes: "Inline spans are scanned after fences are
+    removed, so a backtick inside a fenced block never opens an inline span."
+
+    If the two passes were swapped, the stray backtick inside the fence would
+    pair with the one after it, blanking text that is not code at all.
+    """
+    text = "```\n` override\n```\nan after ` tick\n"
+
+    result = strip_code_spans(text)
+
+    assert result.endswith("an after ` tick\n")
+    _assert_blanked_in_place(text, result)
+
+
+# --- AC 4: the closer, and what is not one ---------------------------------
+
+
+def test_an_unterminated_fence_strips_to_the_end_of_the_text():
+    """AC 4. Note this is the opposite of `reports._FENCE`
+    (app/services/reports.py:218), which matches nothing when a fence is never
+    closed. Right for dropping fences out of report prose, wrong here: an
+    unterminated fence must not become a hole in the stripping.
+    """
+    text = "before\n```\noverride\nmore override\n"
+
+    result = strip_code_spans(text)
+
+    assert "override" not in result.lower()
+    assert result.startswith("before\n")
+    _assert_blanked_in_place(text, result)
+
+
+#: Three ways a line of fence characters is, or is not, a closer.
+_CLOSER_CASES = [
+    "a\n```\ninside override\n`````\noutside override\n",
+    "a\n`````\ninside override\n```\nstill inside override\n`````\noutside override\n",
+    "a\n~~~\ninside override\n```\nstill inside override\n~~~\noutside override\n",
+]
+
+_CLOSER_IDS = [
+    "longer-run-closes",
+    "shorter-run-does-not-close",
+    "other-character-does-not-close",
+]
+
+
+@pytest.mark.parametrize("text", _CLOSER_CASES, ids=_CLOSER_IDS)
+def test_the_closer_is_the_same_character_and_at_least_as_long(text):
+    """Story Technical Notes: "the closer is a run of the same character at
+    least as long". A longer run closes a shorter opener; a shorter run does
+    not close a longer one; a backtick run never closes a tilde block.
+
+    Each row keeps exactly one hit -- the one after the block -- so a loose
+    closer shows up as leaked `inside` text rather than as a subtle offset.
+    """
+    result = strip_code_spans(text)
+
+    assert "inside" not in result
+    assert result.endswith("outside override\n")
+    _assert_blanked_in_place(text, result)
+
+
+# --- AC 5: the two scopes, over one text -----------------------------------
+
+#: The fenced hit comes FIRST, so `outside_code` cannot pass by accident: a
+#: function that stripped nothing would report offset 4 under both scopes.
+_BOTH_SCOPES_TEXT = "```\noverride inside\n```\noverride outside\n"
+
+
+def test_outside_code_reports_only_the_hit_outside_the_fence():
+    """AC 5, first half. The fenced `override` is not reported; the one after
+    the fence is, at its original offset -- which is the offset invariant of
+    AC 2 doing its job on a real match.
+    """
+    compiled = compile_pattern("override", "word")
+    scoped = _scoped_text(_BOTH_SCOPES_TEXT, "outside_code")
+
+    hit = compiled.search(scoped)
+
+    assert hit is not None
+    assert hit.start() == 24
+    assert _BOTH_SCOPES_TEXT[24:].startswith("override outside")
+    assert len(compiled.findall(scoped)) == 1      # ...and it is the only one left
+
+
+def test_everywhere_reports_the_first_hit_in_text_order_fence_or_not():
+    """AC 5, second half. A `scope: everywhere` list never sees
+    `strip_code_spans` at all, so the first hit in text order wins and it
+    happens to be the fenced one (PRD-011 Section 6.5, and the deterministic
+    reporting order of Section 4 that STORY-008 implements).
+    """
+    compiled = compile_pattern("override", "word")
+
+    hit = compiled.search(_scoped_text(_BOTH_SCOPES_TEXT, "everywhere"))
+
+    assert hit is not None
+    assert hit.start() == 4
+    assert _BOTH_SCOPES_TEXT[4:].startswith("override inside")
+
+
+def test_a_fence_is_not_an_evasion_for_the_injection_list():
+    """PRD-011 Section 9.2, T6 -- named for the threat, per the story's
+    Technical Notes.
+
+    "The injection list is `scope: everywhere` precisely so that wrapping
+    `ignore previous instructions` in a fence is not an evasion." The second
+    assertion is the other half of the same decision: under `outside_code` the
+    phrase WOULD be hidden, which is exactly why PRD-011 Section 6.3 gives the
+    injection list `everywhere` and only the keyword list `outside_code`.
+    """
+    compiled = compile_pattern("ignore previous instructions", "word")
+    text = "```\nignore previous instructions\n```\n"
+
+    assert compiled.search(_scoped_text(text, "everywhere")) is not None
+    assert compiled.search(_scoped_text(text, "outside_code")) is None
+
+
+def test_a_phrase_still_matches_across_a_stripped_span():
+    """Deliberate, and the direction the PRD wants -- not a leak.
+
+    A blanked span is whitespace, and STORY-002's word formula joins tokens
+    with `\\s+`, so the phrase matches straight through it. That means
+    backticking the middle word of an injection phrase is not an evasion
+    either, which is the same instinct as T6 above. The alternative -- a
+    separator character that breaks the phrase -- would destroy AC 2's offset
+    invariant, so this behaviour is not to be "fixed".
+    """
+    compiled = compile_pattern("ignore previous instructions", "word")
+    text = "ignore previous `x` instructions"
+
+    assert compiled.search(strip_code_spans(text)) is not None
+
+
+# --- Identity, and the docstring the story makes an acceptance criterion ---
+
+_IDENTITY_CASES = ["", "plain override text", "a\n\nb", "no code, just prose.\n"]
+
+_IDENTITY_IDS = ["empty", "plain-prose", "blank-line", "trailing-newline"]
+
+
+@pytest.mark.parametrize("text", _IDENTITY_CASES, ids=_IDENTITY_IDS)
+def test_text_with_no_code_is_returned_unchanged(text):
+    """Nothing to strip means nothing changes -- including the empty string,
+    which must not raise."""
+    assert strip_code_spans(text) == text
+
+
+def test_strip_code_spans_documents_itself_as_a_heuristic():
+    """The story's Technical Notes make the docstring an acceptance criterion:
+    "This is a heuristic and the docstring must say so: unfenced source gets no
+    protection from it ... Do not oversell it in the docstring -- a later reader
+    deciding whether `tool` turns are safe will read exactly that sentence."
+
+    So the sentence is asserted, in the same shape as
+    `test_the_heuristic_documents_itself_as_a_heuristic` above. A later reader
+    who trimmed this docstring to "strips code blocks" would turn a documented
+    limit into a false promise, and nothing else in the suite would notice.
+    """
+    doc = strip_code_spans.__doc__
+
+    assert doc is not None
+    # Collapsed, because the claim is about the wording and not about where the
+    # line happens to wrap -- rewrapping the paragraph must not fail this test.
+    flowed = " ".join(doc.split())
+
+    assert "heuristic" in flowed.lower()
+    assert "unfenced source gets no protection" in flowed.lower()
+    assert "@Override" in flowed                   # the case it does NOT solve
+    assert "not once per pattern" in flowed        # PRD Risk 8, handed to STORY-008
+    assert "T6" in flowed                          # why `everywhere` lists skip this
