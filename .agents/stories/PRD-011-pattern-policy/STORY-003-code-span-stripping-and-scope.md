@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Pin and match"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-003-code-span-stripping-and-scope.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-003-code-span-stripping-and-scope.report.md
+commit: a7f75a2
 depends_on: [STORY-002]
 blocks: [STORY-005]
 skills: []
