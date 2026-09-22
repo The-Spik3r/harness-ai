@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Pin and match"
-status: todo
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-002-word-and-regex-compilation.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-002-word-and-regex-compilation.report.md
+commit: 116e0aa
 depends_on: [STORY-001]
 blocks: [STORY-003, STORY-005]
 skills: []
