@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/13 stories done — 0%
+1/13 stories done — 8%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-011-pattern-policy`. No per-stor
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Characterize today's substring detector before anything moves | technical | 🟡 in-progress | small | [plan](../../plans/PRD-011-pattern-policy/STORY-001-pattern-detector-characterization.plan.md) | — |
+| STORY-001 | Characterize today's substring detector before anything moves | technical | ✅ done | small | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-001-pattern-detector-characterization.plan.md) | `29743aa` |
 | STORY-002 | Word-boundary and regex pattern compilation | feature | ⬜ todo | medium | — | — |
 | STORY-003 | Code-span stripping and the outside_code scope | feature | ⬜ todo | medium | — | — |
 | STORY-004 | Four pattern-policy settings with startup validators | technical | ⬜ todo | small | — | — |

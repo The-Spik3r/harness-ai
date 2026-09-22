@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Pin and match"
-status: in-progress
+status: done
 labels: [backend, tests, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: .agents/plans/PRD-011-pattern-policy/STORY-001-pattern-detector-characterization.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-001-pattern-detector-characterization.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-001-pattern-detector-characterization.report.md
+commit: 29743aa
 depends_on: []
 blocks: [STORY-002, STORY-008]
 skills: []

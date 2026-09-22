@@ -2,7 +2,7 @@
 id: PRD-011
 slug: pattern-policy
 title: Pattern Policy per Role — Configurable Lists, Word Matching, Inspected Conversations
-status: draft
+status: in-progress
 base_branch: main
 epic_branch: epic/PRD-011-pattern-policy
 created: 2026-09-22
