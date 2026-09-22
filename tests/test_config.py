@@ -473,3 +473,176 @@ def test_env_example_multiturn_pipeline_vars_appear_in_settings_field_order():
     positions = [text.index(f"{var}=") for var in declared_order]
 
     assert positions == sorted(positions)
+
+
+# --- PRD-011 STORY-004: pattern policy settings ------------------------------
+#
+# Nothing reads these four yet -- `app/services/pattern_config.py` (STORY-005)
+# and `inspect()` (STORY-008) are the consumers. What is asserted here is that
+# each has the default PRD-011 Section 9.3 tabulates, that the two validators
+# that can run at construction time do, and -- the one with teeth -- that the
+# profile-membership check has *not* been smuggled in here, because the file it
+# would have to read is not loaded when Settings is constructed.
+
+_PATTERN_VARS = (
+    "PATTERNS_FILE",
+    "PATTERN_PROFILE_DEFAULT",
+    "PATTERNS_ALLOW_REGEX",
+    "PATTERN_MAX_SCAN_CHARACTERS",
+)
+
+
+def test_pattern_policy_settings_available_with_documented_defaults():
+    """AC 1: all four exist with PRD-011 Section 9.3's defaults."""
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.PATTERNS_FILE == ""
+    assert result.PATTERN_PROFILE_DEFAULT == "chat"
+    assert result.PATTERNS_ALLOW_REGEX is False
+    assert result.PATTERN_MAX_SCAN_CHARACTERS == 1_000_000
+
+
+def test_patterns_allow_regex_can_be_turned_on_with_the_string_true():
+    """`true`, the string, is what a `.env` file and Docker actually supply.
+
+    Asserted with `is True` for the same reason
+    `test_chat_history_can_be_turned_off_with_the_string_false` uses `is False`:
+    a value that merely happens to be truthy must not pass.
+    """
+    result = _settings(DATABASE_URL=_LOCAL_URL, PATTERNS_ALLOW_REGEX="true")
+
+    assert result.PATTERNS_ALLOW_REGEX is True
+
+
+@pytest.mark.parametrize("value", [0, -1, "0"])
+def test_a_pattern_max_scan_characters_below_one_is_a_startup_error(value):
+    """AC 2: the message names the field, the rejected value and what it bounds.
+
+    All three are asserted rather than just the field name, because "names the
+    rejected value and what the field bounds" is what separates this message
+    from a bare pydantic one. `"0"` sits alongside the ints for the reason the
+    PRD-010 equivalent gives: the environment supplies strings, and pydantic
+    coerces before the validator runs.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PATTERN_MAX_SCAN_CHARACTERS=value)
+
+    message = str(exc_info.value)
+    assert "PATTERN_MAX_SCAN_CHARACTERS" in message
+    assert str(int(value)) in message, "the message must quote the value it rejected"
+    assert "per-message ceiling" in message, "the message must say what the field bounds"
+
+
+def test_pattern_max_scan_characters_accepts_the_boundary_value_of_one():
+    """The boundary on the accepted side, so a `<= 1` typo fails here, not in STORY-008."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, PATTERN_MAX_SCAN_CHARACTERS=1)
+
+    assert result.PATTERN_MAX_SCAN_CHARACTERS == 1
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_an_empty_pattern_profile_default_is_a_startup_error(value):
+    """AC 3's first half: non-empty is the one check that belongs here."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PATTERN_PROFILE_DEFAULT=value)
+
+    assert "PATTERN_PROFILE_DEFAULT" in str(exc_info.value)
+
+
+def test_pattern_profile_default_is_not_checked_against_any_policy_here():
+    """AC 3's second half, and the assertion with teeth.
+
+    Whether the name matches a profile the policy defines is a cross-check
+    between this setting and `PATTERNS_FILE`, and the file is not read when
+    Settings is constructed (PRD-011 Section 9.3). `pattern_config.load()`
+    owns it -- STORY-006 raises `PatternConfigError` there naming the setting,
+    the missing profile and the profiles that do exist.
+
+    So a name nothing defines must construct cleanly *here*. A future field
+    validator that went looking for the file would turn this red, which is the
+    point: it would either fail every boot or silently skip the check.
+    """
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL, PATTERN_PROFILE_DEFAULT="a-profile-nothing-defines"
+    )
+
+    assert result.PATTERN_PROFILE_DEFAULT == "a-profile-nothing-defines"
+
+
+def test_pattern_profile_default_strips_surrounding_whitespace():
+    """A trailing newline in a `.env` value must not become part of the name.
+
+    The same treatment `test_surrounding_whitespace_is_stripped_not_rejected`
+    pins for DATABASE_URL -- and it matters more here, because the untrimmed
+    value would reach `get_profile()` and miss by a character.
+    """
+    result = _settings(DATABASE_URL=_LOCAL_URL, PATTERN_PROFILE_DEFAULT="  code\n")
+
+    assert result.PATTERN_PROFILE_DEFAULT == "code"
+
+
+def test_settings_construct_without_the_pattern_policy_vars(monkeypatch):
+    """The defaults are the module's, not a developer's exported environment."""
+    for var in _PATTERN_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    fresh = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert fresh.PATTERNS_FILE == ""
+    assert fresh.PATTERN_PROFILE_DEFAULT == "chat"
+    assert fresh.PATTERNS_ALLOW_REGEX is False
+    assert fresh.PATTERN_MAX_SCAN_CHARACTERS == 1_000_000
+
+
+def test_env_example_documents_every_pattern_policy_var_with_a_comment():
+    """AC 4: all four present, each with an explanation above it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _PATTERN_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_pattern_policy_vars_appear_in_settings_field_order():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    positions = [text.index(f"{var}=") for var in _PATTERN_VARS]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_pattern_defaults_match_the_settings_defaults():
+    """AC 4's "same defaults" half, compared against the fields, not a copy.
+
+    A hand-written example drifts from the code silently; asserting against
+    `Settings.model_fields` means the drift is a red test instead. Values are
+    read as the strings a `.env` really supplies -- which is also why
+    `PATTERN_MAX_SCAN_CHARACTERS` is written `1000000` there and `1_000_000`
+    in the field: the underscore form is a Python literal, not an environment
+    one.
+    """
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _PATTERN_VARS}
+
+    def value_of(var: str) -> str:
+        match = re.search(rf"(?m)^{var}=(.*)$", text)
+        assert match, f"{var} is not assigned in .env.example"
+        return match.group(1).strip()
+
+    assert value_of("PATTERNS_FILE") == "", "PATTERNS_FILE must ship empty -- empty is the built-in policy"
+    assert value_of("PATTERN_PROFILE_DEFAULT") == defaults["PATTERN_PROFILE_DEFAULT"]
+    assert value_of("PATTERNS_ALLOW_REGEX") == str(defaults["PATTERNS_ALLOW_REGEX"]).lower()
+    assert int(value_of("PATTERN_MAX_SCAN_CHARACTERS")) == defaults["PATTERN_MAX_SCAN_CHARACTERS"]
+
+
+def test_requirements_declares_pyyaml_explicitly():
+    """AC 5: PyYAML is a declared dependency, not a transitive one.
+
+    It is already installed through `python-frontmatter`, so nothing breaks
+    today by leaving it out -- which is exactly why it needs pinning down in a
+    test. PRD-011 Section 8: depending on a transitive dependency is how a
+    build breaks silently, on the day the intermediate package drops it.
+    STORY-005 is the first module to `import yaml`.
+    """
+    text = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert re.search(r"(?mi)^PyYAML\b", text), "PyYAML must be declared in requirements.txt"

@@ -12,13 +12,15 @@ _LOCAL_SCHEME = "http://"
 # sqlite:////absolute, and sqlite:///:memory:.
 _SQLITE_SCHEME = "sqlite:"
 
-# What each PRD-010 pipeline-size setting controls, quoted by its validator
+# What each setting that bounds a resource controls, quoted by its validator
 # so the message says why 0 or a negative value is rejected, not just that
-# it is.
-_PIPELINE_LIMIT_DESCRIPTIONS = {
+# it is. The first three arrived with PRD-010's pipeline sizes; PRD-011 added
+# the fourth, which is why the name no longer says "pipeline".
+_POSITIVE_LIMIT_DESCRIPTIONS = {
     "CONTEXT_MAX_MESSAGES": "the maximum number of messages a conversation may carry into the pipeline",
     "CONTEXT_MAX_CHARACTERS": "the maximum total characters across message contents in a conversation",
     "PIPELINE_MAX_WORKERS": "the number of threads in the dedicated pipeline executor",
+    "PATTERN_MAX_SCAN_CHARACTERS": "the per-message ceiling on characters any one pattern scan runs over",
 }
 
 
@@ -121,6 +123,41 @@ class Settings(BaseSettings):
     # anyio/default-executor pools. Consumed by STORY-006.
     PIPELINE_MAX_WORKERS: int = 32
 
+    # Pattern policy (PRD-011). Defaults and startup validation land now; no
+    # production code reads these yet -- each field names the story that
+    # becomes its consumer.
+
+    # Path to the YAML file of pattern lists and profiles. Empty means the
+    # built-in policy and no file is read at all -- the RBAC_ROLES_FILE shape
+    # (app/services/authz.py). A file replaces the built-in policy wholesale;
+    # it is not merged into it. Consumed by STORY-005's pattern_config.load().
+    PATTERNS_FILE: str = ""
+
+    # The profile any call site that passes none gets -- /query and the chat
+    # UI (PRD-011 Section 6.6, D2).
+    #
+    # Whether it names a profile the policy actually defines is NOT checked
+    # here, and deliberately so: that is a cross-check between this setting and
+    # the patterns file, and the file is not read when Settings is constructed.
+    # pattern_config.load() owns it (STORY-006), and raises PatternConfigError
+    # naming the setting, the missing profile and the profiles that do exist.
+    # The only check below is that the value is not empty. Read by STORY-008's
+    # run_conversation.
+    PATTERN_PROFILE_DEFAULT: str = "chat"
+
+    # Whether `match: regex` lists are permitted at all. Off by default is the
+    # first of PRD-011 Section 9.2 T4's four ReDoS layers -- enabling regex is
+    # meant to be a deliberate act, not a default anyone inherits. Enforced by
+    # STORY-005's loader, which refuses a regex list outright while this is
+    # false.
+    PATTERNS_ALLOW_REGEX: bool = False
+
+    # Per-message ceiling on the characters any one pattern scan runs over. A
+    # longer message is truncated for matching only -- never for the upstream
+    # call -- and the pipeline warns with the two lengths, never the content.
+    # Consumed by STORY-008's inspect().
+    PATTERN_MAX_SCAN_CHARACTERS: int = 1_000_000
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -189,16 +226,45 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("CONTEXT_MAX_MESSAGES", "CONTEXT_MAX_CHARACTERS", "PIPELINE_MAX_WORKERS")
+    @field_validator(
+        "CONTEXT_MAX_MESSAGES",
+        "CONTEXT_MAX_CHARACTERS",
+        "PIPELINE_MAX_WORKERS",
+        "PATTERN_MAX_SCAN_CHARACTERS",
+    )
     @classmethod
-    def _validate_positive_pipeline_setting(cls, value: int, info) -> int:
-        """Each of these bounds a resource that cannot be 0 or negative (PRD-010)."""
+    def _validate_positive_limit(cls, value: int, info) -> int:
+        """Each of these bounds a resource that cannot be 0 or negative (PRD-010, PRD-011)."""
         if value < 1:
-            description = _PIPELINE_LIMIT_DESCRIPTIONS[info.field_name]
+            description = _POSITIVE_LIMIT_DESCRIPTIONS[info.field_name]
             raise ValueError(
                 f"{info.field_name} must be at least 1, got {value}. It is {description}."
             )
         return value
+
+    @field_validator("PATTERN_PROFILE_DEFAULT")
+    @classmethod
+    def _validate_pattern_profile_default(cls, value: str) -> str:
+        """Non-empty, and nothing more -- the membership check is not ours (PRD-011).
+
+        This is the whole of what can be decided at construction time. Whether
+        the name matches a profile the policy defines depends on a file that
+        pattern_config.load() has not read yet, so that check lives there
+        (PRD-011 Section 9.3) and a validator here that went looking for the
+        file would either fail every boot or silently skip the check.
+
+        Stripped rather than rejected for whitespace, the way
+        _validate_database_url treats a trailing newline in a `.env` value.
+        """
+        name = value.strip()
+        if not name:
+            raise ValueError(
+                "PATTERN_PROFILE_DEFAULT must name a profile, got an empty value. "
+                "It is the profile used by any call site that does not pass one "
+                "-- /query and the chat UI. Set it to 'chat' (the built-in "
+                "default) or to a profile your PATTERNS_FILE defines."
+            )
+        return name
 
     @property
     def pii_entities_list(self) -> list[str]:
