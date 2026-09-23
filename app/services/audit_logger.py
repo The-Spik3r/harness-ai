@@ -27,6 +27,11 @@ def log_query(
     denied_permission: Optional[str] = None,
     session_id: Optional[str] = None,
     dedup_key: Optional[str] = None,
+    # PRD-011 STORY-009. Defaulted, unlike _deny's session_id/dedup_key: only
+    # the pattern block and flag arms have a hit to describe, and NULL is the
+    # truth for every other row.
+    pattern_role: Optional[str] = None,
+    pattern_action: Optional[str] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -49,5 +54,7 @@ def log_query(
         denied_permission=denied_permission,
         session_id=session_id,
         dedup_key=dedup_key,
+        pattern_role=pattern_role,
+        pattern_action=pattern_action,
     )
     return insert_audit_log(entry)

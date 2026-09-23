@@ -265,23 +265,49 @@ def run_conversation(
         )
 
     if inspection.block is not None:
+        block = inspection.block
+        # The role goes to the audit and never to the body (PRD-011 D7).
+        # `block.action` is always "block" here -- inspect() puts nothing
+        # else in `.block` -- and is passed rather than spelled so the hit
+        # stays the one source of what was done.
         log_query(
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
-            suspicious_pattern=inspection.block.pattern,
+            suspicious_pattern=block.pattern,
             success=True,
             session_id=session_id,
             dedup_key=key,
+            pattern_role=block.role,
+            pattern_action=block.action,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
-            pattern=inspection.block.pattern,
+            pattern=block.pattern,
         )
 
-    # inspection.flags: the flag arm (write a row, then continue) is
-    # PRD-011 STORY-009's. Nothing reaches it yet: `chat` has no flag cell,
-    # and step 0 refuses every `tool` turn until PRD-016.
+    # The flag arm (PRD-011 Sections 6.1, 6.7, F6): the first outcome in this
+    # pipeline that writes a row and then continues. Written here, at step 5,
+    # so a flagged request that later fails upstream leaves two rows -- the
+    # flag and the failure -- rather than one row trying to say both. One row
+    # names one hit: the first flag in walk order; further flags are not
+    # recorded (a second table is PRD-013's). A block above has already
+    # returned, so a flag followed by a block leaves only the block row.
+    # Unreachable from any ingress today: `chat` has no flag cell, and step 0
+    # refuses `tool` turns until PRD-016.
+    if inspection.flags:
+        first_flag = inspection.flags[0]
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            suspicious_pattern=first_flag.pattern,
+            success=True,
+            session_id=session_id,
+            dedup_key=key,
+            pattern_role=first_flag.role,
+            pattern_action=first_flag.action,
+        )
 
     # Step 6: redact every message (D5) -- history must never leave the
     # process unmasked, whatever its source. Only the last user turn's

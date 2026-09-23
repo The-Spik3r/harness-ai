@@ -681,6 +681,10 @@ def init_db() -> None:
     every column -- so a pass placed earlier would try to ALTER a table that is
     not there. In steady state it costs one more `PRAGMA table_info` and issues
     no `ALTER`.
+
+    PRD-011 STORY-009 adds `audit_logs.pattern_role` and
+    `audit_logs.pattern_action` on the `session_id`/`dedup_key` path, with no
+    new code here: both are nullable with no default, and neither is indexed.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -764,8 +768,9 @@ def insert_audit_log(entry: AuditLog) -> int:
                 response_hash, response_preview, model_used, tokens_used,
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
-                role, denied_permission, session_id, dedup_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                role, denied_permission, session_id, dedup_key,
+                pattern_role, pattern_action
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -788,6 +793,8 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.denied_permission,
                 entry.session_id,
                 entry.dedup_key,
+                entry.pattern_role,
+                entry.pattern_action,
             ),
         )
         return cursor.lastrowid
@@ -808,6 +815,13 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
         # read here: it is what /audit reports (D5). A pre-PRD row has a NULL key
         # and never matches, since NULL = ? is never true -- a one-off gap of at
         # most 24h after deploy, accepted (D6, T8, Risk 3).
+        # A pattern *flag* row (PRD-011 D6) is excluded too: it is not a
+        # verdict, because the request it records went on to redaction and
+        # upstream. The prior query is that request's own success row, which
+        # carries the same key. Counting the flag row would make a flagged
+        # request that then failed upstream a "duplicate" of an attempt nobody
+        # answered. NULL passes -- every row written before PRD-011 -- and a
+        # block row passes, as a content verdict (PRD-009 F4).
         row = conn.execute(
             """
             SELECT timestamp FROM audit_logs
@@ -815,6 +829,7 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
               AND success = 1
               AND was_duplicate_blocked = 0
               AND denied_permission IS NULL
+              AND (pattern_action IS NULL OR pattern_action <> 'flag')
             ORDER BY timestamp ASC
             LIMIT 1
             """,
@@ -858,6 +873,8 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         denied_permission=row["denied_permission"],
         session_id=row["session_id"],
         dedup_key=row["dedup_key"],
+        pattern_role=row["pattern_role"],
+        pattern_action=row["pattern_action"],
     )
 
 
@@ -1184,7 +1201,9 @@ SELECT
               'role', role,
               'denied_permission', denied_permission,
               'session_id', session_id,
-              'dedup_key', dedup_key))
+              'dedup_key', dedup_key,
+              'pattern_role', pattern_role,
+              'pattern_action', pattern_action))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

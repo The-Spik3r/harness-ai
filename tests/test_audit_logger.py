@@ -291,3 +291,37 @@ def test_dedup_key_defaults_to_none_when_omitted(temp_db):
     fetched = get_audit_log(audit_id)
 
     assert fetched.dedup_key is None
+
+
+def test_pattern_role_and_action_persisted_when_supplied(temp_db):
+    """PRD-011 STORY-009: the pattern block and flag arms pass both."""
+    audit_id = log_query(
+        user_id="ana@empresa.com",
+        prompt="summarise the README",
+        suspicious_pattern="ignore previous instructions",
+        pattern_role="tool",
+        pattern_action="flag",
+        dedup_key="k",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.suspicious_pattern == "ignore previous instructions"
+    assert fetched.pattern_role == "tool"
+    assert fetched.pattern_action == "flag"
+    assert fetched.dedup_key == "k"
+
+
+def test_pattern_role_and_action_default_to_none_when_omitted(temp_db):
+    """Every arm without a pattern hit -- denials, limits, duplicates,
+    failures, successes -- omits both and writes NULL (PRD-011 STORY-009)."""
+    audit_id = log_query(
+        user_id="juan@empresa.com",
+        prompt="hello",
+        response="hi there",
+    )
+
+    fetched = get_audit_log(audit_id)
+
+    assert fetched.pattern_role is None
+    assert fetched.pattern_action is None
