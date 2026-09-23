@@ -7,17 +7,17 @@ type: enhancement
 priority: high
 complexity: medium
 phase: "3 - The pipeline inspects the conversation"
-status: todo
+status: done
 labels: [backend, api, audit, admin]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-010-narrowed-counters-and-admin-fields.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-010-narrowed-counters-and-admin-fields.report.md
+commit: f1e5f2e
 depends_on: [STORY-009]
 blocks: [STORY-013]
 skills: []
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # STORY-010: blocked_suspicious counts blocks only; role and action surfaced in /audit and the console

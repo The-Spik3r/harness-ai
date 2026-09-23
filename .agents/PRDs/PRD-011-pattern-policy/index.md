@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/13 stories done — 69%
+10/13 stories done — 77%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-011-pattern-policy`. No per-stor
 | STORY-007 | pattern_config.load() in both lifespans, and a working sample file | technical | ✅ done | small | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-007-startup-load-and-sample-file.plan.md) | `efb1924` |
 | STORY-008 | inspect() over the conversation; _inspection_target deleted; block arm | feature | ✅ done | large | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-008-inspect-conversation-and-block-arm.plan.md) | `9d4deeb` |
 | STORY-009 | Flag arm, and pattern_role / pattern_action audit columns | feature | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-009-flag-arm-and-audit-columns.plan.md) | `d18a55d` |
-| STORY-010 | blocked_suspicious counts blocks only; role and action surfaced in /audit and the console | enhancement | ⬜ todo | medium | — | — |
+| STORY-010 | blocked_suspicious counts blocks only; role and action surfaced in /audit and the console | enhancement | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-010-narrowed-counters-and-admin-fields.plan.md) | `f1e5f2e` |
 | STORY-011 | Code and agent-prompt corpus: the false-positive claim as evidence | technical | ⬜ todo | medium | — | — |
 | STORY-012 | Direct and indirect injection corpus | technical | ⬜ todo | medium | — | — |
 | STORY-013 | Default-config /query regression, README, .env and the promoted pre-PRD | technical | ⬜ todo | medium | — | — |
