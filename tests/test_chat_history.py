@@ -350,8 +350,8 @@ def test_assemble_skips_an_assistant_row_without_a_usable_prompt(temp_db, unusab
     `prompt` is nullable (`app/db/models.py:165`) and `ChatState` stores
     `prompt=bubble.prompt or None`, so `""` and `NULL` are one fact by two
     routes -- hence one falsy branch rather than an `is None` check. An empty
-    user turn would blank `query_pipeline._inspection_target`, which inspects
-    the last user turn, and blank the `dedup_key` prefix.
+    user turn would hand pattern inspection an empty `user` turn (PRD-011
+    STORY-008 inspects every one), and blank the `dedup_key` prefix.
 
     Sandwiched between two real exchanges, so the four survivors are asserted.
     """

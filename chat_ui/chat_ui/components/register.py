@@ -413,9 +413,10 @@ def _detail(row) -> rx.Component:
     (PRD-006 Section 5, story 3), so those are the top two lines and the hash
     follows them.
 
-    The three string fields cannot arrive blank and get no fallback here:
+    The string fields cannot arrive blank and get no fallback here:
     `admin_formatting._text` already wrote `VALUE_ABSENT` into `prompt_hash`,
-    `error_message` and `suspicious_pattern` when their column was NULL, and
+    `error_message`, `suspicious_pattern`, `pattern_role` and `pattern_action`
+    (PRD-011 D6) when their column was NULL, and
     `_truncate_device` did the same for `device_full`. Absence is stated at the
     boundary, which is where this module's "read fields, do not compute" rule
     puts it. Only the entity list and the two booleans need a render-time
@@ -431,6 +432,10 @@ def _detail(row) -> rx.Component:
         rx.box(
             _detail_field(admin_copy.DETAIL_ERROR_LABEL, row.error_message),
             _detail_field(admin_copy.DETAIL_PATTERN_LABEL, row.suspicious_pattern),
+            # PRD-011 D6: the role the hit was found in and whether it blocked
+            # or flagged, directly under the pattern they qualify.
+            _detail_field(admin_copy.DETAIL_PATTERN_ROLE_LABEL, row.pattern_role),
+            _detail_field(admin_copy.DETAIL_PATTERN_ACTION_LABEL, row.pattern_action),
             _detail_field(admin_copy.DETAIL_PROMPT_HASH_LABEL, row.prompt_hash),
             _detail_field(admin_copy.DETAIL_DEVICE_LABEL, row.device_full),
             _detail_label(admin_copy.DETAIL_PII_ENTITIES_LABEL),
@@ -476,8 +481,9 @@ def _row_line(row) -> rx.Component:
     row height would clip the absolute timestamp under it.
 
     Ten children and no eleventh. `device_full`, `prompt_hash`, `error_message`,
-    `pii_entities`, `pii_detected_input`, `pii_detected_output` and
-    `suspicious_pattern` are disclosure-only fields on `AuditRow` and are read
+    `pii_entities`, `pii_detected_input`, `pii_detected_output`,
+    `suspicious_pattern`, `pattern_role` and `pattern_action` are
+    disclosure-only fields on `AuditRow` and are read
     by `_detail`, never here — the row states the verdict, the record states the
     evidence.
 

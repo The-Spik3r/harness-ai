@@ -143,6 +143,9 @@ from chat_ui.chat_ui.admin_copy import (
     DETAIL_PROMPT_HASH_LABEL,
     DETAIL_ERROR_LABEL,
     DETAIL_PATTERN_LABEL,
+    # PRD-011 D6 (STORY-010)
+    DETAIL_PATTERN_ROLE_LABEL,
+    DETAIL_PATTERN_ACTION_LABEL,
     DETAIL_DEVICE_LABEL,
     DETAIL_PII_ENTITIES_LABEL,
     DETAIL_PII_INPUT_LABEL,
@@ -344,6 +347,9 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert DETAIL_PROMPT_HASH_LABEL
     assert DETAIL_ERROR_LABEL
     assert DETAIL_PATTERN_LABEL
+    # PRD-011 D6 (STORY-010)
+    assert DETAIL_PATTERN_ROLE_LABEL
+    assert DETAIL_PATTERN_ACTION_LABEL
     assert DETAIL_DEVICE_LABEL
     assert DETAIL_PII_ENTITIES_LABEL
     assert DETAIL_PII_INPUT_LABEL
@@ -447,6 +453,9 @@ def test_admin_copy_constants_exist_and_not_empty():
         "DETAIL_PROMPT_HASH_LABEL",
         "DETAIL_ERROR_LABEL",
         "DETAIL_PATTERN_LABEL",
+        # PRD-011 D6 (STORY-010)
+        "DETAIL_PATTERN_ROLE_LABEL",
+        "DETAIL_PATTERN_ACTION_LABEL",
         "DETAIL_DEVICE_LABEL",
         "DETAIL_PII_ENTITIES_LABEL",
         "DETAIL_PII_INPUT_LABEL",

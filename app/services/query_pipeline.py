@@ -1,3 +1,4 @@
+import logging
 from typing import Callable, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
@@ -25,7 +26,8 @@ from app.services.openrouter_client import (
     OpenRouterResult,
     call_openrouter,
 )
-from app.services.pattern_detector import detect_suspicious_pattern
+from app.services.pattern_config import get_profile
+from app.services.pattern_detector import inspect
 from app.services.pii_redactor import PiiRedactorError, redact
 
 QueryPipelineResult = Union[
@@ -37,6 +39,8 @@ QueryPipelineResult = Union[
 ]
 
 ContextLimit = Literal["messages", "characters"]
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidConversationError(Exception):
@@ -57,16 +61,6 @@ def _validate_conversation(messages: Sequence[Message]) -> None:
         raise InvalidConversationError("tool turns are not supported (PRD-016)")
     if messages[-1].role != "user":
         raise InvalidConversationError("the last message must be a user turn")
-
-
-def _inspection_target(messages: Sequence[Message]) -> str:
-    """PROVISIONAL (PRD-010 D6): the last user turn. PRD-011 replaces this.
-
-    Sufficient for chat history: every earlier user turn was itself the last
-    user turn of a send that already passed inspection (D4). Not sufficient
-    for caller-supplied history -- no ingress in this PRD accepts one.
-    """
-    return messages[-1].content
 
 
 def _context_limit_exceeded(
@@ -140,6 +134,12 @@ def run_conversation(
     params: Optional[GenerationParams] = None,
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
     session_id: Optional[str] = None,
+    *,
+    # Chosen by the call site, never by a request field: no schema carries it,
+    # so the permissive profile cannot be requested by a caller (PRD-011
+    # Section 6.6, D2, T1). None means PATTERN_PROFILE_DEFAULT. Keyword-only so
+    # no positional caller can pass it by accident; run_query passes nothing.
+    profile: Optional[str] = None,
 ) -> QueryPipelineResult:
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
@@ -240,21 +240,73 @@ def run_conversation(
             first_query_at=duplicate_result.first_query_at,
         )
 
-    # Step 5: patterns, on the provisional inspection target only (D6).
-    pattern_result = detect_suspicious_pattern(_inspection_target(messages))
-    if pattern_result.is_suspicious:
+    # Step 5: patterns, over the whole conversation under the profile's role
+    # matrix (PRD-011 Sections 6.1, 6.4, 7/F5). The position is unchanged:
+    # after every authorization arm and the duplicate check, before redaction,
+    # so the raw text is inspected and never the masked one. Both settings are
+    # read here, per call, for the reason _context_limit_exceeded gives.
+    #
+    # An unknown profile is a call-site bug and raises PatternConfigError here.
+    # Every earlier arm that writes a row has already returned, so it leaves no
+    # row behind.
+    profile_name = profile if profile is not None else settings.PATTERN_PROFILE_DEFAULT
+    scan_ceiling = settings.PATTERN_MAX_SCAN_CHARACTERS
+    inspection = inspect(messages, get_profile(profile_name), max_scan_characters=scan_ceiling)
+    for index in inspection.truncated:
+        # PRD-011 Section 9.2, T9: the user id, the index and both lengths,
+        # never the content. Deliberately not an audit column: the ceiling is a
+        # backstop far above anything CONTEXT_MAX_CHARACTERS admits.
+        logger.warning(
+            "pattern scan truncated: user_id=%s message_index=%d length=%d scanned=%d",
+            identity.user_id,
+            index,
+            len(messages[index].content),
+            scan_ceiling,
+        )
+
+    if inspection.block is not None:
+        block = inspection.block
+        # The role goes to the audit and never to the body (PRD-011 D7).
+        # `block.action` is always "block" here -- inspect() puts nothing
+        # else in `.block` -- and is passed rather than spelled so the hit
+        # stays the one source of what was done.
         log_query(
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
-            suspicious_pattern=pattern_result.pattern,
+            suspicious_pattern=block.pattern,
             success=True,
             session_id=session_id,
             dedup_key=key,
+            pattern_role=block.role,
+            pattern_action=block.action,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
-            pattern=pattern_result.pattern,
+            pattern=block.pattern,
+        )
+
+    # The flag arm (PRD-011 Sections 6.1, 6.7, F6): the first outcome in this
+    # pipeline that writes a row and then continues. Written here, at step 5,
+    # so a flagged request that later fails upstream leaves two rows -- the
+    # flag and the failure -- rather than one row trying to say both. One row
+    # names one hit: the first flag in walk order; further flags are not
+    # recorded (a second table is PRD-013's). A block above has already
+    # returned, so a flag followed by a block leaves only the block row.
+    # Unreachable from any ingress today: `chat` has no flag cell, and step 0
+    # refuses `tool` turns until PRD-016.
+    if inspection.flags:
+        first_flag = inspection.flags[0]
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            suspicious_pattern=first_flag.pattern,
+            success=True,
+            session_id=session_id,
+            dedup_key=key,
+            pattern_role=first_flag.role,
+            pattern_action=first_flag.action,
         )
 
     # Step 6: redact every message (D5) -- history must never leave the

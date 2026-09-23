@@ -268,6 +268,13 @@ DETAIL_ERROR_LABEL = "Error"
 # fact across two surfaces is the vocabulary drift the skill's consistency rule
 # is about.
 DETAIL_PATTERN_LABEL = "Matched pattern"
+# PRD-011 D6: the two facts that qualify the pattern. Their values are the
+# audit's own words (`user`/`tool`/..., `block`/`flag`), shown as recorded. A
+# row written before PRD-011 shows the absent mark on both rather than an
+# inferred "block" -- its **denied** verdict already says it was blocked, and
+# the column itself holds no such claim.
+DETAIL_PATTERN_ROLE_LABEL = "Matched in"
+DETAIL_PATTERN_ACTION_LABEL = "Pattern action"
 DETAIL_DEVICE_LABEL = "User agent"
 # Shown combined as PII_INDICATOR_LABEL in the row, split here.
 DETAIL_PII_ENTITIES_LABEL = "PII types"

@@ -33,7 +33,8 @@ from .formatting import humanize_compact
 # `derive_verdict` is a precedence, not a set of independent flags:
 #
 #     was_duplicate_blocked   -> held
-#     suspicious_pattern      -> denied
+#     suspicious_pattern      -> denied  (a block, or a pre-PRD-011 row with a
+#                                         NULL action; never a flag -- PRD-011 D6)
 #     not success             -> fault
 #     otherwise               -> cleared
 #
@@ -83,7 +84,13 @@ def derive_verdict(log: AuditLog) -> str:
     """
     if log.was_duplicate_blocked:
         return VERDICT_HELD
-    if log.suspicious_pattern is not None:
+    # PRD-011 D6: a flag row carries a pattern but the request was not
+    # blocked -- it passed the check and went on upstream -- so it falls
+    # through to the arms below (a flag row is written with success=1, so
+    # **cleared**). A NULL action is a row from before PRD-011, which was a
+    # block, so it stays **denied**: the same rule the blocked_suspicious
+    # counters use in `app/db/database.py`.
+    if log.suspicious_pattern is not None and log.pattern_action != "flag":
         return VERDICT_DENIED
     if not log.success:
         return VERDICT_FAULT
@@ -211,4 +218,6 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         pii_detected_input=bool(log.pii_detected_input),
         pii_detected_output=bool(log.pii_detected_output),
         suspicious_pattern=_text(log.suspicious_pattern),
+        pattern_role=_text(log.pattern_role),
+        pattern_action=_text(log.pattern_action),
     )

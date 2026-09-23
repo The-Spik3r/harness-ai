@@ -197,6 +197,9 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "denied_permission",
         "device",
         "model",
+        # PRD-011 D6: two additive, nullable fields (STORY-010).
+        "pattern_action",
+        "pattern_role",
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",
@@ -276,9 +279,15 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
 # out of layer 1 (byte-unmodified) and stays covered by layer 2 below
 # (`test_no_pre_epic_test_function_was_removed_or_renamed`): additions are fine,
 # no existing test function may be removed or renamed.
+#
+# PRD-011 STORY-008 does the same for tests/test_pattern_detector.py. PRD-011
+# Section 10 removes the pre-PRD-011 substring detector outright ("removed, not
+# deprecated") and rewrites that file around `inspect(messages, profile)` in the
+# same story, so a byte pin on it cannot survive the epic. It moves out of
+# layer 1 and stays covered by layer 2: all four of its test function names are
+# kept, each rewritten against the new API with a comment citing PRD-011.
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
-    "tests/test_pattern_detector.py",
     "tests/test_route_reservations.py",
 ]
 
@@ -398,7 +407,37 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 # the flag may not do (reach persistence, or any other method here) still fails.
 #   - test_chat_state_never_names_the_history_flag ->
 #     test_chat_state_names_the_history_flag_once_and_only_in_do_send
+#
+# PRD-011 STORY-008 deletes `query_pipeline._inspection_target`, the function
+# PRD-010 D6 marked PROVISIONAL, and replaces it with `inspect(messages,
+# profile)` over every inspected turn. Four PRD-010 tests pinned the provisional
+# function or its last-user-turn-only policy. Two of them said in their own
+# docstrings that PRD-011 would flip them, and they were rewritten to assert
+# the reverse: the earlier-turn injection is now blocked. That is a rename,
+# because the old names state a policy that no longer exists. The other two
+# pinned the function's marker, and now assert that it is gone.
+#   - test_query_pipeline_multiturn.py:
+#       test_provisional_policy_inspects_last_user_turn_only ->
+#         test_an_injection_in_an_earlier_user_turn_is_blocked
+#       test_inspection_target_still_carries_its_provisional_marker ->
+#         test_inspection_target_is_deleted
+#   - test_query_pipeline_run_conversation.py:
+#       test_provisional_policy_inspects_last_user_turn_only ->
+#         test_an_earlier_user_turn_injection_is_now_blocked
+#       test_inspection_target_is_marked_provisional_and_returns_the_last_user_turn ->
+#         test_inspection_target_is_deleted_and_every_user_turn_is_inspected
+# Both files are newer than `merge-base main HEAD` while local `main` stands at
+# PRD-009, so today the census does not see them. The entries are here for
+# the day PRD-010 lands on `main` and moves the base past them.
 _DELIBERATELY_SUPERSEDED_TESTS = {
+    "tests/test_query_pipeline_multiturn.py": {
+        "test_provisional_policy_inspects_last_user_turn_only",
+        "test_inspection_target_still_carries_its_provisional_marker",
+    },
+    "tests/test_query_pipeline_run_conversation.py": {
+        "test_provisional_policy_inspects_last_user_turn_only",
+        "test_inspection_target_is_marked_provisional_and_returns_the_last_user_turn",
+    },
     "tests/test_schemas.py": {"test_query_request_missing_user_id_raises"},
     "tests/test_query_router.py": {
         "test_missing_user_id_returns_422",

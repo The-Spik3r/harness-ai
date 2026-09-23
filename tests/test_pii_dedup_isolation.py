@@ -7,7 +7,6 @@ import hashlib
 import inspect
 import pathlib
 import re
-import subprocess
 from dataclasses import dataclass
 
 import pytest
@@ -18,6 +17,7 @@ from app.db.models import User
 from app.main import app
 import app.services.audit_logger as audit_logger
 import app.services.duplicate_checker as duplicate_checker
+import app.services.pattern_detector as pattern_detector
 import app.services.query_pipeline as query_pipeline
 from app.services.duplicate_checker import (
     DuplicateCheckResult,
@@ -27,9 +27,22 @@ from app.services.duplicate_checker import (
 )
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterResult
-from app.services.pattern_detector import SUSPICIOUS_PATTERNS
 from app.services.pii_redactor import redact
 from app.services.query_pipeline import run_query
+
+# PRD-011 STORY-008: the pattern constant was removed (PRD-011 Section 10). The
+# seven patterns of the built-in `chat` profile are written out as a literal
+# rather than read back from the policy, so this suite pins the default policy
+# instead of echoing it.
+_BUILT_IN_PATTERNS = (
+    "ignore previous instructions",
+    "forget everything",
+    "show system prompt",
+    "reveal password",
+    "execute code",
+    "admin mode",
+    "override",
+)
 
 _JUAN_TOKEN = "juan-token"
 _MARIA_TOKEN = "maria-token"
@@ -182,51 +195,37 @@ def test_audit_prompt_hashes_are_over_raw_text_not_redacted(temp_db, monkeypatch
     assert entry_b.prompt_preview == _PROMPT_B
 
 
-def _epic_base():
-    """Merge-base with `main`, or None when git/history is unavailable."""
-    try:
-        result = subprocess.run(
-            ["git", "merge-base", "main", "HEAD"],
-            cwd=_REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() or None
-
-
-def _changed_since_epic_base(path: str) -> list:
-    base = _epic_base()
-    if base is None:
-        pytest.skip("git history unavailable; behavioural pins below still apply")
-    result = subprocess.run(
-        ["git", "diff", "--name-only", base, "--", path],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
 # PRD-009 (Section 6.5; STORY-003 onward) owns duplicate_checker.py by design:
 # it adds dedup_key here and later rescopes check_duplicate. PRD-003's RF-6
 # promise -- dedup never sees masked text -- stays pinned behaviourally by
 # test_duplicate_checker_has_no_redaction_dependency, the hash_prompt census
-# and test_hash_prompt_only_ever_receives_raw_text. pattern_detector.py is
-# untouched by PRD-009 and stays pinned by source.
-@pytest.mark.parametrize(
-    "path",
-    ["app/services/pattern_detector.py"],
-)
-def test_dedup_and_pattern_sources_unmodified_on_this_branch(path):
-    """RF-6: this epic must not touch either module -- working tree included."""
-    assert _changed_since_epic_base(path) == []
+# and test_hash_prompt_only_ever_receives_raw_text.
+#
+# PRD-011 STORY-002: pattern_detector.py used to be pinned here *by source* --
+# a `git diff` against the merge-base asserting the file was byte-unmodified.
+# That pin was correct for PRD-009, which never touched the module. PRD-011
+# rewrites it by design (PRD-011 Section 6.8 lists it REWRITTEN; STORY-002 adds
+# the compilation primitives, STORY-008 replaces the substring detector
+# outright), so the byte pin expired with that epic and would now fail on every
+# story in this one.
+#
+# What RF-6 actually claims -- that pattern detection never sees masked text --
+# does not expire, so it is pinned the way the sibling module's is, one function
+# below. The instrument is discarded; the claim is not
+# (tests/test_pii_redaction_integration.py:370-386 records the same reasoning
+# for the four guards PRD-008 STORY-023 retired). The function name is kept
+# deliberately: test_no_pre_epic_test_function_was_removed_or_renamed censuses
+# every pre-epic `def test_*`, and keeping the name means this stays a rename-free
+# narrowing rather than a deletion needing a _DELIBERATELY_SUPERSEDED_TESTS entry.
+def test_dedup_and_pattern_sources_unmodified_on_this_branch():
+    """RF-6: neither module may grow a redaction dependency -- PRD-011 STORY-002
+    narrows this from a source-byte pin to the behavioural claim it stood for."""
+    source = inspect.getsource(pattern_detector).lower()
+
+    assert "pii" not in source
+    assert "redact" not in source
+    assert "presidio" not in source
+    assert set(vars(pattern_detector)) & {"redact", "pii_redactor", "PiiRedactorError"} == set()
 
 
 def test_duplicate_checker_has_no_redaction_dependency():
@@ -260,7 +259,7 @@ def test_check_duplicate_public_contract_is_stable():
     ]
 
 
-@pytest.mark.parametrize("pattern", SUSPICIOUS_PATTERNS)
+@pytest.mark.parametrize("pattern", _BUILT_IN_PATTERNS)
 def test_suspicious_pattern_with_pii_blocked_before_redaction(temp_db, monkeypatch, pattern):
     """Pattern blocking is unchanged from PRD-001: it wins, and nothing is analyzed."""
     monkeypatch.setattr(query_pipeline, "redact", _fail_if_called)
@@ -286,7 +285,10 @@ def test_suspicious_pattern_with_pii_blocked_before_redaction(temp_db, monkeypat
 def test_pipeline_runs_both_checks_before_any_redaction(temp_db, monkeypatch):
     calls = []
     real_duplicate = query_pipeline.check_duplicate
-    real_pattern = query_pipeline.detect_suspicious_pattern
+    # PRD-011 STORY-008: the substring detector was removed (PRD-011 Section
+    # 10). The pattern collaborator is inspect(messages, profile), recorded
+    # under its own name. Its position in the sequence is unchanged.
+    real_pattern = query_pipeline.inspect
     real_redact = query_pipeline.redact
 
     # PRD-009 Section 6.5 (STORY-007): signature only. check_duplicate now receives
@@ -299,16 +301,16 @@ def test_pipeline_runs_both_checks_before_any_redaction(temp_db, monkeypatch):
         calls.append(("check_duplicate", raw_for_key.get(key, key)))
         return real_duplicate(user_id, key)
 
-    def _spy_pattern(prompt):
-        calls.append(("detect_suspicious_pattern", prompt))
-        return real_pattern(prompt)
+    def _spy_pattern(messages, profile, **kwargs):
+        calls.append(("inspect", messages[-1].content))
+        return real_pattern(messages, profile, **kwargs)
 
     def _spy_redact(text):
         calls.append(("redact", text))
         return real_redact(text)
 
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_duplicate)
-    monkeypatch.setattr(query_pipeline, "detect_suspicious_pattern", _spy_pattern)
+    monkeypatch.setattr(query_pipeline, "inspect", _spy_pattern)
     monkeypatch.setattr(query_pipeline, "redact", _spy_redact)
     monkeypatch.setattr(
         "app.routers.query.call_openrouter", _capturing_openrouter([], response=_PROMPT_B)
@@ -323,7 +325,7 @@ def test_pipeline_runs_both_checks_before_any_redaction(temp_db, monkeypatch):
     assert response.status_code == 200
     assert [name for name, _ in calls] == [
         "check_duplicate",
-        "detect_suspicious_pattern",
+        "inspect",
         "redact",
         "redact",
     ]

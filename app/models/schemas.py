@@ -162,6 +162,18 @@ class AuditQueryEntry(BaseModel):
     # (STORY-010), and revalidating on the way out would refuse to report rows
     # the database legitimately holds.
     session_id: Optional[str] = None
+    # PRD-011 D6: which role the matched message had (`user`, `tool`, `system`,
+    # `assistant`) and what the policy did with it (`block` or `flag`).
+    # `suspicious_pattern_detected` above keeps its meaning -- "a pattern was
+    # matched" -- and is therefore true for a flag too; `pattern_action` is the
+    # field that tells the two cases apart.
+    #
+    # Optional, defaulted and unvalidated for `session_id`'s reasons: both are
+    # NULL on every row without a pattern and on every row written before
+    # PRD-011. A NULL action on a row that has a pattern means a block, which
+    # is how the `blocked_suspicious` counters read it.
+    pattern_role: Optional[str] = None
+    pattern_action: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

@@ -50,6 +50,11 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             prompt_hash=log.prompt_hash,
             was_duplicate_blocked=log.was_duplicate_blocked,
             suspicious_pattern_detected=log.suspicious_pattern is not None,
+            # Verbatim passthrough (PRD-011 D6). `suspicious_pattern_detected`
+            # is deliberately not narrowed to blocks; `pattern_action` says
+            # which it was, NULL on rows written before PRD-011.
+            pattern_role=log.pattern_role,
+            pattern_action=log.pattern_action,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,

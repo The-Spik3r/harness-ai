@@ -87,6 +87,9 @@ def test_valid_token_returns_expected_shape(temp_db):
             "role",
             "denied_permission",
             "session_id",
+            # PRD-011 D6: two additive, nullable fields (STORY-010).
+            "pattern_role",
+            "pattern_action",
         }
 
     newest, oldest = body["queries"]
@@ -94,6 +97,45 @@ def test_valid_token_returns_expected_shape(temp_db):
     assert newest["suspicious_pattern_detected"] is False
     assert oldest["suspicious_pattern_detected"] is True
     assert oldest["model"] == "gpt-4"
+
+
+def test_audit_entry_carries_pattern_role_and_action(temp_db):
+    """PRD-011 D6 (STORY-010 AC 3). Both fields pass through verbatim, and
+    `suspicious_pattern_detected` keeps its meaning -- "a pattern was
+    matched" -- so it is true for the flag row too. A pre-PRD-011 row reads
+    null/null, and a row with no pattern reads null/null and False."""
+    rows = [
+        ("2026-09-23T12:00:00Z", "hb", "ignore previous instructions", "user", "block"),
+        ("2026-09-23T11:00:00Z", "hf", "ignore previous instructions", "tool", "flag"),
+        ("2026-09-23T10:00:00Z", "hl", "override", None, None),
+        ("2026-09-23T09:00:00Z", "hc", None, None, None),
+    ]
+    for timestamp, prompt_hash, pattern, role, action in rows:
+        insert_audit_log(
+            AuditLog(
+                timestamp=timestamp,
+                user_id="juan@empresa.com",
+                prompt_hash=prompt_hash,
+                suspicious_pattern=pattern,
+                pattern_role=role,
+                pattern_action=action,
+            )
+        )
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    assert response.status_code == 200
+    assert [
+        (q["pattern_role"], q["pattern_action"], q["suspicious_pattern_detected"])
+        for q in response.json()["queries"]
+    ] == [
+        ("user", "block", True),
+        ("tool", "flag", True),
+        (None, None, True),
+        (None, None, False),
+    ]
 
 
 def test_fewer_than_100_rows_returns_all_without_error(temp_db):

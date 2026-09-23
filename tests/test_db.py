@@ -5,6 +5,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import dataclasses
 import inspect
+import json
 import re
 import sqlite3
 import threading
@@ -484,6 +485,64 @@ def _create_pre_history_trimmed_database(connect, url) -> None:
     legacy.close()
 
 
+def _create_pre_pattern_role_database(connect, url) -> None:
+    """Builds the 21-column audit_logs table exactly as it shipped before
+    PRD-011 -- after PRD-009's dedup_key, before pattern_role and
+    pattern_action -- with the dedup index already in place.
+
+    The sixth of these fixtures, and the only one where the two PRD-011 columns
+    are the sole columns in flight, for the reason
+    `_create_pre_chat_sessions_database` gives about `session_id`. The row is a
+    pattern block as written before PRD-011 -- suspicious_pattern set, no role
+    or action -- so a test can show the migration leaves it NULL rather than
+    backfilling "block" (PRD-011 D6).
+    """
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT,
+            session_id TEXT,
+            dedup_key TEXT
+        )
+        """
+    )
+    legacy.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, suspicious_pattern, session_id, dedup_key) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "2026-09-20T09:00:00Z",
+            "carla@empresa.com",
+            "pre011",
+            "ignore previous instructions",
+            "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            "k-pre011",
+        ),
+    )
+    legacy.commit()
+    legacy.close()
+
+
 def test_init_db_migrates_pre_rbac_database(uninitialized_db, db_connect):
     """A database created before PRD-005 gains role/denied_permission and
     keeps its rows, with NULL in both new fields (AC2).
@@ -833,6 +892,10 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "denied_permission",
         "session_id",  # PRD-008 STORY-002
         "dedup_key",  # PRD-009 STORY-002
+        # PRD-011 STORY-009 (D6): which role a pattern hit was in, and whether
+        # it was a block or a flag.
+        "pattern_role",
+        "pattern_action",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -964,6 +1027,104 @@ def test_count_blocked_suspicious_counts_only_flagged_rows(temp_db):
     )
 
     assert count_blocked_suspicious() == 2
+
+
+# --- PRD-011 STORY-010: blocked_suspicious counts blocks only (D6) -----------
+
+
+def _seed_block_flag_and_legacy() -> None:
+    """One row of each pattern-carrying kind, newest first by timestamp:
+    a block (user turn), a flag (tool turn), and a pre-PRD-011 row whose
+    action and role were never written."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T11:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="hb",
+            suspicious_pattern="ignore previous instructions",
+            pattern_role="user",
+            pattern_action="block",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T10:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="hf",
+            suspicious_pattern="ignore previous instructions",
+            success=True,
+            pattern_role="tool",
+            pattern_action="flag",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="hl",
+            suspicious_pattern="override",
+        )
+    )
+
+
+def test_count_blocked_suspicious_excludes_flags_and_keeps_legacy_rows(temp_db):
+    """PRD-011 D6 / T8 / Risk 4. A flag row carries a pattern but was not
+    blocked, so it must not move the counter. The legacy row (pattern_action
+    IS NULL) still counts: every pre-PRD-011 row carrying a pattern was a
+    block, and that is the whole reason the predicate is not simply
+    `pattern_action = 'block'` -- that would silently drop every historical
+    block from a figure an admin has been watching."""
+    _seed_block_flag_and_legacy()
+
+    assert count_blocked_suspicious() == 2
+
+
+def test_summary_snapshot_blocked_suspicious_excludes_flags_and_keeps_legacy_rows(temp_db):
+    """The snapshot's twin of the counter above (PRD-011 D6): the admin console
+    and /stats read this one, and it must agree with the standalone read."""
+    _seed_block_flag_and_legacy()
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.blocked_suspicious == 2
+    assert snapshot.blocked_suspicious == count_blocked_suspicious()
+
+
+def test_summary_snapshot_rows_carry_pattern_role_and_action(temp_db):
+    """STORY-010 AC 5: both fields are in the per-row JSON object itself, not
+    merely defaulted to None by the mapper -- the raw `rows` value is decoded
+    here, before `_row_to_audit_log` sees it."""
+    _seed_block_flag_and_legacy()
+
+    with get_connection() as conn:
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+    entries = json.loads(raw["rows"])
+    assert all({"pattern_role", "pattern_action"} <= set(entry) for entry in entries)
+    assert [(e["pattern_role"], e["pattern_action"]) for e in entries] == [
+        ("user", "block"),
+        ("tool", "flag"),
+        (None, None),
+    ]
+
+    snapshot = summary_snapshot()
+    assert [(r.pattern_role, r.pattern_action) for r in snapshot.rows] == [
+        ("user", "block"),
+        ("tool", "flag"),
+        (None, None),
+    ]
+
+
+def test_blocked_suspicious_predicate_is_shared():
+    """STORY-010 AC 1: both counters use the PRD's predicate, as one text."""
+    assert database._BLOCKED_SUSPICIOUS_WHERE == (
+        "suspicious_pattern IS NOT NULL"
+        " AND (pattern_action IS NULL OR pattern_action = 'block')"
+    )
+    assert f"WHERE {database._BLOCKED_SUSPICIOUS_WHERE})" in database._SUMMARY_SQL
+    source = inspect.getsource(count_blocked_suspicious)
+    assert "_BLOCKED_SUSPICIOUS_WHERE" in source
+    assert "suspicious_pattern IS NOT NULL" not in source
 
 
 def test_count_unique_users_deduplicates(temp_db):
@@ -1878,9 +2039,10 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     assert carried.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
 
     names = [field.name for field in dataclasses.fields(AuditLog)]
-    # PRD-009 STORY-002 appended dedup_key after session_id. The claim is
-    # unchanged: the surrogate key stays the trailing field.
-    assert names[-3:] == ["session_id", "dedup_key", "id"]
+    # PRD-009 STORY-002 appended dedup_key after session_id, and PRD-011
+    # STORY-009 (D6) appended pattern_role and pattern_action after that. The
+    # claim is unchanged: the surrogate key stays the trailing field.
+    assert names[-5:] == ["session_id", "dedup_key", "pattern_role", "pattern_action", "id"]
 
 
 def test_audit_log_carries_dedup_key_without_breaking_construction():
@@ -2077,6 +2239,10 @@ _DEDUP_LOOKUP_SQL = (
     "WHERE user_id = ? AND dedup_key = ? AND timestamp >= ? "
     "AND success = 1 AND was_duplicate_blocked = 0 "
     "AND denied_permission IS NULL "
+    # PRD-011 STORY-009 (plan D-E): a pattern flag row is not a prior query.
+    # A residual filter, like the three above -- the index assertion below
+    # still holds.
+    "AND (pattern_action IS NULL OR pattern_action <> 'flag') "
     "ORDER BY timestamp ASC LIMIT 1"
 )
 
@@ -2127,6 +2293,181 @@ def test_find_duplicate_timestamp_sql_is_the_planned_shape():
         "since",
     ]
     assert "prompt_hash" not in source
+
+
+# ---------------------------------------------------------------------------
+# PRD-011 STORY-009: pattern_role and pattern_action (D6).
+# ---------------------------------------------------------------------------
+
+
+def test_audit_logs_added_columns_carries_nullable_pattern_role_and_action():
+    """Nullable with no default, like dedup_key: rows written before PRD-011
+    stay NULL, and `pattern_action IS NULL` means "block" for all of them.
+
+    Being nullable is also why the NOT NULL-needs-a-default rule
+    (test_added_columns_declaring_not_null_also_declare_a_default) does not
+    bite here. Declared in both places, like every other migrated column.
+    """
+    assert AUDIT_LOGS_ADDED_COLUMNS["pattern_role"] == "TEXT"
+    assert AUDIT_LOGS_ADDED_COLUMNS["pattern_action"] == "TEXT"
+    assert "pattern_role TEXT" in CREATE_AUDIT_LOGS_TABLE
+    assert "pattern_action TEXT" in CREATE_AUDIT_LOGS_TABLE
+
+
+@pytest.mark.parametrize("column", ["pattern_role", "pattern_action"])
+def test_init_db_adds_nullable_pattern_role_and_action_columns(temp_db, column):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info[column]["type"] == "TEXT"
+    assert info[column]["notnull"] == 0
+    assert info[column]["dflt_value"] is None
+
+
+def test_init_db_migrates_a_pre_pattern_role_database(uninitialized_db, db_connect):
+    """STORY-009 AC 1: a database created before PRD-011 gains both columns,
+    and the existing pattern row is **not** backfilled -- it reads NULL, which
+    the counters treat as a block (D6), not the literal "block"."""
+    _create_pre_pattern_role_database(db_connect, uninitialized_db)
+
+    init_db()
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "audit_logs")
+    assert columns.count("pattern_role") == 1
+    assert columns.count("pattern_action") == 1
+
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.suspicious_pattern == "ignore previous instructions"
+    assert preserved.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert preserved.dedup_key == "k-pre011"
+    assert preserved.pattern_role is None
+    assert preserved.pattern_action is None
+
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="post011",
+            suspicious_pattern="ignore previous instructions",
+            pattern_role="tool",
+            pattern_action="flag",
+        )
+    )
+    fetched = get_audit_log(new_id)
+    assert (fetched.pattern_role, fetched.pattern_action) == ("tool", "flag")
+
+
+def test_pattern_role_and_action_default_to_none_when_not_supplied(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(timestamp="2026-09-23T09:00:00Z", user_id="ana@empresa.com", prompt_hash="h20")
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched.pattern_role is None
+    assert fetched.pattern_action is None
+
+
+def test_pattern_role_and_action_round_trip(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h21",
+            suspicious_pattern="ignore previous instructions",
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            dedup_key="k",
+            pattern_role="tool",
+            pattern_action="flag",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched.pattern_role == "tool"
+    assert fetched.pattern_action == "flag"
+    # The neighbours too: a miscount in insert_audit_log's column list shifts
+    # every later value.
+    assert fetched.dedup_key == "k"
+    assert fetched.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert fetched.suspicious_pattern == "ignore previous instructions"
+    assert fetched.prompt_hash == "h21"
+
+    entry = list_audit_logs()[0]
+    assert (entry.pattern_role, entry.pattern_action) == ("tool", "flag")
+
+
+def test_pattern_role_and_action_survive_the_batched_read(temp_db):
+    """The other read shape: `_SUMMARY_SQL`'s hand-written `json_object(...)`.
+    A key the mapper reads but that list lacks fails the batched `rows` figure
+    on every call."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T09:10:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h22",
+            suspicious_pattern="ignore previous instructions",
+            pattern_role="user",
+            pattern_action="block",
+        )
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-09-23T09:15:00Z", user_id="juan@empresa.com", prompt_hash="h23")
+    )
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    assert [(r.pattern_role, r.pattern_action) for r in snapshot.rows] == [
+        (None, None),
+        ("user", "block"),
+    ]
+
+
+def test_audit_log_carries_pattern_role_and_action_without_breaking_construction():
+    """Optional and defaulted, so every existing keyword construction of
+    AuditLog -- log_query, the migration script -- is untouched."""
+    bare = AuditLog(timestamp="2026-09-23T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc")
+    assert bare.pattern_role is None
+    assert bare.pattern_action is None
+
+    carried = AuditLog(
+        timestamp="2026-09-23T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        pattern_role="tool",
+        pattern_action="flag",
+    )
+    assert (carried.pattern_role, carried.pattern_action) == ("tool", "flag")
+
+
+@pytest.mark.parametrize(
+    "pattern_action, is_prior_query",
+    [(None, True), ("block", True), ("flag", False)],
+)
+def test_duplicate_lookup_ignores_a_flag_row(temp_db, pattern_action, is_prior_query):
+    """Plan D-E: a flag row is not a verdict -- the request went on upstream,
+    and its own success row is the prior query. NULL (every pre-PRD-011 row)
+    and a block still count."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T09:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h",
+            suspicious_pattern="ignore previous instructions",
+            success=True,
+            dedup_key="k",
+            pattern_role="tool" if pattern_action == "flag" else None,
+            pattern_action=pattern_action,
+        )
+    )
+
+    found = database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-22T09:00:00Z")
+
+    assert (found is not None) is is_prior_query
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):

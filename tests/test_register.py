@@ -77,6 +77,9 @@ COPY_NAMES = (
     # directions, and the two PII presence words.
     "DETAIL_ERROR_LABEL",
     "DETAIL_PATTERN_LABEL",
+    # PRD-011 D6 (STORY-010): the pattern's role and action.
+    "DETAIL_PATTERN_ROLE_LABEL",
+    "DETAIL_PATTERN_ACTION_LABEL",
     "DETAIL_PROMPT_HASH_LABEL",
     "DETAIL_DEVICE_LABEL",
     "DETAIL_PII_ENTITIES_LABEL",
@@ -121,6 +124,9 @@ COPY_NAMES = (
 DETAIL_LABELS = (
     admin_copy.DETAIL_ERROR_LABEL,
     admin_copy.DETAIL_PATTERN_LABEL,
+    # PRD-011 D6 (STORY-010)
+    admin_copy.DETAIL_PATTERN_ROLE_LABEL,
+    admin_copy.DETAIL_PATTERN_ACTION_LABEL,
     admin_copy.DETAIL_PROMPT_HASH_LABEL,
     admin_copy.DETAIL_DEVICE_LABEL,
     admin_copy.DETAIL_PII_ENTITIES_LABEL,
@@ -134,6 +140,9 @@ DETAIL_LABELS = (
 DETAIL_ROW_FIELDS = (
     "error_message",
     "suspicious_pattern",
+    # PRD-011 D6 (STORY-010)
+    "pattern_role",
+    "pattern_action",
     "prompt_hash",
     "device_full",
     "pii_entities",
@@ -599,6 +608,9 @@ def test_neither_preview_survives_the_projection():
         user_id = "a.torres"
         was_duplicate_blocked = False
         suspicious_pattern = None
+        # PRD-011 D6 (STORY-010): `to_audit_row` now reads both.
+        pattern_role = None
+        pattern_action = None
         success = True
         model_used = "gpt-4"
         tokens_used = 412
@@ -668,6 +680,18 @@ def test_the_error_message_and_the_pattern_lead_the_disclosure(probe):
     pattern_at = detail.index(admin_copy.DETAIL_PATTERN_LABEL)
     hash_at = detail.index(admin_copy.DETAIL_PROMPT_HASH_LABEL)
     assert error_at < pattern_at < hash_at
+
+
+def test_the_role_and_action_follow_the_pattern(probe):
+    """PRD-011 D6 (STORY-010 AC 4): the two facts that qualify the pattern sit
+    directly under it, before the hash."""
+    assert not probe["errors"], probe["errors"]
+    detail = probe["detail"]
+    pattern_at = detail.index(admin_copy.DETAIL_PATTERN_LABEL)
+    role_at = detail.index(admin_copy.DETAIL_PATTERN_ROLE_LABEL)
+    action_at = detail.index(admin_copy.DETAIL_PATTERN_ACTION_LABEL)
+    hash_at = detail.index(admin_copy.DETAIL_PROMPT_HASH_LABEL)
+    assert pattern_at < role_at < action_at < hash_at
 
 
 def test_the_pii_indicator_is_split_on_the_disclosure(probe):

@@ -351,7 +351,11 @@ def test_duplicate_and_pattern_checks_still_receive_the_raw_prompt(temp_db, monk
     seen_duplicate = []
     seen_pattern = []
     real_check_duplicate = query_pipeline.check_duplicate
-    real_detect = query_pipeline.detect_suspicious_pattern
+    # PRD-011 STORY-008: the substring detector was removed (PRD-011 Section
+    # 10); the pattern collaborator is inspect(messages, profile). The spy
+    # records each inspected message's content, so a single-turn /query still
+    # records exactly the one raw prompt.
+    real_inspect = query_pipeline.inspect
 
     # PRD-009 Section 6.5 (STORY-007): signature only. check_duplicate now receives
     # the key; mapping it back through a key built from the *raw* prompt keeps the
@@ -363,12 +367,12 @@ def test_duplicate_and_pattern_checks_still_receive_the_raw_prompt(temp_db, monk
         seen_duplicate.append(raw_for_key.get(key, key))
         return real_check_duplicate(user_id, key)
 
-    def _spy_pattern(prompt):
-        seen_pattern.append(prompt)
-        return real_detect(prompt)
+    def _spy_pattern(messages, profile, **kwargs):
+        seen_pattern.extend(message.content for message in messages)
+        return real_inspect(messages, profile, **kwargs)
 
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_duplicate)
-    monkeypatch.setattr(query_pipeline, "detect_suspicious_pattern", _spy_pattern)
+    monkeypatch.setattr(query_pipeline, "inspect", _spy_pattern)
     monkeypatch.setattr("app.routers.query.call_openrouter", _capturing_openrouter([]))
 
     response = client.post(

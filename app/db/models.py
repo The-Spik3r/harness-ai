@@ -23,13 +23,16 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     role TEXT,
     denied_permission TEXT,
     session_id TEXT,
-    dedup_key TEXT
+    dedup_key TEXT,
+    pattern_role TEXT,
+    pattern_action TEXT
 )
 """
 
 # Columns added after the initial schema shipped (PRD-003 PII telemetry; PRD-005
 # RBAC adds to this in STORY-009; PRD-008 STORY-002 adds session_id; PRD-009
-# STORY-002 adds dedup_key). CREATE TABLE IF NOT EXISTS is a no-op against a
+# STORY-002 adds dedup_key; PRD-011 STORY-009 adds pattern_role and
+# pattern_action). CREATE TABLE IF NOT EXISTS is a no-op against a
 # database created before they existed, so init_db() ALTERs in whichever of
 # these an old file is missing.
 #
@@ -57,6 +60,16 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # rows written before the column existed stay NULL and are never backfilled
     # (D6), and a NULL key can never match a duplicate lookup.
     "dedup_key": "TEXT",
+    # PRD-011 (D6): which role's message a pattern hit was found in (`user`,
+    # `tool`, `system`, `assistant`) and what the profile did about it (`block`
+    # or `flag`). Needed because a `flag` row sets suspicious_pattern without
+    # blocking, so that column alone no longer means "blocked". Nullable with
+    # no default on purpose, like dedup_key: rows written before PRD-011 stay
+    # NULL and are never backfilled, and `pattern_action IS NULL` means
+    # "block" for every one of them -- each such row carrying a pattern was a
+    # block. The counters read it that way as of STORY-010.
+    "pattern_role": "TEXT",
+    "pattern_action": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -237,6 +250,13 @@ class AuditLog:
     # GET /audit (D5). Declared after session_id to mirror the table, so id
     # stays the trailing field.
     dedup_key: Optional[str] = None
+    # PRD-011 STORY-009. Same pattern as dedup_key: insert_audit_log() writes
+    # both and _row_to_audit_log() maps them back on both read shapes. Set only
+    # by the pattern block and flag arms; NULL on every other row. Not exposed
+    # on GET /audit or the admin console until STORY-010. Declared after
+    # dedup_key to mirror the table, so id stays the trailing field.
+    pattern_role: Optional[str] = None
+    pattern_action: Optional[str] = None
     id: Optional[int] = None
 
 

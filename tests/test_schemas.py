@@ -157,6 +157,9 @@ def test_audit_response_shape():
                 # `session_id`, so `None` here is the default being asserted
                 # rather than merely accommodated.
                 "session_id": None,
+                # PRD-011 D6 (STORY-010): additive, nullable, defaulted.
+                "pattern_role": None,
+                "pattern_action": None,
             }
         ],
     }

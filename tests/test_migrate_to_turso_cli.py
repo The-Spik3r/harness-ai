@@ -168,7 +168,9 @@ def test_dest_columns_match_the_ddl():
         "was_duplicate_blocked", "suspicious_pattern", "success", "error_message",
         "pii_detected_input", "pii_detected_output", "pii_entities", "role",
         "denied_permission", "session_id", "dedup_key",
-        # session_id: PRD-008 STORY-002; dedup_key: PRD-009 STORY-002
+        "pattern_role", "pattern_action",
+        # session_id: PRD-008 STORY-002; dedup_key: PRD-009 STORY-002;
+        # pattern_role, pattern_action: PRD-011 STORY-009 (D6)
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",
