@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Configuration and profiles"
-status: todo
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-006-profiles-and-role-matrix.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-006-profiles-and-role-matrix.report.md
+commit: a75462e
 depends_on: [STORY-005]
 blocks: [STORY-007, STORY-008]
 skills: []

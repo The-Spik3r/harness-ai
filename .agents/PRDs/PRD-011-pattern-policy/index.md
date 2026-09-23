@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-011-pattern-policy` (base: `main`)
-**Status**: draft
+**Status**: in-progress
 
 ## Progress
 
-5/13 stories done — 38%
+6/13 stories done — 46%
 
 ## Stories
 
@@ -19,7 +19,7 @@ All stories commit on the epic branch `epic/PRD-011-pattern-policy`. No per-stor
 | STORY-003 | Code-span stripping and the outside_code scope | feature | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-003-code-span-stripping-and-scope.plan.md) | `a7f75a2` |
 | STORY-004 | Four pattern-policy settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-004-pattern-settings.plan.md) | `782842b` |
 | STORY-005 | pattern_config: built-in policy, YAML loading, startup validation | feature | ✅ done | large | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-005-pattern-config-load-and-validate.plan.md) | `534ca17` |
-| STORY-006 | Profiles and the role inspection matrix | feature | ⬜ todo | medium | — | — |
+| STORY-006 | Profiles and the role inspection matrix | feature | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-006-profiles-and-role-matrix.plan.md) | `a75462e` |
 | STORY-007 | pattern_config.load() in both lifespans, and a working sample file | technical | ⬜ todo | small | — | — |
 | STORY-008 | inspect() over the conversation; _inspection_target deleted; block arm | feature | ⬜ todo | large | — | — |
 | STORY-009 | Flag arm, and pattern_role / pattern_action audit columns | feature | ⬜ todo | medium | — | — |
