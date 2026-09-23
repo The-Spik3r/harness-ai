@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [backend, tests, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-011-code-false-positive-corpus.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-011-code-false-positive-corpus.report.md
+commit: 5685712
 depends_on: [STORY-008]
 blocks: [STORY-012, STORY-013]
 skills: []
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # STORY-011: Code and agent-prompt corpus: the false-positive claim as evidence
