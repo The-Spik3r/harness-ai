@@ -23,13 +23,14 @@ Three entry points:
 Called once at startup, by STORY-007, in **both** lifespans (`app/main.py` and
 `chat_ui/chat_ui/chat_ui.py`: the Reflex `api_transformer` mount bypasses the
 former entirely, which is why `init_db()` and `authz.load()` are already
-registered twice). Never per request. The first reader of a compiled pattern is
-`inspect()` in STORY-008.
+registered twice). Never per request. The reader of a compiled pattern is
+`pattern_detector.inspect()`, called at step 5 of `run_conversation`.
 
 Profiles and the role inspection matrix (PRD-011 Section 6.4), the `roles:`
 vocabulary, `PATTERN_PROFILE_DEFAULT`'s cross-check and `get_profile()` are
 STORY-006's, built on STORY-005's lists. What is deliberately **not** here: the
-message walk and what a hit does -- `inspect()` in STORY-008.
+message walk and what a hit does -- `pattern_detector.inspect()` and the
+pipeline (STORY-008).
 """
 
 import re
@@ -86,9 +87,10 @@ _ROLES = get_args(Role)
 _ACTIONS = ("block", "flag")
 
 #: What a profile does with a hit in a role it inspects: `block` refuses the
-#: request, `flag` audits it and lets it continue (PRD-011 Section 4). STORY-008's
-#: `PatternHit.action` carries the same two values -- note that
-#: `pattern_detector` cannot import this alias, because this module imports it.
+#: request, `flag` audits it and lets it continue (PRD-011 Section 4).
+#: `pattern_detector.PatternHit.action` carries the same two values, typed `str`
+#: there because `pattern_detector` cannot import this alias: this module
+#: imports it.
 Action = Literal["block", "flag"]
 
 
@@ -176,18 +178,16 @@ def _built_in_list(
 def _build_built_in() -> PatternPolicy:
     """The policy a deployment gets when it configures nothing (PRD-011 Sections 6.3, 6.4).
 
-    The seven patterns are pre-PRD-011's `SUSPICIOUS_PATTERNS`, split into two
+    The seven patterns are pre-PRD-011's seven-string constant, split into two
     lists because the split is the whole point of decision D3: the four
     injection phrases are things nobody writes by accident, in code or out of
     it, so they carry `scope: everywhere`; the three keywords are ordinary
     source vocabulary, so they carry `scope: outside_code` and the `code`
     profile does not load them at all.
 
-    They are **copied** from `pattern_detector.SUSPICIOUS_PATTERNS` rather than
-    imported from it, deliberately: STORY-008 deletes that constant, and an
-    import here would make this policy depend on something scheduled for
-    removal. `tests/test_pattern_config.py` asserts the two agree for as long
-    as both exist.
+    They were **copied** from the pre-PRD-011 constant rather than imported
+    from it, because STORY-008 was going to delete it, and did.
+    `tests/test_pattern_config.py` pins the literal seven.
 
     Order within each list is load-bearing, not cosmetic -- see `PatternList`.
     """

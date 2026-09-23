@@ -1,51 +1,30 @@
-"""Pattern matching primitives (PRD-011 Sections 6.2 and 7/F1).
+"""Pattern matching: the primitives and the conversation walk (PRD-011 Sections 6.2, 7/F1, F2, F5).
 
-`compile_pattern` turns one configured pattern into one `re.Pattern`, and
+`compile_pattern` turns one configured pattern into one `re.Pattern`,
 `has_nested_quantifier` is the startup-time ReDoS heuristic that guards the
-`regex` mode (PRD-011 Section 9.2, T4). Neither has a caller yet: the policy
-that compiles patterns arrives with `pattern_config.py` (STORY-005) and the
-conversation walk with `inspect()` (STORY-008).
+`regex` mode (PRD-011 Section 9.2, T4), `strip_code_spans` implements the
+`outside_code` scope, and `inspect()` walks a conversation under one profile's
+role matrix. `pattern_config.py` compiles the policy at startup; the pipeline
+calls `inspect()` at step 5 of `run_conversation`.
 
 Pure on purpose: no I/O, no settings, no pydantic, no `app` import, nothing
-read at import beyond one compiled constant. Everything that reads
-configuration -- the patterns file, `PATTERNS_ALLOW_REGEX`, the profiles --
-lives in `pattern_config.py`, which is also where `PatternCompileError`
-becomes a `PatternConfigError` that can name the list a pattern came from
-(PRD-011 Section 6.9; the shape is `app/models/messages.py`).
+read at import beyond a few compiled constants. Everything that reads
+configuration -- the patterns file, `PATTERNS_ALLOW_REGEX`, the profiles, the
+scan ceiling -- lives in `pattern_config.py` or is passed in by the caller.
+`pattern_config.py` is also where `PatternCompileError` becomes a
+`PatternConfigError` that can name the list a pattern came from (PRD-011
+Section 6.9; the shape is `app/models/messages.py`).
 
-`SUSPICIOUS_PATTERNS` and `detect_suspicious_pattern` below are pre-PRD-011
-and still the pipeline's only pattern check. STORY-008 removes them; until
-then they are untouched, and `tests/test_pattern_characterization.py` pins
-every verdict they return.
+The pre-PRD-011 substring detector and its seven-string constant were
+**removed, not deprecated**, by STORY-008 (PRD-011 Section 10): a compatibility
+shim would have been a second definition of "suspicious" for nobody's benefit.
+`tests/test_pattern_characterization.py` keeps the verdicts it returned as a
+frozen record, and asserts that exactly the enumerated ones changed.
 """
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional
-
-SUSPICIOUS_PATTERNS: List[str] = [
-    "ignore previous instructions",
-    "forget everything",
-    "show system prompt",
-    "reveal password",
-    "execute code",
-    "admin mode",
-    "override",
-]
-
-
-@dataclass
-class PatternDetectionResult:
-    is_suspicious: bool
-    pattern: Optional[str] = None
-
-
-def detect_suspicious_pattern(prompt: str) -> PatternDetectionResult:
-    lowered = prompt.lower()
-    for pattern in SUSPICIOUS_PATTERNS:
-        if pattern in lowered:
-            return PatternDetectionResult(is_suspicious=True, pattern=pattern)
-    return PatternDetectionResult(is_suspicious=False)
+from typing import Mapping, Optional, Protocol, Sequence
 
 
 # --- PRD-011 STORY-002: compilation primitives -----------------------------
@@ -208,12 +187,12 @@ def strip_code_spans(text: str) -> str:
     which is how a fence is prevented from hiding an injection phrase
     (PRD-011 Section 9.2, T6).
 
-    No caller yet, by design. `inspect()` (STORY-008) computes at most two
-    variants of a message's content -- raw and stripped -- and hands each list
-    the one its scope asks for, so the stripping happens **once per message
-    per scope requested, not once per pattern** (PRD-011 Section 7/F2 and Risk
-    8). That budget cannot be enforced from here: this function has no view of
-    the message walk, so it is the caller's to keep."""
+    Its one caller is `inspect()` below, which computes at most two variants
+    of a message's content -- raw and stripped -- and hands each list the one
+    its scope asks for, so the stripping happens **once per message per scope
+    requested, not once per pattern** (PRD-011 Section 7/F2 and Risk 8). That
+    budget cannot be enforced from here: this function has no view of the
+    message walk, so it is the caller's to keep, and `inspect()` keeps it."""
     out = []
     pos = 0
     while True:
@@ -235,3 +214,138 @@ def strip_code_spans(text: str) -> str:
     # Second, and only now: a backtick inside a fenced block has already
     # become a newline, so it cannot open a span across unrelated text.
     return _INLINE_SPAN.sub(lambda span: _blank(span.group(0)), "".join(out))
+
+
+# --- PRD-011 STORY-008: the conversation walk ------------------------------
+#
+# `inspect()` takes its inputs structurally. `pattern_config` imports this
+# module, so importing `Profile` or `Message` back would be a cycle -- and this
+# module imports nothing from `app` at all (the `app/models/messages.py` rule).
+# The precedent is `DedupTurn` in `app/services/duplicate_checker.py`: a
+# `Message`, a `PatternList` and a `Profile` satisfy these with no import in
+# either direction.
+
+
+class _Turn(Protocol):
+    """One message: `app.models.messages.Message`, structurally."""
+
+    role: str
+    content: str
+
+
+class _InspectedList(Protocol):
+    """One list: `pattern_config.PatternList`, structurally."""
+
+    name: str
+    scope: str
+    patterns: tuple[str, ...]
+    compiled: tuple[re.Pattern, ...]
+
+
+class _InspectedProfile(Protocol):
+    """One profile: `pattern_config.Profile`, structurally."""
+
+    lists: Sequence[_InspectedList]
+    roles: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class PatternHit:
+    """One match: which list and pattern, in which message, and what it does.
+
+    `action` is `pattern_config.Action` -- `"block"` or `"flag"` -- typed
+    `str` here because that alias cannot be imported without a cycle.
+    """
+
+    list_name: str
+    pattern: str
+    role: str
+    message_index: int
+    action: str
+
+
+@dataclass(frozen=True)
+class PatternInspectionResult:
+    """What `inspect()` found (PRD-011 Section 7/F5).
+
+    `block` is the first blocking hit, or None. `flags` is every flagging hit
+    the walk passed before stopping, in walk order; the audit records only
+    the first (PRD-011 Section 6.7). `truncated` is the index of every
+    inspected message that was longer than the scan ceiling -- indices, not
+    lengths or text, so the pipeline can warn about it without this result
+    ever carrying content (PRD-011 Section 9.2, T9).
+    """
+
+    block: Optional[PatternHit] = None
+    flags: tuple[PatternHit, ...] = ()
+    truncated: tuple[int, ...] = ()
+
+
+def inspect(
+    messages: Sequence[_Turn],
+    profile: _InspectedProfile,
+    *,
+    max_scan_characters: Optional[int] = None,
+) -> PatternInspectionResult:
+    """Walk `messages` under `profile`'s role matrix (PRD-011 Sections 6.4, 7/F5).
+
+    The order is deterministic and is the reporting order: messages in order;
+    within a message, the profile's lists in declared order; within a list,
+    its patterns in declared order.
+
+    **A message whose role is absent from `profile.roles` is not inspected**
+    -- not scanned, not stripped, not truncated. That is the inspect-nothing
+    default of PRD-011 Section 7/F4, the opposite of RBAC's deny-by-default.
+
+    A hit takes its message's role action. `block` ends the walk at once and
+    is returned with the flags gathered before it; `flag` is appended and the
+    walk continues. Every hit is recorded, including several in one message.
+
+    `max_scan_characters` bounds the text any one pattern runs over, and
+    is passed in rather than read here because this module reads no settings.
+    A longer message is cut **for matching only** -- the caller's message is
+    untouched -- and its index lands in `truncated`. `None` means no ceiling.
+
+    Code spans are stripped at most once per message, lazily, on the first
+    list whose scope is `outside_code`; a list scoped `everywhere` always sees
+    the raw text, so a fence cannot hide an injection phrase (T6).
+    """
+    flags: list[PatternHit] = []
+    truncated: list[int] = []
+
+    for index, message in enumerate(messages):
+        action = profile.roles.get(message.role)
+        if action is None:
+            continue
+
+        text = message.content
+        if max_scan_characters is not None and len(text) > max_scan_characters:
+            text = text[:max_scan_characters]
+            truncated.append(index)
+
+        stripped: Optional[str] = None
+        for pattern_list in profile.lists:
+            if pattern_list.scope == "outside_code":
+                if stripped is None:
+                    stripped = strip_code_spans(text)
+                subject = stripped
+            else:
+                subject = text
+
+            for pattern, compiled in zip(pattern_list.patterns, pattern_list.compiled):
+                if not compiled.search(subject):
+                    continue
+                hit = PatternHit(
+                    list_name=pattern_list.name,
+                    pattern=pattern,
+                    role=message.role,
+                    message_index=index,
+                    action=action,
+                )
+                if action == "block":
+                    return PatternInspectionResult(
+                        block=hit, flags=tuple(flags), truncated=tuple(truncated)
+                    )
+                flags.append(hit)
+
+    return PatternInspectionResult(flags=tuple(flags), truncated=tuple(truncated))

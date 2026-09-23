@@ -84,8 +84,8 @@ def assemble(identity: Identity, session_id: str) -> list[Message]:
     emitting `Message("user", "")`.** The column is nullable
     (`app/db/models.py:165`) and `ChatState` stores `prompt=bubble.prompt or
     None`, so `""` and `NULL` are one fact arriving by two routes. An empty user
-    turn is not a turn: it would blank `query_pipeline._inspection_target`,
-    which inspects the last user turn, and blank the `dedup_key` prefix that
+    turn is not a turn: it would hand pattern inspection an empty `user` turn
+    (PRD-011 STORY-008 inspects every one), and blank the `dedup_key` prefix that
     PRD-009 derives from the conversation. Pre-PRD-008 rows and any future
     writer that omits `prompt` land here.
 

@@ -12,12 +12,25 @@ from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
 from app.services.openrouter_client import OpenRouterResult
-from app.services.pattern_detector import SUSPICIOUS_PATTERNS
 
 _JUAN_TOKEN = "juan-token"
 _MARIA_TOKEN = "maria-token"
 _JUAN_HEADERS = {"Authorization": f"Bearer {_JUAN_TOKEN}"}
 _MARIA_HEADERS = {"Authorization": f"Bearer {_MARIA_TOKEN}"}
+
+# PRD-011 STORY-008: the pattern constant was removed (PRD-011 Section 10). The
+# seven patterns of the built-in `chat` profile are written out as a literal
+# rather than read back from the policy, so this suite pins the default policy
+# instead of echoing it.
+_BUILT_IN_PATTERNS = (
+    "ignore previous instructions",
+    "forget everything",
+    "show system prompt",
+    "reveal password",
+    "execute code",
+    "admin mode",
+    "override",
+)
 
 client = TestClient(app)
 
@@ -96,7 +109,7 @@ def test_duplicate_query_blocked_and_openrouter_never_called(temp_db, monkeypatc
     assert _count_audit_rows() == before + 1
 
 
-@pytest.mark.parametrize("pattern", SUSPICIOUS_PATTERNS)
+@pytest.mark.parametrize("pattern", _BUILT_IN_PATTERNS)
 def test_each_suspicious_pattern_blocked_and_openrouter_never_called(
     temp_db, monkeypatch, pattern
 ):

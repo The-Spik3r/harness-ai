@@ -9,9 +9,10 @@ configuration file, no message walk -- because none of that exists yet:
 deployment *matches in practice* would be asserting a policy this story does
 not ship.
 
-The pipeline still calls `detect_suspicious_pattern`, and
-`tests/test_pattern_characterization.py` still pins its verdicts. Nothing in
-this module touches either; the last test below exists to prove it.
+STORY-008 removed the pre-PRD-011 substring detector (PRD-011 Section 10) and
+with it the test here that proved these primitives left it untouched. The
+conversation walk that uses them is `inspect()`, covered in
+`tests/test_pattern_detector.py`.
 """
 
 import os
@@ -26,10 +27,8 @@ import pytest
 
 import app.services.pattern_detector as pattern_detector
 from app.services.pattern_detector import (
-    SUSPICIOUS_PATTERNS,
     PatternCompileError,
     compile_pattern,
-    detect_suspicious_pattern,
     has_nested_quantifier,
     strip_code_spans,
 )
@@ -298,7 +297,7 @@ def test_the_heuristic_documents_itself_as_a_heuristic():
     assert "proof" in doc.lower()               # ...and what this is not
 
 
-# --- The module's purity, and the old API it must not disturb --------------
+# --- The module's purity ----------------------------------------------------
 
 
 def test_pattern_detector_stays_a_pure_module():
@@ -324,35 +323,18 @@ def test_pattern_detector_stays_a_pure_module():
     assert not [line for line in imports if " app." in line or line.startswith("from app")]
 
 
-def test_the_pre_prd_011_api_is_untouched_by_this_story():
-    """Story Technical Notes: the pipeline still calls the old function, and
-    STORY-001's characterization must stay green.
-
-    STORY-008 deletes `detect_suspicious_pattern` and `SUSPICIOUS_PATTERNS`
-    outright (PRD-011 Section 10: "removed, not deprecated"). It deletes this
-    test with them, with a comment citing that decision -- until then, this is
-    what holds STORY-002 to being purely additive.
-    """
-    assert SUSPICIOUS_PATTERNS[0] == "ignore previous instructions"
-    assert len(SUSPICIOUS_PATTERNS) == 7
-
-    result = detect_suspicious_pattern("please override now")
-
-    assert result.is_suspicious is True
-    assert result.pattern == "override"
-    # Still the substring test it always was: the new word primitive did not
-    # sneak into it. `overrides` is exactly the case that flips in STORY-008.
-    assert detect_suspicious_pattern("it overrides the base").pattern == "override"
+# PRD-011 STORY-008 deleted `test_the_pre_prd_011_api_is_untouched_by_this_story`
+# together with the API it guarded (PRD-011 Section 10: removed, not
+# deprecated), as its own docstring said it would.
 
 
 # --- PRD-011 STORY-003: code-span stripping --------------------------------
 #
 # The "before" these cases are the "after" for is STORY-001's characterization
-# row `fenced-at-override` (tests/test_pattern_characterization.py:104): today's
-# substring detector reports `override` from inside a ```java fence. That row
-# stays green -- this story changes no behaviour of `detect_suspicious_pattern`
-# -- and what changes is that a list carrying `scope: outside_code` will not see
-# the fenced text at all once STORY-005 and STORY-008 wire it up.
+# row `fenced-at-override` (tests/test_pattern_characterization.py): the
+# pre-PRD-011 substring detector reported `override` from inside a ```java
+# fence. Since STORY-005 and STORY-008 wired `scope: outside_code` up, a list
+# carrying it does not see the fenced text at all, and that row is a flip.
 
 
 def _assert_blanked_in_place(original: str, result: str) -> None:

@@ -42,9 +42,10 @@ from app.services.pattern_config import (
     get_policy,
     load,
 )
+from app.models.messages import Message
 from app.services.pattern_detector import (
-    SUSPICIOUS_PATTERNS,
     PatternCompileError,
+    inspect,
     strip_code_spans,
 )
 
@@ -118,18 +119,25 @@ def test_load_is_noop_when_patterns_file_unset(monkeypatch, _reset_policy):
 def test_built_in_lists_hold_exactly_todays_seven_patterns():
     """AC 1: "whose lists together hold exactly today's seven patterns".
 
-    Asserted against `SUSPICIOUS_PATTERNS` itself while it still exists.
-    STORY-008 deletes it and rewrites this assertion against the literal seven;
-    until then this is what keeps the copy in `pattern_config` honest (the
-    built-in policy copies the strings rather than importing them, because
-    importing a constant scheduled for deletion is how the deletion gets
-    reverted).
+    PRD-011 STORY-008 deleted the pre-PRD-011 constant this used to compare
+    against, and rewrote the assertion against the literal seven, as this
+    docstring said it would.
     """
     policy = get_policy()
     configured = [pattern for pattern_list in policy.lists.values() for pattern in pattern_list.patterns]
 
     assert len(configured) == 7
-    assert sorted(configured) == sorted(SUSPICIOUS_PATTERNS)
+    assert sorted(configured) == sorted(
+        [
+            "ignore previous instructions",
+            "forget everything",
+            "show system prompt",
+            "reveal password",
+            "execute code",
+            "admin mode",
+            "override",
+        ]
+    )
 
 
 def test_built_in_lists_are_the_two_of_prd_section_6_3():
@@ -169,24 +177,15 @@ def test_built_in_patterns_are_compiled_tuples():
 
 
 def _verdict(text: str) -> str | None:
-    """What the built-in policy reports for one message's text.
+    """What the built-in policy reports for one message's text: the `chat`
+    profile's blocking pattern for one `user` turn, or None.
 
-    A local stand-in for `inspect()`, which is STORY-008's: lists in declared
-    order, patterns within a list in declared order, first hit wins, and a list
-    carrying `scope: outside_code` matches against the code-stripped text. It
-    models one `user` turn under the `chat` profile, which is the profile every
-    "flips to ..." comment in the characterization module is written against.
+    This was a local stand-in for `inspect()` until STORY-008 shipped it.
+    PRD-011 STORY-008: it now delegates, so AC 1's parity check runs over the
+    real walk rather than a copy of it.
     """
-    profile = get_policy().profiles["chat"]
-    variants = {"everywhere": text, "outside_code": strip_code_spans(text)}
-
-    for pattern_list in profile.lists:
-        subject = variants[pattern_list.scope]
-        for pattern, compiled in zip(pattern_list.patterns, pattern_list.compiled):
-            if compiled.search(subject):
-                return pattern
-    return None
-
+    result = inspect([Message("user", text)], get_policy().profiles["chat"])
+    return result.block.pattern if result.block is not None else None
 
 _FLIPS = {text: after for text, _, after in PRD_011_FLIP_CASES}
 

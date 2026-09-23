@@ -59,7 +59,6 @@ from app.services import chat_sessions
 from app.services.duplicate_checker import dedup_key, hash_prompt
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
-from app.services.pattern_detector import SUSPICIOUS_PATTERNS
 from app.services.pii_redactor import PiiRedactorError
 
 _JUAN_ID = "juan@empresa.com"
@@ -72,7 +71,9 @@ _MARIA_HEADERS = {"Authorization": f"Bearer {_MARIA_TOKEN}"}
 _DUPLICATE_REASON = "Duplicate query within 24 hours"
 _PATTERN_REASON = "Suspicious pattern detected"
 _DISALLOWED_MODEL = "not-a-real-model"
-_PATTERN = SUSPICIOUS_PATTERNS[0]
+# PRD-011 STORY-008: the pattern constant was removed (PRD-011 Section 10);
+# this was its first entry.
+_PATTERN = "ignore previous instructions"
 _FOREIGN_SESSION_DETAIL = "session_id does not belong to the authenticated identity"
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
