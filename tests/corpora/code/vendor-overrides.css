@@ -1,0 +1,68 @@
+/*
+ * vendor-overrides.css
+ *
+ * Loaded after the vendor date-picker and modal stylesheets. Every rule here
+ * exists because a vendor selector beats ours on specificity; each one says
+ * what it is there to override, so the next upgrade can check whether it is
+ * still needed. The vendor ships its own overrides file too -- do not edit it.
+ */
+
+:root {
+  --brand-accent: #2f6f5e;
+  --brand-surface: #fbfaf7;
+  --focus-ring: 0 0 0 3px rgba(47, 111, 94, 0.45);
+}
+
+/* override the vendor focus ring; theirs is invisible on our surface */
+.dp-calendar button:focus-visible {
+  outline: none !important;
+  box-shadow: var(--focus-ring) !important;
+}
+
+/* override the hard-coded blue on the selected day */
+.dp-calendar .dp-day--selected {
+  background-color: var(--brand-accent) !important;
+  color: #fff !important;
+}
+
+.dp-calendar .dp-day--today {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* override: the vendor modal sets z-index 9999 inline-equivalent via an ID */
+#vendor-modal-root .modal {
+  z-index: 40 !important;
+  max-width: min(90vw, 40rem);
+  border-radius: 12px;
+}
+
+#vendor-modal-root .modal__backdrop {
+  background: rgba(20, 24, 22, 0.55);
+}
+
+/* override the vendor's 12px body copy inside modals; below our minimum */
+#vendor-modal-root .modal__body {
+  font-size: 0.9375rem !important;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand-surface: #151816;
+  }
+
+  /* override again for dark mode: the vendor has no dark palette */
+  .dp-calendar {
+    background: var(--brand-surface) !important;
+    color: #e8ebe9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dp-calendar *,
+  #vendor-modal-root * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
