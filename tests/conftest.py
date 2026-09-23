@@ -61,6 +61,7 @@ import libsql  # noqa: E402  -- after the bootstrap, for symmetry with the rest
 from app.config import settings  # noqa: E402  -- must follow the bootstrap above
 from app.db import database  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
+from app.services import pattern_config  # noqa: E402
 
 
 def child_db_env(url: str) -> dict:
@@ -181,6 +182,32 @@ def _never_the_configured_database(_libsql_endpoint, monkeypatch) -> None:
     """
     monkeypatch.setattr(settings, "DATABASE_URL", _libsql_endpoint)
     _reset_database()
+
+
+@pytest.fixture(autouse=True)
+def _default_pattern_policy(monkeypatch):
+    """Every test starts under the default pattern configuration (PRD-011 STORY-013).
+
+    The default -- `PATTERNS_FILE` empty, `PATTERN_PROFILE_DEFAULT=chat`, the
+    built-in policy in force -- is what an existing deployment gets after
+    upgrading, so it is what every regression runs under unless a test opts out.
+    Before this fixture the `/query` regression suites passed on it by luck:
+    `Settings` reads `.env`, nothing reset either setting, and a developer's
+    `PATTERN_PROFILE_DEFAULT=code` would have changed their verdicts. Pinning it
+    here is the one way to reach those suites without editing them, which
+    PRD-011 Section 11 forbids.
+
+    A test that wants another policy patches the setting in its own fixture or
+    body, which runs after this one, and may call `load()`: `_policy` is saved
+    and restored directly rather than through `monkeypatch`, because `load()`
+    rebinds it with a plain assignment and because `tests/test_db.py`'s
+    `monkeypatch.undo()` must not be able to leave a test's policy behind.
+    """
+    monkeypatch.setattr(settings, "PATTERNS_FILE", "")
+    monkeypatch.setattr(settings, "PATTERN_PROFILE_DEFAULT", "chat")
+    original = pattern_config._policy
+    yield
+    pattern_config._policy = original
 
 
 @pytest.fixture

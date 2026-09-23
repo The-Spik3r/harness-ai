@@ -2,8 +2,8 @@
 target_prd: PRD-011
 slug: pattern-policy
 title: Pattern policy per role
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-011-pattern-policy/PRD.md
 depends_on: [PRD-010]
 blocks: [PRD-014, PRD-015]
 estimated_stories: 10-12

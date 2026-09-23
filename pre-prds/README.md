@@ -10,16 +10,16 @@ The README roadmap lists an [OpenAI-compatible endpoint](../README.md#openai-com
 
 ## The briefs
 
-| Order | Brief | Target PRD | Est. stories | Depends on |
-|---|---|---|---|---|
-| 1 | [Duplicate detection rescoping](./PRE-PRD-009-duplicate-rescoping.md) | PRD-009 | 8–10 | — |
-| 2 | [Multi-turn pipeline](./PRE-PRD-010-multi-turn-pipeline.md) | PRD-010 | 16–20 | 009 |
-| 3 | [Pattern policy per role](./PRE-PRD-011-pattern-policy.md) | PRD-011 | 10–12 | 010 |
-| 3 | [PII redaction for code](./PRE-PRD-012-pii-for-code.md) | PRD-012 | 12–14 | 010 |
-| 3 | [Audit & usage limits](./PRE-PRD-013-audit-and-usage-limits.md) | PRD-013 | 16–18 | 010 |
-| 4 | [OpenAI-compatible endpoint (text)](./PRE-PRD-014-openai-compatible-endpoint.md) | PRD-014 | 14–16 | 011, 012, 013 |
-| 4 | [Action policy rules](./PRE-PRD-015-action-policy-rules.md) | PRD-015 | 12–15 | 011 |
-| 5 | [Tool calling on the compatible endpoint](./PRE-PRD-016-tool-calling.md) | PRD-016 | 10–12 | 014, 015 |
+| Order | Brief | Target PRD | Est. stories | Depends on | Status |
+|---|---|---|---|---|---|
+| 1 | [Duplicate detection rescoping](./PRE-PRD-009-duplicate-rescoping.md) | [PRD-009](../.agents/PRDs/PRD-009-duplicate-rescoping/PRD.md) | 8–10 | — | `promoted` |
+| 2 | [Multi-turn pipeline](./PRE-PRD-010-multi-turn-pipeline.md) | [PRD-010](../.agents/PRDs/PRD-010-multi-turn-pipeline/PRD.md) | 16–20 | 009 | `promoted` |
+| 3 | [Pattern policy per role](./PRE-PRD-011-pattern-policy.md) | [PRD-011](../.agents/PRDs/PRD-011-pattern-policy/PRD.md) | 10–12 | 010 | `promoted` |
+| 3 | [PII redaction for code](./PRE-PRD-012-pii-for-code.md) | PRD-012 | 12–14 | 010 | `draft` |
+| 3 | [Audit & usage limits](./PRE-PRD-013-audit-and-usage-limits.md) | PRD-013 | 16–18 | 010 | `draft` |
+| 4 | [OpenAI-compatible endpoint (text)](./PRE-PRD-014-openai-compatible-endpoint.md) | PRD-014 | 14–16 | 011, 012, 013 | `draft` |
+| 4 | [Action policy rules](./PRE-PRD-015-action-policy-rules.md) | PRD-015 | 12–15 | 011 | `draft` |
+| 5 | [Tool calling on the compatible endpoint](./PRE-PRD-016-tool-calling.md) | PRD-016 | 10–12 | 014, 015 | `draft` |
 
 Estimated total: ~98–117 stories.
 
@@ -41,6 +41,7 @@ Estimated total: ~98–117 stories.
 1. Confirm the brief's **Open decisions** are answered (or accept the proposed defaults).
 2. Run `/create-prd <slug>` with the brief in context. PRD IDs are assigned as max+1, so promoting in the order above keeps the numbers aligned; if not, update the "Target PRD" field.
 3. Set the brief's `status: promoted` and fill `prd:` with the path.
+4. Update the brief's row in the table above: `Status` to `promoted`, and link the Target PRD.
 
 ## Status legend
 

@@ -17,6 +17,13 @@ the set of changed verdicts is exactly that list, no larger and no smaller
 `/query` outcomes that must *not* change live separately, in
 `tests/test_query_outcomes_regression.py`.
 
+**The same contract, one layer up.** STORY-013 re-asserts it through
+`POST /query` with the lifespan-loaded default policy, in
+`tests/test_pattern_default_config_regression.py`, importing these lists rather
+than copying them. `settings.PATTERN_PROFILE_DEFAULT`, which `_verdict` reads,
+is pinned to `chat` for every test by `tests/conftest.py`'s
+`_default_pattern_policy`, so a developer's `.env` cannot change the verdicts.
+
 **Which policy the "after" verdicts describe.** Every `flips to ...` comment
 below is the verdict under the **default (`chat`) profile**, the one
 `PATTERN_PROFILE_DEFAULT` selects and the one PRD Section 11's criterion is

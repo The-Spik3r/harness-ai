@@ -1,4 +1,22 @@
 # examples/patterns.yaml
+#
+# A working pattern policy that reproduces the built-in one exactly. Use it with
+#   PATTERNS_FILE=examples/patterns.yaml
+# and edit a copy: whatever file PATTERNS_FILE names REPLACES the built-in
+# policy wholesale - nothing is merged, so a pattern deleted here is gone.
+# An invalid file stops startup with the list and the rule that failed; it
+# never falls back to the built-in policy.
+#
+# Settings that interact with this file (defaults in brackets):
+#   PATTERN_PROFILE_DEFAULT [chat]   - the profile /query and the chat UI run;
+#                                      must name a profile defined below
+#   PATTERNS_ALLOW_REGEX [false]     - must be true before any `match: regex`
+#                                      list loads
+#   PATTERN_MAX_SCAN_CHARACTERS [1000000] - per-message ceiling on the text any
+#                                      one pattern scans; matching only
+#
+# A role absent from a profile's `roles:` is NOT inspected - the opposite of
+# RBAC, which denies what it does not list. See README, "Pattern policy".
 lists:
   injection:
     match: word

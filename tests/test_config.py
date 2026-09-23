@@ -634,6 +634,16 @@ def test_env_example_pattern_defaults_match_the_settings_defaults():
     assert int(value_of("PATTERN_MAX_SCAN_CHARACTERS")) == defaults["PATTERN_MAX_SCAN_CHARACTERS"]
 
 
+def test_env_example_points_at_the_sample_patterns_file():
+    """PRD-011 STORY-013 AC 4: `.env.example` names the working sample, and
+    the sample it names exists -- a pointer to a missing file is worse than
+    none."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "examples/patterns.yaml" in text
+    assert (REPO_ROOT / "examples" / "patterns.yaml").is_file()
+
+
 def test_requirements_declares_pyyaml_explicitly():
     """AC 5: PyYAML is a declared dependency, not a transitive one.
 
