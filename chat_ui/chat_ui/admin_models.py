@@ -51,6 +51,11 @@ class AuditRow(pydantic.BaseModel):
     pii_detected_input: bool = False
     pii_detected_output: bool = False
     suspicious_pattern: str = ""
+    # PRD-011 D6: which role the matched message had, and whether the policy
+    # blocked or flagged it. Disclosure-only, like the pattern they qualify;
+    # the absent mark on every row without a pattern and every pre-PRD-011 row.
+    pattern_role: str = ""
+    pattern_action: str = ""
 
 
 class SummaryFigure(pydantic.BaseModel):

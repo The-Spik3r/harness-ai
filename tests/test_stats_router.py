@@ -135,6 +135,50 @@ def test_valid_token_returns_expected_shape_and_values(temp_db):
     assert body["top_pii_entities"] == []
 
 
+def test_stats_blocked_suspicious_counts_blocks_and_legacy_rows_not_flags(temp_db):
+    """PRD-011 D6 / T8 (STORY-010 AC 2). One block, one flag and one row from
+    before PRD-011 (`pattern_action IS NULL`): the flag is excluded, and the
+    legacy row still counts, so no figure an admin has been watching moves."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T11:00:00Z",
+            user_id="a",
+            prompt_hash="hb",
+            suspicious_pattern="ignore previous instructions",
+            pattern_role="user",
+            pattern_action="block",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T10:00:00Z",
+            user_id="a",
+            prompt_hash="hf",
+            suspicious_pattern="ignore previous instructions",
+            success=True,
+            pattern_role="tool",
+            pattern_action="flag",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="b",
+            prompt_hash="hl",
+            suspicious_pattern="override",
+        )
+    )
+
+    response = client.get(
+        "/stats", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_queries"] == 3
+    assert body["blocked_suspicious"] == 2
+
+
 def test_zero_rows_returns_zeroed_stats_without_error(temp_db):
     response = client.get(
         "/stats", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}

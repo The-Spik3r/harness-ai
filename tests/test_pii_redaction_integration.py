@@ -197,6 +197,9 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "denied_permission",
         "device",
         "model",
+        # PRD-011 D6: two additive, nullable fields (STORY-010).
+        "pattern_action",
+        "pattern_role",
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",

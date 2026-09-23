@@ -5,6 +5,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import dataclasses
 import inspect
+import json
 import re
 import sqlite3
 import threading
@@ -1026,6 +1027,104 @@ def test_count_blocked_suspicious_counts_only_flagged_rows(temp_db):
     )
 
     assert count_blocked_suspicious() == 2
+
+
+# --- PRD-011 STORY-010: blocked_suspicious counts blocks only (D6) -----------
+
+
+def _seed_block_flag_and_legacy() -> None:
+    """One row of each pattern-carrying kind, newest first by timestamp:
+    a block (user turn), a flag (tool turn), and a pre-PRD-011 row whose
+    action and role were never written."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T11:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="hb",
+            suspicious_pattern="ignore previous instructions",
+            pattern_role="user",
+            pattern_action="block",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-23T10:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="hf",
+            suspicious_pattern="ignore previous instructions",
+            success=True,
+            pattern_role="tool",
+            pattern_action="flag",
+        )
+    )
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-07-01T10:00:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="hl",
+            suspicious_pattern="override",
+        )
+    )
+
+
+def test_count_blocked_suspicious_excludes_flags_and_keeps_legacy_rows(temp_db):
+    """PRD-011 D6 / T8 / Risk 4. A flag row carries a pattern but was not
+    blocked, so it must not move the counter. The legacy row (pattern_action
+    IS NULL) still counts: every pre-PRD-011 row carrying a pattern was a
+    block, and that is the whole reason the predicate is not simply
+    `pattern_action = 'block'` -- that would silently drop every historical
+    block from a figure an admin has been watching."""
+    _seed_block_flag_and_legacy()
+
+    assert count_blocked_suspicious() == 2
+
+
+def test_summary_snapshot_blocked_suspicious_excludes_flags_and_keeps_legacy_rows(temp_db):
+    """The snapshot's twin of the counter above (PRD-011 D6): the admin console
+    and /stats read this one, and it must agree with the standalone read."""
+    _seed_block_flag_and_legacy()
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.blocked_suspicious == 2
+    assert snapshot.blocked_suspicious == count_blocked_suspicious()
+
+
+def test_summary_snapshot_rows_carry_pattern_role_and_action(temp_db):
+    """STORY-010 AC 5: both fields are in the per-row JSON object itself, not
+    merely defaulted to None by the mapper -- the raw `rows` value is decoded
+    here, before `_row_to_audit_log` sees it."""
+    _seed_block_flag_and_legacy()
+
+    with get_connection() as conn:
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+    entries = json.loads(raw["rows"])
+    assert all({"pattern_role", "pattern_action"} <= set(entry) for entry in entries)
+    assert [(e["pattern_role"], e["pattern_action"]) for e in entries] == [
+        ("user", "block"),
+        ("tool", "flag"),
+        (None, None),
+    ]
+
+    snapshot = summary_snapshot()
+    assert [(r.pattern_role, r.pattern_action) for r in snapshot.rows] == [
+        ("user", "block"),
+        ("tool", "flag"),
+        (None, None),
+    ]
+
+
+def test_blocked_suspicious_predicate_is_shared():
+    """STORY-010 AC 1: both counters use the PRD's predicate, as one text."""
+    assert database._BLOCKED_SUSPICIOUS_WHERE == (
+        "suspicious_pattern IS NOT NULL"
+        " AND (pattern_action IS NULL OR pattern_action = 'block')"
+    )
+    assert f"WHERE {database._BLOCKED_SUSPICIOUS_WHERE})" in database._SUMMARY_SQL
+    source = inspect.getsource(count_blocked_suspicious)
+    assert "_BLOCKED_SUSPICIOUS_WHERE" in source
+    assert "suspicious_pattern IS NOT NULL" not in source
 
 
 def test_count_unique_users_deduplicates(temp_db):

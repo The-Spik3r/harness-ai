@@ -535,6 +535,48 @@ def _loaded_record(state: AdminState) -> dict:
     }
 
 
+@pytest.mark.asyncio
+async def test_a_flag_row_renders_cleared_with_its_role_and_action(
+    configured_token, monkeypatch
+):
+    """PRD-011 D6 (STORY-010 AC 4): a flag row reaches the Register as
+    **cleared**, carrying its role and action; a block row stays **denied**.
+    The blocked-suspicious figure is the database's own count, not something
+    the state recomputes from the rows."""
+    state = _state()
+    _authenticate(state, configured_token)
+    logs = [
+        AuditLog(
+            id=2,
+            timestamp="2026-09-23T11:00:00+00:00",
+            user_id="a.torres",
+            prompt_hash="hf",
+            suspicious_pattern="ignore previous instructions",
+            success=True,
+            pattern_role="tool",
+            pattern_action="flag",
+        ),
+        AuditLog(
+            id=1,
+            timestamp="2026-09-23T10:00:00+00:00",
+            user_id="a.torres",
+            prompt_hash="hb",
+            suspicious_pattern="ignore previous instructions",
+            success=True,
+            pattern_role="user",
+            pattern_action="block",
+        ),
+    ]
+    _Reads(monkeypatch, logs=logs).install()
+
+    await _load(state)
+
+    assert [
+        (row.verdict, row.pattern_role, row.pattern_action) for row in state.rows
+    ] == [("cleared", "tool", "flag"), ("denied", "user", "block")]
+    assert state.blocked_suspicious == _READ_RETURNS["count_blocked_suspicious"]
+
+
 def test_the_read_table_names_all_ten_database_functions():
     """AC 1 as a structural claim: ten distinct functions, ten distinct fields,
     each field an actual var on the state — a typo would otherwise create a new

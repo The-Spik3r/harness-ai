@@ -107,6 +107,66 @@ def test_verdict_constants_are_the_registers_four():
     assert len(VERDICTS) == 4
 
 
+# --- PRD-011 D6: a flag is not a denial (STORY-010) ----------------------
+
+
+def test_a_flag_row_is_not_denied():
+    """A flag row carries a pattern, but the request passed the check and went
+    upstream. It is written with success=1, so it reads **cleared**."""
+    log = make_log(
+        suspicious_pattern="ignore previous instructions",
+        pattern_role="tool",
+        pattern_action="flag",
+    )
+    assert derive_verdict(log) == VERDICT_CLEARED
+
+
+def test_a_block_row_is_denied():
+    log = make_log(
+        suspicious_pattern="ignore previous instructions",
+        pattern_role="user",
+        pattern_action="block",
+    )
+    assert derive_verdict(log) == VERDICT_DENIED
+
+
+def test_a_legacy_pattern_row_is_still_denied():
+    """A row from before PRD-011 has a pattern and a NULL action. It was a
+    block, so its verdict does not move -- the same rule the counters use."""
+    log = make_log(suspicious_pattern="override")
+    assert log.pattern_action is None
+    assert derive_verdict(log) == VERDICT_DENIED
+
+
+def test_a_duplicate_still_outranks_a_flag():
+    log = make_log(
+        was_duplicate_blocked=True,
+        suspicious_pattern="ignore previous instructions",
+        pattern_action="flag",
+    )
+    assert derive_verdict(log) == VERDICT_HELD
+
+
+def test_to_audit_row_carries_pattern_role_and_action():
+    """STORY-010 AC 4: the role and whether it blocked or flagged reach the
+    row as recorded."""
+    flag = to_audit_row(
+        make_log(
+            suspicious_pattern="ignore previous instructions",
+            pattern_role="tool",
+            pattern_action="flag",
+        ),
+        NOW,
+    )
+    assert (flag.pattern_role, flag.pattern_action) == ("tool", "flag")
+    assert flag.suspicious_pattern == "ignore previous instructions"
+
+    legacy = to_audit_row(make_log(suspicious_pattern="override"), NOW)
+    # No inferred "block": the column holds no such claim. The verdict says it.
+    assert (legacy.pattern_role, legacy.pattern_action) == (VALUE_ABSENT, VALUE_ABSENT)
+    assert legacy.verdict == VERDICT_DENIED
+
+
 # --- Row projection ------------------------------------------------------
 
 
@@ -189,6 +249,9 @@ def test_null_columns_render_the_absent_mark():
     assert row.device_full == VALUE_ABSENT
     assert row.error_message == VALUE_ABSENT
     assert row.suspicious_pattern == VALUE_ABSENT
+    # PRD-011 D6 (STORY-010): both default to NULL on the AuditLog.
+    assert row.pattern_role == VALUE_ABSENT
+    assert row.pattern_action == VALUE_ABSENT
     assert row.pii_entities == []
 
 

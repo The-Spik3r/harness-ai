@@ -927,10 +927,23 @@ def count_blocked_duplicates() -> int:
         return row["n"]
 
 
+# PRD-011 D6: what "blocked as suspicious" means, written once and shared by
+# `count_blocked_suspicious()` and `_SUMMARY_SQL`'s `blocked_suspicious`, so the
+# two figures cannot drift apart. A flag row carries a pattern but was not
+# blocked, so it is excluded. A NULL action is a row written before PRD-011,
+# and every such row carrying a pattern *was* a block -- so NULL still counts,
+# no historical row moves, and none is backfilled (PRD Risk 4). That is the
+# whole reason this is not simply `pattern_action = 'block'`.
+_BLOCKED_SUSPICIOUS_WHERE = (
+    "suspicious_pattern IS NOT NULL"
+    " AND (pattern_action IS NULL OR pattern_action = 'block')"
+)
+
+
 def count_blocked_suspicious() -> int:
     with _session() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM audit_logs WHERE suspicious_pattern IS NOT NULL"
+            f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_BLOCKED_SUSPICIOUS_WHERE}"
         ).fetchone()
         return row["n"]
 
@@ -1168,7 +1181,7 @@ class SummarySnapshot:
 #
 # `"rows"` is quoted: ROWS is a keyword (window frames) and an unquoted alias
 # is a syntax error.
-_SUMMARY_SQL = """
+_SUMMARY_SQL = f"""
 WITH RECURSIVE split(entity, rest) AS (
     SELECT NULL, pii_entities || ','
       FROM audit_logs
@@ -1209,7 +1222,7 @@ SELECT
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
   (SELECT COUNT(*) FROM audit_logs WHERE was_duplicate_blocked = 1)
       AS blocked_duplicates,
-  (SELECT COUNT(*) FROM audit_logs WHERE suspicious_pattern IS NOT NULL)
+  (SELECT COUNT(*) FROM audit_logs WHERE {_BLOCKED_SUSPICIOUS_WHERE})
       AS blocked_suspicious,
   (SELECT COUNT(DISTINCT user_id) FROM audit_logs) AS unique_users,
   (SELECT COUNT(*) FROM audit_logs WHERE success = 1) AS successful_queries,
