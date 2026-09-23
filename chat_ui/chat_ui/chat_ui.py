@@ -10,7 +10,7 @@ import reflex as rx
 
 from app.db.database import init_db
 from app.main import app as fastapi_app
-from app.services import authz, pii_redactor, pipeline_executor
+from app.services import authz, pattern_config, pii_redactor, pipeline_executor
 
 from chat_ui import theme
 from chat_ui.components.admin_shell import (
@@ -197,6 +197,12 @@ app.register_lifespan_task(pii_redactor.load)
 # enforce the built-in role matrix while the API enforces RBAC_ROLES_FILE's
 # override -- two different permission matrices for the same deployment.
 app.register_lifespan_task(authz.load)
+# Same bypass (PRD-011 STORY-007): without this the chat UI would inspect
+# prompts with the built-in pattern policy while the API enforces
+# PATTERNS_FILE -- and a malformed file would stop uvicorn but not the
+# deployment that actually serves traffic. Kept beside authz.load: both are
+# pure configuration loads, and the next one (PRD-015) belongs here too.
+app.register_lifespan_task(pattern_config.load)
 # Same bypass again (STORY-016): app.main's fail-fast bootstrap guard would
 # otherwise never run for this ingress, so RBAC_ENABLED=true with zero
 # seeded users would boot the chat UI straight into a silent 401 wall

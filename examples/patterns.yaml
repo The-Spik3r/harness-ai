@@ -1,0 +1,30 @@
+# examples/patterns.yaml
+lists:
+  injection:
+    match: word
+    scope: everywhere        # an injection phrase counts inside code too
+    patterns:
+      - ignore previous instructions
+      - forget everything
+      - show system prompt
+      - reveal password
+
+  keywords:
+    match: word
+    scope: outside_code      # these are ordinary words in source
+    patterns:
+      - execute code
+      - admin mode
+      - override
+
+profiles:
+  chat:
+    lists: [injection, keywords]
+    roles:
+      user: block
+
+  code:
+    lists: [injection]
+    roles:
+      user: block
+      tool: flag

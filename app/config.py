@@ -123,9 +123,11 @@ class Settings(BaseSettings):
     # anyio/default-executor pools. Consumed by STORY-006.
     PIPELINE_MAX_WORKERS: int = 32
 
-    # Pattern policy (PRD-011). Defaults and startup validation land now; no
-    # production code reads these yet -- each field names the story that
-    # becomes its consumer.
+    # Pattern policy (PRD-011). pattern_config.load() reads PATTERNS_FILE,
+    # PATTERN_PROFILE_DEFAULT and PATTERNS_ALLOW_REGEX at startup, in both
+    # lifespans (STORY-007). PATTERN_MAX_SCAN_CHARACTERS, and the request-path
+    # read of PATTERN_PROFILE_DEFAULT, wait for STORY-008 -- each field names
+    # the story that becomes its consumer.
 
     # Path to the YAML file of pattern lists and profiles. Empty means the
     # built-in policy and no file is read at all -- the RBAC_ROLES_FILE shape

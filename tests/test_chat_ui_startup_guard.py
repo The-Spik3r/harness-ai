@@ -1,6 +1,6 @@
 """Startup-guard coverage for the chat UI entry point.
 
-Three lifespan concerns live here now:
+Four lifespan concerns live here now:
 
   * PRD-005 STORY-016's RBAC bootstrap guard, registered as a lifespan task.
   * PRD-007 STORY-008's database reachability guard, which fires from init_db()
@@ -10,11 +10,14 @@ Three lifespan concerns live here now:
   * PRD-010 STORY-006's pipeline-executor shutdown, registered as an
     `@asynccontextmanager` lifespan task -- the same registration mechanism as
     the RBAC guard, checked the same way.
+  * PRD-011 STORY-007's `pattern_config.load()`, registered as a lifespan task
+    beside `authz.load`. A malformed PATTERNS_FILE must stop this ingress too,
+    since it is the one production actually runs.
 
 app/main.py's lifespan never runs under Reflex's api_transformer mount (see
 chat_ui/chat_ui/chat_ui.py's comments) -- init_db(), pii_redactor.load(),
-authz.load(), authz.check_bootstrap(), and now the pipeline executor's
-shutdown are all duplicated there. This runs in a subprocess with PYTHONPATH
+authz.load(), pattern_config.load(), authz.check_bootstrap(), and the
+pipeline executor's shutdown are all duplicated there. This runs in a subprocess with PYTHONPATH
 set to chat_ui/, exactly like tests/test_chat_components_import.py, so
 importing chat_ui.chat_ui here never puts the inner package on this process's
 sys.path.
@@ -54,6 +57,22 @@ result["pipeline_shutdown_registered"] = (
     chat_ui_module._pipeline_executor_lifespan in tasks
 )
 
+# PRD-011 STORY-007. The class name, not `except PatternConfigError`: a wrong
+# exception type then fails an assertion instead of crashing the probe.
+load = chat_ui_module.pattern_config.load
+result["patterns_load_registered"] = load in tasks
+result["patterns_load_adjacent"] = (
+    load in tasks
+    and chat_ui_module.authz.load in tasks
+    and tasks.index(load) == tasks.index(chat_ui_module.authz.load) + 1
+)
+try:
+    load()
+    result["patterns_raised"] = None
+except Exception as exc:
+    result["patterns_raised"] = type(exc).__name__
+    result["patterns_message"] = str(exc)
+
 try:
     chat_ui_module.authz.check_bootstrap()
     result["raised"] = False
@@ -85,6 +104,11 @@ def _empty_rbac_env(database_url_factory):
     # made the fixture hand out a real libSQL endpoint, so they are the same.
     env.update(child_db_env(database_url_factory("chat_ui_guard")))
     env["RBAC_ENABLED"] = "true"
+    # PRD-011 STORY-007: the "no patterns file" case, stated rather than
+    # inherited -- the child builds its own Settings(), and a developer's shell
+    # must not turn it into a file.
+    env["PATTERNS_FILE"] = ""
+    env["PATTERN_PROFILE_DEFAULT"] = "chat"
     return env
 
 
@@ -104,6 +128,71 @@ def test_pipeline_executor_shutdown_registered_as_chat_ui_lifespan_task(_empty_r
     result = _run_probe(_empty_rbac_env)
     assert not result["errors"], result["errors"]
     assert result["pipeline_shutdown_registered"] is True
+
+
+# --------------------------------------------------------------------------
+# PRD-011 STORY-007 -- pattern_config.load() as a chat UI lifespan task.
+# --------------------------------------------------------------------------
+
+#: PRD-011 User Story 2's typo, `mach` for `match`. Well-formed YAML, so the
+#: failure is load()'s validation, not a parse error. Same text as
+#: tests/test_main.py's, so both entry points are refused on the same file.
+_MALFORMED_PATTERNS = """
+lists:
+  injection:
+    mach: word
+    scope: everywhere
+    patterns:
+      - ignore previous instructions
+profiles:
+  chat:
+    lists: [injection]
+    roles:
+      user: block
+"""
+
+
+@pytest.fixture
+def _malformed_patterns_env(_empty_rbac_env, tmp_path):
+    """The chat UI's environment, pointed at a malformed patterns file.
+
+    Through the environment, not monkeypatch: the probe is a subprocess that
+    constructs its own Settings()."""
+    patterns_file = tmp_path / "patterns.yaml"
+    patterns_file.write_text(_MALFORMED_PATTERNS, encoding="utf-8")
+    return {**_empty_rbac_env, "PATTERNS_FILE": str(patterns_file)}
+
+
+def test_pattern_config_load_registered_as_chat_ui_lifespan_task(_empty_rbac_env):
+    """AC 2: registered on the mount app.main's lifespan never reaches, and
+    directly after authz.load -- Reflex runs tasks in registration order, so
+    this also places it before check_bootstrap's database read."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["patterns_load_registered"] is True
+    assert result["patterns_load_adjacent"] is True
+
+
+def test_pattern_config_load_is_a_noop_when_patterns_file_unset(_empty_rbac_env):
+    """AC 5 on the Reflex path: no PATTERNS_FILE, nothing raised."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["patterns_raised"] is None
+
+
+def test_pattern_config_load_fails_chat_ui_startup_on_malformed_file(_malformed_patterns_env):
+    """AC 4 on the Reflex path. The import succeeds -- the failure is the
+    lifespan task, so the process refuses to start rather than to import.
+
+    The probe calls load() by hand, so a raise alone would pass even with the
+    registration deleted; asserting registration too is what makes this a
+    claim about startup rather than about load()."""
+    result = _run_probe(_malformed_patterns_env)
+    assert not result["errors"], result["errors"]
+    assert result["patterns_load_registered"] is True
+    assert result["patterns_raised"] == "PatternConfigError"
+    assert "injection" in result["patterns_message"]
+    assert "mach" in result["patterns_message"]
 
 
 # --------------------------------------------------------------------------

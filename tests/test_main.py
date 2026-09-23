@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
@@ -14,8 +15,10 @@ from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
 import app.services.authz as authz
+import app.services.pattern_config as pattern_config
 import app.services.pii_redactor as pii_redactor
 from app.services import pipeline_executor
+from app.services.pattern_config import BUILT_IN_POLICY, PatternConfigError
 
 client = TestClient(app)
 
@@ -186,3 +189,94 @@ def test_lifespan_fails_when_the_database_is_unreachable(monkeypatch):
         # it pointed at a dead endpoint would leak into every later test.
         database._client = None
         database._client_key = None
+
+
+# --------------------------------------------------------------------------
+# PRD-011 STORY-007 -- pattern_config.load() in app.main's lifespan.
+# --------------------------------------------------------------------------
+
+#: PRD-011 Section 6.3's file with PRD User Story 2's typo: `match` spelled
+#: `mach` under `injection`. Well-formed YAML on purpose, so the failure is
+#: load()'s validation naming the list and the key, not a parse error.
+_MALFORMED_PATTERNS = """
+lists:
+  injection:
+    mach: word
+    scope: everywhere
+    patterns:
+      - ignore previous instructions
+profiles:
+  chat:
+    lists: [injection]
+    roles:
+      user: block
+"""
+
+_SAMPLE_PATTERNS_FILE = Path(__file__).resolve().parents[1] / "examples" / "patterns.yaml"
+
+
+@pytest.fixture
+def _pattern_startup(monkeypatch, temp_db):
+    """A lifespan that boots up to pattern_config.load() and restores the policy.
+
+    `temp_db` because the lifespan calls init_db(). RBAC_ENABLED is unrelated
+    to the patterns file: the fixture database has no seeded users, so
+    STORY-016's guard would otherwise fire. PII_REDACTION_ENABLED is off so
+    these tests never build the spaCy analyzer they do not exercise.
+    PATTERN_PROFILE_DEFAULT is pinned so a developer's `.env` cannot decide
+    load()'s cross-check (STORY-006).
+    """
+    monkeypatch.setattr(settings, "RBAC_ENABLED", False)
+    monkeypatch.setattr(settings, "PII_REDACTION_ENABLED", False)
+    monkeypatch.setattr(settings, "PATTERN_PROFILE_DEFAULT", "chat")
+    original = pattern_config._policy
+    yield
+    pattern_config._policy = original
+
+
+def test_lifespan_fails_when_patterns_file_is_malformed(_pattern_startup, tmp_path, monkeypatch):
+    """PRD-011 STORY-007 AC 1 and AC 4, FastAPI path: a malformed
+    PATTERNS_FILE stops startup with PatternConfigError, before the app serves
+    anything, and leaves no half-applied policy behind."""
+    patterns_file = tmp_path / "patterns.yaml"
+    patterns_file.write_text(_MALFORMED_PATTERNS, encoding="utf-8")
+    monkeypatch.setattr(settings, "PATTERNS_FILE", str(patterns_file))
+
+    with pytest.raises(PatternConfigError) as excinfo:
+        with TestClient(app):
+            pass
+
+    assert "injection" in str(excinfo.value)
+    assert "mach" in str(excinfo.value)
+    assert pattern_config.get_policy() is BUILT_IN_POLICY
+
+
+def test_lifespan_loads_patterns_file_before_serving_requests(_pattern_startup, monkeypatch):
+    """PRD-011 STORY-007 AC 1: the lifespan actually calls load() -- the
+    shipped sample is in force by the time the first request is served."""
+    monkeypatch.setattr(settings, "PATTERNS_FILE", str(_SAMPLE_PATTERNS_FILE))
+
+    with TestClient(app) as test_client:
+        policy = pattern_config.get_policy()
+        assert policy is not BUILT_IN_POLICY
+        assert policy == BUILT_IN_POLICY
+        response = test_client.get("/health")
+        assert response.status_code == 200
+
+
+def test_lifespan_reads_no_patterns_file_when_unset(_pattern_startup, monkeypatch):
+    """PRD-011 STORY-007 AC 5: an existing deployment with no PATTERNS_FILE
+    reads no file and keeps the built-in policy. `Path` is replaced inside
+    pattern_config only -- a global Path.read_text patch would also trip on
+    unrelated startup code."""
+    monkeypatch.setattr(settings, "PATTERNS_FILE", "")
+
+    def _no_path(*args, **kwargs):
+        raise AssertionError("pattern_config built a Path while PATTERNS_FILE is unset")
+
+    monkeypatch.setattr(pattern_config, "Path", _no_path)
+
+    with TestClient(app) as test_client:
+        assert pattern_config.get_policy() is BUILT_IN_POLICY
+        response = test_client.get("/health")
+        assert response.status_code == 200

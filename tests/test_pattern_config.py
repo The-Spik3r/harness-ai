@@ -747,3 +747,32 @@ def test_load_reads_the_file_once_not_per_get_policy(tmp_path, monkeypatch, _res
         get_policy()
 
     assert reads.count(path) == 1
+
+
+# --- STORY-007: examples/patterns.yaml is loaded, not merely documented -----
+
+#: The shipped sample -- PRD-011 Section 6.3, byte for byte.
+_SAMPLE_FILE = Path(__file__).resolve().parents[1] / "examples" / "patterns.yaml"
+
+
+def test_examples_patterns_yaml_loads_to_the_built_in_policy(monkeypatch, _reset_policy):
+    """PRD-011 STORY-007 AC 3 and Section 11's quality indicator: "a sample
+    that does not parse is worse than no sample".
+
+    Equality with `BUILT_IN_POLICY` is also the drift guard: the PRD's Section
+    6.3, the shipped sample and `_build_built_in()` are three copies of one
+    policy, and this is the test that notices when one of them moves. Dict
+    `==` ignores key order, so declared order is asserted separately -- it is
+    load-bearing for `inspect()`'s reporting order (Section 7/F5).
+    """
+    monkeypatch.setattr(settings, "PATTERNS_FILE", str(_SAMPLE_FILE))
+
+    load()
+    policy = get_policy()
+
+    # A file was actually read and a new policy built -- otherwise the
+    # equality below would be trivially true.
+    assert policy is not BUILT_IN_POLICY
+    assert policy == BUILT_IN_POLICY
+    assert list(policy.lists) == list(BUILT_IN_POLICY.lists)
+    assert list(policy.profiles) == list(BUILT_IN_POLICY.profiles)
