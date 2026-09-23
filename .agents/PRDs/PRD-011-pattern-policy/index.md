@@ -6,7 +6,7 @@
 
 ## Progress
 
-11/13 stories done — 85%
+12/13 stories done — 92%
 
 ## Stories
 
@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-011-pattern-policy`. No per-stor
 | STORY-009 | Flag arm, and pattern_role / pattern_action audit columns | feature | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-009-flag-arm-and-audit-columns.plan.md) | `d18a55d` |
 | STORY-010 | blocked_suspicious counts blocks only; role and action surfaced in /audit and the console | enhancement | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-010-narrowed-counters-and-admin-fields.plan.md) | `f1e5f2e` |
 | STORY-011 | Code and agent-prompt corpus: the false-positive claim as evidence | technical | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-011-code-false-positive-corpus.plan.md) | `5685712` |
-| STORY-012 | Direct and indirect injection corpus | technical | ⬜ todo | medium | — | — |
+| STORY-012 | Direct and indirect injection corpus | technical | ✅ done | medium | [plan](../../plans/PRD-011-pattern-policy/completed/STORY-012-injection-corpus.plan.md) | `2c3e623` |
 | STORY-013 | Default-config /query regression, README, .env and the promoted pre-PRD | technical | ⬜ todo | medium | — | — |
 
 ## Status Icons

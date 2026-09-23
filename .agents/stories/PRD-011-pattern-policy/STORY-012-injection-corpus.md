@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Prove and document"
-status: todo
+status: done
 labels: [backend, tests, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-012-injection-corpus.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-012-injection-corpus.report.md
+commit: 2c3e623
 depends_on: [STORY-009, STORY-011]
 blocks: [STORY-013]
 skills: []
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # STORY-012: Direct and indirect injection corpus
