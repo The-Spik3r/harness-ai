@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Configuration and profiles"
-status: todo
+status: done
 labels: [backend, config, startup]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-007-startup-load-and-sample-file.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-007-startup-load-and-sample-file.report.md
+commit: efb1924
 depends_on: [STORY-005, STORY-006]
 blocks: [STORY-013]
 skills: []
