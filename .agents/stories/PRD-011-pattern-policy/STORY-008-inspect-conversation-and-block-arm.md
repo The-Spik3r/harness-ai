@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - The pipeline inspects the conversation"
-status: todo
+status: done
 labels: [backend, api, security]
 epic_branch: epic/PRD-011-pattern-policy
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-011-pattern-policy/completed/STORY-008-inspect-conversation-and-block-arm.plan.md
+report: .agents/reports/PRD-011-pattern-policy/STORY-008-inspect-conversation-and-block-arm.report.md
+commit: 9d4deeb
 depends_on: [STORY-001, STORY-006]
 blocks: [STORY-009, STORY-011]
 skills: []
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # STORY-008: inspect() over the conversation; _inspection_target deleted; block arm
