@@ -4,11 +4,12 @@ This module covers `app/services/pattern_config.py` and only it: the policy
 model, the seven built-in patterns split into two lists, `load()`'s wholesale
 replacement, and one case per malformed-file rule.
 
-What it deliberately does **not** cover, because this story does not ship it:
+What it deliberately does **not** cover:
 
 - the `roles:` vocabulary, the empty-`roles:` rule, `PATTERN_PROFILE_DEFAULT`'s
-  cross-check and `get_profile()` -- STORY-006, which extends `load()`'s
-  profile handling rather than rewriting it;
+  cross-check and `get_profile()` -- STORY-006, in depth in
+  `tests/test_pattern_profiles.py`. This module carries one table row per
+  roles rule so the file-path check below covers them too;
 - the message walk, short-circuiting and the per-message scan ceiling --
   `inspect()` in STORY-008.
 
@@ -66,6 +67,14 @@ def _reset_policy():
     original = pattern_config._policy
     yield
     pattern_config._policy = original
+
+
+@pytest.fixture(autouse=True)
+def _default_profile_is_chat(monkeypatch):
+    """PRD-011 STORY-006: `load()` now cross-checks `PATTERN_PROFILE_DEFAULT`
+    against the profiles it installs, so every successful load below depends on
+    it naming `chat` -- pinned here so a developer's `.env` cannot decide it."""
+    monkeypatch.setattr(settings, "PATTERN_PROFILE_DEFAULT", "chat")
 
 
 def _write(tmp_path, text: str) -> str:
@@ -270,11 +279,14 @@ lists:
     scope: outside_code
     patterns: [three]
 profiles:
-  p:
+  chat:
     lists: [a, b]
+    roles: {user: block}
 """,
         ),
     )
+    # PRD-011 STORY-006: `roles:` is now required and the profile must be the
+    # pinned default -- the fixture changed, not what this test asserts.
 
     load()
 
@@ -313,11 +325,14 @@ lists:
     scope: everywhere
     patterns: [yankee]
 profiles:
-  p:
+  chat:
     lists: [zebra, alpha]
+    roles: {user: block}
 """,
         ),
     )
+    # PRD-011 STORY-006: `roles:` is now required and the profile must be the
+    # pinned default, so `p` became `chat` -- the order assertions are unchanged.
 
     load()
     policy = get_policy()
@@ -325,7 +340,10 @@ profiles:
     assert list(policy.lists) == ["zebra", "alpha"]
     assert policy.lists["zebra"].patterns == ("zulu", "alpha", "mike")
     assert isinstance(policy.lists["zebra"].patterns, tuple)
-    assert [pattern_list.name for pattern_list in policy.profiles["p"].lists] == ["zebra", "alpha"]
+    assert [pattern_list.name for pattern_list in policy.profiles["chat"].lists] == [
+        "zebra",
+        "alpha",
+    ]
 
 
 def test_profile_lists_are_resolved_objects_not_names(tmp_path, monkeypatch, _reset_policy):
@@ -341,13 +359,14 @@ def test_profile_lists_are_resolved_objects_not_names(tmp_path, monkeypatch, _re
     assert resolved is policy.lists["only"]
 
 
-def test_roles_are_stored_but_not_validated_here(tmp_path, monkeypatch, _reset_policy):
-    """The STORY-005/STORY-006 boundary, pinned from this side.
+def test_roles_are_validated_at_load(tmp_path, monkeypatch, _reset_policy):
+    """The STORY-005/STORY-006 boundary, now crossed.
 
-    A role and an action neither vocabulary allows load **without error** here,
-    because role and action validation is STORY-006 AC 2's. When STORY-006
-    lands it rewrites this test in place with a comment citing PRD-011 -- it is
-    a boundary marker, not a claim that the values are acceptable.
+    PRD-011 STORY-006 AC 2: rewritten in place. This was
+    `test_roles_are_stored_but_not_validated_here` and asserted that
+    `martian: incinerate` loaded; the same file now fails startup naming the
+    profile and the role. Coverage in depth -- every rule, every accepted
+    role and action -- is `tests/test_pattern_profiles.py`.
     """
     monkeypatch.setattr(
         settings,
@@ -369,15 +388,20 @@ profiles:
         ),
     )
 
-    load()
+    with pytest.raises(PatternConfigError) as exc_info:
+        load()
 
-    assert get_policy().profiles["p"].roles == {"martian": "incinerate"}
+    message = str(exc_info.value)
+    assert "profile 'p'" in message
+    assert "'martian'" in message
+    assert get_policy() is BUILT_IN_POLICY
 
 
 def test_the_built_in_profiles_carry_the_section_6_4_matrix():
-    """Not this story's acceptance criterion -- STORY-006 asserts the matrix
-    cell by cell -- but the built-in policy ships the maps now, so a smoke
-    assertion here keeps them from being invented twice."""
+    """A smoke assertion kept from STORY-005 so the maps are never invented
+    twice. The matrix is asserted cell by cell -- the four "not inspected"
+    cells included -- in `tests/test_pattern_profiles.py` (PRD-011 STORY-006
+    AC 1)."""
     policy = get_policy()
 
     assert [pattern_list.name for pattern_list in policy.profiles["chat"].lists] == [
@@ -475,10 +499,50 @@ _MALFORMED_CASES = [
         ["profile 'chat'", "missing key", "'lists'"],
     ),
     (
+        # PRD-011 STORY-006: `roles:` added. `roles` is now a required key and
+        # would otherwise fail first, so the row would stop testing its id.
         "undefined-list-in-profile",
         "lists:\n  keywords:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
-        "profiles:\n  chat:\n    lists: [keyword]\n",
+        "profiles:\n  chat:\n    lists: [keyword]\n    roles:\n      user: block\n",
         ["profile 'chat'", "undefined list", "'keyword'", "keywords"],
+    ),
+    # PRD-011 STORY-006 AC 2 and T5: one row per roles rule, so the file-path
+    # check below covers them. In depth in tests/test_pattern_profiles.py.
+    (
+        "missing-roles",
+        "lists:\n  k:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
+        "profiles:\n  chat:\n    lists: [k]\n",
+        ["profile 'chat'", "missing key", "'roles'"],
+    ),
+    (
+        "empty-roles",
+        "lists:\n  k:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
+        "profiles:\n  chat:\n    lists: [k]\n    roles: {}\n",
+        ["profile 'chat'", "roles is empty"],
+    ),
+    (
+        "null-roles",
+        "lists:\n  k:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
+        "profiles:\n  chat:\n    lists: [k]\n    roles:\n",
+        ["profile 'chat'", "roles is empty"],
+    ),
+    (
+        "roles-not-a-mapping",
+        "lists:\n  k:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
+        "profiles:\n  chat:\n    lists: [k]\n    roles: [user]\n",
+        ["profile 'chat'", "roles must be a mapping"],
+    ),
+    (
+        "unknown-role",
+        "lists:\n  k:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
+        "profiles:\n  chat:\n    lists: [k]\n    roles:\n      admin: block\n",
+        ["profile 'chat'", "unknown role", "'admin'", "assistant, system, tool, user"],
+    ),
+    (
+        "unknown-action",
+        "lists:\n  k:\n    match: word\n    scope: everywhere\n    patterns: [x]\n"
+        "profiles:\n  chat:\n    lists: [k]\n    roles:\n      user: deny\n",
+        ["profile 'chat'", "'user'", "unknown action", "'deny'", "block, flag"],
     ),
 ]
 
@@ -539,6 +603,8 @@ def test_every_malformed_case_names_the_file_path(tmp_path, monkeypatch, _reset_
 
 # --- AC 4: the regex gate and the ReDoS heuristic --------------------------
 
+# PRD-011 STORY-006: `p` became `chat` with a `roles:` map -- `roles` is now
+# required and the profile must be the pinned default for the success case.
 _REGEX_FILE = """
 lists:
   risky:
@@ -546,8 +612,9 @@ lists:
     scope: everywhere
     patterns: ['%s']
 profiles:
-  p:
+  chat:
     lists: [risky]
+    roles: {user: block}
 """
 
 

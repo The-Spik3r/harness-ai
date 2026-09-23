@@ -5,7 +5,7 @@ pattern detection. `pattern_detector.py` stays pure -- it compiles one pattern
 and strips one message's code spans and reads nothing -- and everything that
 needs a setting, a file or a policy lives here (PRD-011 Section 6.9).
 
-Two entry points:
+Three entry points:
 
 - `load()` reads `PATTERNS_FILE` and **replaces the built-in policy wholesale**.
   No merge, ever. A list in the built-in policy and absent from the file is
@@ -17,6 +17,8 @@ Two entry points:
 - `get_policy()` returns whatever is in force, and returns the built-in policy
   when `load()` has never run -- `ROLE_PERMISSIONS` before `authz.load()`,
   exactly.
+- `get_profile(name)` returns one profile from whatever is in force, and
+  raises `PatternConfigError` for a name the policy does not define.
 
 Called once at startup, by STORY-007, in **both** lifespans (`app/main.py` and
 `chat_ui/chat_ui/chat_ui.py`: the Reflex `api_transformer` mount bypasses the
@@ -24,22 +26,21 @@ former entirely, which is why `init_db()` and `authz.load()` are already
 registered twice). Never per request. The first reader of a compiled pattern is
 `inspect()` in STORY-008.
 
-What is deliberately **not** here yet: the `roles:` map is stored but not
-validated, `PATTERN_PROFILE_DEFAULT` is not cross-checked against the loaded
-profiles, and there is no `get_profile()`. All three are STORY-006's, named in
-its acceptance criteria and in `app/config.py`'s comment on
-`PATTERN_PROFILE_DEFAULT`. This story stops at lists, and leaves profile
-handling minimal but ordered so STORY-006 extends rather than rewrites it.
+Profiles and the role inspection matrix (PRD-011 Section 6.4), the `roles:`
+vocabulary, `PATTERN_PROFILE_DEFAULT`'s cross-check and `get_profile()` are
+STORY-006's, built on STORY-005's lists. What is deliberately **not** here: the
+message walk and what a hit does -- `inspect()` in STORY-008.
 """
 
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Literal, Mapping, get_args
 
 import yaml
 
 from app.config import settings
+from app.models.messages import Role
 from app.services.pattern_detector import (
     PatternCompileError,
     compile_pattern,
@@ -50,8 +51,10 @@ from app.services.pattern_detector import (
 class PatternConfigError(Exception):
     """Raised by load() for every way PATTERNS_FILE can be wrong: unreadable,
     unparseable, an unknown key, an unknown `match` or `scope`, an empty list,
-    a profile naming a list nobody defined, or a regex that is forbidden,
-    uncompilable or catastrophic.
+    a profile naming a list nobody defined, a `roles:` map that is empty or
+    names an unknown role or action, a regex that is forbidden, uncompilable or
+    catastrophic, or a `PATTERN_PROFILE_DEFAULT` the policy does not define.
+    Also raised by `get_profile()` for an unknown name.
 
     Startup fails. There is no silent fallback to the built-in policy -- a
     deployment that thinks it is running its own list and is not is the failure
@@ -75,6 +78,18 @@ _SCOPES = ("everywhere", "outside_code")
 _TOP_LEVEL_KEYS = frozenset({"lists", "profiles"})
 _LIST_KEYS = frozenset({"match", "scope", "patterns"})
 _PROFILE_KEYS = frozenset({"lists", "roles"})
+
+#: The role vocabulary is `app.models.messages.Role` and nothing else -- this
+#: module introduces no second role literal (PRD-011 Section 6.2). A role added
+#: there is accepted in a `roles:` map here with no edit to this file.
+_ROLES = get_args(Role)
+_ACTIONS = ("block", "flag")
+
+#: What a profile does with a hit in a role it inspects: `block` refuses the
+#: request, `flag` audits it and lets it continue (PRD-011 Section 4). STORY-008's
+#: `PatternHit.action` carries the same two values -- note that
+#: `pattern_detector` cannot import this alias, because this module imports it.
+Action = Literal["block", "flag"]
 
 
 @dataclass(frozen=True)
@@ -112,16 +127,22 @@ class Profile:
     list name is a startup error and can never surface as a request-time
     `KeyError`.
 
-    `roles` is typed `Mapping[str, str]` only because this story does not
-    validate it. STORY-006 narrows it to
-    `Mapping[Role, Literal["block", "flag"]]`, adds the validation and makes an
-    empty map an error; `Role` comes from `app/models/messages.py` and this
-    module introduces no second role vocabulary.
+    `roles` is validated at load: every key must be a member of
+    `app.models.messages.Role` -- this module introduces no second role
+    vocabulary -- and every value `block` or `flag`. An empty map is a startup
+    error, not a profile that inspects nothing (PRD-011 Section 9.2, T5). It is
+    held as a plain `dict` in declared order; `frozen=True` stops it being
+    reassigned, not mutated, which is all PRD-011 Section 6.2 asks.
+
+    Under the built-in `code` profile, `system` is not inspected on purpose: it
+    is the client's own prompt, and the richest source of false positives
+    (STORY-011 demonstrates it). PRD-014 is where that cell may change -- see
+    the comment on the `code` profile in `_build_built_in()`.
     """
 
     name: str
     lists: tuple[PatternList, ...]
-    roles: Mapping[str, str]
+    roles: Mapping[Role, Action]
 
 
 @dataclass(frozen=True)
@@ -239,6 +260,26 @@ def get_policy() -> PatternPolicy:
     as `authz.ROLE_PERMISSIONS` stands on its own before `authz.load()` runs.
     """
     return _policy
+
+
+def get_profile(name: str) -> Profile:
+    """The named profile from the policy in force, or `PatternConfigError`.
+
+    Reads the loaded policy, not `BUILT_IN_POLICY`, and does no I/O -- it is on
+    STORY-008's request path, under the rule `get_policy()` follows. Raises the
+    same error type `load()` does (PRD-011 Section 10). In practice that only
+    happens for a call-site bug: `load()` has already proven
+    `PATTERN_PROFILE_DEFAULT` exists, and PRD-014's `"code"` is a literal.
+
+    Takes a name, never `None`: resolving "no profile passed" to the default is
+    `run_conversation`'s job (PRD-011 Section 6.6).
+    """
+    profiles = _policy.profiles
+    if name not in profiles:
+        raise PatternConfigError(
+            f"unknown pattern profile {name!r} (defined profiles: {_allowed(profiles)})"
+        )
+    return profiles[name]
 
 
 # --- Validation ------------------------------------------------------------
@@ -382,18 +423,59 @@ def _parse_lists(path: str, raw) -> dict[str, PatternList]:
     return lists
 
 
+def _parse_roles(path: str, where: str, raw) -> dict[Role, Action]:
+    # A bare `roles:` line with its entries forgotten parses to None. "Empty" is
+    # the true diagnosis of that slip, so it is reported as one rather than as
+    # a type error.
+    if raw is None or (isinstance(raw, Mapping) and not raw):
+        # PRD-011 Section 9.2, T5: a profile that inspects nothing must be
+        # written out, not arrived at -- and there is no way to write it out
+        # short of deleting the profile.
+        raise _fail(
+            path,
+            where,
+            "roles is empty (a profile must inspect at least one role; "
+            "a role absent from roles is not inspected)",
+        )
+    if not isinstance(raw, Mapping):
+        raise _fail(path, where, "roles must be a mapping of role to action")
+
+    # Declared order, first offender reported -- `_check_keys`'s `unknown[0]`.
+    # Exact match, no case folding: the vocabulary is exact, as `match` and
+    # `scope` are. A YAML key such as `yes:` arrives as a bool and is refused
+    # here like any other stranger, with its parsed value in the message.
+    for role, action in raw.items():
+        if role not in _ROLES:
+            raise _fail(
+                path,
+                where,
+                f"roles: unknown role {role!r} (expected one of: {_allowed(_ROLES)})",
+            )
+        if action not in _ACTIONS:
+            raise _fail(
+                path,
+                where,
+                f"roles: role {role!r} has unknown action {action!r} "
+                f"(expected one of: {_allowed(_ACTIONS)})",
+            )
+
+    return dict(raw)
+
+
 def _parse_profiles(path: str, raw, lists: Mapping[str, PatternList]) -> dict[str, Profile]:
-    """Profiles, as far as this story goes (PRD-011 STORY-005 vs STORY-006).
+    """Profiles, each checked in this order (PRD-011 Sections 6.2, 7/F4, 9.2 T5).
 
-    Checked here: the section exists and is a non-empty mapping, each profile
-    is a mapping, its keys are known, and every name in its `lists:` resolves
-    to a defined list -- resolved to objects at load, so an undefined name is a
-    startup error and never a request-time `KeyError` (PRD-011 Section 7/F4).
+    1. The section exists and is a non-empty mapping; each profile is a mapping.
+    2. Its keys are known, and both `lists` and `roles` are present.
+    3. `lists:` is a non-empty list, and every name in it resolves to a defined
+       list -- resolved to objects at load, so an undefined name is a startup
+       error and never a request-time `KeyError`.
+    4. `roles:` is a non-empty mapping, every key a member of
+       `app.models.messages.Role` and every value `block` or `flag`.
 
-    **Not checked here:** the contents of `roles:`. STORY-006 owns the role and
-    action vocabulary, the empty-`roles:` rule and `PATTERN_PROFILE_DEFAULT`'s
-    cross-check against the loaded profiles. The order of the checks below is
-    the order STORY-006 extends, not replaces.
+    `PATTERN_PROFILE_DEFAULT`'s cross-check is not here: it is a rule about the
+    whole policy, not one profile, and it must also run when no file is read at
+    all. `load()` owns it.
     """
     if not isinstance(raw, Mapping):
         raise _fail(path, "profiles", "must be a mapping of profile name to profile body")
@@ -408,7 +490,9 @@ def _parse_profiles(path: str, raw, lists: Mapping[str, PatternList]) -> dict[st
         if not isinstance(body, Mapping):
             raise _fail(path, where, "must be a mapping")
 
-        _check_keys(path, where, body, _PROFILE_KEYS, {"lists"})
+        # Both keys required: an absent `roles:` would otherwise be an empty
+        # map by another name, and T5 refuses that.
+        _check_keys(path, where, body, _PROFILE_KEYS, _PROFILE_KEYS)
 
         names = body["lists"]
         if isinstance(names, str) or not isinstance(names, (list, tuple)):
@@ -429,13 +513,26 @@ def _parse_profiles(path: str, raw, lists: Mapping[str, PatternList]) -> dict[st
         profiles[name] = Profile(
             name=name,
             lists=tuple(resolved),
-            # Stored, not validated -- STORY-006 AC 2 owns the role and action
-            # vocabulary and the empty-map rule. A profile with no `roles:` key
-            # is not an error *here*; it becomes one there.
-            roles=dict(body.get("roles") or {}),
+            roles=_parse_roles(path, where, body["roles"]),
         )
 
     return profiles
+
+
+def _check_default_profile(profiles: Mapping[str, Profile], source: str, note: str = "") -> None:
+    """`PATTERN_PROFILE_DEFAULT` must name a profile the policy defines (PRD-011 Section 9.3).
+
+    A cross-check between a setting and a file, which is why it lives here and
+    not in a pydantic validator: the file is not read when `Settings` is
+    constructed (`app/config.py`, at the field). Read at call time, never at
+    import, so a test's `monkeypatch.setattr(settings, ...)` is seen.
+    """
+    default = settings.PATTERN_PROFILE_DEFAULT
+    if default not in profiles:
+        raise PatternConfigError(
+            f"PATTERN_PROFILE_DEFAULT {default!r} names a profile {source} does not "
+            f"define (defined profiles: {_allowed(profiles)}){note}"
+        )
 
 
 def load() -> None:
@@ -461,13 +558,21 @@ def load() -> None:
     with no error. Detecting it needs a custom loader; if a second YAML config
     arrives (PRD-015), a shared strict loader is the place to fix it once.
 
-    `PATTERN_PROFILE_DEFAULT` is not cross-checked against the loaded profiles
-    here -- STORY-006 adds that, and `app/config.py` says so at the field.
+    `PATTERN_PROFILE_DEFAULT` is cross-checked against the profiles about to be
+    in force on **both** paths. With a file, after the profiles parse and
+    before `_policy` is rebound, so a bad default leaves the previous policy
+    intact like any other rule. With no file, against the built-in policy --
+    still reading no file -- because a boot that succeeds and then fails on the
+    first request that needs the default is exactly the request-time failure
+    PRD-011 Section 2 forbids.
     """
     global _policy
 
     path = settings.PATTERNS_FILE
     if not path:
+        _check_default_profile(
+            BUILT_IN_POLICY.profiles, "the built-in policy", "; PATTERNS_FILE is unset"
+        )
         return
 
     try:
@@ -489,5 +594,6 @@ def load() -> None:
 
     lists = _parse_lists(path, document["lists"])
     profiles = _parse_profiles(path, document["profiles"], lists)
+    _check_default_profile(profiles, f"PATTERNS_FILE '{path}'")
 
     _policy = PatternPolicy(lists=lists, profiles=profiles)
