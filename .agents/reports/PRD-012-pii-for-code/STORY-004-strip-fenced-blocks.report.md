@@ -3,7 +3,7 @@ story: STORY-004
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-004-strip-fenced-blocks.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: 3c68981
 status: COMPLETE
 completed: 2026-09-24
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-24
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-004-strip-fenced-blocks.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code` (BASE `0c841cf`, plan commit `b0bb393`)
-**Commit**: pending
+**Commit**: `3c68981`
 
 ## Summary
 

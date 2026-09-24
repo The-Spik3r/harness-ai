@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "2 - Primitives"
-status: in-progress
+status: done
 labels: [backend, refactor]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-004-strip-fenced-blocks.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-004-strip-fenced-blocks.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-004-strip-fenced-blocks.report.md
+commit: 3c68981
 depends_on: []
 blocks: [STORY-008]
 skills: []
