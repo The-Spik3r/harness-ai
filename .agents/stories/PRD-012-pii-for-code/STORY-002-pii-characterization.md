@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Measure and pin"
-status: in-progress
+status: done
 labels: [tests, pii, regression]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-002-pii-characterization.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-002-pii-characterization.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-002-pii-characterization.report.md
+commit: 5e93b18
 depends_on: []
 blocks: [STORY-009, STORY-014]
 skills: []
