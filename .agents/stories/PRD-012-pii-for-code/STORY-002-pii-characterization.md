@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Measure and pin"
-status: todo
+status: in-progress
 labels: [tests, pii, regression]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-002-pii-characterization.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-009, STORY-014]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # STORY-002: Characterize today's redact() and pipeline steps 6 and 8 before anything moves
