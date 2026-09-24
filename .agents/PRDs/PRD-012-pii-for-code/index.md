@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | PII corpora: code, prose and JSON samples as checked-in files | technical | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-001-pii-corpora.plan.md) | `beeb0b9` |
 | STORY-002 | Characterize today's redact() and pipeline steps 6 and 8 before anything moves | technical | ✅ done | small | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-002-pii-characterization.plan.md) | `5e93b18` |
-| STORY-003 | Benchmark harness, baseline numbers, pinned versions and tokenizer-only analyzer feasibility | spike | ⬜ todo | large | — | — |
+| STORY-003 | Benchmark harness, baseline numbers, pinned versions and tokenizer-only analyzer feasibility | spike | 🟡 in-progress | large | [plan](../../plans/PRD-012-pii-for-code/STORY-003-pii-benchmark-baseline.plan.md) | — |
 | STORY-004 | Extract strip_fenced_blocks; rebuild strip_code_spans on it | technical | ⬜ todo | small | — | — |
 | STORY-005 | Six PII code-profile settings with startup validators | technical | ⬜ todo | small | — | — |
 | STORY-006 | Pattern-only analyzer, selected by the entity list | feature | ⬜ todo | medium | — | — |

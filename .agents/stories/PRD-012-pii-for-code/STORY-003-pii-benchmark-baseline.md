@@ -7,17 +7,17 @@ type: spike
 priority: high
 complexity: large
 phase: "1 - Measure and pin"
-status: todo
+status: in-progress
 labels: [pii, performance, tooling]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-003-pii-benchmark-baseline.plan.md
 report: null
 commit: null
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-006, STORY-013]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # STORY-003: Benchmark harness, baseline numbers, pinned versions and tokenizer-only analyzer feasibility
