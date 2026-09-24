@@ -4,7 +4,12 @@
 `has_nested_quantifier` is the startup-time ReDoS heuristic that guards the
 `regex` mode (PRD-011 Section 9.2, T4), `strip_code_spans` implements the
 `outside_code` scope, and `inspect()` walks a conversation under one profile's
-role matrix. `pattern_config.py` compiles the policy at startup; the pipeline
+role matrix. `strip_fenced_blocks` is the fence pass of `strip_code_spans` on
+its own, public so PRD-012's personal-data masking can skip fenced blocks
+without also skipping inline spans (PRD-012 Section 6.5, STORY-004). The words
+are chosen: the dedup-isolation test (PRD-011 STORY-002, RF-6) holds this
+module to having no masking dependency by reading its source for the masking
+module's vocabulary. `pattern_config.py` compiles the policy at startup; the pipeline
 calls `inspect()` at step 5 of `run_conversation`.
 
 Pure on purpose: no I/O, no settings, no pydantic, no `app` import, nothing
@@ -127,7 +132,7 @@ def has_nested_quantifier(pattern: str) -> bool:
     return bool(_NESTED_QUANTIFIER.search(pattern))
 
 
-# --- PRD-011 STORY-003: code-span stripping --------------------------------
+# --- PRD-011 STORY-003 / PRD-012 STORY-004: code-span stripping ------------
 
 #: An opening code fence: up to three leading spaces (CommonMark's tolerance
 #: for an indented fence), then three or more backticks or tildes, then the
@@ -153,17 +158,67 @@ def _blank(text: str) -> str:
     return re.sub(r"[^\n]", "\n", text)
 
 
+def strip_fenced_blocks(text: str) -> str:
+    """`text` with fenced blocks blanked out and everything else, inline
+    backtick spans included, left as it is (PRD-012 Section 6.5, D2; F3).
+
+    The fence pass of strip_code_spans(), extracted unchanged. An opening
+    fence is three or more backticks or tildes at the start of a line (up to
+    three leading spaces), and the whole opening line, info string and all,
+    belongs to the block. Its closer is a run of the **same** character **at
+    least as long**, alone on its line -- so ``` does not close a ~~~ block,
+    and a ``` line inside a ````` block is content. An unterminated fence runs
+    to the end of the text.
+
+    Blanking, not deleting, exactly as in strip_code_spans(): every
+    non-newline character of a block becomes a newline, so
+    `len(strip_fenced_blocks(text)) == len(text)`, every newline stays at its
+    offset, and nothing but newlines is substituted. That is what lets PRD-012
+    STORY-008's masking step analyze the blanked text and replace spans in the
+    original: an offset into one is an offset into the other. The dependency
+    runs one way, from that module to here; this module still imports nothing
+    from `app`.
+
+    Inline spans are deliberately left alone. An inline span is where a person
+    points at an address ("send it to `ops@corp.com`"), not code a placeholder
+    could break, so skipping it would hide real personal data and buy nothing
+    (PRD-012 Section 6.5).
+
+    **The same heuristic as strip_code_spans(), not a code parser.** A
+    four-space-indented block is not recognised, and unfenced source gets no
+    protection from it at all; personal data inside a fence it does recognise
+    is exactly what it lets through (PRD-012 T2, Risk 1)."""
+    out = []
+    pos = 0
+    while True:
+        opening = _FENCE_OPEN.search(text, pos)
+        if opening is None:
+            out.append(text[pos:])
+            break
+        out.append(text[pos:opening.start()])
+        delimiter = opening.group(1)
+        closer = re.compile(
+            r"^ {0,3}" + re.escape(delimiter[0]) + r"{%d,}[ \t]*$" % len(delimiter),
+            re.MULTILINE,
+        )
+        closing = closer.search(text, opening.end())
+        end = closing.end() if closing else len(text)
+        out.append(_blank(text[opening.start():end]))
+        pos = end
+    return "".join(out)
+
+
 def strip_code_spans(text: str) -> str:
     """`text` with fenced blocks and inline backtick spans blanked out, for a
     list carrying `scope: outside_code` (PRD-011 Section 6.5, F2).
 
-    Two passes. Fences first: an opening fence is three or more backticks or
-    tildes at the start of a line, and its closer is a run of the **same**
-    character **at least as long**, alone on its line -- so ``` does not close
-    a ~~~ block, and a ``` line inside a ````` block is content. An
-    unterminated fence runs to the end of the text. Inline spans second, over
-    the already-blanked text, which is why a backtick inside a fenced block
-    can never open one.
+    Two passes. Fences first, by strip_fenced_blocks(): an opening fence is
+    three or more backticks or tildes at the start of a line, and its closer
+    is a run of the **same** character **at least as long**, alone on its
+    line -- so ``` does not close a ~~~ block, and a ``` line inside a `````
+    block is content. An unterminated fence runs to the end of the text.
+    Inline spans second, over the already-blanked text, which is why a
+    backtick inside a fenced block can never open one.
 
     Blanking, not deleting: every non-newline character of the span becomes a
     newline, so `len(strip_code_spans(text)) == len(text)` and a match offset
@@ -193,27 +248,9 @@ def strip_code_spans(text: str) -> str:
     requested, not once per pattern** (PRD-011 Section 7/F2 and Risk 8). That
     budget cannot be enforced from here: this function has no view of the
     message walk, so it is the caller's to keep, and `inspect()` keeps it."""
-    out = []
-    pos = 0
-    while True:
-        opening = _FENCE_OPEN.search(text, pos)
-        if opening is None:
-            out.append(text[pos:])
-            break
-        out.append(text[pos:opening.start()])
-        delimiter = opening.group(1)
-        closer = re.compile(
-            r"^ {0,3}" + re.escape(delimiter[0]) + r"{%d,}[ \t]*$" % len(delimiter),
-            re.MULTILINE,
-        )
-        closing = closer.search(text, opening.end())
-        end = closing.end() if closing else len(text)
-        out.append(_blank(text[opening.start():end]))
-        pos = end
-
     # Second, and only now: a backtick inside a fenced block has already
     # become a newline, so it cannot open a span across unrelated text.
-    return _INLINE_SPAN.sub(lambda span: _blank(span.group(0)), "".join(out))
+    return _INLINE_SPAN.sub(lambda span: _blank(span.group(0)), strip_fenced_blocks(text))
 
 
 # --- PRD-011 STORY-008: the conversation walk ------------------------------
