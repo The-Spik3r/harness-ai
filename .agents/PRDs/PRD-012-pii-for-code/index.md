@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/14 stories done — 0%
+1/14 stories done — 7%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | PII corpora: code, prose and JSON samples as checked-in files | technical | 🟡 in-progress | medium | [plan](../../plans/PRD-012-pii-for-code/STORY-001-pii-corpora.plan.md) | — |
+| STORY-001 | PII corpora: code, prose and JSON samples as checked-in files | technical | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-001-pii-corpora.plan.md) | `beeb0b9` |
 | STORY-002 | Characterize today's redact() and pipeline steps 6 and 8 before anything moves | technical | ⬜ todo | small | — | — |
 | STORY-003 | Benchmark harness, baseline numbers, pinned versions and tokenizer-only analyzer feasibility | spike | ⬜ todo | large | — | — |
 | STORY-004 | Extract strip_fenced_blocks; rebuild strip_code_spans on it | technical | ⬜ todo | small | — | — |

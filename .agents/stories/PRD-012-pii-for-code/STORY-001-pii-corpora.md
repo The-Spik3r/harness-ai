@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "1 - Measure and pin"
-status: in-progress
+status: done
 labels: [tests, pii, corpus]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-001-pii-corpora.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-001-pii-corpora.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-001-pii-corpora.report.md
+commit: beeb0b9
 depends_on: []
 blocks: [STORY-003, STORY-008, STORY-013]
 skills: []
