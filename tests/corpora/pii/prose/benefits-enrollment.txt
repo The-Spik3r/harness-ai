@@ -1,0 +1,25 @@
+# expect: PERSON, US_SSN, PHONE_NUMBER
+Hi, I am filling in the benefits enrollment for my new job and the portal
+keeps rejecting my form, so I am typing the details here instead. Can you
+check what is wrong?
+
+Full name: Priya Raghunathan
+Start date: March 2, 2026
+Plan: family medical, dental, vision
+
+My social security number is 219-09-9999. The portal says it is invalid but
+it is the one on my card.
+
+Dependents:
+- Spouse: Tomás Herrera
+- Child: none yet, but we are expecting in the summer, so please tell me how
+  to add a newborn later.
+
+Emergency contact is my spouse, Tomás Herrera, mobile phone +1 415 555 0182.
+My own cell is (415) 555-0199 if you need to call me about the form.
+
+I also have an old HSA from my previous employer. Can it be rolled over, or do
+I need to open a new one?
+
+Thanks,
+Priya Raghunathan

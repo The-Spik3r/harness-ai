@@ -1,0 +1,551 @@
+{
+  "tool": "crm.search_contacts",
+  "query": {
+    "text": "billing dispute OR refund",
+    "region": "US",
+    "limit": 25,
+    "include_inactive": false
+  },
+  "total": 24,
+  "took_ms": 42,
+  "truncated": false,
+  "results": [
+    {
+      "id": 7,
+      "name": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "phone": 14155550134,
+      "company": "Doe & Partners",
+      "address": {
+        "city": "San Francisco",
+        "region": "CA",
+        "country": "US",
+        "geo": {
+          "lat": 37.0,
+          "lon": -122.0
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 0,
+      "lifetime_value": 1200.0,
+      "marketing_opt_in": true,
+      "tags": [
+        "vip"
+      ],
+      "last_contacted": "2026-03-01T15:00:00Z"
+    },
+    {
+      "id": 8,
+      "name": "Patrick O'Brien",
+      "email": "patrick.obrien@example.org",
+      "phone": 14155550172,
+      "company": "O'Brien & Partners",
+      "address": {
+        "city": "Oakland",
+        "region": "CA",
+        "country": "US",
+        "geo": {
+          "lat": 37.137,
+          "lon": -120.09
+        }
+      },
+      "tier": "team",
+      "open_tickets": 1,
+      "lifetime_value": 1517.25,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": "2026-03-02T15:01:00Z"
+    },
+    {
+      "id": 9,
+      "name": "Maria Lopez",
+      "email": "maria.lopez@example.com",
+      "phone": 12125550147,
+      "company": "Lopez & Partners",
+      "address": {
+        "city": "New York",
+        "region": "NY",
+        "country": "US",
+        "geo": {
+          "lat": 37.274,
+          "lon": -118.18
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 2,
+      "lifetime_value": 1834.5,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-03T15:02:00Z"
+    },
+    {
+      "id": 10,
+      "name": "Priya Raghunathan",
+      "email": "priya.raghunathan@example.org",
+      "phone": 14155550199,
+      "company": null,
+      "address": {
+        "city": "San Jose",
+        "region": "CA",
+        "country": "US",
+        "geo": {
+          "lat": 37.411,
+          "lon": -116.27
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 3,
+      "lifetime_value": 2151.75,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": "2026-03-04T15:03:00Z"
+    },
+    {
+      "id": 11,
+      "name": "Kenji Watanabe",
+      "email": "kenji.watanabe@example.org",
+      "phone": 16465550118,
+      "company": "Watanabe & Partners",
+      "address": {
+        "city": "Brooklyn",
+        "region": "NY",
+        "country": "US",
+        "geo": {
+          "lat": 37.548,
+          "lon": -114.36
+        }
+      },
+      "tier": "team",
+      "open_tickets": 0,
+      "lifetime_value": 2469.0,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-05T15:04:00Z"
+    },
+    {
+      "id": 12,
+      "name": "Aisha Bello",
+      "email": "aisha.bello@example.com",
+      "phone": 12125550163,
+      "company": "Bello & Partners",
+      "address": {
+        "city": "Jersey City",
+        "region": "NJ",
+        "country": "US",
+        "geo": {
+          "lat": 37.685,
+          "lon": -112.45
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 1,
+      "lifetime_value": 2786.25,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": null
+    },
+    {
+      "id": 13,
+      "name": "Tomás Herrera",
+      "email": "tomas.herrera@example.com",
+      "phone": 14155550182,
+      "company": "Herrera & Partners",
+      "address": {
+        "city": "Berkeley",
+        "region": "CA",
+        "country": "US",
+        "geo": {
+          "lat": 37.822,
+          "lon": -110.54
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 2,
+      "lifetime_value": 3103.5,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-07T15:06:00Z"
+    },
+    {
+      "id": 14,
+      "name": "Zoë Müller-Schmidt",
+      "email": "zoe.mueller-schmidt@example.org",
+      "phone": 12125550181,
+      "company": "Müller-Schmidt & Partners",
+      "address": {
+        "city": "Hoboken",
+        "region": "NJ",
+        "country": "US",
+        "geo": {
+          "lat": 37.959,
+          "lon": -108.63
+        }
+      },
+      "tier": "team",
+      "open_tickets": 3,
+      "lifetime_value": 3420.75,
+      "marketing_opt_in": false,
+      "tags": [
+        "vip"
+      ],
+      "last_contacted": "2026-03-08T15:07:00Z"
+    },
+    {
+      "id": 15,
+      "name": "Daniel Okafor",
+      "email": "daniel.okafor@example.com",
+      "phone": 13125550104,
+      "company": null,
+      "address": {
+        "city": "Chicago",
+        "region": "IL",
+        "country": "US",
+        "geo": {
+          "lat": 38.096,
+          "lon": -106.72
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 0,
+      "lifetime_value": 3738.0,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-09T15:08:00Z"
+    },
+    {
+      "id": 16,
+      "name": "Ingrid Larsen",
+      "email": "ingrid.larsen@example.org",
+      "phone": 13125550111,
+      "company": "Larsen & Partners",
+      "address": {
+        "city": "Evanston",
+        "region": "IL",
+        "country": "US",
+        "geo": {
+          "lat": 38.233,
+          "lon": -104.81
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 1,
+      "lifetime_value": 4055.25,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": "2026-03-10T15:09:00Z"
+    },
+    {
+      "id": 17,
+      "name": "Samuel Whitaker",
+      "email": "samuel.whitaker@example.com",
+      "phone": 16175550125,
+      "company": "Whitaker & Partners",
+      "address": {
+        "city": "Boston",
+        "region": "MA",
+        "country": "US",
+        "geo": {
+          "lat": 38.37,
+          "lon": -102.9
+        }
+      },
+      "tier": "team",
+      "open_tickets": 2,
+      "lifetime_value": 4372.5,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-11T15:10:00Z"
+    },
+    {
+      "id": 18,
+      "name": "Lucía Fernández",
+      "email": "lucia.fernandez@example.org",
+      "phone": 13055550139,
+      "company": "Fernández & Partners",
+      "address": {
+        "city": "Miami",
+        "region": "FL",
+        "country": "US",
+        "geo": {
+          "lat": 38.507,
+          "lon": -100.99
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 3,
+      "lifetime_value": 4689.75,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": null
+    },
+    {
+      "id": 19,
+      "name": "Wei Zhang",
+      "email": "wei.zhang@example.com",
+      "phone": 12065550142,
+      "company": "Zhang & Partners",
+      "address": {
+        "city": "Seattle",
+        "region": "WA",
+        "country": "US",
+        "geo": {
+          "lat": 38.644,
+          "lon": -99.08
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 0,
+      "lifetime_value": 5007.0,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-13T15:12:00Z"
+    },
+    {
+      "id": 20,
+      "name": "Fatima Haddad",
+      "email": "fatima.haddad@example.org",
+      "phone": 17135550156,
+      "company": null,
+      "address": {
+        "city": "Houston",
+        "region": "TX",
+        "country": "US",
+        "geo": {
+          "lat": 38.781,
+          "lon": -97.17
+        }
+      },
+      "tier": "team",
+      "open_tickets": 1,
+      "lifetime_value": 5324.25,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": "2026-03-14T15:13:00Z"
+    },
+    {
+      "id": 21,
+      "name": "Oliver Bennett",
+      "email": "oliver.bennett@example.com",
+      "phone": 15035550161,
+      "company": "Bennett & Partners",
+      "address": {
+        "city": "Portland",
+        "region": "OR",
+        "country": "US",
+        "geo": {
+          "lat": 38.918,
+          "lon": -95.26
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 2,
+      "lifetime_value": 5641.5,
+      "marketing_opt_in": true,
+      "tags": [
+        "vip"
+      ],
+      "last_contacted": "2026-03-15T15:14:00Z"
+    },
+    {
+      "id": 22,
+      "name": "Hannah Kowalski",
+      "email": "hannah.kowalski@example.org",
+      "phone": 14145550177,
+      "company": "Kowalski & Partners",
+      "address": {
+        "city": "Milwaukee",
+        "region": "WI",
+        "country": "US",
+        "geo": {
+          "lat": 39.055,
+          "lon": -93.35
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 3,
+      "lifetime_value": 5958.75,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": "2026-03-16T15:15:00Z"
+    },
+    {
+      "id": 23,
+      "name": "Rahul Mehta",
+      "email": "rahul.mehta@example.com",
+      "phone": 15125550185,
+      "company": "Mehta & Partners",
+      "address": {
+        "city": "Austin",
+        "region": "TX",
+        "country": "US",
+        "geo": {
+          "lat": 39.192,
+          "lon": -91.44
+        }
+      },
+      "tier": "team",
+      "open_tickets": 0,
+      "lifetime_value": 6276.0,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-17T15:16:00Z"
+    },
+    {
+      "id": 24,
+      "name": "Grace Adeyemi",
+      "email": "grace.adeyemi@example.org",
+      "phone": 14045550190,
+      "company": "Adeyemi & Partners",
+      "address": {
+        "city": "Atlanta",
+        "region": "GA",
+        "country": "US",
+        "geo": {
+          "lat": 39.329,
+          "lon": -89.53
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 1,
+      "lifetime_value": 6593.25,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": null
+    },
+    {
+      "id": 25,
+      "name": "Mateo Rossi",
+      "email": "mateo.rossi@example.com",
+      "phone": 13035550107,
+      "company": null,
+      "address": {
+        "city": "Denver",
+        "region": "CO",
+        "country": "US",
+        "geo": {
+          "lat": 39.466,
+          "lon": -87.62
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 2,
+      "lifetime_value": 6910.5,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-19T15:18:00Z"
+    },
+    {
+      "id": 26,
+      "name": "Chloe Martin",
+      "email": "chloe.martin@example.org",
+      "phone": 16125550113,
+      "company": "Martin & Partners",
+      "address": {
+        "city": "Minneapolis",
+        "region": "MN",
+        "country": "US",
+        "geo": {
+          "lat": 39.603,
+          "lon": -85.71
+        }
+      },
+      "tier": "team",
+      "open_tickets": 3,
+      "lifetime_value": 7227.75,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": "2026-03-20T15:19:00Z"
+    },
+    {
+      "id": 27,
+      "name": "Yusuf Demir",
+      "email": "yusuf.demir@example.com",
+      "phone": 12155550128,
+      "company": "Demir & Partners",
+      "address": {
+        "city": "Philadelphia",
+        "region": "PA",
+        "country": "US",
+        "geo": {
+          "lat": 39.74,
+          "lon": -83.8
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 0,
+      "lifetime_value": 7545.0,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-21T15:20:00Z"
+    },
+    {
+      "id": 28,
+      "name": "Emily Nguyen",
+      "email": "emily.nguyen@example.org",
+      "phone": 17025550145,
+      "company": "Nguyen & Partners",
+      "address": {
+        "city": "Las Vegas",
+        "region": "NV",
+        "country": "US",
+        "geo": {
+          "lat": 39.877,
+          "lon": -81.89
+        }
+      },
+      "tier": "enterprise",
+      "open_tickets": 1,
+      "lifetime_value": 7862.25,
+      "marketing_opt_in": false,
+      "tags": [
+        "vip"
+      ],
+      "last_contacted": "2026-03-22T15:21:00Z"
+    },
+    {
+      "id": 29,
+      "name": "Sean Gallagher",
+      "email": "sean.gallagher@example.com",
+      "phone": 16175550153,
+      "company": "Gallagher & Partners",
+      "address": {
+        "city": "Cambridge",
+        "region": "MA",
+        "country": "US",
+        "geo": {
+          "lat": 40.014,
+          "lon": -79.98
+        }
+      },
+      "tier": "team",
+      "open_tickets": 2,
+      "lifetime_value": 8179.5,
+      "marketing_opt_in": true,
+      "tags": [],
+      "last_contacted": "2026-03-23T15:22:00Z"
+    },
+    {
+      "id": 30,
+      "name": "Nadia Petrova",
+      "email": "nadia.petrova@example.org",
+      "phone": 12065550168,
+      "company": null,
+      "address": {
+        "city": "Bellevue",
+        "region": "WA",
+        "country": "US",
+        "geo": {
+          "lat": 40.151,
+          "lon": -78.07
+        }
+      },
+      "tier": "starter",
+      "open_tickets": 3,
+      "lifetime_value": 8496.75,
+      "marketing_opt_in": false,
+      "tags": [],
+      "last_contacted": null
+    }
+  ],
+  "next_cursor": null
+}

@@ -1,0 +1,23 @@
+# expect: IBAN_CODE, EMAIL_ADDRESS, PERSON
+Hello HR team,
+
+I am moving my salary to a new bank account starting with the April payroll.
+My new account is with a UK bank and the IBAN is GB82 WEST 1234 5698 7654 32.
+The account is in my name, Patrick O'Brien, exactly as it appears on my
+employment contract.
+
+Please stop paying into my old German account, DE89 3704 0044 0532 0130 00,
+after the March run. I have kept it open until the end of April just in case
+anything is paid late.
+
+If you need a signed form, send it to patrick.obrien@example.org and I will
+return it the same day. My manager, Jane Doe, has already approved the change
+and is copied here (jane.doe@example.com).
+
+One more thing: my expense reimbursements should go to the new account too.
+Last time I changed banks, expenses kept going to the old one for two months
+and Priya Raghunathan in finance had to chase them manually.
+
+Thanks for your help,
+Patrick O'Brien
+Support Lead

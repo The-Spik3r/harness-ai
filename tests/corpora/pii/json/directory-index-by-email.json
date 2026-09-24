@@ -1,0 +1,110 @@
+{
+  "jane.doe@example.com": {
+    "displayName": "Jane Doe",
+    "title": "Engineering Manager",
+    "manager": null,
+    "reports": ["patrick.obrien@example.org", "priya.raghunathan@example.org", "tomas.herrera@example.com"],
+    "mobile": "+1 415 555 0134",
+    "office": {
+      "site": "SF-2",
+      "floor": 4,
+      "desk": "4-117"
+    },
+    "active": true
+  },
+  "patrick.obrien@example.org": {
+    "displayName": "Patrick O'Brien",
+    "title": "Support Lead",
+    "manager": "jane.doe@example.com",
+    "reports": ["kenji.watanabe@example.org"],
+    "mobile": "(415) 555-0172",
+    "office": {
+      "site": "OAK-1",
+      "floor": 2,
+      "desk": "2-031"
+    },
+    "active": true
+  },
+  "priya.raghunathan@example.org": {
+    "displayName": "Priya Raghunathan",
+    "title": "Finance Analyst",
+    "manager": "jane.doe@example.com",
+    "reports": [],
+    "mobile": "415.555.0199",
+    "office": {
+      "site": "SF-2",
+      "floor": 3,
+      "desk": "3-044"
+    },
+    "active": true,
+    "delegate": "kenji.watanabe@example.org"
+  },
+  "tomas.herrera@example.com": {
+    "displayName": "Tomás Herrera",
+    "title": "Platform Engineer",
+    "manager": "jane.doe@example.com",
+    "reports": [],
+    "mobile": "+1-415-555-0182",
+    "office": null,
+    "active": true
+  },
+  "kenji.watanabe@example.org": {
+    "displayName": "Kenji Watanabe",
+    "title": "Tier 2 Support",
+    "manager": "patrick.obrien@example.org",
+    "reports": [],
+    "mobile": "+1 646 555 0118",
+    "office": {
+      "site": "NYC-1",
+      "floor": 11,
+      "desk": "11-208"
+    },
+    "active": true
+  },
+  "maria.lopez@example.com": {
+    "displayName": "Maria Lopez",
+    "title": "Billing Specialist",
+    "manager": "aisha.bello@example.com",
+    "reports": [],
+    "mobile": "(212) 555-0147",
+    "office": {
+      "site": "NYC-1",
+      "floor": 9,
+      "desk": "9-012"
+    },
+    "active": false,
+    "forwardTo": "support@example.com"
+  },
+  "aisha.bello@example.com": {
+    "displayName": "Aisha Bello",
+    "title": "Operations Director",
+    "manager": null,
+    "reports": ["maria.lopez@example.com"],
+    "mobile": "+1-212-555-0163",
+    "office": {
+      "site": "NYC-1",
+      "floor": 12,
+      "desk": "12-001"
+    },
+    "active": true
+  },
+  "zoe.mueller-schmidt@example.org": {
+    "displayName": "Zoë Müller-Schmidt",
+    "title": "Data Protection Officer",
+    "manager": null,
+    "reports": [],
+    "mobile": "+1 212 555 0181",
+    "office": {
+      "site": "BER-1",
+      "floor": 1,
+      "desk": "1-100"
+    },
+    "active": true
+  },
+  "_meta": {
+    "source": "directory.export_by_email",
+    "generatedAt": "2026-03-14T09:30:00Z",
+    "count": 8,
+    "keyedBy": "primary email address"
+  }
+}
