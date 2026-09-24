@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "2 - Primitives"
-status: todo
+status: in-progress
 labels: [backend, refactor]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-004-strip-fenced-blocks.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-008]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # STORY-004: Extract strip_fenced_blocks; rebuild strip_code_spans on it
