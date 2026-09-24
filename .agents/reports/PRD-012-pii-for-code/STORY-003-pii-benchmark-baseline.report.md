@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-003-pii-benchmark-baseline.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: ddf6596
 status: COMPLETE
 completed: 2026-09-24
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-24
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-003-pii-benchmark-baseline.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code` (BASE `d0b1739`, plan commit `7363fe8`)
-**Commit**: pending
+**Commit**: `ddf6596`
 
 ## Summary
 

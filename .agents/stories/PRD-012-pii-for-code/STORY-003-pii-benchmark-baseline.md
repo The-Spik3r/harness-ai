@@ -7,12 +7,12 @@ type: spike
 priority: high
 complexity: large
 phase: "1 - Measure and pin"
-status: in-progress
+status: done
 labels: [pii, performance, tooling]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-003-pii-benchmark-baseline.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-003-pii-benchmark-baseline.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-003-pii-benchmark-baseline.report.md
+commit: ddf6596
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-006, STORY-013]
 skills: []
