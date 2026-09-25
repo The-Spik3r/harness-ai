@@ -7,12 +7,12 @@ type: spike
 priority: medium
 complexity: medium
 phase: "4 - Decide and prove"
-status: in-progress
+status: done
 labels: [pii, research, decision]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-012-placeholder-spike.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-012-placeholder-spike.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-012-placeholder-spike.report.md
+commit: 970f16a
 depends_on: [STORY-009]
 blocks: [STORY-014]
 skills: []

@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-012-placeholder-spike.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: 970f16a
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-012-placeholder-spike.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code`
-**Commit**: `pending` (recorded in the story frontmatter by the follow-up chore commit)
+**Commit**: `970f16a`
 
 ## Summary
 
