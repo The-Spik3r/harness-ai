@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policy into the pipeline"
-status: in-progress
+status: done
 labels: [backend, pii, security, api]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-010-redaction-size-limit.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-010-redaction-size-limit.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-010-redaction-size-limit.report.md
+commit: 46c88b6
 depends_on: [STORY-009]
 blocks: [STORY-011]
 skills: []

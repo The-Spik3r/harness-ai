@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-010-redaction-size-limit.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: 46c88b6
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-010-redaction-size-limit.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code`
-**Commit**: `pending`
+**Commit**: `46c88b6`
 
 ## Summary
 

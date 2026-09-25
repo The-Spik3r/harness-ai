@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/14 stories done — 64%
+10/14 stories done — 71%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 | STORY-007 | pii_policy: built-in chat and code policies, profile fallback, load() in both lifespans | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-007-pii-policy.plan.md) | `50ef312` |
 | STORY-008 | redact_for_policy: fence skipping, structure-safe replacement, JSON-aware mode | feature | ✅ done | large | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-008-redact-for-policy.plan.md) | `df74e9b` |
 | STORY-009 | Pipeline steps 6 and 8 redact per the resolved policy | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-009-pipeline-pii-per-policy.plan.md) | `cb78cac` |
-| STORY-010 | Size limit and the redaction_characters refusal arm | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-012-pii-for-code/STORY-010-redaction-size-limit.plan.md) | — |
+| STORY-010 | Size limit and the redaction_characters refusal arm | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-010-redaction-size-limit.plan.md) | `46c88b6` |
 | STORY-011 | audit_logs.profile on every arm; /audit and the Register show it | feature | ⬜ todo | medium | — | — |
 | STORY-012 | Placeholder spike and decisions/D5-placeholders.md | spike | ⬜ todo | medium | — | — |
 | STORY-013 | Code round-trip suite and the latency-budget assertion | technical | ⬜ todo | medium | — | — |
