@@ -208,10 +208,11 @@ class Settings(BaseSettings):
     # becomes its consumer.
 
     # Presidio entity types detected under `code`. Pattern recognizers only
-    # (D7): with no NER type in the list, the tokenizer-only analyzer is used.
-    # PERSON stays out by STORY-003's rule R4 -- it needs en_core_web_lg, which
-    # is 7x over the latency budget. Consumed by STORY-006 (analyzer choice) and
-    # STORY-007 (the `code` policy).
+    # (D7): with no NER type in the list (pii_redactor._NER_ENTITY_TYPES:
+    # PERSON, LOCATION, ORGANIZATION, NRP, DATE_TIME), the tokenizer-only
+    # analyzer is used. PERSON stays out by STORY-003's rule R4 -- it needs
+    # en_core_web_lg, which is 7x over the latency budget. Consumed by STORY-006
+    # (analyzer choice) and STORY-007 (the `code` policy).
     PII_ENTITIES_CODE: str = "EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE"
 
     # Minimum Presidio confidence to mask an entity under `code` (D6). 0.40 is
