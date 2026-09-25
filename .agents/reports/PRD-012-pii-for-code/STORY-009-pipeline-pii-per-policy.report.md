@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-009-pipeline-pii-per-policy.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: cb78cac
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-009-pipeline-pii-per-policy.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code`
-**Commit**: `pending`
+**Commit**: `cb78cac`
 
 ## Summary
 

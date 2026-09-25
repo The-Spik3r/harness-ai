@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policy into the pipeline"
-status: in-progress
+status: done
 labels: [backend, pii, pipeline]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-009-pipeline-pii-per-policy.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-009-pipeline-pii-per-policy.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-009-pipeline-pii-per-policy.report.md
+commit: cb78cac
 depends_on: [STORY-002, STORY-007, STORY-008]
 blocks: [STORY-010, STORY-012, STORY-013]
 skills: []
