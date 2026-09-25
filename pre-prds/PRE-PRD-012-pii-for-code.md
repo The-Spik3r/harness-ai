@@ -2,8 +2,8 @@
 target_prd: PRD-012
 slug: pii-for-code
 title: PII redaction for code and large contexts
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-012-pii-for-code/PRD.md
 depends_on: [PRD-010]
 blocks: [PRD-014]
 estimated_stories: 12-14

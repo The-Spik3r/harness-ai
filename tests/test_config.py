@@ -864,3 +864,75 @@ def test_existing_pii_settings_gained_no_validation():
 
     assert result.pii_entities_list == ["NOT_A_TYPE"]
     assert result.PII_SCORE_THRESHOLD == 5
+
+
+# --- PRD-012 STORY-014: .env.example documents the six PII code settings -----
+#
+# STORY-005 left `.env.example` to this story. The six are documented in their
+# own group, in field order, with the defaults the fields carry; and the four
+# existing PII_* comments now say which profile each one governs (plan D3).
+
+_EXISTING_PII_VARS = ("PII_REDACTION_ENABLED", "PII_SCORE_THRESHOLD", "PII_ENTITIES", "PII_NLP_MODEL")
+
+
+def _env_example_value(text: str, var: str) -> str:
+    match = re.search(rf"(?m)^{var}=(.*)$", text)
+    assert match, f"{var} is not assigned in .env.example"
+    return match.group(1).strip()
+
+
+def test_env_example_documents_every_pii_code_var_with_a_comment():
+    """PRD-012 STORY-014 AC 4: all six present, each with an explanation above it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _PII_CODE_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_pii_code_vars_appear_in_settings_field_order():
+    """PRD-012 STORY-014 AC 4. The order is read from `Settings.model_fields`,
+    not from a literal, so a field moved in `app/config.py` moves the
+    expectation with it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [name for name in Settings.model_fields if name in _PII_CODE_VARS]
+
+    assert sorted(declared_order) == sorted(_PII_CODE_VARS)
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_pii_code_defaults_match_settings():
+    """PRD-012 STORY-014 AC 4's "with defaults", compared against the fields.
+
+    Read as the strings a `.env` supplies: `200000` there is `200_000` in the
+    field, and booleans are lowercase.
+    """
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _PII_CODE_VARS}
+
+    assert _env_example_value(text, "PII_ENTITIES_CODE") == defaults["PII_ENTITIES_CODE"]
+    assert float(_env_example_value(text, "PII_SCORE_THRESHOLD_CODE")) == defaults["PII_SCORE_THRESHOLD_CODE"]
+    assert int(_env_example_value(text, "PII_MAX_CHARACTERS_CODE")) == defaults["PII_MAX_CHARACTERS_CODE"]
+    for var in ("PII_CODE_REDACT_OUTPUT", "PII_CODE_REDACT_SYSTEM", "PII_CODE_SKIP_CODE_BLOCKS"):
+        assert _env_example_value(text, var) == str(defaults[var]).lower()
+
+
+def test_env_example_existing_pii_comments_name_their_profile():
+    """PRD-012 STORY-014 AC 4: the four existing PII_* settings say they apply
+    to `chat`.
+
+    Asserted on substance rather than on an exact sentence, so rewording stays
+    a docs change. The master switch must also name `code`: it turns off every
+    profile, and a comment reading "chat" alone would say `code` cannot be
+    switched off (plan D3).
+    """
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _EXISTING_PII_VARS:
+        comment = re.search(rf"(?m)((?:^#.*\n)+){var}=", text)
+        assert comment, f"{var} has no comment block above it"
+        block = comment.group(1).lower()
+        assert "chat" in block, f"{var}'s comment does not say it applies to the chat profile"
+        if var == "PII_REDACTION_ENABLED":
+            assert "code" in block, "PII_REDACTION_ENABLED's comment must say it also governs code"

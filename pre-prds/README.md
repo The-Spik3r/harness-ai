@@ -15,7 +15,7 @@ The README roadmap lists an [OpenAI-compatible endpoint](../README.md#openai-com
 | 1 | [Duplicate detection rescoping](./PRE-PRD-009-duplicate-rescoping.md) | [PRD-009](../.agents/PRDs/PRD-009-duplicate-rescoping/PRD.md) | 8–10 | — | `promoted` |
 | 2 | [Multi-turn pipeline](./PRE-PRD-010-multi-turn-pipeline.md) | [PRD-010](../.agents/PRDs/PRD-010-multi-turn-pipeline/PRD.md) | 16–20 | 009 | `promoted` |
 | 3 | [Pattern policy per role](./PRE-PRD-011-pattern-policy.md) | [PRD-011](../.agents/PRDs/PRD-011-pattern-policy/PRD.md) | 10–12 | 010 | `promoted` |
-| 3 | [PII redaction for code](./PRE-PRD-012-pii-for-code.md) | PRD-012 | 12–14 | 010 | `draft` |
+| 3 | [PII redaction for code](./PRE-PRD-012-pii-for-code.md) | [PRD-012](../.agents/PRDs/PRD-012-pii-for-code/PRD.md) | 12–14 | 010 | `promoted` |
 | 3 | [Audit & usage limits](./PRE-PRD-013-audit-and-usage-limits.md) | PRD-013 | 16–18 | 010 | `draft` |
 | 4 | [OpenAI-compatible endpoint (text)](./PRE-PRD-014-openai-compatible-endpoint.md) | PRD-014 | 14–16 | 011, 012, 013 | `draft` |
 | 4 | [Action policy rules](./PRE-PRD-015-action-policy-rules.md) | PRD-015 | 12–15 | 011 | `draft` |
