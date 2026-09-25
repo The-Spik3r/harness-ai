@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Primitives"
-status: todo
+status: in-progress
 labels: [backend, pii, config]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-007-pii-policy.plan.md
 report: null
 commit: null
 depends_on: [STORY-005]
 blocks: [STORY-008, STORY-009]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-007: pii_policy: built-in chat and code policies, profile fallback, load() in both lifespans
