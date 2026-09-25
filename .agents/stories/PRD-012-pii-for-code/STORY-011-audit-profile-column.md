@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "3 - Policy into the pipeline"
-status: todo
+status: done
 labels: [backend, audit, database, admin]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-011-audit-profile-column.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-011-audit-profile-column.report.md
+commit: faaa4be
 depends_on: [STORY-010]
 blocks: [STORY-014]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-011: audit_logs.profile on every arm; /audit and the Register show it
