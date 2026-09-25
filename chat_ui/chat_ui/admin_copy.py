@@ -276,6 +276,10 @@ DETAIL_PATTERN_LABEL = "Matched pattern"
 DETAIL_PATTERN_ROLE_LABEL = "Matched in"
 DETAIL_PATTERN_ACTION_LABEL = "Pattern action"
 DETAIL_DEVICE_LABEL = "User agent"
+# PRD-012 D9: the profile that ran, shown as recorded (`chat`, `code`, ...).
+# It qualifies the PII lines below it: under `code`, "PII in response" absent
+# means the response was not analyzed, not that it was clean.
+DETAIL_PROFILE_LABEL = "Profile"
 # Shown combined as PII_INDICATOR_LABEL in the row, split here.
 DETAIL_PII_ENTITIES_LABEL = "PII types"
 DETAIL_PII_INPUT_LABEL = "PII in prompt"

@@ -175,6 +175,11 @@ def _deny(
     # for that path (PRD-009 Risk 6). The name shadows the imported dedup_key()
     # inside this helper, harmlessly -- it only passes the value on.
     dedup_key: Optional[str],
+    # Required for the same reason as session_id and dedup_key: a forgotten
+    # arm is a TypeError, not a NULL that makes a `code` row's
+    # pii_detected_output = 0 read as clean (PRD-012 D9). `str`, not Optional:
+    # after run_conversation's resolution it is never None.
+    profile: str,
     exc: PermissionDenied,
     reason: str,
 ) -> QueryBlockedForbiddenResponse:
@@ -187,6 +192,7 @@ def _deny(
         denied_permission=exc.permission,
         session_id=session_id,
         dedup_key=dedup_key,
+        profile=profile,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -214,6 +220,13 @@ def run_conversation(
     # Guaranteed by validation: the last message is always role == "user".
     prompt = messages[-1].content
 
+    # The profile name, resolved once, here, because every row this function
+    # writes records it -- the forbidden arms included (PRD-012 D9). It is a
+    # pure function of the argument and one setting, so resolving it before
+    # authorization cannot change the check order: the same argument step 1
+    # makes for the key. Step 5 looks the name up; step 6 reads its policy.
+    profile_name = profile if profile is not None else settings.PATTERN_PROFILE_DEFAULT
+
     # Step 1: computed once, before authorization, on purpose (PRD-009
     # Section 6.1): it is pure, so it cannot change the check order, and
     # every row this function writes -- denials included -- carries it.
@@ -225,7 +238,8 @@ def run_conversation(
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
         return _deny(
-            identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
+            identity, prompt, device, session_id=session_id, dedup_key=key,
+            profile=profile_name, exc=exc,
             reason="Missing required permission",
         )
 
@@ -233,7 +247,8 @@ def run_conversation(
         authorize_model(identity, model)
     except PermissionDenied as exc:
         return _deny(
-            identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
+            identity, prompt, device, session_id=session_id, dedup_key=key,
+            profile=profile_name, exc=exc,
             reason="Model not permitted for this role",
         )
 
@@ -242,7 +257,8 @@ def run_conversation(
             authorize(identity, PERMISSION_QUERY_BYOK)
         except PermissionDenied as exc:
             return _deny(
-                identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
+                identity, prompt, device, session_id=session_id, dedup_key=key,
+                profile=profile_name, exc=exc,
                 reason="Missing required permission",
             )
 
@@ -275,6 +291,7 @@ def run_conversation(
             error_message=f"context limit: {limit} {actual} > {maximum}",
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds context limit",
@@ -300,6 +317,7 @@ def run_conversation(
             success=True,
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -313,9 +331,8 @@ def run_conversation(
     # read here, per call, for the reason _context_limit_exceeded gives.
     #
     # An unknown profile is a call-site bug and raises PatternConfigError here.
-    # Every earlier arm that writes a row has already returned, so it leaves no
-    # row behind.
-    profile_name = profile if profile is not None else settings.PATTERN_PROFILE_DEFAULT
+    # An earlier arm that wrote a row has already returned, and its row records
+    # the name the call site passed -- which is what ran, as far as it went.
     scan_ceiling = settings.PATTERN_MAX_SCAN_CHARACTERS
     inspection = inspect(messages, get_profile(profile_name), max_scan_characters=scan_ceiling)
     for index in inspection.truncated:
@@ -346,6 +363,7 @@ def run_conversation(
             dedup_key=key,
             pattern_role=block.role,
             pattern_action=block.action,
+            profile=profile_name,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -373,6 +391,7 @@ def run_conversation(
             dedup_key=key,
             pattern_role=first_flag.role,
             pattern_action=first_flag.action,
+            profile=profile_name,
         )
 
     # Step 6: redact input per the profile's PII policy (PRD-012 Sections
@@ -406,6 +425,7 @@ def run_conversation(
             error_message=f"redaction limit: characters {actual} > {maximum}",
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds redaction limit",
@@ -444,6 +464,7 @@ def run_conversation(
                 error_message=str(exc),
                 session_id=session_id,
                 dedup_key=key,
+                profile=profile_name,
             )
             raise
         redacted_messages.append(Message(message.role, redacted_content))
@@ -473,6 +494,7 @@ def run_conversation(
             error_message=str(exc),
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         raise
 
@@ -481,8 +503,8 @@ def run_conversation(
     # default (PRD-012 D1): the reader of a coding agent's output is the file
     # system, and a placeholder in a response becomes a placeholder in a file.
     # Its row then has pii_detected_output=0 because the output was **not
-    # analyzed**, not because it was clean; PRD-012 STORY-011's `profile`
-    # column is what tells a reader of the row which it was.
+    # analyzed**, not because it was clean; the row's `profile` column says
+    # which it was (PRD-012 D9).
     if policy.output:
         try:
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
@@ -500,6 +522,7 @@ def run_conversation(
                 pii_entities=input_entities,
                 session_id=session_id,
                 dedup_key=key,
+                profile=profile_name,
             )
             raise
     else:
@@ -521,6 +544,7 @@ def run_conversation(
         pii_entities=masked_entities,
         session_id=session_id,
         dedup_key=key,
+        profile=profile_name,
     )
 
     return QuerySuccessResponse(

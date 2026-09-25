@@ -160,6 +160,8 @@ def test_audit_response_shape():
                 # PRD-011 D6 (STORY-010): additive, nullable, defaulted.
                 "pattern_role": None,
                 "pattern_action": None,
+                # PRD-012 D9 (STORY-011): additive, nullable, defaulted.
+                "profile": None,
             }
         ],
     }

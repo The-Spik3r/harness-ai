@@ -167,6 +167,13 @@ def test_to_audit_row_carries_pattern_role_and_action():
     assert legacy.verdict == VERDICT_DENIED
 
 
+def test_to_audit_row_carries_the_profile():
+    """PRD-012 D9 (STORY-011 AC 4): shown as recorded; a row written before
+    PRD-012 shows the absent mark, never an inferred `chat`."""
+    assert to_audit_row(make_log(profile="code"), NOW).profile == "code"
+    assert to_audit_row(make_log(), NOW).profile == VALUE_ABSENT
+
+
 # --- Row projection ------------------------------------------------------
 
 

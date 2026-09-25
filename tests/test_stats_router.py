@@ -432,3 +432,37 @@ def test_stats_does_not_fetch_the_register_rows(temp_db, monkeypatch):
         "pii_detected_queries": 5,
         "top_pii_entities": ["EMAIL_ADDRESS"],
     }
+
+
+def test_pii_figures_are_unchanged_by_the_profile_column(temp_db):
+    """PRD-012 STORY-011 AC 5: the same three rows as the test above, now
+    written as the pipeline writes them for /query and the chat UI --
+    `profile='chat'` -- give the same figures, on /stats and on the admin
+    snapshot. No figure gained a profile predicate."""
+    rows = [
+        ("2026-07-01T10:00:00Z", "a", "h1", True, False, "EMAIL_ADDRESS"),
+        ("2026-07-02T10:00:00Z", "b", "h2", False, True, "EMAIL_ADDRESS,PERSON"),
+        ("2026-07-03T10:00:00Z", "c", "h3", False, False, None),
+    ]
+    for timestamp, user_id, prompt_hash, pii_in, pii_out, entities in rows:
+        insert_audit_log(
+            AuditLog(
+                timestamp=timestamp,
+                user_id=user_id,
+                prompt_hash=prompt_hash,
+                pii_detected_input=pii_in,
+                pii_detected_output=pii_out,
+                pii_entities=entities,
+                profile="chat",
+            )
+        )
+
+    body = client.get(
+        "/stats", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    ).json()
+    snapshot = database.summary_snapshot()
+
+    assert body["pii_detected_queries"] == snapshot.pii_detected_queries == 2
+    assert body["top_pii_entities"] == snapshot.top_pii_entities == ["EMAIL_ADDRESS", "PERSON"]
+    assert count_pii_detected_queries() == 2
+    assert top_pii_entities() == ["EMAIL_ADDRESS", "PERSON"]

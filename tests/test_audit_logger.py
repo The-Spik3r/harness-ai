@@ -325,3 +325,23 @@ def test_pattern_role_and_action_default_to_none_when_omitted(temp_db):
 
     assert fetched.pattern_role is None
     assert fetched.pattern_action is None
+
+
+def test_profile_persisted_when_supplied(temp_db):
+    """PRD-012 STORY-011: every run_conversation arm passes it."""
+    audit_id = log_query(
+        user_id="ana@empresa.com",
+        prompt="write a fixture",
+        response="Use alice@example.com.",
+        profile="code",
+    )
+
+    assert get_audit_log(audit_id).profile == "code"
+
+
+def test_profile_defaults_to_none_when_omitted(temp_db):
+    """The one caller that omits it on purpose is /query's foreign-session
+    refusal, which writes before any profile exists (PRD-012 D9)."""
+    audit_id = log_query(user_id="juan@empresa.com", prompt="hello")
+
+    assert get_audit_log(audit_id).profile is None

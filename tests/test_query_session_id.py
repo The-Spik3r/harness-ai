@@ -561,3 +561,29 @@ def test_the_router_never_branches_on_the_history_flag():
     ]
 
     assert named == [], f"app/routers/query.py branches on the flag at lines {named}"
+
+
+# --------------------------------------------------------------------------
+# PRD-012 STORY-011 -- the refusal records no profile; the owned send does
+# --------------------------------------------------------------------------
+
+
+def test_the_403_row_records_no_profile_and_the_owned_send_records_chat(
+    temp_db, monkeypatch
+):
+    """PRD-012 D9. The refusal happens before `run_query`, the single place
+    `/query`'s profile is resolved, so no profile ran and the row says NULL --
+    the one `/query` row without `profile='chat'`, by decision
+    (`app/routers/query.py`, item 6). The owned send is the control."""
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fake_call_openrouter)
+    monkeypatch.setattr("app.services.query_pipeline.redact", lambda text: (text, []))
+    foreign = _session_owned_by(_OTHER_USER_ID)
+    own = _session_owned_by(_AUTH_USER_ID)
+
+    refused = client.post("/query", json={"prompt": "refused", "session_id": foreign})
+    assert refused.status_code == 403
+    assert _last_audit_row().profile is None
+
+    answered = client.post("/query", json={"prompt": "answered", "session_id": own})
+    assert answered.status_code == 200
+    assert get_audit_log(answered.json()["audit_id"]).profile == "chat"

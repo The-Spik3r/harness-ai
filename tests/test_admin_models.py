@@ -39,6 +39,8 @@ AUDIT_ROW_FIELDS = {
     # PRD-011 D6 (STORY-010): the pattern's role and action, disclosure-only.
     "pattern_role",
     "pattern_action",
+    # PRD-012 D9 (STORY-011): the profile that ran, disclosure-only.
+    "profile",
 }
 
 SUMMARY_FIGURE_FIELDS = {"label", "value", "scope", "share", "items"}

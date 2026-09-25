@@ -147,6 +147,8 @@ from chat_ui.chat_ui.admin_copy import (
     DETAIL_PATTERN_ROLE_LABEL,
     DETAIL_PATTERN_ACTION_LABEL,
     DETAIL_DEVICE_LABEL,
+    # PRD-012 D9 (STORY-011)
+    DETAIL_PROFILE_LABEL,
     DETAIL_PII_ENTITIES_LABEL,
     DETAIL_PII_INPUT_LABEL,
     DETAIL_PII_OUTPUT_LABEL,
@@ -351,6 +353,8 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert DETAIL_PATTERN_ROLE_LABEL
     assert DETAIL_PATTERN_ACTION_LABEL
     assert DETAIL_DEVICE_LABEL
+    # PRD-012 D9 (STORY-011)
+    assert DETAIL_PROFILE_LABEL
     assert DETAIL_PII_ENTITIES_LABEL
     assert DETAIL_PII_INPUT_LABEL
     assert DETAIL_PII_OUTPUT_LABEL
@@ -457,6 +461,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "DETAIL_PATTERN_ROLE_LABEL",
         "DETAIL_PATTERN_ACTION_LABEL",
         "DETAIL_DEVICE_LABEL",
+        # PRD-012 D9 (STORY-011)
+        "DETAIL_PROFILE_LABEL",
         "DETAIL_PII_ENTITIES_LABEL",
         "DETAIL_PII_INPUT_LABEL",
         "DETAIL_PII_OUTPUT_LABEL",

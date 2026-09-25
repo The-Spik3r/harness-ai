@@ -90,6 +90,8 @@ def test_valid_token_returns_expected_shape(temp_db):
             # PRD-011 D6: two additive, nullable fields (STORY-010).
             "pattern_role",
             "pattern_action",
+            # PRD-012 D9: additive, nullable (STORY-011).
+            "profile",
         }
 
     newest, oldest = body["queries"]
@@ -334,3 +336,28 @@ def test_audit_entry_carries_session_id_when_present_and_null_when_absent(temp_d
     by_hash = {q["prompt_hash"]: q for q in body["queries"]}
     assert by_hash["h-session"]["session_id"] == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
     assert by_hash["h-no-session"]["session_id"] is None
+
+
+def test_audit_entry_carries_profile(temp_db):
+    """PRD-012 D9 (STORY-011 AC 4): passed through verbatim, newest first; a
+    row written before PRD-012 reads null."""
+    for timestamp, prompt_hash, profile in [
+        ("2026-09-25T12:00:00Z", "hc", "chat"),
+        ("2026-09-25T11:00:00Z", "hk", "code"),
+        ("2026-09-25T10:00:00Z", "hl", None),
+    ]:
+        insert_audit_log(
+            AuditLog(
+                timestamp=timestamp,
+                user_id="juan@empresa.com",
+                prompt_hash=prompt_hash,
+                profile=profile,
+            )
+        )
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    assert response.status_code == 200
+    assert [q["profile"] for q in response.json()["queries"]] == ["chat", "code", None]

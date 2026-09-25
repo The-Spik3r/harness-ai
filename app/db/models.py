@@ -25,14 +25,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     session_id TEXT,
     dedup_key TEXT,
     pattern_role TEXT,
-    pattern_action TEXT
+    pattern_action TEXT,
+    profile TEXT
 )
 """
 
 # Columns added after the initial schema shipped (PRD-003 PII telemetry; PRD-005
 # RBAC adds to this in STORY-009; PRD-008 STORY-002 adds session_id; PRD-009
 # STORY-002 adds dedup_key; PRD-011 STORY-009 adds pattern_role and
-# pattern_action). CREATE TABLE IF NOT EXISTS is a no-op against a
+# pattern_action; PRD-012 STORY-011 adds profile). CREATE TABLE IF NOT EXISTS is a no-op against a
 # database created before they existed, so init_db() ALTERs in whichever of
 # these an old file is missing.
 #
@@ -70,6 +71,14 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # block. The counters read it that way as of STORY-010.
     "pattern_role": "TEXT",
     "pattern_action": "TEXT",
+    # PRD-012 (D9): the profile that ran -- the name the call site passed,
+    # after default resolution (`chat` for /query and the chat UI). It is what
+    # tells a reader that `pii_detected_output = 0` under `code` means "not
+    # analyzed" rather than "clean". Nullable with no default on purpose, like
+    # dedup_key: rows written before PRD-012 stay NULL and are never
+    # backfilled, and so does /query's foreign-session refusal, which writes
+    # before any profile exists.
+    "profile": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -257,6 +266,12 @@ class AuditLog:
     # dedup_key to mirror the table, so id stays the trailing field.
     pattern_role: Optional[str] = None
     pattern_action: Optional[str] = None
+    # PRD-012 STORY-011 (D9). Same pattern as pattern_action: insert_audit_log()
+    # writes it and _row_to_audit_log() maps it back on both read shapes. Set
+    # on every row run_conversation writes; NULL on rows written before
+    # PRD-012 and on /query's foreign-session refusal. Declared after
+    # pattern_action to mirror the table, so id stays the trailing field.
+    profile: Optional[str] = None
     id: Optional[int] = None
 
 

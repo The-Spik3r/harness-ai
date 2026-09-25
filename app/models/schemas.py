@@ -182,6 +182,12 @@ class AuditQueryEntry(BaseModel):
     # is how the `blocked_suspicious` counters read it.
     pattern_role: Optional[str] = None
     pattern_action: Optional[str] = None
+    # PRD-012 D9: the profile that ran (`chat`, `code`, or a custom name).
+    # Under `code`, `pii_detected_output = False` means the response was not
+    # analyzed, not that it was clean; this field is what says so. Optional,
+    # defaulted and unvalidated for `session_id`'s reasons: NULL on every row
+    # written before PRD-012 and on /query's foreign-session refusal.
+    profile: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

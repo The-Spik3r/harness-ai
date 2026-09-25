@@ -56,6 +56,9 @@ class AuditRow(pydantic.BaseModel):
     # the absent mark on every row without a pattern and every pre-PRD-011 row.
     pattern_role: str = ""
     pattern_action: str = ""
+    # PRD-012 D9: the profile that ran, as recorded. Disclosure-only, beside
+    # the PII lines it qualifies; the absent mark on every pre-PRD-012 row.
+    profile: str = ""
 
 
 class SummaryFigure(pydantic.BaseModel):
