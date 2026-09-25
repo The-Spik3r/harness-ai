@@ -506,7 +506,7 @@ Every file in `tests/corpora/pii/code/` round-trips through `code` with fenced s
 - **Per-role PII telemetry**: entities found per role, not only in the last user turn. PRD-010 D7 is kept here and revisited with PRD-013.
 - **A PII policy file** in the PRD-011 patterns-file shape (or a `pii:` block in it), if operators need more than two built-in policies.
 - **Structure-safe replacement for `chat`**: harmless for prose, but it changes what chat users see, so it is a separate, announced change.
-- **Indexed or reversible placeholders**, depending on the D5 record.
+- **Reversible placeholders** (D5: justified by STORY-012's spike, not adopted). Entry criteria are the at-rest requirements in [decisions/D5-placeholders.md](./decisions/D5-placeholders.md): a shared per-conversation store with retention, deletion, access control and exclusion from logs and audit. Indexed placeholders are dropped; they did no better than fixed ones.
 - **A process pool for Presidio** if `chat`'s NER cost at agent scale turns out to matter, since the GIL caps thread concurrency.
 - **Merge PII and pattern corpora** under one `tests/corpora/` taxonomy (PRD-011 Section 13 suggested this).
 - **Secret detection** as its own recognizer set, with PRD-015.
@@ -537,7 +537,7 @@ Every file in `tests/corpora/pii/code/` round-trips through `code` with fenced s
 | D2 | Code blocks under `code`? | **Fenced blocks skipped** for input; prose around them redacted; inline backtick spans **not** skipped. As proposed, narrowed to fences (Section 6.5) |
 | D3 | Which roles are redacted? | `code`: **`user`, `assistant`, `tool`**; `system` configurable, off. *Deviation:* the brief treated `assistant` as already redacted. That holds for the chat UI, not for a `/v1` caller who writes its own history (Section 6.3, T7). `chat`: every role, as today |
 | D4 | Over the size limit? | **Refuse, fail closed**, with `limit: "redaction_characters"`. *Partial deviation:* skip-and-flag is **deferred**. It is fail-open, and recording it needs PRD-013's telemetry (Section 6.7) |
-| D5 | Reversible placeholders? | **Fixed by default**; a spike compares fixed, indexed-per-request and reversible, and writes `decisions/D5-placeholders.md`. Reversible only if both others fail. As proposed, with option (b) added |
+| D5 | Reversible placeholders? | **Fixed by default**; a spike compares fixed, indexed-per-request and reversible, and writes `decisions/D5-placeholders.md`. Reversible only if both others fail. As proposed, with option (b) added. **Outcome (STORY-012):** (a) and (b) both failed and (c) matched the control, so (c) is justified but not adopted in this PRD because its mapping is PII at rest; fixed stays the default → [decisions/D5-placeholders.md](./decisions/D5-placeholders.md) |
 | D6 | Separate threshold for `code`? | **Yes**, `PII_SCORE_THRESHOLD_CODE`, fixed from STORY-003's data. As proposed |
 | D7 | *(new)* Entities under `code`? | **Pattern recognizers only** by default (`PII_ENTITIES_CODE` without `PERSON`/`LOCATION`), run on a tokenizer-only analyzer; restored if the benchmark shows both corpus and budget still pass with them (Section 6.4) |
 | D8 | *(new)* How is the PII policy selected? | **By the PRD-011 profile name**; unknown names fall back to `chat`, the strictest (Section 6.2) |
@@ -578,6 +578,7 @@ Reordered from the tentative list: the corpus comes before the benchmark, which 
 - PRD-009 (duplicate rescoping): `success=0` rows never count as prior queries; nullable columns without backfill
 - PRD-010 (multi-turn pipeline): `Message`, `Role`, step 6 "redact every message" (D5), audit PII semantics (D7), the context-limit response shape
 - PRD-011 (pattern policy): the `profile` argument, `strip_code_spans`, the corpus layout, the `pattern_config.load()` startup pattern
+- [decisions/D5-placeholders.md](./decisions/D5-placeholders.md): the placeholder spike (STORY-012) — method, raw results, decision
 
 ### Dependencies
 - Depends on: PRD-010 (done), PRD-011 (done, unmerged). The epic branch must be cut from `main` **after** PRD-010 and PRD-011 are merged, or from the tip of `epic/PRD-011-pattern-policy`. Cut from today's `main`, it lacks `Message`, `run_conversation` and `profile`.

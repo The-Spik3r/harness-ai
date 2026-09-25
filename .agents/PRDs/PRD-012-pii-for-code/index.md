@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 | STORY-009 | Pipeline steps 6 and 8 redact per the resolved policy | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-009-pipeline-pii-per-policy.plan.md) | `cb78cac` |
 | STORY-010 | Size limit and the redaction_characters refusal arm | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-010-redaction-size-limit.plan.md) | `46c88b6` |
 | STORY-011 | audit_logs.profile on every arm; /audit and the Register show it | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-011-audit-profile-column.plan.md) | `faaa4be` |
-| STORY-012 | Placeholder spike and decisions/D5-placeholders.md | spike | ⬜ todo | medium | — | — |
+| STORY-012 | Placeholder spike and decisions/D5-placeholders.md | spike | 🟡 in-progress | medium | [plan](../../plans/PRD-012-pii-for-code/STORY-012-placeholder-spike.plan.md) | — |
 | STORY-013 | Code round-trip suite and the latency-budget assertion | technical | ⬜ todo | medium | — | — |
 | STORY-014 | chat regression sweep, README and .env docs, pre-PRD promoted | technical | ⬜ todo | medium | — | — |
 
