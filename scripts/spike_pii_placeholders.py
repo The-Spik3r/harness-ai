@@ -231,10 +231,14 @@ class IndexedScheme(Scheme):
         # app/services/pii_redactor.py:redact_for_policy, with one change: the
         # replacement string of every range.
         analysis = strip_fenced_blocks(text) if policy.skip_fenced_blocks else text
+        # PRD-012 STORY-013 F-4: JSON escapes are spaces for the analyzer.
+        is_json = pii_redactor._is_json_document(text)
+        if is_json:
+            analysis = pii_redactor._blank_escapes(text, analysis)
         accepted = pii_redactor._resolve_overlaps(pii_redactor._analyze(analysis, policy))
         if not accepted:
             return text, []
-        json_tokens = pii_redactor._json_tokens(text) if pii_redactor._is_json_document(text) else None
+        json_tokens = pii_redactor._json_tokens(text) if is_json else None
         ranges = pii_redactor._replacement_ranges(text, analysis, accepted, json_tokens)
 
         indexed = []

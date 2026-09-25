@@ -13,6 +13,9 @@ replacement, JSON-aware mode (PRD Sections 6.5, 6.6; F7).
 The corpus round-trip suite (`ast.parse`, prose masking) and the latency
 budget are STORY-013's. This module checks the structural invariants over the
 corpora that AC 2 and AC 3 name.
+
+STORY-013 appends two sections at the end (F-1, anchored runs; F-4, JSON
+escapes as the analyzer sees them). It adds tests and changes none above it.
 """
 
 import os
@@ -20,6 +23,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import ast
 import dataclasses
 import json
 
@@ -584,3 +588,126 @@ def test_blank_windows_skip_the_analyzer(monkeypatch):
 
     assert all(not window.isspace() for window in calls)
     assert len(calls) == 2
+
+
+# --- STORY-013 F-1: anchored runs --------------------------------------------
+
+
+def test_split_email_span_masks_only_the_run_with_the_at_sign():
+    """PRD-012 STORY-013 F-1: Presidio's email local part admits `'` and `=`,
+    so the real analyzer's span starts at `email`. Only the run with the `@`
+    is masked, and the keyword survives."""
+    text = "        email='jane.doe@example.com',\n"
+
+    result = redact_for_policy(text, _code())
+
+    assert result == RedactionResult("        email='<EMAIL_ADDRESS>',\n", ["EMAIL_ADDRESS"])
+
+
+def test_split_phone_span_masks_only_runs_with_digits(monkeypatch):
+    """PRD-012 STORY-013 F-1, for the digit anchor."""
+    text = "mobile='(415) 555-0172'"
+
+    result = _stub_redact(monkeypatch, text, "mobile='(415) 555-0172", "PHONE_NUMBER")
+
+    assert result.text == "mobile='<PHONE_NUMBER>'"
+
+
+def test_split_span_with_digits_on_both_sides_masks_both(monkeypatch):
+    """PRD-012 STORY-013 F-1: every anchored run is masked, not only one."""
+    result = _stub_redact(monkeypatch, "415\n555-0172", "415\n555-0172", "PHONE_NUMBER")
+
+    assert result.text == "<PHONE_NUMBER>\n<PHONE_NUMBER>"
+
+
+def test_split_span_with_no_anchored_run_masks_every_run(monkeypatch):
+    """PRD-012 STORY-013 F-1: no run holds the anchor, so the rule falls back
+    to masking every run -- toward masking, never away from it."""
+    result = _stub_redact(monkeypatch, "ab'cd", "ab'cd")
+
+    assert result == RedactionResult("<EMAIL_ADDRESS>'<EMAIL_ADDRESS>", ["EMAIL_ADDRESS"])
+
+
+def test_split_span_of_an_unanchored_type_masks_every_run(monkeypatch):
+    """PRD-012 STORY-013 F-1: a type without an anchor keeps rule 1 as it was."""
+    result = _stub_redact(monkeypatch, "ab'x@y.io", "ab'x@y.io", "URL")
+
+    assert result.text == "<URL>'<URL>"
+
+
+def test_json_mode_ignores_run_anchors(monkeypatch):
+    """PRD-012 STORY-013 F-1: JSON mode clips to string interiors and is
+    unchanged, so both runs of the key are masked."""
+    text = '{"key\'x@y.io": 1}'
+
+    result = _stub_redact(monkeypatch, text, "key'x@y.io")
+
+    assert result.text == '{"<EMAIL_ADDRESS>\'<EMAIL_ADDRESS>": 1}'
+    json.loads(result.text)
+
+
+def test_billing_seed_parses_after_code_redaction():
+    """PRD-012 STORY-013 F-1, the regression pin: `email='...'` at lines 93 and
+    100 of the corpus sample made the redacted file a SyntaxError."""
+    text = corpus_files._read(corpus_files._PII / "code" / "billing_seed.py")
+
+    result = redact_for_policy(text, _code()).text
+
+    ast.parse(result)
+    assert "email='<EMAIL_ADDRESS>'," in result
+
+
+# --- STORY-013 F-4: the analyzer sees JSON escapes as spaces ------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        (r'{"log": "payout:\nGB82 WEST 1234 5698 7654 32"}', r'{"log": "payout:\n<IBAN_CODE>"}'),
+        (r'{"log": "card on file:\t4111 1111 1111 1111"}', r'{"log": "card on file:\t<CREDIT_CARD>"}'),
+    ],
+    ids=["iban-after-newline", "card-after-tab"],
+)
+def test_json_pii_right_after_a_letter_escape_is_masked(text, masked):
+    """PRD-012 STORY-013 F-4: the escape's letter used to glue onto the value
+    (`nGB82`, `t4111`), so the word-boundary recognizers found nothing and the
+    value went upstream unmasked."""
+    result = redact_for_policy(text, _code())
+
+    assert result.text == masked
+    json.loads(result.text)
+
+
+def test_escapes_are_blanked_only_for_the_analyzer(monkeypatch):
+    """PRD-012 STORY-013 F-4: spaces of the same length, so offsets still index
+    the original, which is where replacement happens."""
+    seen = []
+
+    class _Recording(_StubAnalyzer):
+        def analyze(self, **kwargs):
+            seen.append(kwargs["text"])
+            return []
+
+    monkeypatch.setattr(pii_redactor, "_get_analyzer", lambda entities=None: _Recording([]))
+    text = r'{"a": "x\ny\u00e9z"}'
+
+    assert redact_for_policy(text, _code()).text == text
+    assert seen == ['{"a": "x  y      z"}']
+
+
+def test_escapes_are_not_blanked_outside_json_mode(monkeypatch):
+    """PRD-012 STORY-013 F-4: source code keeps its backslashes for the analyzer
+    (a `C:\\Users` path must stay one word)."""
+    seen = []
+
+    class _Recording(_StubAnalyzer):
+        def analyze(self, **kwargs):
+            seen.append(kwargs["text"])
+            return []
+
+    monkeypatch.setattr(pii_redactor, "_get_analyzer", lambda entities=None: _Recording([]))
+    text = r'path = "C:\Users\jdoe"' + "\n"
+
+    redact_for_policy(text, _code())
+
+    assert seen == [text]

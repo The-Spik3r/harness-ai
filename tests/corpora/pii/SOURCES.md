@@ -236,3 +236,18 @@ so everything declared sits in prose, which both profiles analyze.
   `\\` Windows and UNC paths. PII inside those strings.
 - **Why it is here**: AC 4's escapes case. PII sits next to escape sequences
   inside strings.
+
+### `build-log-escapes.json`
+
+- **Shape**: a CI run's tool result: run metadata, notification settings,
+  per-step logs and artifact paths.
+- **Contains**: default `code` entities (email, phone, IBAN, card) placed
+  **directly after** an escape sequence: `\njane.doe@example.com`,
+  `\t+1 415 555 0134`, `\"maria.lopez@example.org\"`, `\nGB82 WEST ...`, and
+  emails as path segments right after `\`. Also `true`/`null`, a float and
+  integer ids beside them. Added on 2026-09-25 by STORY-013.
+- **Why it is here**: STORY-008 finding M1. With escape handling removed from
+  `redact_for_policy`, no other corpus file failed to parse, because the only
+  PII after an escape was a `PERSON` (off under `code`). Here a default-entity
+  span starts inside the escape (`\n` + `jane...` matches as `njane...`), so
+  the JSON post-condition fails unless the escape is kept whole.

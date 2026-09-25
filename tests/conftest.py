@@ -65,6 +65,41 @@ from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
 
 
+#: The marker on latency-budget assertions (PRD-012 STORY-013).
+_BENCHMARK_MARKER = "benchmark"
+
+
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--run-benchmark",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.benchmark latency assertions (PRD-012 STORY-013)",
+    )
+
+
+def pytest_configure(config) -> None:
+    config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    """Skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+
+    A marker alone skips nothing, and `-m` only narrows a run someone already
+    chose to make. STORY-013's note is that the budget assertion must not run
+    by default, "so the everyday run stays fast": it times twenty 200,000-
+    character conversations. STORY-013 and STORY-014 run it explicitly:
+
+        pytest tests/test_pii_code_corpus.py -m benchmark --run-benchmark -s
+    """
+    if config.getoption("--run-benchmark"):
+        return
+    skip = pytest.mark.skip(reason=f"{_BENCHMARK_MARKER}: pass --run-benchmark")
+    for item in items:
+        if _BENCHMARK_MARKER in item.keywords:
+            item.add_marker(skip)
+
+
 def child_db_env(url: str) -> dict:
     """The `DATABASE_URL` entry a probe subprocess needs.
 

@@ -1,7 +1,7 @@
 import bisect
 import json
 import re
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from typing import Callable, Iterable, List, NamedTuple, Optional, Tuple
 
 import spacy
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
@@ -197,6 +197,28 @@ _ANALYSIS_WINDOW_CHARACTERS = 20_000
 #: these, so a placeholder can never introduce one either.
 _STRUCTURAL_CHARACTERS = frozenset("\"'`\r\n")
 
+
+def _has_digit(run: str) -> bool:
+    return any(character.isdigit() for character in run)
+
+
+#: What a run must hold to be masked when a pattern entity's span splits into
+#: several runs outside JSON mode (PRD-012 Section 6.6, rule 1; STORY-013 F-1).
+#: Presidio's email local part admits `'` and `=`, so in
+#: `email='patrick.obrien@example.org'` the span starts at `email`, and
+#: masking every run would turn the keyword into `<EMAIL_ADDRESS>` and break
+#: the Python. Only the run with the `@` is the address; for the other four
+#: types, only a run with a digit is the number. Types not listed here (the
+#: NER types among them) mask every alphanumeric run, so `O'Brien` is still
+#: `<PERSON>'<PERSON>` (PRD Risk 4).
+_RUN_ANCHORS: dict[str, Callable[[str], bool]] = {
+    "EMAIL_ADDRESS": lambda run: "@" in run,
+    "PHONE_NUMBER": _has_digit,
+    "CREDIT_CARD": _has_digit,
+    "US_SSN": _has_digit,
+    "IBAN_CODE": _has_digit,
+}
+
 #: An escape sequence, kept whole. Keeping only the backslash is not enough:
 #: `"...\nAisha Bello"` (tests/corpora/pii/json/ticket-thread-export.json)
 #: would become `"...\<PERSON>"`, an invalid escape in JSON and Java. One
@@ -324,6 +346,44 @@ def _structure_safe_runs(
     return runs
 
 
+def _anchored(text: str, runs: list[tuple[int, int]], entity_type: str) -> list[tuple[int, int]]:
+    """The runs of one split span that hold its entity's anchor (_RUN_ANCHORS).
+
+    A span with one run, or of a type with no anchor, keeps every run. So does
+    a span where no run holds the anchor: the analyzer found PII there, and
+    masking too much is the safe side.
+    """
+    anchor = _RUN_ANCHORS.get(entity_type)
+    if anchor is None or len(runs) <= 1:
+        return runs
+    anchored = [(start, end) for start, end in runs if anchor(text[start:end])]
+    return anchored or runs
+
+
+def _blank_escapes(text: str, analysis: str) -> str:
+    """`analysis` with every escape sequence of `text` turned into spaces.
+
+    JSON-aware mode only (STORY-013 F-4). In a JSON string, `\\n` and `\\t` are
+    syntax, yet the analyzer reads their letter as part of the next word:
+    `"payout:\\nGB82 WEST ..."` is seen as `nGB82` and `"card:\\t4111 ..."` as
+    `t4111`, and the IBAN and card recognizers, which need a word boundary,
+    find nothing, so the value went upstream unmasked. Spaces keep the length,
+    so offsets still index `text` (the fence-blanking trick), and escapes are
+    never replaced anyway. Fenced characters stay as strip_fenced_blocks left
+    them. Only JSON: in source code a backslash also starts `C:\\Users`-style
+    paths, where blanking would split what the analyzer should see whole.
+    """
+    escapes = _escape_intervals(text)
+    if not escapes:
+        return analysis
+    characters = list(analysis)
+    for start, end in escapes:
+        for i in range(start, end):
+            if analysis[i] == text[i]:
+                characters[i] = " "
+    return "".join(characters)
+
+
 def _is_json_document(text: str) -> bool:
     """JSON-aware mode's test (PRD-012 Section 6.6, rule 2): the stripped text
     starts with `{` or `[` and json.loads() accepts it."""
@@ -359,7 +419,8 @@ def _replacement_ranges(
 ) -> list[tuple[int, int, str, str]]:
     """(start, end, replacement, entity_type) ranges, sorted and disjoint.
 
-    Outside JSON mode, each span becomes its structure-safe runs. In JSON
+    Outside JSON mode, each span becomes its structure-safe runs, narrowed
+    to the anchored ones when a pattern entity's span splits (_anchored). In JSON
     mode, each span is intersected with the tokens it overlaps: inside a
     string, the runs of the string's interior; over any part of a number, the
     whole token as a quoted placeholder; anything else is dropped. Spans are
@@ -388,7 +449,10 @@ def _replacement_ranges(
                 if start < end:
                     pieces.append((start, end))
         for start, end in pieces:
-            for run_start, run_end in _structure_safe_runs(text, analysis, escapes, start, end):
+            runs = _structure_safe_runs(text, analysis, escapes, start, end)
+            if json_tokens is None:
+                runs = _anchored(text, runs, result.entity_type)
+            for run_start, run_end in runs:
                 _take(taken, run_start, run_end, placeholder, result.entity_type)
     return taken
 
@@ -420,6 +484,8 @@ def redact_for_policy(text: str, policy: PiiPolicy) -> RedactionResult:
        the length is unchanged and every offset it returns is an offset into
        `text`. Inline backtick spans are analyzed (D2). An unterminated fence
        runs to the end of the text.
+       In JSON-aware mode (step 5's test) the analyzer also sees every escape
+       sequence as spaces, so `\\nGB82 ...` is not read as `nGB82` (STORY-013).
     2. **Analysis** with the analyzer `policy.entities` selects, at
        `policy.threshold`, in line-aligned windows of at most 20,000
        characters (STORY-003 R3). A line longer than a window is cut hard, and
@@ -432,7 +498,10 @@ def redact_for_policy(text: str, policy: PiiPolicy) -> RedactionResult:
        into the runs between them, and a run with no alphanumeric character is
        left alone: `O'Brien` masks as `<PERSON>'<PERSON>`. Escapes are kept
        whole, not only their backslash, because `\\<PERSON>` is itself an
-       invalid escape.
+       invalid escape. Outside JSON mode, when an email, phone, card, SSN or
+       IBAN span splits into several runs, only the runs holding its anchor
+       (`@`, or a digit) are masked, or all of them if none does:
+       `email='jane@example.com'` keeps its keyword (STORY-013 F-1).
     5. **JSON-aware mode**, when the stripped text starts with `{` or `[` and
        json.loads() accepts it. Spans are clipped to the tokens they overlap:
        inside a string (value or key), the interior only; over any part of a
@@ -469,12 +538,17 @@ def redact_for_policy(text: str, policy: PiiPolicy) -> RedactionResult:
         return RedactionResult(*redact(text))
 
     analysis = strip_fenced_blocks(text) if policy.skip_fenced_blocks else text
+    # Before analysis, because JSON mode changes what the analyzer sees
+    # (_blank_escapes). Text not starting with `{` or `[` still never pays
+    # for json.loads(): _is_json_document checks that first.
+    is_json = _is_json_document(text)
+    if is_json:
+        analysis = _blank_escapes(text, analysis)
     accepted = _resolve_overlaps(_analyze(analysis, policy))
     if not accepted:
         return RedactionResult(text, [])
 
-    # Only after a span is accepted: text with no PII never pays for json.loads().
-    json_tokens = _json_tokens(text) if _is_json_document(text) else None
+    json_tokens = _json_tokens(text) if is_json else None
     ranges = _replacement_ranges(text, analysis, accepted, json_tokens)
     redacted = _splice(text, ranges)
     entities = sorted({entity_type for _, _, _, entity_type in ranges})

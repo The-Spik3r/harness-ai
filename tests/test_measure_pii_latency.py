@@ -270,3 +270,32 @@ def test_route_choice_prefers_fewest_differences():
 
     assert bench._pattern_blank_route(routes).name == "c"
     assert bench._pattern_blank_route(routes[:1]) is None
+
+
+# --- the `code` arm (PRD-012 STORY-013) ---
+
+
+def test_arms_accept_code():
+    assert bench._arms("code,chat") == ["code", "chat"]
+
+
+def test_code_arm_redacts_only_the_policy_roles(monkeypatch):
+    """The arm is step 6 under `code`: `system` is not redacted by default (D3)."""
+    from app.services import pii_redactor
+    from app.services.pii_policy import get_pii_policy
+
+    seen = []
+    monkeypatch.setattr(pii_redactor, "redact_for_policy", lambda text, policy: seen.append(text))
+    conversation = bench._conversation(40_000)
+    policy = get_pii_policy("code")
+    assert "system" not in policy.input_roles
+
+    bench._redact_policy_roles(policy, conversation)
+
+    assert seen == [m.content for m in conversation if m.role != "system"]
+    assert conversation[0].role == "system" and conversation[0].content not in seen
+
+
+def test_code_budget_is_story_003s():
+    """STORY-003 rule R2: 2 x 645.60 ms rounded up to 250 ms."""
+    assert bench.CODE_P95_BUDGET_MS == bench._rule_r2(645.60) == 1_500

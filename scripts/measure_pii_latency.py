@@ -14,6 +14,17 @@ conversation (the step-6 loop, app/services/query_pipeline.py):
     pattern-lg     -- the five pattern entities on the same en_core_web_lg analyzer
     pattern-blank  -- the same entities on a tokenizer-only spacy.blank("en") analyzer
 
+A fourth arm, added by STORY-013, times the shipped `code` policy rather than an
+analyzer: step 6 as run_conversation does it under `code`.
+
+    code           -- pii_redactor.redact_for_policy() for the roles in the code
+                      policy's input_roles (no `system` by default), with fence
+                      skipping, chunking and structure-safe replacement
+
+Rules R1-R4 still read the `pattern-*` arms: they are STORY-003's record. The
+`code` arm is only compared with CODE_P95_BUDGET_MS, in one report line;
+tests/test_pii_code_corpus.py is what asserts it.
+
 **Why `pattern-lg` exists.** It separates the cost of spaCy's pipeline from the
 cost of recognition. `analyze()` runs the whole NLP pipeline whatever entities
 are asked for, so if `pattern-lg` costs what `chat` costs, the saving D7 promises
@@ -39,6 +50,7 @@ Usage:
     python scripts/measure_pii_latency.py --sizes 40000,200000,400000 --runs 20
     python scripts/measure_pii_latency.py --concurrency 1,4
     python scripts/measure_pii_latency.py --arms pattern-blank --sizes 40000 --runs 3
+    python scripts/measure_pii_latency.py --arms code,pattern-blank --concurrency 1
     python scripts/measure_pii_latency.py --no-timing      # feasibility + false positives only
     python scripts/measure_pii_latency.py --show-corpus    # conversation shape per size
 """
@@ -81,7 +93,8 @@ from spacy.language import Language  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.models.messages import Message  # noqa: E402
-from app.services import pii_redactor  # noqa: E402
+from app.services import pii_policy, pii_redactor  # noqa: E402
+from app.services.pii_policy import PiiPolicy, get_pii_policy  # noqa: E402
 
 #: PRD-012 Section 9.3's `PII_ENTITIES_CODE` default, and STORY-003 AC 2's list:
 #: the types Presidio finds with pattern recognizers (regex plus checksums), no NER.
@@ -96,8 +109,13 @@ _CANDIDATE_THRESHOLDS = (0.35, 0.40, 0.50, 0.60, 0.75)
 _CHUNK_CHARACTERS = 20_000
 #: Rule R2's rounding step.
 _BUDGET_STEP_MS = 250
-_ARMS = ("chat", "pattern-lg", "pattern-blank")
+_ARMS = ("chat", "pattern-lg", "pattern-blank", "code")
 _BUDGET_SIZE = 200_000
+#: The `code` p95 budget at _BUDGET_SIZE characters, fixed by STORY-003 rule R2
+#: (.agents/reports/PRD-012-pii-for-code/STORY-003-pii-benchmark-baseline.report.md:
+#: 2 x pattern-blank p95 645.60 ms, rounded up to 250 ms). Asserted by
+#: tests/test_pii_code_corpus.py (STORY-013); this script only reports against it.
+CODE_P95_BUDGET_MS = 1_500
 
 
 # --------------------------------------------------------------------------
@@ -599,6 +617,15 @@ def _redact_all(redact: Redactor, messages: Sequence[Message]) -> None:
         redact(message.content)
 
 
+def _redact_policy_roles(policy: PiiPolicy, messages: Sequence[Message]) -> None:
+    """Step 6 under a policy, as run_conversation does it (STORY-009): one
+    redact_for_policy() per message whose role the policy redacts. Called
+    through the module so a test can spy on it."""
+    for message in messages:
+        if message.role in policy.input_roles:
+            pii_redactor.redact_for_policy(message.content, policy)
+
+
 def _sample(label: str, runs: int, work: Callable[[], object]) -> Samples:
     samples = Samples(label)
     for _ in range(runs):
@@ -934,6 +961,8 @@ def _measure_command(args: argparse.Namespace) -> int:
 
     _progress("loading en_core_web_lg (not timed)")
     pii_redactor.load()
+    pii_policy.load()
+    code_policy = get_pii_policy("code")
     lg = _lg_analyzer()
     _progress("trying tokenizer-only routes")
     routes = _with_parity(_try_routes(), lg)
@@ -947,7 +976,12 @@ def _measure_command(args: argparse.Namespace) -> int:
     }
     if blank_route:
         redactors["pattern-blank"] = _redactor(blank_route.analyzer, PATTERN_ENTITIES, settings.PII_SCORE_THRESHOLD)
-    arms = [arm for arm in args.arms if arm in redactors]
+    arms = [arm for arm in args.arms if arm in redactors or arm == "code"]
+
+    def work(arm: str, conversation: Sequence[Message]) -> Callable[[], None]:
+        if arm == "code":
+            return lambda: _redact_policy_roles(code_policy, conversation)
+        return lambda: _redact_all(redactors[arm], conversation)
 
     # ---- false positives, prose recall, probes ----
     _progress("counting detections over code/")
@@ -988,13 +1022,12 @@ def _measure_command(args: argparse.Namespace) -> int:
         smallest = conversations[min(args.sizes)]
         _progress("warm-up: one discarded conversation per arm")
         for arm in arms:
-            _redact_all(redactors[arm], smallest)
+            work(arm, smallest)()
 
         for size in args.sizes:
             for arm in arms:
                 _progress(f"{arm} at {size}: {args.runs} runs")
-                conversation = conversations[size]
-                latency[(arm, size)] = _sample(arm, args.runs, lambda: _redact_all(redactors[arm], conversation))
+                latency[(arm, size)] = _sample(arm, args.runs, work(arm, conversations[size]))
 
         share_size = _BUDGET_SIZE if _BUDGET_SIZE in conversations else max(conversations)
         share_conversation = conversations[share_size]
@@ -1044,7 +1077,7 @@ def _measure_command(args: argparse.Namespace) -> int:
     print(
         _report(
             args, routes, blank_route, code_arm, shapes, latency, nlp_share, single, chunked,
-            chunk_check, throughput, baseline, pattern_at_baseline, threshold_rows,
+            chunk_check, throughput, baseline, pattern_at_baseline, threshold_rows, code_policy,
         )
     )
     return 0
@@ -1052,7 +1085,7 @@ def _measure_command(args: argparse.Namespace) -> int:
 
 def _report(
     args, routes, blank_route, code_arm, shapes, latency, nlp_share, single, chunked,
-    chunk_check, throughput, baseline, pattern_at_baseline, threshold_rows,
+    chunk_check, throughput, baseline, pattern_at_baseline, threshold_rows, code_policy,
 ) -> str:
     lg_meta = pii_redactor._get_analyzer().nlp_engine.nlp["en"].meta
     lines = [
@@ -1076,6 +1109,8 @@ def _report(
         f"  runs per arm         : {args.runs} (after one discarded warm conversation per arm)",
         f"  arms                 : {','.join(args.arms)}",
         f"  code arm             : {code_arm}" + ("" if blank_route else " (fallback: tokenizer-only infeasible)"),
+        f"  code policy (arm `code`): entities={','.join(code_policy.entities)} threshold={code_policy.threshold} "
+        f"input_roles={','.join(sorted(code_policy.input_roles))} skip_fenced_blocks={code_policy.skip_fenced_blocks}",
         "",
         "  Tokenizer-only feasibility (AC 2, PRD Risk 2):",
         "  | route | loaded | error | parity with lg (texts, differing) |",
@@ -1100,7 +1135,7 @@ def _report(
         lines.append("  No latency here is asserted as a pass/fail bound.")
         lines.append("")
         for size in args.sizes:
-            lines.append(f"  Agent-shaped conversation, {size} characters (redact() per message):")
+            lines.append(f"  Agent-shaped conversation, {size} characters (one redaction per message; `code`: only the policy's roles):")
             lines.extend("  " + row for row in _table([(arm, latency[(arm, size)]) for arm in args.arms if (arm, size) in latency]))
             lines.append("")
         if nlp_share:
@@ -1182,6 +1217,16 @@ def _report(
         )
     lines.append(f"    R3 PII_MAX_CHARACTERS_CODE = {limit if limit is not None else 'n/a'} ({r3_note})")
     lines.append(f"    R4 {_rule_r4(budget, lg_p95, lg_source)}")
+    lines.append("")
+    if ("code", _BUDGET_SIZE) in latency:
+        policy_p95 = latency[("code", _BUDGET_SIZE)].summary()[2]
+        verdict = "within" if policy_p95 < CODE_P95_BUDGET_MS else "OVER"
+        lines.append(
+            f"  Budget check (STORY-013): code p95 at {_BUDGET_SIZE} = {policy_p95:.2f} ms "
+            f"vs {CODE_P95_BUDGET_MS} ms ({verdict}; reported, not asserted)"
+        )
+    else:
+        lines.append(f"  Budget check (STORY-013): n/a (arm `code` not timed at {_BUDGET_SIZE})")
     lines.append("")
     return "\n".join(lines)
 
