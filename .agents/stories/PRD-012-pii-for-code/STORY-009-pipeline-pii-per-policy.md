@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policy into the pipeline"
-status: todo
+status: in-progress
 labels: [backend, pii, pipeline]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-009-pipeline-pii-per-policy.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-007, STORY-008]
 blocks: [STORY-010, STORY-012, STORY-013]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-009: Pipeline steps 6 and 8 redact per the resolved policy

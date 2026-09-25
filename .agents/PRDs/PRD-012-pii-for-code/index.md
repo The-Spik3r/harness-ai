@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 | STORY-006 | Pattern-only analyzer, selected by the entity list | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-006-pattern-only-analyzer.plan.md) | `0d398aa` |
 | STORY-007 | pii_policy: built-in chat and code policies, profile fallback, load() in both lifespans | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-007-pii-policy.plan.md) | `50ef312` |
 | STORY-008 | redact_for_policy: fence skipping, structure-safe replacement, JSON-aware mode | feature | ✅ done | large | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-008-redact-for-policy.plan.md) | `df74e9b` |
-| STORY-009 | Pipeline steps 6 and 8 redact per the resolved policy | feature | ⬜ todo | medium | — | — |
+| STORY-009 | Pipeline steps 6 and 8 redact per the resolved policy | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-012-pii-for-code/STORY-009-pipeline-pii-per-policy.plan.md) | — |
 | STORY-010 | Size limit and the redaction_characters refusal arm | feature | ⬜ todo | medium | — | — |
 | STORY-011 | audit_logs.profile on every arm; /audit and the Register show it | feature | ⬜ todo | medium | — | — |
 | STORY-012 | Placeholder spike and decisions/D5-placeholders.md | spike | ⬜ todo | medium | — | — |
