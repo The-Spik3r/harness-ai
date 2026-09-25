@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policy into the pipeline"
-status: todo
+status: in-progress
 labels: [backend, pii, security, api]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-010-redaction-size-limit.plan.md
 report: null
 commit: null
 depends_on: [STORY-009]
 blocks: [STORY-011]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-010: Size limit and the redaction_characters refusal arm
