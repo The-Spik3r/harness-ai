@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-014-chat-regression-and-docs.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: 6b0e956
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-014-chat-regression-and-docs.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code` (plan commit `4a07476`)
-**Commit**: pending (recorded by the follow-up chore commit)
+**Commit**: `6b0e956`
 
 ## Summary
 

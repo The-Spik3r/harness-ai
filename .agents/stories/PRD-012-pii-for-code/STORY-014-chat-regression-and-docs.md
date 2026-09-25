@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Decide and prove"
-status: in-progress
+status: done
 labels: [docs, tests, regression]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-014-chat-regression-and-docs.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-014-chat-regression-and-docs.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-014-chat-regression-and-docs.report.md
+commit: 6b0e956
 depends_on: [STORY-002, STORY-011, STORY-012, STORY-013]
 blocks: []
 skills: []
