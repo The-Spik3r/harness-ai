@@ -28,7 +28,8 @@ from app.services.openrouter_client import (
 )
 from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect
-from app.services.pii_redactor import PiiRedactorError, redact
+from app.services.pii_policy import PiiPolicy, get_pii_policy
+from app.services.pii_redactor import PiiRedactorError, redact, redact_for_policy
 
 QueryPipelineResult = Union[
     QuerySuccessResponse,
@@ -91,6 +92,26 @@ def _context_limit_exceeded(
         return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
 
     return None
+
+
+def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
+    """Mask `text` under `policy`: the one redaction call steps 6 and 8 make.
+
+    A policy without `structure_safe` (`chat`) is redact(), called by **this
+    module's** name, byte for byte today's path (PRD-012 Section 2). The name
+    is load-bearing: the suite replaces `query_pipeline.redact` to spy on it,
+    fail it or count it, and redact_for_policy() reaches `pii_redactor.redact`
+    instead, a binding those patches never touch. For `chat` both return the
+    same value (STORY-008 AC 5), so this is a choice of binding, not of
+    behaviour. The branch mirrors the one inside redact_for_policy(), so the
+    two cannot disagree about which path `chat` takes.
+
+    Any other policy (`code`) goes through redact_for_policy(). Both raise
+    PiiRedactorError; the caller's redaction-error arm handles either.
+    """
+    if not policy.structure_safe:
+        return redact(text)
+    return redact_for_policy(text, policy)
 
 
 def _deny(
@@ -309,17 +330,33 @@ def run_conversation(
             pattern_action=first_flag.action,
         )
 
-    # Step 6: redact every message (D5) -- history must never leave the
-    # process unmasked, whatever its source. Only the last user turn's
-    # entities count toward the audit's PII fields (D7): re-redacting
-    # history that already passed once is not a new PII event, or every
-    # later row of a session would misreport one (PRD Section 6.7).
+    # Step 6: redact input per the profile's PII policy (PRD-012 Sections
+    # 6.1, 6.3, F8). Resolved once per request, from the name step 5 resolved:
+    # `chat` for /query and the chat UI, a name without a PII policy falls
+    # back to `chat` (D8). PRD-012 STORY-010's size arm belongs directly below.
+    policy = get_pii_policy(profile_name)
+
+    # Every role the policy covers is redacted, history included (PRD-010
+    # D5): history must never leave the process unmasked, whatever its
+    # source -- under `code` too, because a /v1 caller writes its own
+    # `assistant` turns (PRD-012 T7). `chat` covers every role, so it is
+    # today's "redact every message". Only the last user turn's entities
+    # count toward the audit's PII fields (PRD-010 D7): re-redacting history
+    # that already passed once is not a new PII event, or every later row of
+    # a session would misreport one. The last message is always a `user`
+    # turn (step 0), and both policies cover `user`.
     redacted_messages: list[Message] = []
     input_entities: list[str] = []
     last_index = len(messages) - 1
     for index, message in enumerate(messages):
+        if message.role not in policy.input_roles:
+            # The same object, so it reaches upstream byte-identical: `code`'s
+            # `system` turn, the client's own prompt (PRD-012 D3). A `tool`
+            # turn cannot get here; step 0 refuses it until PRD-016.
+            redacted_messages.append(message)
+            continue
         try:
-            redacted_content, entities = redact(message.content)
+            redacted_content, entities = _redact(message.content, policy)
         except PiiRedactorError as exc:
             log_query(
                 user_id=identity.user_id,
@@ -361,25 +398,35 @@ def run_conversation(
         )
         raise
 
-    # Step 8: redact response, audit, return.
-    try:
-        redacted_response, output_entities = redact(openrouter_result.response)
-    except PiiRedactorError as exc:
-        log_query(
-            user_id=identity.user_id,
-            prompt=prompt,
-            device=device,
-            response=openrouter_result.response,
-            model_used=openrouter_result.model_used,
-            tokens_used=openrouter_result.tokens_used,
-            success=False,
-            error_message=str(exc),
-            pii_detected_input=bool(input_entities),
-            pii_entities=input_entities,
-            session_id=session_id,
-            dedup_key=key,
-        )
-        raise
+    # Step 8: redact the response only when the policy's output switch is on,
+    # then audit and return. `chat` always redacts it. `code` does not by
+    # default (PRD-012 D1): the reader of a coding agent's output is the file
+    # system, and a placeholder in a response becomes a placeholder in a file.
+    # Its row then has pii_detected_output=0 because the output was **not
+    # analyzed**, not because it was clean; PRD-012 STORY-011's `profile`
+    # column is what tells a reader of the row which it was.
+    if policy.output:
+        try:
+            redacted_response, output_entities = _redact(openrouter_result.response, policy)
+        except PiiRedactorError as exc:
+            log_query(
+                user_id=identity.user_id,
+                prompt=prompt,
+                device=device,
+                response=openrouter_result.response,
+                model_used=openrouter_result.model_used,
+                tokens_used=openrouter_result.tokens_used,
+                success=False,
+                error_message=str(exc),
+                pii_detected_input=bool(input_entities),
+                pii_entities=input_entities,
+                session_id=session_id,
+                dedup_key=key,
+            )
+            raise
+    else:
+        redacted_response = openrouter_result.response
+        output_entities = []
 
     masked_entities = sorted(set(input_entities) | set(output_entities))
 
