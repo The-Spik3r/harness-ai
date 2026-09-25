@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Primitives"
-status: todo
+status: done
 labels: [backend, config]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-005-pii-code-settings.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-005-pii-code-settings.report.md
+commit: ae97fc8
 depends_on: [STORY-003]
 blocks: [STORY-006, STORY-007]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-005: Six PII code-profile settings with startup validators

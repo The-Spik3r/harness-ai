@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/14 stories done — 29%
+5/14 stories done — 36%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 | STORY-002 | Characterize today's redact() and pipeline steps 6 and 8 before anything moves | technical | ✅ done | small | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-002-pii-characterization.plan.md) | `5e93b18` |
 | STORY-003 | Benchmark harness, baseline numbers, pinned versions and tokenizer-only analyzer feasibility | spike | ✅ done | large | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-003-pii-benchmark-baseline.plan.md) | `ddf6596` |
 | STORY-004 | Extract strip_fenced_blocks; rebuild strip_code_spans on it | technical | ✅ done | small | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-004-strip-fenced-blocks.plan.md) | `3c68981` |
-| STORY-005 | Six PII code-profile settings with startup validators | technical | ⬜ todo | small | — | — |
+| STORY-005 | Six PII code-profile settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-005-pii-code-settings.plan.md) | `ae97fc8` |
 | STORY-006 | Pattern-only analyzer, selected by the entity list | feature | ⬜ todo | medium | — | — |
 | STORY-007 | pii_policy: built-in chat and code policies, profile fallback, load() in both lifespans | feature | ⬜ todo | medium | — | — |
 | STORY-008 | redact_for_policy: fence skipping, structure-safe replacement, JSON-aware mode | feature | ⬜ todo | large | — | — |
