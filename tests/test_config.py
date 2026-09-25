@@ -656,3 +656,211 @@ def test_requirements_declares_pyyaml_explicitly():
     text = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
 
     assert re.search(r"(?mi)^PyYAML\b", text), "PyYAML must be declared in requirements.txt"
+
+
+# --- PRD-012 STORY-005: PII code-profile settings ----------------------------
+#
+# Nothing reads these six yet -- STORY-006 (analyzer choice), STORY-007 (the
+# `code` policy) and STORY-010 (the refusal arm) are the consumers. What is
+# asserted here is that each has the default STORY-003's report decided, that
+# the three validators reject what they must at construction time with a
+# message that says how to fix it, and that the four existing PII_* settings
+# -- `chat`'s -- are untouched. `.env.example` is STORY-014's, not this block's.
+
+from app.config import _POSITIVE_LIMIT_DESCRIPTIONS, _PRESIDIO_ENTITY_NAMES  # noqa: E402
+
+_PII_CODE_VARS = (
+    "PII_ENTITIES_CODE",
+    "PII_SCORE_THRESHOLD_CODE",
+    "PII_MAX_CHARACTERS_CODE",
+    "PII_CODE_REDACT_OUTPUT",
+    "PII_CODE_REDACT_SYSTEM",
+    "PII_CODE_SKIP_CODE_BLOCKS",
+)
+
+
+def _assert_pii_code_defaults(result: Settings) -> None:
+    assert result.PII_ENTITIES_CODE == "EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE"
+    assert result.PII_SCORE_THRESHOLD_CODE == 0.40
+    assert result.PII_MAX_CHARACTERS_CODE == 200_000
+    assert result.PII_CODE_REDACT_OUTPUT is False
+    assert result.PII_CODE_REDACT_SYSTEM is False
+    assert result.PII_CODE_SKIP_CODE_BLOCKS is True
+
+
+def test_pii_code_settings_available_with_documented_defaults():
+    """AC 1: all six exist; threshold and size limit are STORY-003's R1 and R3."""
+    _assert_pii_code_defaults(_settings(DATABASE_URL=_LOCAL_URL))
+
+
+def test_pii_entities_code_default_is_the_benchmarked_pattern_list():
+    """AC 1's "taken from the STORY-003 report", compared against the list the
+    benchmark actually measured rather than a second hand-written copy.
+
+    PERSON and LOCATION stay out: R4 kept PERSON out on latency, and D7 keeps
+    the default free of NER types so the tokenizer-only analyzer is chosen.
+    """
+    import scripts.measure_pii_latency as bench
+
+    parsed = _settings(DATABASE_URL=_LOCAL_URL).pii_entities_code_list
+
+    assert parsed == list(bench.PATTERN_ENTITIES)
+    assert "PERSON" not in parsed
+    assert "LOCATION" not in parsed
+
+
+def test_pii_code_bools_parse_the_strings_a_dotenv_supplies():
+    """Asserted with `is`, as the PRD-008 and PRD-011 blocks do: a value that
+    merely happens to be truthy must not pass."""
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        PII_CODE_REDACT_OUTPUT="true",
+        PII_CODE_REDACT_SYSTEM="true",
+        PII_CODE_SKIP_CODE_BLOCKS="false",
+    )
+
+    assert result.PII_CODE_REDACT_OUTPUT is True
+    assert result.PII_CODE_REDACT_SYSTEM is True
+    assert result.PII_CODE_SKIP_CODE_BLOCKS is False
+
+
+def test_settings_construct_without_the_pii_code_vars(monkeypatch):
+    """The defaults are the module's, not a developer's exported environment."""
+    for var in _PII_CODE_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    _assert_pii_code_defaults(_settings(DATABASE_URL=_LOCAL_URL))
+
+
+@pytest.mark.parametrize("value", ["", "   ", " , ,"])
+def test_an_empty_pii_entities_code_is_a_startup_error(value):
+    """AC 2's first half. The message also names the real off switch, so an
+    operator who emptied the list to disable PII is told what to do instead."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PII_ENTITIES_CODE=value)
+
+    message = str(exc_info.value)
+    assert "PII_ENTITIES_CODE" in message
+    assert "PII_REDACTION_ENABLED" in message
+
+
+@pytest.mark.parametrize(
+    "value,bad",
+    [
+        ("EMAIL_ADDRESS,NOT_A_TYPE", "NOT_A_TYPE"),
+        ("email_address", "email_address"),
+        ("EMAIL_ADDRESS, PASSPORT", "PASSPORT"),
+    ],
+)
+def test_an_unknown_pii_entity_code_is_a_startup_error(value, bad):
+    """AC 2's second half: the setting, the bad value and the accepted names.
+
+    `email_address` is rejected because Presidio's names are case-sensitive:
+    accepted here, it would pass startup and then detect nothing.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PII_ENTITIES_CODE=value)
+
+    message = str(exc_info.value)
+    assert "PII_ENTITIES_CODE" in message
+    assert bad in message
+    for name in _PRESIDIO_ENTITY_NAMES:
+        assert name in message, f"the message must list the accepted name {name}"
+
+
+@pytest.mark.parametrize("name", sorted(_PRESIDIO_ENTITY_NAMES))
+def test_every_known_entity_name_is_accepted_alone(name):
+    """Includes PERSON and LOCATION: opting into NER is the operator's call (D7)."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, PII_ENTITIES_CODE=name)
+
+    assert result.pii_entities_code_list == [name]
+
+
+def test_known_entity_names_match_presidios_default_registry():
+    """The constant exists so Settings never loads an analyzer; this test is
+    what stops it drifting from the Presidio version requirements.txt pins.
+
+    Loading the predefined recognizers builds no spaCy model, so this stays
+    cheap.
+    """
+    from presidio_analyzer import RecognizerRegistry
+
+    registry = RecognizerRegistry()
+    registry.load_predefined_recognizers(languages=["en"])
+
+    assert set(registry.get_supported_entities(languages=["en"])) == _PRESIDIO_ENTITY_NAMES
+
+
+def test_known_entity_names_cover_todays_pii_entities():
+    """The seven types today's `chat` default uses are all known names."""
+    assert set(_settings(DATABASE_URL=_LOCAL_URL).pii_entities_list) <= _PRESIDIO_ENTITY_NAMES
+
+
+@pytest.mark.parametrize("value", [-0.01, 1.01, -1, 2, "1.5", "nan", "inf"])
+def test_a_pii_score_threshold_code_outside_zero_to_one_is_a_startup_error(value):
+    """AC 3: names the field, the rejected value and what it is.
+
+    `"nan"` is the case the `not 0 <= value <= 1` form exists for: NaN fails
+    every comparison, so a `value < 0 or value > 1` check would let it through.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PII_SCORE_THRESHOLD_CODE=value)
+
+    message = str(exc_info.value)
+    assert "PII_SCORE_THRESHOLD_CODE" in message
+    assert "between 0 and 1" in message
+    assert "minimum Presidio confidence" in message
+    assert f"got {float(value)}" in message, "the message must quote the value it rejected"
+
+
+def test_pii_score_threshold_code_accepts_both_boundaries():
+    assert _settings(DATABASE_URL=_LOCAL_URL, PII_SCORE_THRESHOLD_CODE=0).PII_SCORE_THRESHOLD_CODE == 0.0
+    assert _settings(DATABASE_URL=_LOCAL_URL, PII_SCORE_THRESHOLD_CODE=1).PII_SCORE_THRESHOLD_CODE == 1.0
+
+
+@pytest.mark.parametrize("value", [0, -1, "0"])
+def test_a_pii_max_characters_code_below_one_is_a_startup_error(value):
+    """AC 3: the exact positive-limit message the other resource bounds use."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PII_MAX_CHARACTERS_CODE=value)
+
+    message = str(exc_info.value)
+    assert f"PII_MAX_CHARACTERS_CODE must be at least 1, got {int(value)}." in message
+    assert _POSITIVE_LIMIT_DESCRIPTIONS["PII_MAX_CHARACTERS_CODE"] in message
+
+
+def test_pii_max_characters_code_accepts_the_boundary_value_of_one():
+    """The boundary on the accepted side, so a `<= 1` typo fails here, not in STORY-010."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, PII_MAX_CHARACTERS_CODE=1)
+
+    assert result.PII_MAX_CHARACTERS_CODE == 1
+
+
+def test_pii_entities_code_list_parses_like_pii_entities_list():
+    """AC 4: the same input through both properties gives the same list."""
+    raw = " EMAIL_ADDRESS , ,US_SSN ,"
+    result = _settings(DATABASE_URL=_LOCAL_URL, PII_ENTITIES=raw, PII_ENTITIES_CODE=raw)
+
+    assert result.pii_entities_code_list == result.pii_entities_list == ["EMAIL_ADDRESS", "US_SSN"]
+
+
+def test_existing_pii_settings_keep_their_defaults():
+    """AC 5: the values tests/test_pii_characterization.py pins as shipped."""
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.PII_REDACTION_ENABLED is True
+    assert result.PII_SCORE_THRESHOLD == 0.35
+    assert result.PII_ENTITIES == "PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION"
+    assert result.PII_NLP_MODEL == "en_core_web_lg"
+
+
+def test_existing_pii_settings_gained_no_validation():
+    """AC 5's "validation unchanged", and the assertion with teeth.
+
+    The new validators are `code`-only. `chat`'s settings are PRD-003's and
+    had none; a validator that crept onto them would turn this red.
+    """
+    result = _settings(DATABASE_URL=_LOCAL_URL, PII_ENTITIES="NOT_A_TYPE", PII_SCORE_THRESHOLD=5)
+
+    assert result.pii_entities_list == ["NOT_A_TYPE"]
+    assert result.PII_SCORE_THRESHOLD == 5
