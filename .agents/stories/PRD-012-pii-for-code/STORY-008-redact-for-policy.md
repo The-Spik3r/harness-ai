@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Primitives"
-status: todo
+status: in-progress
 labels: [backend, pii, security]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-008-redact-for-policy.plan.md
 report: null
 commit: null
 depends_on: [STORY-001, STORY-004, STORY-006, STORY-007]
 blocks: [STORY-009, STORY-013]
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-008: redact_for_policy: fence skipping, structure-safe replacement, JSON-aware mode
