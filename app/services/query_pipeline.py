@@ -27,7 +27,7 @@ from app.services.openrouter_client import (
     call_openrouter,
 )
 from app.services.pattern_config import get_profile
-from app.services.pattern_detector import inspect
+from app.services.pattern_detector import inspect, strip_fenced_blocks
 from app.services.pii_policy import PiiPolicy, get_pii_policy
 from app.services.pii_redactor import PiiRedactorError, redact, redact_for_policy
 
@@ -91,6 +91,51 @@ def _context_limit_exceeded(
     if character_count > settings.CONTEXT_MAX_CHARACTERS:
         return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
 
+    return None
+
+
+def _analyzable_characters(messages: Sequence[Message], policy: PiiPolicy) -> int:
+    """How many characters step 6 would hand the analyzer under `policy`.
+
+    Only messages whose role the policy covers count: `code`'s `system` turn is
+    not analyzed, so it costs nothing (PRD-012 D3). A covered message is
+    measured as the analyzer sees it -- `strip_fenced_blocks(content)` when the
+    policy skips fences, `content` otherwise -- and every newline is left out.
+    A blanked fence is nothing but newlines, so fenced content counts zero; a
+    newline in prose is a run of one, costs the analyzer nothing either, and is
+    left out by the same rule (PRD-012 Section 6.7, "newline runs not
+    counted"). Lengths only: nothing here calls the analyzer.
+    """
+    total = 0
+    for message in messages:
+        if message.role not in policy.input_roles:
+            continue
+        text = strip_fenced_blocks(message.content) if policy.skip_fenced_blocks else message.content
+        total += len(text) - text.count("\n")
+    return total
+
+
+def _redaction_limit_exceeded(
+    messages: Sequence[Message], policy: PiiPolicy
+) -> Optional[Tuple[int, int]]:
+    """(maximum, actual) when the analyzable characters break `policy`'s limit, or None.
+
+    None without counting when the policy has no limit -- `chat`, whose
+    `max_characters` is None because CONTEXT_MAX_CHARACTERS already bounds it
+    -- and when PII_REDACTION_ENABLED is off. The master switch turns off every
+    policy (PRD-012 Section 9.3): with nothing analyzed there is no redaction
+    for size to get past, and "exceeds redaction limit" would be untrue. It is
+    read here, per call, for the reason _context_limit_exceeded gives; the
+    maximum is the policy's, which pii_policy.load() builds from settings.
+
+    The comparison is strict `>`, as at step 3: a conversation exactly at the
+    maximum is within the limit.
+    """
+    if policy.max_characters is None or not settings.PII_REDACTION_ENABLED:
+        return None
+    actual = _analyzable_characters(messages, policy)
+    if actual > policy.max_characters:
+        return policy.max_characters, actual
     return None
 
 
@@ -333,8 +378,41 @@ def run_conversation(
     # Step 6: redact input per the profile's PII policy (PRD-012 Sections
     # 6.1, 6.3, F8). Resolved once per request, from the name step 5 resolved:
     # `chat` for /query and the chat UI, a name without a PII policy falls
-    # back to `chat` (D8). PRD-012 STORY-010's size arm belongs directly below.
+    # back to `chat` (D8).
     policy = get_pii_policy(profile_name)
+
+    # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
+    # the head of step 6 and not in step 3, because what it measures depends
+    # on the policy: which roles are covered and how much sits inside fences.
+    # So a refused conversation has already passed authorization, the
+    # duplicate check and patterns -- a pattern block wins over it, and a flag
+    # row above is followed by this one.
+    #
+    # Fail closed: over the limit, nothing is analyzed and nothing goes
+    # upstream. There is deliberately no skip-and-flag alternative, not even
+    # as an unused setting: skipping is forwarding unmasked text (D4).
+    # `success=False` for step 3's reason, which also means the row can never
+    # serve as a prior query (PRD-009 Section 6.3): the same request sent
+    # after the operator raises the limit is answered, not held. `chat` has
+    # no limit, so /query and the chat UI cannot reach this arm.
+    over = _redaction_limit_exceeded(messages, policy)
+    if over is not None:
+        maximum, actual = over
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=f"redaction limit: characters {actual} > {maximum}",
+            session_id=session_id,
+            dedup_key=key,
+        )
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds redaction limit",
+            limit="redaction_characters",
+            maximum=maximum,
+            actual=actual,
+        )
 
     # Every role the policy covers is redacted, history included (PRD-010
     # D5): history must never leave the process unmasked, whatever its

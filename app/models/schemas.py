@@ -102,8 +102,8 @@ class QueryBlockedForbiddenResponse(BaseModel):
 class QueryBlockedContextLimitResponse(BaseModel):
     """A conversation refused for being over a configured context limit (PRD-010 D2).
 
-    `limit` names *which* of the two configured maxima was hit, and only ever
-    one is reported: `run_conversation` checks messages first and returns on the
+    `limit` names *which* configured maximum was hit, and only ever one is
+    reported: `run_conversation` checks messages first and returns on the
     first breach, so a conversation over both is reported as `messages`. That is
     deliberate -- a caller shortening a conversation to fit the message count
     will be told about the character count on the next attempt, and a body that
@@ -114,11 +114,19 @@ class QueryBlockedContextLimitResponse(BaseModel):
     (`CONTEXT_MAX_MESSAGES` / `CONTEXT_MAX_CHARACTERS`), not a constant: it is
     echoed back so a client can see the bound it broke without reading the
     server's configuration.
+
+    `redaction_characters` is the third maximum, PII redaction's (PRD-012
+    Section 6.7, D4). Only a PII policy with `max_characters` set (`code`)
+    reports it, from step 6, after both context limits have passed, so it is
+    never reported alongside them. Its `maximum` is that policy's
+    `max_characters` (`PII_MAX_CHARACTERS_CODE`) for that call, and `actual`
+    counts only what the analyzer would process: covered roles, fenced blocks
+    blanked, newlines not counted.
     """
 
     status: Literal["BLOCKED"] = "BLOCKED"
     reason: str
-    limit: Literal["messages", "characters"]
+    limit: Literal["messages", "characters", "redaction_characters"]
     maximum: int
     actual: int
 

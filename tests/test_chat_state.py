@@ -3234,3 +3234,45 @@ async def test_a_restored_context_limit_bubble_keeps_its_copy_and_is_marked_rest
         assert bubble.content == "Conversation exceeds context limit"
         assert bubble.detail == "messages 101 of 100"
         assert bubble.restored is True
+
+
+# --- PRD-012 STORY-010 -----------------------------------------------------
+# Appended: this suite is asserted by census (tests/test_untouched_app.py), so
+# nothing above changes.
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_redaction_limit_renders_a_context_limit_bubble(
+    temp_db, monkeypatch
+):
+    """STORY-010 AC 4: the `redaction_characters` refusal draws the same
+    `context_limit` bubble, and its detail names the new value through
+    `copy.CONTEXT_LIMIT_UNITS` instead of printing the identifier.
+
+    The chat UI runs `chat`, which has no redaction limit, so this result cannot
+    arrive from its own pipeline today; the stub stands in for a call site
+    (PRD-014) that shares `ChatState`.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds redaction limit",
+            limit="redaction_characters",
+            maximum=200000,
+            actual=231554,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    bubble = state.messages[-1]
+    assert bubble.kind == "context_limit"
+    assert bubble.content == "Conversation exceeds redaction limit"
+    assert bubble.detail == "characters to check for personal data 231554 of 200000"
+    assert "redaction_characters" not in bubble.detail
+    assert bubble.prompt == "hello world"

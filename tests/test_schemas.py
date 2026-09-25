@@ -315,3 +315,27 @@ def test_query_request_session_id_error_names_the_field():
         QueryRequest(prompt="hi", session_id="not-a-uuid")
 
     assert caught.value.errors()[0]["loc"] == ("session_id",)
+
+
+def test_query_blocked_context_limit_response_accepts_redaction_characters():
+    """PRD-012 STORY-010 AC 4: the third maximum, and the body of PRD-012
+    Section 6.7, field for field. Additive: the two existing values and the
+    rejected ones above are unchanged."""
+    response = QueryBlockedContextLimitResponse(
+        reason="Conversation exceeds redaction limit",
+        limit="redaction_characters",
+        maximum=200000,
+        actual=231554,
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Conversation exceeds redaction limit",
+        "limit": "redaction_characters",
+        "maximum": 200000,
+        "actual": 231554,
+    }
+    assert get_args(QueryBlockedContextLimitResponse.model_fields["limit"].annotation) == (
+        "messages",
+        "characters",
+        "redaction_characters",
+    )

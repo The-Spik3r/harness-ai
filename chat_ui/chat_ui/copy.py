@@ -124,6 +124,17 @@ CONTEXT_LIMIT_NEW_CHAT_NOTICE = "Start a new chat to continue."
 # "characters" or "messages" -- a unit the reader recognizes -- and because
 # "limit" is one of the words this bubble's copy must not contain.
 CONTEXT_LIMIT_DETAIL_TEMPLATE = "{unit} {actual} of {maximum}"
+# The `unit` each refusal fills in, keyed by the response's `limit` value. The
+# two context maxima are already words the reader recognizes, so they map to
+# themselves and their detail line reads exactly as it always has. The third,
+# PRD-012's `redaction_characters`, counts only the text that gets checked for
+# personal data -- code blocks do not count -- so the phrase says that, rather
+# than printing an identifier or naming the mechanism ("limit", "redaction").
+CONTEXT_LIMIT_UNITS = {
+    "messages": "messages",
+    "characters": "characters",
+    "redaction_characters": "characters to check for personal data",
+}
 
 # --- Session fallbacks ---------------------------------------------------
 # The two strings a session row falls back to. Both are failures of the
