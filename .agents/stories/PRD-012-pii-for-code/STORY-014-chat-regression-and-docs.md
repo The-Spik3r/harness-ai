@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Decide and prove"
-status: todo
+status: in-progress
 labels: [docs, tests, regression]
 epic_branch: epic/PRD-012-pii-for-code
-plan: null
+plan: .agents/plans/PRD-012-pii-for-code/STORY-014-chat-regression-and-docs.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-011, STORY-012, STORY-013]
 blocks: []
 skills: []
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-25
 ---
 
 # STORY-014: chat regression sweep, README and .env docs, pre-PRD promoted

@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-012-pii-for-code`. No per-story 
 | STORY-011 | audit_logs.profile on every arm; /audit and the Register show it | feature | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-011-audit-profile-column.plan.md) | `faaa4be` |
 | STORY-012 | Placeholder spike and decisions/D5-placeholders.md | spike | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-012-placeholder-spike.plan.md) | `970f16a` |
 | STORY-013 | Code round-trip suite and the latency-budget assertion | technical | ✅ done | medium | [plan](../../plans/PRD-012-pii-for-code/completed/STORY-013-code-round-trip-suite.plan.md) | `e828e2a` |
-| STORY-014 | chat regression sweep, README and .env docs, pre-PRD promoted | technical | ⬜ todo | medium | — | — |
+| STORY-014 | chat regression sweep, README and .env docs, pre-PRD promoted | technical | 🟡 in-progress | medium | [plan](../../plans/PRD-012-pii-for-code/STORY-014-chat-regression-and-docs.plan.md) | — |
 
 ## Status Icons
 - ⬜ todo
