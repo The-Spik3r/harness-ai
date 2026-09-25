@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Decide and prove"
-status: in-progress
+status: done
 labels: [tests, pii, performance]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-013-code-round-trip-suite.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-013-code-round-trip-suite.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-013-code-round-trip-suite.report.md
+commit: e828e2a
 depends_on: [STORY-001, STORY-003, STORY-008, STORY-009]
 blocks: [STORY-014]
 skills: []
