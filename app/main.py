@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from app.db.database import init_db
 from app.routers import admin as admin_router
 from app.routers import query as query_router
-from app.services import authz, pattern_config, pii_redactor, pipeline_executor
+from app.services import authz, pattern_config, pii_policy, pii_redactor, pipeline_executor
 
 
 @asynccontextmanager
@@ -14,6 +14,7 @@ async def lifespan(app: FastAPI):
     pii_redactor.load()
     authz.load()
     pattern_config.load()
+    pii_policy.load()
     authz.check_bootstrap()
     yield
     pipeline_executor.shutdown()

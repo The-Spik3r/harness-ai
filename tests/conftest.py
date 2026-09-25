@@ -62,6 +62,7 @@ from app.config import settings  # noqa: E402  -- must follow the bootstrap abov
 from app.db import database  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 from app.services import pattern_config  # noqa: E402
+from app.services import pii_policy  # noqa: E402
 
 
 def child_db_env(url: str) -> dict:
@@ -208,6 +209,20 @@ def _default_pattern_policy(monkeypatch):
     original = pattern_config._policy
     yield
     pattern_config._policy = original
+
+
+@pytest.fixture(autouse=True)
+def _default_pii_policy():
+    """Every test ends with the PII policies it started with (PRD-012 STORY-007).
+
+    A test that patches a `PII_*` setting calls `pii_policy.load()` itself to
+    see it. `_policies` is saved and restored directly, for the reason
+    `_default_pattern_policy` gives: `load()` rebinds it with a plain
+    assignment, which `monkeypatch` would not undo.
+    """
+    original = pii_policy._policies
+    yield
+    pii_policy._policies = original
 
 
 @pytest.fixture

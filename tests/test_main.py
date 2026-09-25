@@ -1,3 +1,4 @@
+import dataclasses
 import os
 from pathlib import Path
 
@@ -16,9 +17,11 @@ from app.main import app
 from app.services.identity import hash_token
 import app.services.authz as authz
 import app.services.pattern_config as pattern_config
+import app.services.pii_policy as pii_policy
 import app.services.pii_redactor as pii_redactor
 from app.services import pipeline_executor
 from app.services.pattern_config import BUILT_IN_POLICY, PatternConfigError
+from app.services.pii_policy import PiiConfigError
 
 client = TestClient(app)
 
@@ -337,3 +340,61 @@ def test_lifespan_fails_when_the_tokenizer_only_analyzer_cannot_be_built(_pii_st
 
     assert "PII_ENTITIES_CODE" in str(excinfo.value)
     assert pii_redactor._pattern_analyzer is None
+
+
+# --------------------------------------------------------------------------
+# PRD-012 STORY-007 -- pii_policy.load() after pattern_config.load().
+# --------------------------------------------------------------------------
+# `_pattern_startup` boots with RBAC and PII analysis off: the policy is a
+# description and builds no analyzer, so these tests never load spaCy.
+# conftest's `_default_pii_policy` restores the policies afterwards.
+
+
+def _inconsistent_code_policy():
+    real = pii_policy._build_code_policy()
+    return lambda: dataclasses.replace(real, skip_fenced_blocks=True, structure_safe=False)
+
+
+def test_lifespan_runs_pii_policy_load_after_pattern_config_load(_pattern_startup, monkeypatch):
+    """PRD-012 STORY-007 AC 5, FastAPI path: pii_policy.load() reads the loaded
+    pattern profiles, so it must run after pattern_config.load()."""
+    calls = []
+
+    def _recording(name, original):
+        def _load():
+            calls.append(name)
+            return original()
+
+        return _load
+
+    monkeypatch.setattr(pattern_config, "load", _recording("pattern_config", pattern_config.load))
+    monkeypatch.setattr(pii_policy, "load", _recording("pii_policy", pii_policy.load))
+
+    with TestClient(app):
+        pass
+
+    assert calls == ["pattern_config", "pii_policy"]
+
+
+def test_lifespan_fails_when_pii_policy_is_inconsistent(_pattern_startup, monkeypatch):
+    """PRD-012 STORY-007 AC 5, FastAPI path: a PiiConfigError stops the boot and
+    leaves the previous policies in force."""
+    before = pii_policy.get_pii_policy("code")
+    monkeypatch.setattr(pii_policy, "_build_code_policy", _inconsistent_code_policy())
+
+    with pytest.raises(PiiConfigError):
+        with TestClient(app):
+            pass
+
+    assert pii_policy.get_pii_policy("code") is before
+
+
+def test_lifespan_pii_policy_reflects_settings(_pattern_startup, monkeypatch):
+    """The lifespan really calls load(): a setting patched after import is in
+    force by the time the first request is served."""
+    monkeypatch.setattr(settings, "PII_CODE_REDACT_OUTPUT", True)
+    assert pii_policy.get_pii_policy("code").output is False
+
+    with TestClient(app) as test_client:
+        assert pii_policy.get_pii_policy("code").output is True
+        assert test_client.get("/health").status_code == 200

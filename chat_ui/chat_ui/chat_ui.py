@@ -10,7 +10,7 @@ import reflex as rx
 
 from app.db.database import init_db
 from app.main import app as fastapi_app
-from app.services import authz, pattern_config, pii_redactor, pipeline_executor
+from app.services import authz, pattern_config, pii_policy, pii_redactor, pipeline_executor
 
 from chat_ui import theme
 from chat_ui.components.admin_shell import (
@@ -203,6 +203,11 @@ app.register_lifespan_task(authz.load)
 # deployment that actually serves traffic. Kept beside authz.load: both are
 # pure configuration loads, and the next one (PRD-015) belongs here too.
 app.register_lifespan_task(pattern_config.load)
+# Same bypass (PRD-012 STORY-007): without this the chat UI would resolve PII
+# policy from import-time settings and never log a pattern profile's fallback
+# to `chat`. After pattern_config.load because it reads the loaded pattern
+# profiles; Reflex runs tasks in registration order.
+app.register_lifespan_task(pii_policy.load)
 # Same bypass again (STORY-016): app.main's fail-fast bootstrap guard would
 # otherwise never run for this ingress, so RBAC_ENABLED=true with zero
 # seeded users would boot the chat UI straight into a silent 401 wall
