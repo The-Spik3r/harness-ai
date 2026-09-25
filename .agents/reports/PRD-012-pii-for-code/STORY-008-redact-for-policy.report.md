@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-008-redact-for-policy.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: df74e9b
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-008-redact-for-policy.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code`
-**Commit**: `pending`
+**Commit**: `df74e9b`
 
 ## Summary
 
