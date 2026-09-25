@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Primitives"
-status: in-progress
+status: done
 labels: [backend, pii, performance]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-006-pattern-only-analyzer.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-006-pattern-only-analyzer.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-006-pattern-only-analyzer.report.md
+commit: 0d398aa
 depends_on: [STORY-003, STORY-005]
 blocks: [STORY-008]
 skills: []

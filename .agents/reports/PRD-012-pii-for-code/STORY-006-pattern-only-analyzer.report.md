@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-006-pattern-only-analyzer.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: 0d398aa
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-006-pattern-only-analyzer.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code` (BASE `042af3e`, plan commit `745643f`)
-**Commit**: `pending`
+**Commit**: `0d398aa`
 
 ## Summary
 
