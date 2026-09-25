@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-012
 plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-007-pii-policy.plan.md
 epic_branch: epic/PRD-012-pii-for-code
-commit: pending
+commit: 50ef312
 status: COMPLETE
 completed: 2026-09-25
 ---
@@ -12,7 +12,7 @@ completed: 2026-09-25
 
 **Plan**: `.agents/plans/PRD-012-pii-for-code/completed/STORY-007-pii-policy.plan.md`
 **Epic Branch**: `epic/PRD-012-pii-for-code`
-**Commit**: `pending`
+**Commit**: `50ef312`
 
 ## Summary
 

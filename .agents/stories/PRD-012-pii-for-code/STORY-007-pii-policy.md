@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Primitives"
-status: in-progress
+status: done
 labels: [backend, pii, config]
 epic_branch: epic/PRD-012-pii-for-code
-plan: .agents/plans/PRD-012-pii-for-code/STORY-007-pii-policy.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-012-pii-for-code/completed/STORY-007-pii-policy.plan.md
+report: .agents/reports/PRD-012-pii-for-code/STORY-007-pii-policy.report.md
+commit: 50ef312
 depends_on: [STORY-005]
 blocks: [STORY-008, STORY-009]
 skills: []
