@@ -43,6 +43,7 @@ from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
+import app.services.query_pipeline as query_pipeline
 
 import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
@@ -3234,3 +3235,76 @@ async def test_a_restored_context_limit_bubble_keeps_its_copy_and_is_marked_rest
         assert bubble.content == "Conversation exceeds context limit"
         assert bubble.detail == "messages 101 of 100"
         assert bubble.restored is True
+
+
+# --- PRD-012 STORY-010 -----------------------------------------------------
+# Appended: this suite is asserted by census (tests/test_untouched_app.py), so
+# nothing above changes.
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_redaction_limit_renders_a_context_limit_bubble(
+    temp_db, monkeypatch
+):
+    """STORY-010 AC 4: the `redaction_characters` refusal draws the same
+    `context_limit` bubble, and its detail names the new value through
+    `copy.CONTEXT_LIMIT_UNITS` instead of printing the identifier.
+
+    The chat UI runs `chat`, which has no redaction limit, so this result cannot
+    arrive from its own pipeline today; the stub stands in for a call site
+    (PRD-014) that shares `ChatState`.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds redaction limit",
+            limit="redaction_characters",
+            maximum=200000,
+            actual=231554,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    bubble = state.messages[-1]
+    assert bubble.kind == "context_limit"
+    assert bubble.content == "Conversation exceeds redaction limit"
+    assert bubble.detail == "characters to check for personal data 231554 of 200000"
+    assert "redaction_characters" not in bubble.detail
+    assert bubble.prompt == "hello world"
+
+
+# ---------------------------------------------------------------------------
+# PRD-012 STORY-011: the chat UI writes profile='chat' (D9, T1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_records_profile_chat_on_both_pipeline_paths(
+    temp_db, monkeypatch
+):
+    """AC 3. The first send has no session yet and takes `run_query`; the
+    second, in the session the first created, takes `run_conversation` with
+    history. Neither passes a profile, so both rows record the default."""
+    def _fake_call_openrouter(messages, model="gpt-4", api_key=None, params=None):
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr(chat_state_mod, "call_openrouter", _fake_call_openrouter)
+    monkeypatch.setattr(query_pipeline, "redact", lambda text: (text, []))
+    monkeypatch.setattr(settings, "CHAT_HISTORY_ENABLED", True)
+
+    state = _make_state()
+    await _send(state, "first question")
+    first_id = state.messages[-1].audit_id
+    assert state.active_session_id
+    await _send(state, "second question")
+    second_id = state.messages[-1].audit_id
+
+    assert first_id != second_id
+    assert get_audit_log(first_id).profile == "chat"
+    assert get_audit_log(second_id).profile == "chat"

@@ -685,6 +685,9 @@ def init_db() -> None:
     PRD-011 STORY-009 adds `audit_logs.pattern_role` and
     `audit_logs.pattern_action` on the `session_id`/`dedup_key` path, with no
     new code here: both are nullable with no default, and neither is indexed.
+
+    PRD-012 STORY-011 adds `audit_logs.profile` on the same path, again with
+    no new code here: nullable, no default, no backfill, not indexed.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -769,8 +772,8 @@ def insert_audit_log(entry: AuditLog) -> int:
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
                 role, denied_permission, session_id, dedup_key,
-                pattern_role, pattern_action
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pattern_role, pattern_action, profile
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -795,6 +798,7 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.dedup_key,
                 entry.pattern_role,
                 entry.pattern_action,
+                entry.profile,
             ),
         )
         return cursor.lastrowid
@@ -875,6 +879,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         dedup_key=row["dedup_key"],
         pattern_role=row["pattern_role"],
         pattern_action=row["pattern_action"],
+        profile=row["profile"],
     )
 
 
@@ -1216,7 +1221,8 @@ SELECT
               'session_id', session_id,
               'dedup_key', dedup_key,
               'pattern_role', pattern_role,
-              'pattern_action', pattern_action))
+              'pattern_action', pattern_action,
+              'profile', profile))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

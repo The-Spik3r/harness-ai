@@ -137,7 +137,7 @@ All captures were taken from a running instance with [agent-browser](https://www
         └───────────────────────┘
 ```
 
-Blocked requests (missing/invalid credential, missing permission, duplicate, or suspicious pattern) short-circuit at step 0, 3, or 4 — the model provider is never called, and the block is still logged. Redaction sits after every check, so a blocked request is never analyzed for PII.
+Blocked requests (missing/invalid credential, missing permission, duplicate, or suspicious pattern) short-circuit at step 0, 3, or 4 — the model provider is never called, and the block is still logged. Redaction sits after every check, so a blocked request is never analyzed for PII. The diagram shows the `chat` profile, the one both ingresses run; under the `code` profile the response-redaction box is skipped and `system` turns are not redacted — see [PII redaction](#pii-redaction).
 
 The transcript write is **not** a pipeline step. It happens in the chat UI after the pipeline has returned, it is allowed to fail without taking the answer with it, and `CHAT_HISTORY_ENABLED=false` removes it entirely — which is why the eight steps above are exactly the eight steps of the previous release. `POST /query` writes no transcript at all; it only records which conversation a row belonged to.
 
@@ -152,7 +152,7 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | **Role-based access control** | Every request is resolved to a verified `Identity` from a per-user bearer token — no self-declared `user_id` is trusted. Three fixed roles (`admin`, `auditor`, `user`) each hold an explicit permission set; deny-by-default for any unmapped role or permission. `ADMIN_TOKEN` remains a break-glass admin credential, not the primary auth mechanism. |
 | **Duplicate blocking** | Exact-match (word-for-word) detection of a prompt the **same account** already had answered within a rolling 24-hour window. Scoped per user, never across users — see [Duplicate detection scope](#duplicate-detection-scope). |
 | **Prompt-injection blocking** | Word-boundary matching against a per-deployment pattern file, applied per message role: the caller's own turns are blocked on a hit, and an instruction planted in a tool result is flagged in the audit rather than blocked. See [Pattern policy](#pattern-policy). |
-| **PII redaction** | [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt before it reaches OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a request, and the audit log keeps the raw text. English-only in this release. |
+| **PII redaction** | Under the `chat` profile (`POST /query` and the chat UI), [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt and its history before they reach OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a `chat` request, and the audit log keeps the raw text. A `code` profile for coding agents masks prose only, runs pattern recognizers only, leaves the response alone, and refuses a request too large to analyze. See [PII redaction](#pii-redaction). English-only in this release. |
 | **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
 | **Persisted chat sessions** | The chat UI holds named, per-conversation transcripts in Turso — restored on reload, on a new browser session, and from any instance sharing the database. Each transcript is readable only by the account that wrote it; no admin surface exposes one. `CHAT_HISTORY_ENABLED=false` turns the whole feature off, from the same image. |
 | **Multi-turn context** | The chat sends the conversation, not just the latest message: every answered exchange in the session that fits the configured limits goes upstream, redacted, on every send. The pipeline takes a list of messages; `POST /query` is the one-message case and is unchanged. See [Multi-turn context](#multi-turn-context). |
@@ -202,7 +202,7 @@ Every case above has an end-to-end test in `tests/test_duplicate_scope.py`. The 
 
 **`CHAT_HISTORY_ENABLED=false` keeps the chat single-turn.** The flag already governed whether transcripts are stored; it now also selects what the chat sends. With it off, each send carries one user turn, exactly as before — same image, same code path.
 
-**What it costs.** Measured on a session of 20 exchanges (41 messages, ~19k characters) against a local database: **about 0.93 s added per send** (p50 926 ms, p95 961 ms), growing roughly 23 ms per message. Reading the history is not the cost — that is 5 ms; **re-redacting every turn is ~97% of it**. A deployment that finds this too slow has two levers today, `CONTEXT_MAX_MESSAGES` and `PII_REDACTION_ENABLED`, and the second one turns off a security control. The measurement script is `scripts/measure_history_latency.py`.
+**What it costs.** Measured on a session of 20 exchanges (41 messages, ~19k characters) against a local database: **about 0.93 s added per send** (p50 926 ms, p95 961 ms), growing roughly 23 ms per message. Reading the history is not the cost — that is 5 ms; **re-redacting every turn is ~97% of it**. A deployment that finds this too slow has two levers today, `CONTEXT_MAX_MESSAGES` and `PII_REDACTION_ENABLED`, and the second one turns off a security control. The measurement script is `scripts/measure_history_latency.py`. The same redaction cost at 40,000 to 400,000 characters, and the `code` profile's figures beside it, are in [PII redaction](#pii-redaction).
 
 **Slow conversations no longer stall the process.** Long contexts mean long upstream calls, so the whole pipeline runs on its own bounded thread pool (`PIPELINE_MAX_WORKERS`, default `32`) rather than the shared server pool. `tests/test_pipeline_concurrency.py` proves it: with ten sends parked inside the upstream, `/health` answers in under a second and an eleventh query is answered in under a second — from `POST /query` and from the chat's history path alike. With the pool set to 10, the eleventh send queues, and `/health` still answers.
 
@@ -283,6 +283,59 @@ The file is read once at startup, like every setting; a change needs a restart.
 **What the audit records.** Every pattern hit writes a row carrying the matched pattern, `pattern_role` (which message role it was found in) and `pattern_action` (`block` or `flag`); `GET /audit` and the admin console's Register page show both, so a careless user and a compromised data source read differently. `blocked_suspicious` in `GET /stats` and the console summary counts **blocks only**. A flagged request that later fails upstream leaves two rows — the flag and the failure. One row names one hit: a block ends the scan, and for flags the row keeps the first one found and does not record how many followed. A message longer than `PATTERN_MAX_SCAN_CHARACTERS` is matched on its first part only, and the truncation is logged as a `WARNING` naming the user and the message index — never the content.
 
 The full design, including the threat reasoning behind each cell of the table, is in [PRD-011](.agents/PRDs/PRD-011-pattern-policy/PRD.md).
+
+### PII redaction
+
+**Redaction is a policy per profile, and the server chooses the profile.** The same profile name that selects the [pattern policy](#pattern-policy) selects the PII policy: `POST /query` and the chat UI run `chat`. No request field chooses it, so a chat user cannot ask for the permissive one. A profile name with no PII policy of its own — a custom profile in a patterns file, say — gets `chat`'s, the strictest, rather than an error.
+
+**`chat` is exactly what it was.** Every message on every send, history included, is masked before it leaves the process, and so is the model's response before it reaches the caller: `PII_ENTITIES` at `PII_SCORE_THRESHOLD`, with spaCy's named-entity recognizer finding names and places. `tests/test_pii_characterization.py` pinned its output byte for byte before any of this was built, and nothing since has changed an assertion in it.
+
+**`code` is for coding agents, whose input is source and whose output lands in files.** Masking a response there writes `<EMAIL_ADDRESS>` into the user's repository, and the recognizer that finds names also finds them in identifiers. So `code` treats each role, and the response, differently:
+
+| | `system` | `user` | `assistant` | `tool` | Output |
+|---|---|---|---|---|---|
+| `chat` | redact | redact | redact | redact (unreachable) | **redact** |
+| `code` | not redacted | redact prose | redact prose | redact prose | **not redacted** |
+
+- **Output is not redacted.** The reader of a coding agent's output is the file system, and a placeholder in a response becomes a placeholder in a file. The model can only return PII it was given — which input redaction masked — or PII it made up itself.
+- **`system` is not redacted.** It is the client's own prompt, and re-analyzing a multi-kilobyte agent prompt on every step is the largest fixed cost per request with no user data in it.
+- **`user` is redacted, prose only.** This is the person speaking; fenced code blocks in it are skipped, the prose around them is not.
+- **`assistant` is redacted, prose only.** A client that sends its own history can write anything into an `assistant` turn, so history is never trusted to be clean.
+- **`tool` is redacted, prose only** — file reads, command output, fetched pages. The pipeline refuses `tool` turns until tool calling ships (PRD-016), so this cell is tested at the function level only.
+
+`chat`'s `tool` cell is unreachable for the same reason. **In this release `code` is reached by direct call only:** it has no HTTP ingress until the [OpenAI-compatible endpoint](#openai-compatible-endpoint) (PRD-014).
+
+**What `code` gives up, stated plainly.** Where a setting changes one of these, it is named:
+
+- **Fenced blocks are not masked.** PII inside a ```` ``` ```` or `~~~` block reaches the provider. Prose around the fence is masked, and so is an inline backtick span — `` `ops@corp.com` `` is masked. The fence parser is PRD-011's heuristic, with its limits: indented code blocks are not recognized, and an unterminated fence runs to the end of the text. Lever: `PII_CODE_SKIP_CODE_BLOCKS=false`.
+- **Names and places are not detected by default.** `Jane Doe` in prose goes out as written; `jane@corp.com` is masked. `code` runs Presidio's pattern recognizers only — email, phone, card, SSN, IBAN, with checksums where the format has one — on a tokenizer-only pipeline that never loads `en_core_web_lg`. Lever: add `PERSON` or `LOCATION` to `PII_ENTITIES_CODE`. Any named-entity type (`PERSON`, `LOCATION`, `ORGANIZATION`, `NRP`, `DATE_TIME`) puts `code` back on `en_core_web_lg` at `chat`'s cost, which the benchmark below puts at seven times the latency budget.
+- **The response is not masked.** Lever: `PII_CODE_REDACT_OUTPUT=true`, if placeholders written into files are preferable to any unmasked output.
+- **Placeholders are fixed.** A masked email is `<EMAIL_ADDRESS>`, the same for every address. An agent that quotes a masked value in an edit will not match the file on disk. There is no setting for this.
+- **Number tokens are quoted in JSON.** When a message's content is a JSON document, a phone or card number that is a JSON number becomes the string `"<PHONE_NUMBER>"`, so the document still parses; PII in a string value is replaced inside its quotes. If a redaction would still produce invalid JSON, the request fails closed through the existing redaction-error path: audited as a failure, nothing sent upstream, and the error raised to the ingress — the path `POST /query` answers with a `500`.
+- **Structure is never altered.** A quote, backtick, backslash or line break is never removed or added. A match that crosses one is split around it, and only the part holding the entity's anchor — the `@` of an email, a digit for the rest — is replaced, so `email='jane@example.com'` becomes `email='<EMAIL_ADDRESS>'`, not a syntax error.
+- **Escape sequences can hide a number in source code.** In JSON, escapes are invisible to detection, so `"payout:\nGB82 …"` is still found. In a source-code string literal, a letter escape directly before an IBAN or card (`"card:\t4111 1111 1111 1111"`) can hide it — under `chat` too. Recorded, not fixed.
+- **Over the limit is refused, never skipped.** More than `PII_MAX_CHARACTERS_CODE` (200,000) characters to analyze — counted over the roles `code` redacts, with fenced content and line breaks not counted — is `BLOCKED` with `limit: "redaction_characters"` and audited as a failure. It is never forwarded unmasked: skipping redaction and flagging the row is deliberately not offered. See [`POST /query` — blocked (context limit)](#post-query--blocked-context-limit) for the shape.
+
+`PII_REDACTION_ENABLED=false` still turns off every profile, `code` included, and the size limit with it.
+
+**What the audit records.** Every row the pipeline writes carries `profile` — `chat` for `POST /query` and the chat UI, `null` on rows from before this release. `pii_detected_input` and `pii_entities` keep their meaning: the new turn plus the output. Under `code`, `pii_detected_output` is `false` because the output was **not analyzed**, not because it was clean — `profile` is what tells the two apart. See [`GET /audit`](#get-audit-requires-auditreadall-or-auditreadown).
+
+**What it costs.** Redaction time per request for an agent-shaped conversation — one system prompt, then alternating user, assistant and tool-shaped turns, about 14% of it inside fences:
+
+| Characters | `chat` p95 | `code` p95 |
+|---|---|---|
+| 40,000 | 1,842 ms | 71 ms |
+| 200,000 | 10,750 ms | 465 ms |
+| 400,000 | 22,482 ms | 929 ms |
+
+- `code` at 200,000 characters is asserted under a **1,500 ms** budget by `tests/test_pii_code_corpus.py`, run with `pytest tests/test_pii_code_corpus.py -m benchmark --run-benchmark`; runs have measured **463–506 ms**, about a third of it. The everyday suite skips it.
+- `chat`'s cost is the named-entity model: 93% of it is spaCy's `en_core_web_lg`, which is why `code` does not run it.
+- Threads do not buy throughput for either: at four concurrent 200,000-character requests, `chat`'s throughput is 0.70× that of one at a time and the pattern-only analyzer `code` uses stays at 1.00×, so each request takes about four times as long. Redaction is CPU-bound under the GIL.
+- The ~0.93 s per chat send in [Multi-turn context](#multi-turn-context) is this same `chat` cost at ~19k characters.
+
+Measured on Python 3.11.9 with 12 logical CPUs, Presidio 2.2.364 and spaCy 3.8.16 (both now pinned in `requirements.txt`). The script is `scripts/measure_pii_latency.py`: `python scripts/measure_pii_latency.py --sizes 40000,200000,400000 --runs 20`.
+
+The full design, including the threat reasoning behind each cell of the table, is in [PRD-012](.agents/PRDs/PRD-012-pii-for-code/PRD.md).
 
 ---
 
@@ -491,10 +544,10 @@ Four properties matter when you run it:
 | `RBAC_DEFAULT_ROLE` | No | `user` | Role assigned by `scripts/manage_users.py create-user` when `--role` is omitted. |
 | `RBAC_ROLES_FILE` | No | — (empty) | Optional path to a JSON role→permission matrix overriding the built-in default. A malformed file or an unrecognized permission fails startup rather than silently falling back. |
 | `MODEL_ALLOWLIST` | No | `gpt-4,claude-3-sonnet,openai/gpt-4o,anthropic/claude-3.5-sonnet` | Comma-separated models a `user`-role caller may request. Validated server-side; `admin` bypasses this list entirely. |
-| `PII_REDACTION_ENABLED` | No | `true` | Master switch for PII redaction on prompts and responses. Set to `false` to skip all NLP work (and the model download requirement). |
-| `PII_SCORE_THRESHOLD` | No | `0.35` | Minimum Presidio confidence for an entity to be masked. Deliberately low — the project favors over-masking over missing real PII. |
-| `PII_ENTITIES` | No | `PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION` | Comma-separated list of Presidio entity types to detect and mask. |
-| `PII_NLP_MODEL` | No | `en_core_web_lg` | spaCy model backing Presidio's analyzer. This is the only model the Dockerfile and the Quickstart install; naming a different one (e.g. `en_core_web_trf`) makes spaCy try to download it at startup, which is slow and fails outright if the name is unresolvable or the package needs a C++ toolchain to build. |
+| `PII_REDACTION_ENABLED` | No | `true` | Master switch for PII redaction under **every** profile, `chat` and `code` alike: prompts, history, and responses where the profile redacts them. `false` also disarms the `code` size limit, since nothing is analyzed. Set to `false` to skip all NLP work (and the model download requirement). |
+| `PII_SCORE_THRESHOLD` | No | `0.35` | Under the `chat` profile: minimum Presidio confidence for an entity to be masked. Deliberately low — the project favors over-masking over missing real PII. `code` uses `PII_SCORE_THRESHOLD_CODE`. |
+| `PII_ENTITIES` | No | `PERSON,EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE,LOCATION` | Under the `chat` profile: comma-separated list of Presidio entity types to detect and mask. `code` uses `PII_ENTITIES_CODE`. |
+| `PII_NLP_MODEL` | No | `en_core_web_lg` | spaCy model backing the `chat` profile's analyzer — and `code`'s only if `PII_ENTITIES_CODE` names a named-entity type. This is the only model the Dockerfile and the Quickstart install; naming a different one (e.g. `en_core_web_trf`) makes spaCy try to download it at startup, which is slow and fails outright if the name is unresolvable or the package needs a C++ toolchain to build. |
 | `CHAT_HISTORY_ENABLED` | No | `true` | Master switch for chat transcript persistence. `false` writes no transcript, reads none, and renders no session rail — the chat behaves exactly as it did before this release, from the same image. A supported configuration for a deployment that must not hold prompt text at rest, not a degraded mode. It governs the transcript only: a `session_id` sent to `POST /query` is still recorded on the audit row. |
 | `CHAT_SESSION_LIMIT` | No | `50` | How many chats the session rail lists per user. The rail states its window against your real total, so a capped list never reads as a complete one. A value below `1` is a **startup error**, not a clamp — an empty rail on an account that has chats is a silent lie. To turn persistence off, set `CHAT_HISTORY_ENABLED=false` instead. |
 | `OPENROUTER_TIMEOUT_SECONDS` | No | `120.0` | How long to wait for the upstream model provider, in seconds. Was a hard-coded 30 s, which is too short for a long conversation. Must be greater than `0` — a non-positive value would either hang forever or fail every call instantly, so it is a **startup error**. |
@@ -505,6 +558,12 @@ Four properties matter when you run it:
 | `PATTERN_PROFILE_DEFAULT` | No | `chat` | The profile `POST /query` and the chat UI run. Must name a profile the loaded policy defines — checked when the policy loads at startup, so a typo is a **startup error**, not a failure on the first request. A request cannot choose a profile. |
 | `PATTERNS_ALLOW_REGEX` | No | `false` | Whether `match: regex` lists are permitted at all. Off, a file containing one fails startup; on, each regex must still compile and pass the nested-quantifier check. Turning it on is the deliberate act that stands between a badly written pattern and a hung worker. |
 | `PATTERN_MAX_SCAN_CHARACTERS` | No | `1000000` | Most characters of any one message a pattern scan runs over. A longer message is matched on its first part only and a `WARNING` is logged; what is sent upstream is never truncated. A backstop far above anything `CONTEXT_MAX_CHARACTERS` admits by default. Must be at least `1`. |
+| `PII_ENTITIES_CODE` | No | `EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE` | Presidio entity types detected under the `code` profile. With no named-entity type (`PERSON`, `LOCATION`, `ORGANIZATION`, `NRP`, `DATE_TIME`) in the list, a tokenizer-only analyzer runs and `en_core_web_lg` is never loaded for `code`; adding one masks names or places at `chat`'s cost. An empty list or an unknown name is a **startup error** — to turn redaction off, use `PII_REDACTION_ENABLED`. See [PII redaction](#pii-redaction). |
+| `PII_SCORE_THRESHOLD_CODE` | No | `0.40` | Minimum Presidio confidence to mask an entity under `code`. Set from the benchmark: the highest value at which every PII sample in the prose corpus is still found. Outside `0`–`1` is a **startup error**. |
+| `PII_MAX_CHARACTERS_CODE` | No | `200000` | Most characters `code` will analyze in one request, counted over the roles it redacts with fenced content and line breaks left out. Over it the request is **refused** with `limit: "redaction_characters"` and audited — never forwarded unmasked. Must be at least `1`. |
+| `PII_CODE_REDACT_OUTPUT` | No | `false` | Redact the model's response under `code`. Off because a coding agent writes its response into files, where a placeholder corrupts them; on, if any unmasked output is worse than that. |
+| `PII_CODE_REDACT_SYSTEM` | No | `false` | Redact `system` turns under `code`. Off because it is the client's own prompt and the largest fixed cost per request; on for a deployment that distrusts its clients' prompts. |
+| `PII_CODE_SKIP_CODE_BLOCKS` | No | `true` | Skip fenced code blocks under `code`. On, PII inside a fence reaches the provider unmasked while prose and inline backtick spans are still masked; off, fenced code is analyzed too, at the risk of placeholders in code. |
 | `REPORTS_AGENTS_DIR` | No | *(repo-root `.agents`)* | Directory the Reports section reads PRD boards, stories and reports from. |
 | `REPORTS_REPO_URL` | No | `https://github.com/The-Spik3r/harness-ai` | Repository a report's commit SHA links to, as `{REPORTS_REPO_URL}/commit/{sha}`. |
 
@@ -619,9 +678,11 @@ Model-allowlist and BYOK (`openrouter_api_key`) refusals return `200` with this 
 }
 ```
 
-**This is the only outcome this release adds** — the six before it are unchanged, request and response alike. `limit` is `messages` or `characters`, and **only one is ever reported**: the message count is checked first and returns immediately, so a conversation over both is reported as `messages`. A caller that shortens to fit the count is told about the character count on the next attempt; naming both would imply the two were measured independently when the second was never reached. `maximum` is the limit as configured for that call, echoed back so a client can see the bound it broke without reading the server's configuration.
+**This is the only outcome the multi-turn release (PRD-010) added** — the six before it are unchanged, request and response alike. `limit` is `messages`, `characters` or `redaction_characters` (below). For the first two, **only one is ever reported**: the message count is checked first and returns immediately, so a conversation over both is reported as `messages`. A caller that shortens to fit the count is told about the character count on the next attempt; naming both would imply the two were measured independently when the second was never reached. `maximum` is the limit as configured for that call, echoed back so a client can see the bound it broke without reading the server's configuration.
 
 The check sits after authorization and before the duplicate check. After, so a caller without `query:submit` learns nothing about how the deployment is configured; before, so an over-limit conversation neither consults the 24-hour window nor lands in it — it never got a verdict, so it is not a query anyone asked twice. The attempt is still audited, as `success=false` with `error_message` naming the limit — the same shape an upstream failure writes, and no new `audit_logs` column. `GET /audit` and `GET /stats` are unchanged; these rows count against `success_rate`, which is accepted.
+
+`redaction_characters` is the `code` profile's PII limit, with `"reason": "Conversation exceeds redaction limit"` and `maximum` set to `PII_MAX_CHARACTERS_CODE`. It is checked at redaction — after the duplicate and pattern checks, not beside the other two — because what it measures depends on the PII policy: only the roles `code` redacts count, and fenced content does not. It is audited the same way, `success=false` with `error_message` reading `redaction limit: characters <actual> > <maximum>`. **It is unreachable from `POST /query`**, which runs `chat`, a policy with no PII-specific limit. See [PII redaction](#pii-redaction).
 
 For `POST /query` the reachable case is a single prompt over `CONTEXT_MAX_CHARACTERS` (200,000 by default, ≈50k tokens of English), which previously went upstream. See [Multi-turn context](#multi-turn-context).
 
@@ -652,7 +713,8 @@ curl http://localhost:8000/audit \
       "denied_permission": "query:byok",
       "session_id": "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
       "pattern_role": null,
-      "pattern_action": null
+      "pattern_action": null,
+      "profile": "chat"
     }
   ]
 }
@@ -665,6 +727,8 @@ curl http://localhost:8000/audit \
 `session_id` names the conversation a row belonged to, so three rows that were one conversation are visibly one conversation instead of a guess. It is `null` for two whole classes of row: everything written before this release, and every send that carried no session — `POST /query` without the field, which keeps working unchanged. **This is the only place a session reaches an admin.** No endpoint and no console surface exposes a transcript; the auditor learns that rows were related, not what was said in them beyond the previews this endpoint already withholds.
 
 `pattern_role` and `pattern_action` say which message tripped a pattern and what was done about it: `pattern_role` is the role of the message the match was found in (`user`, `tool`, …), and `pattern_action` is `block` or `flag`. Both are `null` on rows with no pattern hit and on every row written before this release. `suspicious_pattern_detected` keeps its meaning — *a pattern matched* — so it is `true` for a flag as well as a block; `pattern_action` is what tells them apart. See [Pattern policy](#pattern-policy).
+
+`profile` names the policy that ran — `chat` for every row `POST /query` and the chat UI write — and the admin console's Register page shows it too. It is `null` on rows written before this release and on `POST /query`'s refusal of a foreign `session_id`. It matters for reading the PII flags: under the `code` profile the response is not analyzed, so `pii_detected_output: false` there means *not looked at*, not *clean*. See [PII redaction](#pii-redaction).
 
 ### `GET /stats` (requires `stats:read`)
 
@@ -687,7 +751,7 @@ curl http://localhost:8000/stats \
 }
 ```
 
-`pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows.
+`pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows. Both count what was analyzed: a `code` row's response was not, so it can only be flagged on input. No ingress runs `code` today, so the figures are what they were.
 
 **`blocked_suspicious` counts blocks only.** It used to count every row with a matched pattern, which was the same thing while every hit blocked. A `flag` row matches a pattern without blocking, so counting it would inflate the security figure an admin watches; flags are excluded here and in the admin console's summary. Rows written before this release carry no `pattern_action` and still count — every one of them was a block — so no historical figure moves, and a deployment with no `tool` traffic sees no change at all.
 
@@ -763,7 +827,7 @@ That is spaCy fetching `en_core_web_lg` because it was never installed — Presi
 `PII_NLP_MODEL` names a model spaCy cannot resolve, so the automatic download fails and takes the process down with it. Fix the name, or install that model yourself. Because the model is loaded at startup, this kills the boot rather than the first request. Load failures that are not download failures surface instead as `PiiRedactorError: Failed to load Presidio NLP model '<model>'`.
 
 **Model responses contain `<PERSON>` or `<EMAIL_ADDRESS>` where you expected real text**
-That is PII redaction working as designed — the threshold (`PII_SCORE_THRESHOLD`, default `0.35`) deliberately favors over-masking. Raise it, or trim `PII_ENTITIES`, if a specific entity type is too aggressive for your use case.
+That is PII redaction working as designed — the threshold (`PII_SCORE_THRESHOLD`, default `0.35`) deliberately favors over-masking. Raise it, or trim `PII_ENTITIES`, if a specific entity type is too aggressive for your use case. Under the `code` profile the equivalents are `PII_SCORE_THRESHOLD_CODE` and `PII_ENTITIES_CODE`, and the response itself is not masked there (see [PII redaction](#pii-redaction)).
 
 **`RbacNotBootstrappedError: RBAC_ENABLED=true but no active users exist` at startup**
 Bootstrap at least one user: `python scripts/manage_users.py create-user --user-id <id> --role admin`. This is required even when `ADMIN_TOKEN` is set — break-glass does not satisfy the bootstrap guard (`app/services/authz.py`'s `check_bootstrap()`). To migrate an existing deployment without bootstrapping immediately, set `RBAC_ENABLED=false`.
@@ -789,6 +853,7 @@ The credential is valid, but the role lacks the permission that endpoint require
 - [x] Chat sessions — persisted, per-conversation transcripts
 - [x] [Multi-turn context](#multi-turn-context) — the chat sends its history, so a session is a conversation
 - [x] [Configurable, per-deployment pattern lists](#pattern-policy) — per-role scope, word matching, indirect injection flagged
+- [x] [PII redaction for code](#pii-redaction) — policy per profile, role and direction; fenced blocks skipped; within a measured latency budget
 
 ### Planned
 
@@ -808,7 +873,7 @@ OPENAI_BASE_URL=http://localhost:8000/v1
 OPENAI_API_KEY=<harness token — never the OpenRouter key>
 ```
 
-This would be a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate → pattern → PII → OpenRouter → audit flow, and maps a block back onto the standard's error shape, so the calling tool surfaces an ordinary API error instead of a malformed completion. The harness becomes the only component holding the real OpenRouter key. Half of that is now built: the pipeline already takes a `messages` list, redacts every turn and keys the duplicate check over the conversation — see [Multi-turn context](#multi-turn-context). What does not exist is the HTTP ingress, and the trust model for `system` and `assistant` turns a caller supplies, which is what this section is still about.
+This would be a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate → pattern → PII → OpenRouter → audit flow, and maps a block back onto the standard's error shape, so the calling tool surfaces an ordinary API error instead of a malformed completion. The harness becomes the only component holding the real OpenRouter key. Half of that is now built: the pipeline already takes a `messages` list, redacts every turn and keys the duplicate check over the conversation — see [Multi-turn context](#multi-turn-context) — and the `code` PII policy that ingress will run, which leaves fenced code and the response unmasked, is built and measured (see [PII redaction](#pii-redaction)). What does not exist is the HTTP ingress, and the trust model for `system` and `assistant` turns a caller supplies, which is what this section is still about.
 
 Open design questions:
 

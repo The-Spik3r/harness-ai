@@ -1,0 +1,94 @@
+{
+  "ticket": {
+    "id": 88240,
+    "subject": "Refund should go to the \"original\" card",
+    "status": "open",
+    "priority": "high",
+    "requester": {
+      "name": "Aisha Bello",
+      "email": "aisha.bello@example.com",
+      "phone": "+1-646-555-0118"
+    },
+    "assignee": {
+      "name": "Maria Lopez",
+      "email": "maria.lopez@example.com"
+    },
+    "created_at": "2026-03-13T21:04:11Z",
+    "updated_at": "2026-03-14T04:12:57Z",
+    "tags": ["refund", "billing", "qa-account-suspected"],
+    "custom_fields": {
+      "order_number": 4000813378,
+      "refund_amount": 120.0,
+      "approved": false,
+      "approver": null
+    }
+  },
+  "messages": [
+    {
+      "id": 1,
+      "author": "Aisha Bello <aisha.bello@example.com>",
+      "channel": "email",
+      "created_at": "2026-03-13T21:04:11Z",
+      "body": "Hi,\n\nPlease refund the duplicate charge to the \"original\" card, not the one your agent suggested. My mobile is +1 212 555 0163 if you need me.\n\nThanks,\nAisha Bello",
+      "attachments": [
+        {
+          "name": "statement-march.pdf",
+          "size": 184233,
+          "uploaded_from": "C:\\Users\\abello\\Downloads\\statement-march.pdf"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "author": "Maria Lopez <maria.lopez@example.com>",
+      "channel": "web",
+      "created_at": "2026-03-13T22:30:00Z",
+      "body": "Hi Aisha, thanks. Just to confirm: the card we have on file ends 1111. Is that the \"original\" card you mean? I'll ask Kenji Watanabe (kenji.watanabe@example.org) to approve once you confirm.",
+      "attachments": []
+    },
+    {
+      "id": 3,
+      "author": "Aisha Bello <aisha.bello@example.com>",
+      "channel": "phone",
+      "created_at": "2026-03-14T01:15:42Z",
+      "body": "Call transcript (auto): Customer said \"yes, ending 1111, the Visa\". Callback number given: phone (646) 555-0118. Customer also mentioned her assistant Tomás Herrera (tomas.herrera@example.com) handles her receipts.",
+      "attachments": [],
+      "call": {
+        "duration_seconds": 312,
+        "recording_path": "\\\\callrec01\\recordings\\2026\\03\\14\\88240-0115.wav",
+        "agent": "Patrick O'Brien"
+      }
+    },
+    {
+      "id": 4,
+      "author": "system",
+      "channel": "internal",
+      "created_at": "2026-03-14T02:00:00Z",
+      "body": "Automation: card 4111 1111 1111 1111 matches the staging test PAN list. Flagged as possible QA account. Escalation owner: Jane Doe <jane.doe@example.com>.",
+      "attachments": [],
+      "internal": true
+    },
+    {
+      "id": 5,
+      "author": "Patrick O'Brien <patrick.obrien@example.org>",
+      "channel": "internal",
+      "created_at": "2026-03-14T04:12:57Z",
+      "body": "Handing over to Maria. Logs are in C:\\Users\\pobrien\\Desktop\\88240-logs.zip and the shared copy is \\\\fileserver\\support\\88240. Customer's words were: \"I don't want a second refund, I want the right one\".",
+      "attachments": [],
+      "internal": true
+    }
+  ],
+  "sla": {
+    "first_response_due": "2026-03-13T23:04:11Z",
+    "first_response_met": true,
+    "resolution_due": "2026-03-16T21:04:11Z",
+    "breached": false
+  },
+  "export": {
+    "tool": "helpdesk.export_ticket",
+    "format_version": 3,
+    "exported_by": "kenji.watanabe@example.org",
+    "exported_at": "2026-03-14T09:30:00Z",
+    "target": "C:\\Users\\kwatanabe\\exports\\ticket-88240.json"
+  }
+}

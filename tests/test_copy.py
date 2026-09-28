@@ -147,6 +147,8 @@ from chat_ui.chat_ui.admin_copy import (
     DETAIL_PATTERN_ROLE_LABEL,
     DETAIL_PATTERN_ACTION_LABEL,
     DETAIL_DEVICE_LABEL,
+    # PRD-012 D9 (STORY-011)
+    DETAIL_PROFILE_LABEL,
     DETAIL_PII_ENTITIES_LABEL,
     DETAIL_PII_INPUT_LABEL,
     DETAIL_PII_OUTPUT_LABEL,
@@ -351,6 +353,8 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert DETAIL_PATTERN_ROLE_LABEL
     assert DETAIL_PATTERN_ACTION_LABEL
     assert DETAIL_DEVICE_LABEL
+    # PRD-012 D9 (STORY-011)
+    assert DETAIL_PROFILE_LABEL
     assert DETAIL_PII_ENTITIES_LABEL
     assert DETAIL_PII_INPUT_LABEL
     assert DETAIL_PII_OUTPUT_LABEL
@@ -457,6 +461,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "DETAIL_PATTERN_ROLE_LABEL",
         "DETAIL_PATTERN_ACTION_LABEL",
         "DETAIL_DEVICE_LABEL",
+        # PRD-012 D9 (STORY-011)
+        "DETAIL_PROFILE_LABEL",
         "DETAIL_PII_ENTITIES_LABEL",
         "DETAIL_PII_INPUT_LABEL",
         "DETAIL_PII_OUTPUT_LABEL",
@@ -1048,3 +1054,59 @@ def test_the_trimmed_footer_note_reads_as_a_sentence_for_one_and_many():
     )
     assert "exchange was" in FOOTER_TRIMMED_SINGLE_TEMPLATE
     assert "exchanges were" in FOOTER_TRIMMED_TEMPLATE
+
+
+# --- PRD-012 STORY-010: the unit word for each context-limit refusal ------
+# Appended, never edited above, for the census reason the STORY-013 banner
+# gives. The imports are local so the pinned import block stays as it was.
+
+
+def _limit_values():
+    from typing import get_args
+
+    from app.models.schemas import QueryBlockedContextLimitResponse
+
+    return get_args(QueryBlockedContextLimitResponse.model_fields["limit"].annotation)
+
+
+def test_every_limit_value_has_a_unit_and_nothing_else_does():
+    """`state.py` indexes the map, so a `limit` value without copy would fail a
+    send; this makes it fail here first, in both directions."""
+    from chat_ui.chat_ui.copy import CONTEXT_LIMIT_UNITS
+
+    assert set(CONTEXT_LIMIT_UNITS) == set(_limit_values())
+
+
+def test_the_two_context_units_read_exactly_as_before():
+    """The existing detail lines ("characters 12 of 10") must not move."""
+    from chat_ui.chat_ui.copy import CONTEXT_LIMIT_UNITS
+
+    assert CONTEXT_LIMIT_UNITS["messages"] == "messages"
+    assert CONTEXT_LIMIT_UNITS["characters"] == "characters"
+
+
+def test_every_unit_obeys_the_context_limit_vocabulary_rules():
+    """The rules of `test_the_context_limit_copy_names_no_mechanism_and_does_not_apologize`,
+    restated for the new values; the non-emptiness check comes first for the
+    same reason it does there."""
+    from chat_ui.chat_ui.copy import CONTEXT_LIMIT_UNITS
+
+    for unit in CONTEXT_LIMIT_UNITS.values():
+        assert unit.strip(), f"{unit!r} is blank; the absence checks below would pass vacuously"
+        lowered = unit.lower()
+        for mechanism in ("context", "limit", "token", "redaction", "_"):
+            assert mechanism not in lowered, f"{unit!r} names the mechanism: {mechanism!r}"
+        for apology in ("sorry", "apolog", "unfortunately", "oops"):
+            assert apology not in lowered, f"{unit!r} apologizes"
+        assert not unit.isupper(), f"{unit!r} shouts"
+
+
+def test_the_redaction_unit_names_what_is_counted():
+    """STORY-010 AC 4: copy that names the new value, in the reader's terms."""
+    from chat_ui.chat_ui.copy import CONTEXT_LIMIT_DETAIL_TEMPLATE, CONTEXT_LIMIT_UNITS
+
+    unit = CONTEXT_LIMIT_UNITS["redaction_characters"]
+    assert unit == "characters to check for personal data"
+    assert CONTEXT_LIMIT_DETAIL_TEMPLATE.format(unit=unit, actual=231554, maximum=200000) == (
+        "characters to check for personal data 231554 of 200000"
+    )

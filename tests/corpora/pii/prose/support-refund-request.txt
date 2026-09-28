@@ -1,0 +1,25 @@
+# expect: EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD, PERSON
+Hi there,
+
+My name is Maria Lopez and I have been a customer for about three years. I am
+writing because I was charged twice for my annual plan this month, once on
+March 3rd and again on March 4th, both for $1,200.00.
+
+The card that was charged is my Visa ending in 1111. The full number, since
+your form asked for it, is 4111 1111 1111 1111, expiry 12/29. I know I should
+not send it by email, but the support form kept timing out.
+
+I already spoke to someone on your team, I think his name was Kenji Watanabe,
+and he said the second charge would be reversed within five business days. It
+has now been eight days and nothing has happened.
+
+Could you please refund the duplicate charge to the same card? You can reach
+me at maria.lopez@example.com, or on my mobile phone, +1 212 555 0147, any
+time after 10am Eastern. If I do not pick up, please leave a voicemail rather
+than calling back repeatedly; I work night shifts.
+
+My husband, Tomás Herrera, is also on the account and can confirm if needed.
+His email is tomas.herrera@example.com.
+
+Thank you,
+Maria Lopez

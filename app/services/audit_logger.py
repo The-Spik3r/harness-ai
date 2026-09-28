@@ -32,6 +32,15 @@ def log_query(
     # truth for every other row.
     pattern_role: Optional[str] = None,
     pattern_action: Optional[str] = None,
+    # PRD-012 STORY-011 (D9). Defaulted here but never omitted in the
+    # pipeline: every row run_conversation writes passes it explicitly --
+    # _deny requires it, and tests/test_query_pipeline_pii_profiles.py scans
+    # every direct call site -- because a forgotten arm must not write a NULL
+    # that makes a `code` row's pii_detected_output = 0 read as "clean"
+    # (the PRD-008 STORY-009 / PRD-009 Risk 6 rule). The default exists for
+    # one caller: /query's foreign-session refusal (app/routers/query.py),
+    # which writes before run_query resolves any profile, so NULL is the truth.
+    profile: Optional[str] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -56,5 +65,6 @@ def log_query(
         dedup_key=dedup_key,
         pattern_role=pattern_role,
         pattern_action=pattern_action,
+        profile=profile,
     )
     return insert_audit_log(entry)

@@ -73,6 +73,34 @@ except Exception as exc:
     result["patterns_raised"] = type(exc).__name__
     result["patterns_message"] = str(exc)
 
+# PRD-012 STORY-007. Runs after pattern_config.load because it reads the
+# loaded pattern profiles; Reflex runs tasks in registration order.
+pii_load = chat_ui_module.pii_policy.load
+result["pii_policy_load_registered"] = pii_load in tasks
+result["pii_policy_load_after_patterns"] = (
+    pii_load in tasks
+    and load in tasks
+    and tasks.index(pii_load) == tasks.index(load) + 1
+)
+try:
+    pii_load()
+    result["pii_policy_raised"] = None
+except Exception as exc:
+    result["pii_policy_raised"] = type(exc).__name__
+# Force the one inconsistent combination load() checks. This child process
+# exits right after, so the replaced builder leaks nowhere.
+import dataclasses
+_pii_policy = chat_ui_module.pii_policy
+_real_code = _pii_policy._build_code_policy()
+_pii_policy._build_code_policy = lambda: dataclasses.replace(
+    _real_code, skip_fenced_blocks=True, structure_safe=False
+)
+try:
+    pii_load()
+    result["pii_policy_forced_raised"] = None
+except Exception as exc:
+    result["pii_policy_forced_raised"] = type(exc).__name__
+
 try:
     chat_ui_module.authz.check_bootstrap()
     result["raised"] = False
@@ -193,6 +221,38 @@ def test_pattern_config_load_fails_chat_ui_startup_on_malformed_file(_malformed_
     assert result["patterns_raised"] == "PatternConfigError"
     assert "injection" in result["patterns_message"]
     assert "mach" in result["patterns_message"]
+
+
+# --------------------------------------------------------------------------
+# PRD-012 STORY-007 -- pii_policy.load() in the Reflex lifespan.
+# --------------------------------------------------------------------------
+
+
+def test_pii_policy_load_registered_after_pattern_config_load(_empty_rbac_env):
+    """AC 5, Reflex path: registered on the mount app.main's lifespan never
+    reaches, directly after pattern_config.load, whose profiles it reads."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["pii_policy_load_registered"] is True
+    assert result["pii_policy_load_after_patterns"] is True
+
+
+def test_pii_policy_load_is_a_noop_by_default(_empty_rbac_env):
+    """Built-in policies and default settings: nothing raised."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["pii_policy_raised"] is None
+
+
+def test_pii_policy_config_error_fails_chat_ui_startup(_empty_rbac_env):
+    """AC 5, Reflex path: a PiiConfigError stops the boot. The probe calls
+    load() by hand, so a raise alone would pass even with the registration
+    deleted; asserting registration too is what makes this a claim about
+    startup rather than about load()."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["pii_policy_load_registered"] is True
+    assert result["pii_policy_forced_raised"] == "PiiConfigError"
 
 
 # --------------------------------------------------------------------------

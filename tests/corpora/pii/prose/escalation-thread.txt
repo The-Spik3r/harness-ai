@@ -1,0 +1,34 @@
+# expect: PERSON, EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD
+---------- Forwarded message ---------
+From: Kenji Watanabe <kenji.watanabe@example.org>
+Date: Fri, Mar 13, 2026 at 4:12 PM
+Subject: Re: Escalation - customer charged three times
+To: Aisha Bello <aisha.bello@example.com>
+Cc: Jane Doe <jane.doe@example.com>
+
+Aisha,
+
+Escalating this one to you as agreed. The customer is Zoë Müller-Schmidt, who
+has been charged three times for the same order. She is understandably upset.
+
+She gave us the card number over the phone: 5555 5555 5555 4444. Our logs
+show three authorisations on it within ninety seconds, which looks like the
+retry bug from last week rather than anything she did.
+
+Please call her back on her mobile, +1 212 555 0181, before 6pm her time.
+She asked specifically not to be emailed about this, but her address is
+zoe.mueller-schmidt@example.org in case the call fails.
+
+Kenji
+
+---------- Original message ---------
+From: Jane Doe <jane.doe@example.com>
+Date: Fri, Mar 13, 2026 at 2:47 PM
+
+Kenji, can you take this? I spoke to the customer's colleague, Patrick
+O'Brien, who called on her behalf from his phone, +1 415 555 0172. He
+confirmed the triple charge and said the second card on the account,
+4111 1111 1111 1111, was not affected.
+
+Thanks,
+Jane Doe

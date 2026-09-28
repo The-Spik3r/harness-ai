@@ -129,6 +129,8 @@ DETAIL_LABELS = (
     admin_copy.DETAIL_PATTERN_ACTION_LABEL,
     admin_copy.DETAIL_PROMPT_HASH_LABEL,
     admin_copy.DETAIL_DEVICE_LABEL,
+    # PRD-012 D9 (STORY-011)
+    admin_copy.DETAIL_PROFILE_LABEL,
     admin_copy.DETAIL_PII_ENTITIES_LABEL,
     admin_copy.DETAIL_PII_INPUT_LABEL,
     admin_copy.DETAIL_PII_OUTPUT_LABEL,
@@ -145,6 +147,8 @@ DETAIL_ROW_FIELDS = (
     "pattern_action",
     "prompt_hash",
     "device_full",
+    # PRD-012 D9 (STORY-011)
+    "profile",
     "pii_entities",
     "pii_detected_input",
     "pii_detected_output",
@@ -611,6 +615,8 @@ def test_neither_preview_survives_the_projection():
         # PRD-011 D6 (STORY-010): `to_audit_row` now reads both.
         pattern_role = None
         pattern_action = None
+        # PRD-012 D9 (STORY-011): `to_audit_row` reads it too.
+        profile = None
         success = True
         model_used = "gpt-4"
         tokens_used = 412
@@ -692,6 +698,20 @@ def test_the_role_and_action_follow_the_pattern(probe):
     action_at = detail.index(admin_copy.DETAIL_PATTERN_ACTION_LABEL)
     hash_at = detail.index(admin_copy.DETAIL_PROMPT_HASH_LABEL)
     assert pattern_at < role_at < action_at < hash_at
+
+
+def test_the_profile_precedes_the_pii_lines(probe):
+    """PRD-012 D9 (STORY-011 AC 4): the profile sits directly above the PII
+    facts it qualifies -- under `code`, "PII in response" absent means the
+    response was not analyzed."""
+    assert not probe["errors"], probe["errors"]
+    detail = probe["detail"]
+    device_at = detail.index(admin_copy.DETAIL_DEVICE_LABEL)
+    profile_at = detail.index(admin_copy.DETAIL_PROFILE_LABEL)
+    entities_at = detail.index(admin_copy.DETAIL_PII_ENTITIES_LABEL)
+    input_at = detail.index(admin_copy.DETAIL_PII_INPUT_LABEL)
+    output_at = detail.index(admin_copy.DETAIL_PII_OUTPUT_LABEL)
+    assert device_at < profile_at < entities_at < input_at < output_at
 
 
 def test_the_pii_indicator_is_split_on_the_disclosure(probe):

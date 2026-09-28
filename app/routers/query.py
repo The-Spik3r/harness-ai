@@ -89,6 +89,10 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
     #    `/query`; deriving it again here would be a second key call site to
     #    keep in step, for a row that can never be read as a prior query.
     #    The `None` is spelled out so it reads as a decision, not an omission.
+    # 6. `profile=None`, explicitly (PRD-012 D9). The refusal happens before
+    #    `run_query`, the single place the profile is resolved for `/query`,
+    #    so no profile ran, and NULL records that. It is the one row `/query`
+    #    writes without `profile='chat'`.
     #
     # PRD-010 STORY-006: this used to sit inside `query()`'s own `try`, so a
     # storage failure during the check mapped to the same 500 as one during
@@ -108,6 +112,7 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
             role=identity.role,
             session_id=request.session_id,
             dedup_key=None,  # see 5. above
+            profile=None,  # see 6. above
         )
         raise HTTPException(status_code=403, detail=_FOREIGN_SESSION_DETAIL)
 

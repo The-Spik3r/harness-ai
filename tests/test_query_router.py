@@ -830,3 +830,39 @@ def test_pipeline_body_runs_on_dedicated_executor_thread(temp_db, monkeypatch):
 
     assert thread_names
     assert all(name.startswith("pipeline") for name in thread_names)
+
+
+# --- PRD-012 STORY-011: /query writes profile='chat' (D9, T1) ---------------
+
+
+def _last_audit_entry():
+    with get_connection() as conn:
+        row = conn.execute("SELECT id FROM audit_logs ORDER BY id DESC LIMIT 1").fetchone()
+    return get_audit_log(row["id"])
+
+
+def test_query_success_row_records_profile_chat(temp_db, monkeypatch):
+    """AC 3 and PRD-012 T1: /query passes no profile, so the pipeline resolves
+    the shipped default, and no request field can change that."""
+    def _fake_call_openrouter(prompt, model="gpt-4", api_key=None):
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fake_call_openrouter)
+    monkeypatch.setattr(query_pipeline, "redact", lambda text: (text, []))
+
+    response = client.post("/query", json={"prompt": "hello world", "profile": "code"})
+
+    assert response.status_code == 200
+    assert get_audit_log(response.json()["audit_id"]).profile == "chat"
+
+
+def test_query_denied_row_records_profile_chat(temp_db, monkeypatch):
+    """AC 3 on a forbidden arm: written before step 5, still named."""
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+
+    response = client.post(
+        "/query", json={"prompt": "hello world", "openrouter_api_key": "sk-whatever"}
+    )
+
+    assert response.json()["status"] == "BLOCKED"
+    assert _last_audit_entry().profile == "chat"

@@ -1,0 +1,56 @@
+{
+  "run": {
+    "id": 51877,
+    "pipeline": "billing-service / release",
+    "status": "failed",
+    "attempt": 2,
+    "retryable": true,
+    "cancelled_by": null,
+    "started_at": "2026-04-02T09:14:07Z",
+    "duration_seconds": 412.5,
+    "triggered_by": "Kenji Watanabe"
+  },
+  "notifications": {
+    "summary": "Release blocked.\nnotify:\njane.doe@example.com",
+    "escalation": "Primary on-call below.\non-call:\t+1 415 555 0134\nsecondary:\t(212) 555-0147",
+    "reply_to": "Replies go to \"maria.lopez@example.org\" until Friday.",
+    "digest": "owners:\npriya.raghunathan@example.com\nkenji.watanabe@example.org"
+  },
+  "steps": [
+    {
+      "name": "checkout",
+      "exit_code": 0,
+      "log": "Cloning into 'billing-service'...\nHEAD is now at 3f2c9a1"
+    },
+    {
+      "name": "unit-tests",
+      "exit_code": 0,
+      "log": "collected 412 items\n\n412 passed in 38.21s"
+    },
+    {
+      "name": "payout-dry-run",
+      "exit_code": 1,
+      "log": "Dry run for Aisha Bello.\npayout:\nGB82 WEST 1234 5698 7654 32\ncard on file:\t4111 1111 1111 1111\nERROR: payout account mismatch",
+      "artifacts": [
+        {
+          "path": "C:\\builds\\51877\\mail\\jane.doe@example.com\\message.eml",
+          "size": 20481
+        },
+        {
+          "path": "\\\\fileserver\\drops\\tomas.herrera@example.com\\payout.csv",
+          "size": 3317
+        }
+      ]
+    },
+    {
+      "name": "notify",
+      "exit_code": 0,
+      "log": "Sent to \"aisha.bello@example.com\".\nCC:\tpatrick.obrien@example.org\nSMS:\t+1 646 555 0118"
+    }
+  ],
+  "summary": {
+    "failed_steps": ["payout-dry-run"],
+    "warnings": 0,
+    "owner": "Zoë Müller-Schmidt"
+  }
+}

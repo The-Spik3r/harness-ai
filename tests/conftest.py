@@ -62,6 +62,42 @@ from app.config import settings  # noqa: E402  -- must follow the bootstrap abov
 from app.db import database  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 from app.services import pattern_config  # noqa: E402
+from app.services import pii_policy  # noqa: E402
+
+
+#: The marker on latency-budget assertions (PRD-012 STORY-013).
+_BENCHMARK_MARKER = "benchmark"
+
+
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--run-benchmark",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.benchmark latency assertions (PRD-012 STORY-013)",
+    )
+
+
+def pytest_configure(config) -> None:
+    config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    """Skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+
+    A marker alone skips nothing, and `-m` only narrows a run someone already
+    chose to make. STORY-013's note is that the budget assertion must not run
+    by default, "so the everyday run stays fast": it times twenty 200,000-
+    character conversations. STORY-013 and STORY-014 run it explicitly:
+
+        pytest tests/test_pii_code_corpus.py -m benchmark --run-benchmark -s
+    """
+    if config.getoption("--run-benchmark"):
+        return
+    skip = pytest.mark.skip(reason=f"{_BENCHMARK_MARKER}: pass --run-benchmark")
+    for item in items:
+        if _BENCHMARK_MARKER in item.keywords:
+            item.add_marker(skip)
 
 
 def child_db_env(url: str) -> dict:
@@ -208,6 +244,20 @@ def _default_pattern_policy(monkeypatch):
     original = pattern_config._policy
     yield
     pattern_config._policy = original
+
+
+@pytest.fixture(autouse=True)
+def _default_pii_policy():
+    """Every test ends with the PII policies it started with (PRD-012 STORY-007).
+
+    A test that patches a `PII_*` setting calls `pii_policy.load()` itself to
+    see it. `_policies` is saved and restored directly, for the reason
+    `_default_pattern_policy` gives: `load()` rebinds it with a plain
+    assignment, which `monkeypatch` would not undo.
+    """
+    original = pii_policy._policies
+    yield
+    pii_policy._policies = original
 
 
 @pytest.fixture

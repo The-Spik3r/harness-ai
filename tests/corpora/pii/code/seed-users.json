@@ -1,0 +1,237 @@
+{
+  "$schema": "./schemas/seed-users.schema.json",
+  "version": 17,
+  "generatedBy": "scripts/export_seed.py",
+  "generatedAt": "2026-03-14T09:30:00Z",
+  "maintainer": {
+    "name": "Priya Raghunathan",
+    "email": "priya.raghunathan@example.org"
+  },
+  "roles": [
+    {
+      "id": "role_admin",
+      "name": "Administrator",
+      "permissions": ["users:read", "users:write", "billing:read", "billing:write", "audit:read"]
+    },
+    {
+      "id": "role_support",
+      "name": "Support agent",
+      "permissions": ["users:read", "billing:read", "tickets:write"]
+    },
+    {
+      "id": "role_viewer",
+      "name": "Viewer",
+      "permissions": ["users:read"]
+    }
+  ],
+  "users": [
+    {
+      "id": 1001,
+      "username": "jdoe",
+      "displayName": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "roles": ["role_admin"],
+      "active": true,
+      "mfa": {
+        "enabled": true,
+        "method": "totp"
+      },
+      "contact": {
+        "phone": "+1 415 555 0134",
+        "mobile": null,
+        "preferred": "email"
+      },
+      "profile": {
+        "title": "Engineering Manager",
+        "timezone": "America/Los_Angeles",
+        "locale": "en-US",
+        "avatarPath": "C:\\Users\\jdoe\\Pictures\\avatar.png"
+      },
+      "createdAt": "2025-11-02T14:05:00Z",
+      "lastLoginAt": "2026-03-13T18:22:41Z"
+    },
+    {
+      "id": 1002,
+      "username": "pobrien",
+      "displayName": "Patrick O'Brien",
+      "email": "patrick.obrien@example.org",
+      "roles": ["role_support"],
+      "active": true,
+      "mfa": {
+        "enabled": false,
+        "method": null
+      },
+      "contact": {
+        "phone": null,
+        "mobile": "(415) 555-0172",
+        "preferred": "mobile"
+      },
+      "profile": {
+        "title": "Support Lead",
+        "timezone": "America/Los_Angeles",
+        "locale": "en-IE",
+        "signature": "Patrick O'Brien | Support Lead | \"here to help\""
+      },
+      "createdAt": "2025-12-19T08:00:00Z",
+      "lastLoginAt": "2026-03-14T07:58:10Z"
+    },
+    {
+      "id": 1003,
+      "username": "mlopez",
+      "displayName": "Maria Lopez",
+      "email": "maria.lopez@example.com",
+      "roles": ["role_support", "role_viewer"],
+      "active": false,
+      "deactivatedReason": "Left the company; mailbox forwarded to support@example.com",
+      "mfa": {
+        "enabled": true,
+        "method": "webauthn"
+      },
+      "contact": {
+        "phone": "212-555-0147",
+        "mobile": "+1 212 555 0181",
+        "preferred": "phone"
+      },
+      "profile": {
+        "title": "Billing Specialist",
+        "timezone": "America/New_York",
+        "locale": "es-US"
+      },
+      "createdAt": "2026-01-07T17:45:00Z",
+      "lastLoginAt": "2026-02-27T16:03:55Z"
+    },
+    {
+      "id": 1004,
+      "username": "kwatanabe",
+      "displayName": "Kenji Watanabe",
+      "email": "kenji.watanabe@example.org",
+      "roles": ["role_support"],
+      "active": true,
+      "mfa": {
+        "enabled": true,
+        "method": "totp"
+      },
+      "contact": {
+        "phone": "+1 646 555 0118",
+        "mobile": null,
+        "preferred": "email"
+      },
+      "profile": {
+        "title": "Tier 2 Support",
+        "timezone": "America/New_York",
+        "locale": "ja-JP"
+      },
+      "createdAt": "2026-01-20T10:00:00Z",
+      "lastLoginAt": "2026-03-12T21:14:09Z"
+    },
+    {
+      "id": 1005,
+      "username": "abello",
+      "displayName": "Aisha Bello",
+      "email": "aisha.bello@example.com",
+      "roles": ["role_viewer"],
+      "active": true,
+      "mfa": {
+        "enabled": true,
+        "method": "sms",
+        "smsNumber": "+1-212-555-0163"
+      },
+      "contact": {
+        "phone": null,
+        "mobile": "+1-212-555-0163",
+        "preferred": "mobile"
+      },
+      "profile": {
+        "title": "Logistics Coordinator",
+        "timezone": "Africa/Lagos",
+        "locale": "en-NG"
+      },
+      "createdAt": "2026-02-02T09:12:00Z",
+      "lastLoginAt": null
+    },
+    {
+      "id": 1006,
+      "username": "therrera",
+      "displayName": "Tomás Herrera",
+      "email": "tomas.herrera@example.com",
+      "roles": ["role_admin"],
+      "active": true,
+      "mfa": {
+        "enabled": true,
+        "method": "webauthn"
+      },
+      "contact": {
+        "phone": "415.555.0199",
+        "mobile": null,
+        "preferred": "email"
+      },
+      "profile": {
+        "title": "Platform Engineer",
+        "timezone": "America/Mexico_City",
+        "locale": "es-MX",
+        "homeDir": "C:\\Users\\therrera"
+      },
+      "createdAt": "2026-02-11T11:20:00Z",
+      "lastLoginAt": "2026-03-14T08:40:33Z"
+    },
+    {
+      "id": 1007,
+      "username": "zmueller",
+      "displayName": "Zoë Müller-Schmidt",
+      "email": "zoe.mueller-schmidt@example.org",
+      "roles": ["role_viewer"],
+      "active": true,
+      "mfa": {
+        "enabled": false,
+        "method": null
+      },
+      "contact": {
+        "phone": null,
+        "mobile": null,
+        "preferred": "email"
+      },
+      "profile": {
+        "title": "Data Protection Officer",
+        "timezone": "Europe/Berlin",
+        "locale": "de-DE"
+      },
+      "createdAt": "2026-02-28T12:00:00Z",
+      "lastLoginAt": "2026-03-10T09:01:17Z"
+    }
+  ],
+  "billingAccounts": [
+    {
+      "accountId": "ba_7f3c21",
+      "ownerUserId": 1001,
+      "plan": "enterprise",
+      "seats": 25,
+      "monthlyPrice": 1200.0,
+      "currency": "USD",
+      "paymentMethod": {
+        "type": "card",
+        "brand": "visa",
+        "testPan": "4111111111111111",
+        "expires": "12/29",
+        "holder": "Jane Doe"
+      }
+    },
+    {
+      "accountId": "ba_9a01e4",
+      "ownerUserId": 1002,
+      "plan": "team",
+      "seats": 5,
+      "monthlyPrice": 195.0,
+      "currency": "EUR",
+      "paymentMethod": {
+        "type": "sepa",
+        "iban": "GB82WEST12345698765432",
+        "holder": "Patrick O'Brien"
+      }
+    }
+  ],
+  "notes": [
+    "Accounts 1003 and 1005 are used by the deactivation tests; do not change their flags.",
+    "Maria said \"use 212-555-0147, not the mobile\" when we migrated her profile.",
+    "Exports go to \\\\fileserver\\finance\\seed-exports on the build agents."
+  ]
+}

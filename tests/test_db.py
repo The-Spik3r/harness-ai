@@ -543,6 +543,66 @@ def _create_pre_pattern_role_database(connect, url) -> None:
     legacy.close()
 
 
+def _create_pre_profile_database(connect, url) -> None:
+    """Builds the 23-column audit_logs table exactly as it shipped before
+    PRD-012 STORY-011 -- after PRD-011's pattern_role and pattern_action,
+    before profile -- with the dedup index already in place.
+
+    The row is a pattern block as PRD-011 wrote it, role and action set, so a
+    test can show the migration leaves its profile NULL rather than
+    backfilling `chat` (PRD-012 D9): nothing recorded which profile ran.
+    """
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT,
+            session_id TEXT,
+            dedup_key TEXT,
+            pattern_role TEXT,
+            pattern_action TEXT
+        )
+        """
+    )
+    legacy.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, suspicious_pattern, session_id, dedup_key, "
+        "pattern_role, pattern_action) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "2026-09-24T09:00:00Z",
+            "carla@empresa.com",
+            "pre012",
+            "ignore previous instructions",
+            "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            "k-pre012",
+            "user",
+            "block",
+        ),
+    )
+    legacy.commit()
+    legacy.close()
+
+
 def test_init_db_migrates_pre_rbac_database(uninitialized_db, db_connect):
     """A database created before PRD-005 gains role/denied_permission and
     keeps its rows, with NULL in both new fields (AC2).
@@ -896,6 +956,8 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         # it was a block or a flag.
         "pattern_role",
         "pattern_action",
+        # PRD-012 STORY-011 (D9): the profile that ran.
+        "profile",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -2040,9 +2102,12 @@ def test_audit_log_carries_session_id_without_breaking_construction():
 
     names = [field.name for field in dataclasses.fields(AuditLog)]
     # PRD-009 STORY-002 appended dedup_key after session_id, and PRD-011
-    # STORY-009 (D6) appended pattern_role and pattern_action after that. The
-    # claim is unchanged: the surrogate key stays the trailing field.
-    assert names[-5:] == ["session_id", "dedup_key", "pattern_role", "pattern_action", "id"]
+    # STORY-009 (D6) appended pattern_role and pattern_action after that, and
+    # PRD-012 STORY-011 (D9) appended profile. The claim is unchanged: the
+    # surrogate key stays the trailing field.
+    assert names[-6:] == [
+        "session_id", "dedup_key", "pattern_role", "pattern_action", "profile", "id",
+    ]
 
 
 def test_audit_log_carries_dedup_key_without_breaking_construction():
@@ -2468,6 +2533,131 @@ def test_duplicate_lookup_ignores_a_flag_row(temp_db, pattern_action, is_prior_q
     found = database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-22T09:00:00Z")
 
     assert (found is not None) is is_prior_query
+
+
+# ---------------------------------------------------------------------------
+# PRD-012 STORY-011: profile (D9).
+# ---------------------------------------------------------------------------
+
+
+def test_audit_logs_added_columns_carries_nullable_profile():
+    """AC 1: nullable with no default, like dedup_key, and declared in both
+    places, like every other migrated column."""
+    assert AUDIT_LOGS_ADDED_COLUMNS["profile"] == "TEXT"
+    assert "profile TEXT" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_init_db_adds_a_nullable_profile_column(temp_db):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info["profile"]["type"] == "TEXT"
+    assert info["profile"]["notnull"] == 0
+    assert info["profile"]["dflt_value"] is None
+
+
+def test_init_db_migrates_a_pre_profile_database(uninitialized_db, db_connect):
+    """AC 1: a database created before this story gains the column once,
+    and the existing row is **not** backfilled -- it reads NULL, not `chat`."""
+    _create_pre_profile_database(db_connect, uninitialized_db)
+
+    init_db()
+    init_db()  # the second boot converges without a second ALTER
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "audit_logs")
+    assert columns.count("profile") == 1
+
+    assert count_audit_logs() == 1
+    preserved = get_audit_log(1)
+    assert preserved.profile is None
+    assert (preserved.pattern_role, preserved.pattern_action) == ("user", "block")
+    assert preserved.dedup_key == "k-pre012"
+    assert preserved.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-25T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="post012",
+            profile="code",
+        )
+    )
+    assert get_audit_log(new_id).profile == "code"
+
+
+def test_profile_defaults_to_none_when_not_supplied(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(timestamp="2026-09-25T09:00:00Z", user_id="ana@empresa.com", prompt_hash="h30")
+    )
+
+    assert get_audit_log(new_id).profile is None
+
+
+def test_profile_round_trips(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-25T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h31",
+            suspicious_pattern="ignore previous instructions",
+            session_id="0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            dedup_key="k",
+            pattern_role="tool",
+            pattern_action="flag",
+            profile="code",
+        )
+    )
+
+    fetched = get_audit_log(new_id)
+
+    assert fetched.profile == "code"
+    # The neighbours too: a miscount in insert_audit_log's column list shifts
+    # every later value.
+    assert (fetched.pattern_role, fetched.pattern_action) == ("tool", "flag")
+    assert fetched.dedup_key == "k"
+    assert fetched.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert fetched.prompt_hash == "h31"
+
+    assert list_audit_logs()[0].profile == "code"
+
+
+def test_profile_survives_the_batched_read(temp_db):
+    """The other read shape: `_SUMMARY_SQL`'s hand-written `json_object(...)`.
+    A key the mapper reads but that list lacks fails the batched `rows` figure
+    on every call."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-09-25T09:10:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h32",
+            profile="code",
+        )
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-09-25T09:15:00Z", user_id="juan@empresa.com", prompt_hash="h33")
+    )
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    assert [r.profile for r in snapshot.rows] == [None, "code"]
+
+
+def test_audit_log_carries_profile_without_breaking_construction():
+    """Optional and defaulted, so every existing keyword construction of
+    AuditLog -- log_query, the migration script -- is untouched."""
+    bare = AuditLog(timestamp="2026-09-25T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc")
+    assert bare.profile is None
+
+    carried = AuditLog(
+        timestamp="2026-09-25T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        profile="chat",
+    )
+    assert carried.profile == "chat"
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):

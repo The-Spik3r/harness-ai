@@ -1,0 +1,126 @@
+{
+  "id": "evt_3Pq8Zx2eZvKYlo2C1a9b7c",
+  "object": "event",
+  "api_version": "2025-10-01",
+  "created": 1773480600,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "type": "charge.dispute.created",
+  "request": {
+    "id": null,
+    "idempotency_key": "b6f1e2c4-9d0a-4e57-8a31-2f7c0d9e4b18"
+  },
+  "data": {
+    "object": {
+      "id": "dp_1Pq8Zw2eZvKYlo2Cf0e1d2",
+      "object": "dispute",
+      "amount": 120000,
+      "currency": "usd",
+      "reason": "duplicate",
+      "status": "needs_response",
+      "is_charge_refundable": true,
+      "charge": {
+        "id": "ch_3Pq8Zv2eZvKYlo2C0c9b8a",
+        "amount": 120000,
+        "amount_refunded": 0,
+        "captured": true,
+        "paid": true,
+        "refunded": false,
+        "description": "Annual support plan - invoice 4000813378",
+        "statement_descriptor": "EXAMPLE CORP BILLING",
+        "receipt_email": "maria.lopez@example.com",
+        "billing_details": {
+          "name": "Maria Lopez",
+          "email": "maria.lopez@example.com",
+          "phone": 12125550147,
+          "address": {
+            "line1": "48 Grand Avenue",
+            "line2": "Apt 3B",
+            "city": "New York",
+            "state": "NY",
+            "postal_code": "10013",
+            "country": "US"
+          }
+        },
+        "card": {
+          "brand": "visa",
+          "funding": "credit",
+          "country": "US",
+          "number": 4111111111111111,
+          "last4": "1111",
+          "exp_month": 12,
+          "exp_year": 2029,
+          "checks": {
+            "cvc_check": "pass",
+            "address_line1_check": "pass",
+            "address_postal_code_check": null
+          },
+          "three_d_secure": null,
+          "wallet": null
+        },
+        "outcome": {
+          "network_status": "approved_by_network",
+          "risk_level": "normal",
+          "risk_score": 23,
+          "seller_message": "Payment complete.",
+          "type": "authorized"
+        },
+        "metadata": {
+          "customer_id": "1003",
+          "account_manager": "Kenji Watanabe",
+          "account_manager_email": "kenji.watanabe@example.org",
+          "support_note": "Customer said \"call me on 415-555-0199 before charging\"; see ticket 88213.",
+          "crm_link": "https://crm.example.com/contacts/1003"
+        }
+      },
+      "evidence": {
+        "customer_name": "Maria Lopez",
+        "customer_email_address": "maria.lopez@example.com",
+        "customer_purchase_ip": "203.0.113.47",
+        "billing_address": "48 Grand Avenue, Apt 3B, New York, NY 10013, US",
+        "customer_communication": null,
+        "uncategorized_text": "Duplicate of ch_3Pq8Zu2eZvKYlo2C9f8e7d. Refund approved by Jane Doe (jane.doe@example.com).",
+        "uncategorized_file": null
+      },
+      "evidence_details": {
+        "due_by": 1774345199,
+        "has_evidence": false,
+        "past_due": false,
+        "submission_count": 0
+      },
+      "balance_transactions": [
+        {
+          "id": "txn_1Pq8Zw2eZvKYlo2Ca1b2c3",
+          "amount": -120000,
+          "fee": 1500,
+          "net": -121500,
+          "type": "adjustment",
+          "reporting_category": "dispute"
+        }
+      ],
+      "payout_account": {
+        "type": "sepa_debit",
+        "account_holder_name": "Example Corp Ltd",
+        "iban": "GB82WEST12345698765432",
+        "bank_name": "Westminster Example Bank",
+        "mandate": {
+          "reference": "EXCORP-MANDATE-000172",
+          "signed_by": "Patrick O'Brien",
+          "signed_at": "2025-12-19T08:00:00Z"
+        }
+      },
+      "refund_card_on_file": {
+        "brand": "mastercard",
+        "number": 5555555555554444,
+        "holder": "Maria Lopez",
+        "exp_month": 7,
+        "exp_year": 2028
+      },
+      "export": {
+        "path": "C:\\Users\\svc-billing\\disputes\\dp_1Pq8Zw2eZvKYlo2Cf0e1d2.pdf",
+        "share": "\\\\fileserver\\finance\\disputes\\2026-03"
+      }
+    },
+    "previous_attributes": null
+  }
+}

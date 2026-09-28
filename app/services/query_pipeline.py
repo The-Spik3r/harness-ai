@@ -27,8 +27,9 @@ from app.services.openrouter_client import (
     call_openrouter,
 )
 from app.services.pattern_config import get_profile
-from app.services.pattern_detector import inspect
-from app.services.pii_redactor import PiiRedactorError, redact
+from app.services.pattern_detector import inspect, strip_fenced_blocks
+from app.services.pii_policy import PiiPolicy, get_pii_policy
+from app.services.pii_redactor import PiiRedactorError, redact, redact_for_policy
 
 QueryPipelineResult = Union[
     QuerySuccessResponse,
@@ -93,6 +94,71 @@ def _context_limit_exceeded(
     return None
 
 
+def _analyzable_characters(messages: Sequence[Message], policy: PiiPolicy) -> int:
+    """How many characters step 6 would hand the analyzer under `policy`.
+
+    Only messages whose role the policy covers count: `code`'s `system` turn is
+    not analyzed, so it costs nothing (PRD-012 D3). A covered message is
+    measured as the analyzer sees it -- `strip_fenced_blocks(content)` when the
+    policy skips fences, `content` otherwise -- and every newline is left out.
+    A blanked fence is nothing but newlines, so fenced content counts zero; a
+    newline in prose is a run of one, costs the analyzer nothing either, and is
+    left out by the same rule (PRD-012 Section 6.7, "newline runs not
+    counted"). Lengths only: nothing here calls the analyzer.
+    """
+    total = 0
+    for message in messages:
+        if message.role not in policy.input_roles:
+            continue
+        text = strip_fenced_blocks(message.content) if policy.skip_fenced_blocks else message.content
+        total += len(text) - text.count("\n")
+    return total
+
+
+def _redaction_limit_exceeded(
+    messages: Sequence[Message], policy: PiiPolicy
+) -> Optional[Tuple[int, int]]:
+    """(maximum, actual) when the analyzable characters break `policy`'s limit, or None.
+
+    None without counting when the policy has no limit -- `chat`, whose
+    `max_characters` is None because CONTEXT_MAX_CHARACTERS already bounds it
+    -- and when PII_REDACTION_ENABLED is off. The master switch turns off every
+    policy (PRD-012 Section 9.3): with nothing analyzed there is no redaction
+    for size to get past, and "exceeds redaction limit" would be untrue. It is
+    read here, per call, for the reason _context_limit_exceeded gives; the
+    maximum is the policy's, which pii_policy.load() builds from settings.
+
+    The comparison is strict `>`, as at step 3: a conversation exactly at the
+    maximum is within the limit.
+    """
+    if policy.max_characters is None or not settings.PII_REDACTION_ENABLED:
+        return None
+    actual = _analyzable_characters(messages, policy)
+    if actual > policy.max_characters:
+        return policy.max_characters, actual
+    return None
+
+
+def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
+    """Mask `text` under `policy`: the one redaction call steps 6 and 8 make.
+
+    A policy without `structure_safe` (`chat`) is redact(), called by **this
+    module's** name, byte for byte today's path (PRD-012 Section 2). The name
+    is load-bearing: the suite replaces `query_pipeline.redact` to spy on it,
+    fail it or count it, and redact_for_policy() reaches `pii_redactor.redact`
+    instead, a binding those patches never touch. For `chat` both return the
+    same value (STORY-008 AC 5), so this is a choice of binding, not of
+    behaviour. The branch mirrors the one inside redact_for_policy(), so the
+    two cannot disagree about which path `chat` takes.
+
+    Any other policy (`code`) goes through redact_for_policy(). Both raise
+    PiiRedactorError; the caller's redaction-error arm handles either.
+    """
+    if not policy.structure_safe:
+        return redact(text)
+    return redact_for_policy(text, policy)
+
+
 def _deny(
     identity: Identity,
     prompt: str,
@@ -109,6 +175,11 @@ def _deny(
     # for that path (PRD-009 Risk 6). The name shadows the imported dedup_key()
     # inside this helper, harmlessly -- it only passes the value on.
     dedup_key: Optional[str],
+    # Required for the same reason as session_id and dedup_key: a forgotten
+    # arm is a TypeError, not a NULL that makes a `code` row's
+    # pii_detected_output = 0 read as clean (PRD-012 D9). `str`, not Optional:
+    # after run_conversation's resolution it is never None.
+    profile: str,
     exc: PermissionDenied,
     reason: str,
 ) -> QueryBlockedForbiddenResponse:
@@ -121,6 +192,7 @@ def _deny(
         denied_permission=exc.permission,
         session_id=session_id,
         dedup_key=dedup_key,
+        profile=profile,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -148,6 +220,13 @@ def run_conversation(
     # Guaranteed by validation: the last message is always role == "user".
     prompt = messages[-1].content
 
+    # The profile name, resolved once, here, because every row this function
+    # writes records it -- the forbidden arms included (PRD-012 D9). It is a
+    # pure function of the argument and one setting, so resolving it before
+    # authorization cannot change the check order: the same argument step 1
+    # makes for the key. Step 5 looks the name up; step 6 reads its policy.
+    profile_name = profile if profile is not None else settings.PATTERN_PROFILE_DEFAULT
+
     # Step 1: computed once, before authorization, on purpose (PRD-009
     # Section 6.1): it is pure, so it cannot change the check order, and
     # every row this function writes -- denials included -- carries it.
@@ -159,7 +238,8 @@ def run_conversation(
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
         return _deny(
-            identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
+            identity, prompt, device, session_id=session_id, dedup_key=key,
+            profile=profile_name, exc=exc,
             reason="Missing required permission",
         )
 
@@ -167,7 +247,8 @@ def run_conversation(
         authorize_model(identity, model)
     except PermissionDenied as exc:
         return _deny(
-            identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
+            identity, prompt, device, session_id=session_id, dedup_key=key,
+            profile=profile_name, exc=exc,
             reason="Model not permitted for this role",
         )
 
@@ -176,7 +257,8 @@ def run_conversation(
             authorize(identity, PERMISSION_QUERY_BYOK)
         except PermissionDenied as exc:
             return _deny(
-                identity, prompt, device, session_id=session_id, dedup_key=key, exc=exc,
+                identity, prompt, device, session_id=session_id, dedup_key=key,
+                profile=profile_name, exc=exc,
                 reason="Missing required permission",
             )
 
@@ -209,6 +291,7 @@ def run_conversation(
             error_message=f"context limit: {limit} {actual} > {maximum}",
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds context limit",
@@ -234,6 +317,7 @@ def run_conversation(
             success=True,
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -247,9 +331,8 @@ def run_conversation(
     # read here, per call, for the reason _context_limit_exceeded gives.
     #
     # An unknown profile is a call-site bug and raises PatternConfigError here.
-    # Every earlier arm that writes a row has already returned, so it leaves no
-    # row behind.
-    profile_name = profile if profile is not None else settings.PATTERN_PROFILE_DEFAULT
+    # An earlier arm that wrote a row has already returned, and its row records
+    # the name the call site passed -- which is what ran, as far as it went.
     scan_ceiling = settings.PATTERN_MAX_SCAN_CHARACTERS
     inspection = inspect(messages, get_profile(profile_name), max_scan_characters=scan_ceiling)
     for index in inspection.truncated:
@@ -280,6 +363,7 @@ def run_conversation(
             dedup_key=key,
             pattern_role=block.role,
             pattern_action=block.action,
+            profile=profile_name,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -307,19 +391,70 @@ def run_conversation(
             dedup_key=key,
             pattern_role=first_flag.role,
             pattern_action=first_flag.action,
+            profile=profile_name,
         )
 
-    # Step 6: redact every message (D5) -- history must never leave the
-    # process unmasked, whatever its source. Only the last user turn's
-    # entities count toward the audit's PII fields (D7): re-redacting
-    # history that already passed once is not a new PII event, or every
-    # later row of a session would misreport one (PRD Section 6.7).
+    # Step 6: redact input per the profile's PII policy (PRD-012 Sections
+    # 6.1, 6.3, F8). Resolved once per request, from the name step 5 resolved:
+    # `chat` for /query and the chat UI, a name without a PII policy falls
+    # back to `chat` (D8).
+    policy = get_pii_policy(profile_name)
+
+    # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
+    # the head of step 6 and not in step 3, because what it measures depends
+    # on the policy: which roles are covered and how much sits inside fences.
+    # So a refused conversation has already passed authorization, the
+    # duplicate check and patterns -- a pattern block wins over it, and a flag
+    # row above is followed by this one.
+    #
+    # Fail closed: over the limit, nothing is analyzed and nothing goes
+    # upstream. There is deliberately no skip-and-flag alternative, not even
+    # as an unused setting: skipping is forwarding unmasked text (D4).
+    # `success=False` for step 3's reason, which also means the row can never
+    # serve as a prior query (PRD-009 Section 6.3): the same request sent
+    # after the operator raises the limit is answered, not held. `chat` has
+    # no limit, so /query and the chat UI cannot reach this arm.
+    over = _redaction_limit_exceeded(messages, policy)
+    if over is not None:
+        maximum, actual = over
+        log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=f"redaction limit: characters {actual} > {maximum}",
+            session_id=session_id,
+            dedup_key=key,
+            profile=profile_name,
+        )
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds redaction limit",
+            limit="redaction_characters",
+            maximum=maximum,
+            actual=actual,
+        )
+
+    # Every role the policy covers is redacted, history included (PRD-010
+    # D5): history must never leave the process unmasked, whatever its
+    # source -- under `code` too, because a /v1 caller writes its own
+    # `assistant` turns (PRD-012 T7). `chat` covers every role, so it is
+    # today's "redact every message". Only the last user turn's entities
+    # count toward the audit's PII fields (PRD-010 D7): re-redacting history
+    # that already passed once is not a new PII event, or every later row of
+    # a session would misreport one. The last message is always a `user`
+    # turn (step 0), and both policies cover `user`.
     redacted_messages: list[Message] = []
     input_entities: list[str] = []
     last_index = len(messages) - 1
     for index, message in enumerate(messages):
+        if message.role not in policy.input_roles:
+            # The same object, so it reaches upstream byte-identical: `code`'s
+            # `system` turn, the client's own prompt (PRD-012 D3). A `tool`
+            # turn cannot get here; step 0 refuses it until PRD-016.
+            redacted_messages.append(message)
+            continue
         try:
-            redacted_content, entities = redact(message.content)
+            redacted_content, entities = _redact(message.content, policy)
         except PiiRedactorError as exc:
             log_query(
                 user_id=identity.user_id,
@@ -329,6 +464,7 @@ def run_conversation(
                 error_message=str(exc),
                 session_id=session_id,
                 dedup_key=key,
+                profile=profile_name,
             )
             raise
         redacted_messages.append(Message(message.role, redacted_content))
@@ -358,28 +494,40 @@ def run_conversation(
             error_message=str(exc),
             session_id=session_id,
             dedup_key=key,
+            profile=profile_name,
         )
         raise
 
-    # Step 8: redact response, audit, return.
-    try:
-        redacted_response, output_entities = redact(openrouter_result.response)
-    except PiiRedactorError as exc:
-        log_query(
-            user_id=identity.user_id,
-            prompt=prompt,
-            device=device,
-            response=openrouter_result.response,
-            model_used=openrouter_result.model_used,
-            tokens_used=openrouter_result.tokens_used,
-            success=False,
-            error_message=str(exc),
-            pii_detected_input=bool(input_entities),
-            pii_entities=input_entities,
-            session_id=session_id,
-            dedup_key=key,
-        )
-        raise
+    # Step 8: redact the response only when the policy's output switch is on,
+    # then audit and return. `chat` always redacts it. `code` does not by
+    # default (PRD-012 D1): the reader of a coding agent's output is the file
+    # system, and a placeholder in a response becomes a placeholder in a file.
+    # Its row then has pii_detected_output=0 because the output was **not
+    # analyzed**, not because it was clean; the row's `profile` column says
+    # which it was (PRD-012 D9).
+    if policy.output:
+        try:
+            redacted_response, output_entities = _redact(openrouter_result.response, policy)
+        except PiiRedactorError as exc:
+            log_query(
+                user_id=identity.user_id,
+                prompt=prompt,
+                device=device,
+                response=openrouter_result.response,
+                model_used=openrouter_result.model_used,
+                tokens_used=openrouter_result.tokens_used,
+                success=False,
+                error_message=str(exc),
+                pii_detected_input=bool(input_entities),
+                pii_entities=input_entities,
+                session_id=session_id,
+                dedup_key=key,
+                profile=profile_name,
+            )
+            raise
+    else:
+        redacted_response = openrouter_result.response
+        output_entities = []
 
     masked_entities = sorted(set(input_entities) | set(output_entities))
 
@@ -396,6 +544,7 @@ def run_conversation(
         pii_entities=masked_entities,
         session_id=session_id,
         dedup_key=key,
+        profile=profile_name,
     )
 
     return QuerySuccessResponse(

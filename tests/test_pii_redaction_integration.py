@@ -203,6 +203,8 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",
+        # PRD-012 D9: additive, nullable (STORY-011).
+        "profile",
         "prompt_hash",
         "role",
         "session_id",

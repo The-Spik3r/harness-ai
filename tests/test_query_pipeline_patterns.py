@@ -181,9 +181,20 @@ def _install_spies(monkeypatch) -> list:
         trace.append(("redact", text))
         return real_redact(text)
 
+    # PRD-012 STORY-009 (F8): step 6 redacts `chat` through redact() and
+    # `code` through redact_for_policy(). Both are recorded as "redact", so a
+    # test that runs under `code` still sees where redaction happened. Under
+    # `chat` redact_for_policy is never called, so nothing is recorded twice.
+    real_redact_for_policy = query_pipeline.redact_for_policy
+
+    def _spy_redact_for_policy(text, policy):
+        trace.append(("redact", text))
+        return real_redact_for_policy(text, policy)
+
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_duplicate)
     monkeypatch.setattr(query_pipeline, "inspect", _spy_inspect)
     monkeypatch.setattr(query_pipeline, "redact", _spy_redact)
+    monkeypatch.setattr(query_pipeline, "redact_for_policy", _spy_redact_for_policy)
     return trace
 
 

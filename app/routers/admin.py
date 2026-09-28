@@ -55,6 +55,8 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             # which it was, NULL on rows written before PRD-011.
             pattern_role=log.pattern_role,
             pattern_action=log.pattern_action,
+            # Verbatim passthrough (PRD-012 D9); NULL on pre-PRD-012 rows.
+            profile=log.profile,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,

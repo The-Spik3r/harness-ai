@@ -25,6 +25,7 @@ from app.services.query_pipeline import run_conversation, run_query
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
     CONTEXT_LIMIT_DETAIL_TEMPLATE,
+    CONTEXT_LIMIT_UNITS,
     LOGIN_INVALID_TOKEN_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
@@ -1244,9 +1245,13 @@ class ChatState(rx.State):
                     # one is for an operator reading a table, this one is for
                     # the person who just pressed send. Built here, at send
                     # time, so a restored bubble reproduces it from the
-                    # persisted `detail` column with no recomputation.
+                    # persisted `detail` column with no recomputation. The
+                    # unit goes through copy.CONTEXT_LIMIT_UNITS so PRD-012's
+                    # `redaction_characters` reads as words, not an identifier;
+                    # indexed, not .get(), and a test pins the keys to the
+                    # schema's literal, so a new value without copy fails CI.
                     detail=CONTEXT_LIMIT_DETAIL_TEMPLATE.format(
-                        unit=result.limit,
+                        unit=CONTEXT_LIMIT_UNITS[result.limit],
                         actual=result.actual,
                         maximum=result.maximum,
                     ),

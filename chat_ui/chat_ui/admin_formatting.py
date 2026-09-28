@@ -220,4 +220,5 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         suspicious_pattern=_text(log.suspicious_pattern),
         pattern_role=_text(log.pattern_role),
         pattern_action=_text(log.pattern_action),
+        profile=_text(log.profile),
     )

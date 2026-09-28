@@ -1,0 +1,218 @@
+# Helm values for the billing service -- staging.
+# Owner: Kenji Watanabe <kenji.watanabe@example.com>
+# All contacts below are synthetic (example.com / example.org, 555-01xx).
+
+nameOverride: billing
+fullnameOverride: billing-staging
+
+image:
+  repository: registry.example.com/platform/billing
+  tag: "2.4.7"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 9102
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9102"
+  owner: "jane.doe@example.com"
+  oncall-phone: "+1 415 555 0134"
+
+env:
+  SPRING_PROFILES_ACTIVE: staging
+  BILLING_CURRENCY: USD
+  BILLING_EXPORT_DIR: "C:\\Users\\svc-billing\\exports"
+  BILLING_ARCHIVE_SHARE: "\\\\fileserver\\finance\\billing-archive"
+  INVOICE_FOOTER: "Questions? Email billing@example.com or call +1 212 555 0163."
+  DUNNING_TEMPLATE: "Dear {name}, we could not charge your card. Reply to \"billing@example.com\" to fix it."
+  SUPPORT_CONTACT_NAME: Maria Lopez
+  SUPPORT_CONTACT_EMAIL: maria.lopez@example.com
+  FEATURE_FLAGS: "invoices-v2,sepa-mandates,dispute-portal"
+
+smtp:
+  host: smtp.example.com
+  port: 2525
+  starttls: true
+  from:
+    name: "Example Billing"
+    address: "no-reply@example.com"
+  replyTo: billing@example.com
+  bcc:
+    - audit-mail@example.org
+
+database:
+  host: billing-db.staging.svc.cluster.local
+  port: 5432
+  name: billing
+  user: billing_app
+  existingSecret: billing-db-credentials
+  pool:
+    min: 2
+    max: 20
+    idleTimeoutSeconds: 300
+
+paymentGateway:
+  mode: sandbox
+  endpoint: https://sandbox.payments.example.com/v2
+  merchantId: "MERCH-0042-STAGING"
+  # Test PAN used by the smoke job; the sandbox rejects anything else.
+  smokeTestCard: "4111111111111111"
+  smokeTestCardHolder: "Jane Doe"
+  sepa:
+    creditorName: "Example Corp Ltd"
+    creditorIban: "GB82WEST12345698765432"
+    creditorId: "GB98ZZZSDDBARC0000007495895"
+
+oncall:
+  primary:
+    name: "Patrick O'Brien"
+    email: patrick.obrien@example.org
+    mobile: "(415) 555-0172"
+    timezone: America/Los_Angeles
+  secondary:
+    name: Priya Raghunathan
+    email: 'priya.raghunathan@example.org'
+    mobile: '415.555.0199'
+    timezone: America/New_York
+  escalation:
+    name: Aisha Bello
+    email: aisha.bello@example.com
+    phone: "+1-646-555-0118"
+    note: "Page only after 30 minutes; she said \"text before you call\"."
+
+alertmanager:
+  route:
+    receiver: billing-oncall
+    groupBy: ["alertname", "namespace"]
+    groupWait: 30s
+    repeatInterval: 4h
+    routes:
+      - matchers: ['severity="critical"']
+        receiver: billing-pager
+      - matchers: ['team="billing"', 'severity="warning"']
+        receiver: billing-email
+  receivers:
+    - name: billing-oncall
+      emailConfigs:
+        - to: "billing-oncall@example.com"
+          sendResolved: true
+    - name: billing-pager
+      webhookConfigs:
+        - url: https://pager.example.com/hooks/billing
+          sendResolved: true
+      smsConfigs:
+        - to: "+14155550134"
+        - to: "+12125550147"
+    - name: billing-email
+      emailConfigs:
+        - to: "tomas.herrera@example.com"
+        - to: "zoe.mueller-schmidt@example.org"
+
+cronJobs:
+  - name: nightly-invoice-run
+    schedule: "15 2 * * *"
+    command: ["java", "-jar", "/app/billing.jar", "--job=invoice-run"]
+    notify: jane.doe@example.com
+  - name: dunning-reminders
+    schedule: "0 14 * * 1-5"
+    command: ["java", "-jar", "/app/billing.jar", "--job=dunning"]
+    notify: maria.lopez@example.com
+  - name: export-to-finance
+    schedule: "30 5 1 * *"
+    command: ["java", "-jar", "/app/billing.jar", "--job=export", "--target=C:\\exports\\finance"]
+    notify: kenji.watanabe@example.com
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+  hosts:
+    - host: billing.staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: billing-staging-tls
+      hosts:
+        - billing.staging.example.com
+
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - payments
+    - reporting
+    - observability
+
+probes:
+  liveness:
+    path: /actuator/health/liveness
+    initialDelaySeconds: 20
+    periodSeconds: 10
+  readiness:
+    path: /actuator/health/readiness
+    initialDelaySeconds: 10
+    periodSeconds: 5
+
+serviceAccount:
+  create: true
+  name: billing-staging
+  annotations:
+    iam.example.com/role: billing-staging-role
+    contact: "Tomás Herrera <tomas.herrera@example.com>"
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: billing
+    effect: NoSchedule
+
+nodeSelector:
+  workload: general
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: billing
+
+featureTests:
+  # Seed accounts the QA team logs in with. Rotated quarterly.
+  accounts:
+    - username: qa.customer.one
+      email: qa.one@example.com
+      displayName: "Jane Doe"
+      phone: "+1 415 555 0134"
+    - username: qa.customer.apostrophe
+      email: qa.obrien@example.org
+      displayName: "Patrick O'Brien"
+      phone: "(415) 555-0172"
+    - username: qa.customer.unicode
+      email: qa.zoe@example.org
+      displayName: "Zoë Müller-Schmidt"
+      phone: "+1 212 555 0181"
+  rejectedTaxId: "078-05-1120"

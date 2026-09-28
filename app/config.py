@@ -15,13 +15,49 @@ _SQLITE_SCHEME = "sqlite:"
 # What each setting that bounds a resource controls, quoted by its validator
 # so the message says why 0 or a negative value is rejected, not just that
 # it is. The first three arrived with PRD-010's pipeline sizes; PRD-011 added
-# the fourth, which is why the name no longer says "pipeline".
+# the fourth, which is why the name no longer says "pipeline", and PRD-012 the
+# fifth.
 _POSITIVE_LIMIT_DESCRIPTIONS = {
     "CONTEXT_MAX_MESSAGES": "the maximum number of messages a conversation may carry into the pipeline",
     "CONTEXT_MAX_CHARACTERS": "the maximum total characters across message contents in a conversation",
     "PIPELINE_MAX_WORKERS": "the number of threads in the dedicated pipeline executor",
     "PATTERN_MAX_SCAN_CHARACTERS": "the per-message ceiling on characters any one pattern scan runs over",
+    "PII_MAX_CHARACTERS_CODE": (
+        "the analyzable characters per request the code profile's PII redaction "
+        "runs over; a longer conversation is refused"
+    ),
 }
+
+# The entity names Presidio's default English registry supports, at the
+# version requirements.txt pins (2.2.364). PII_ENTITIES_CODE is checked against
+# this constant rather than a loaded analyzer, because Settings is built before
+# any model loads (PRD-012 STORY-005). tests/test_config.py compares it to the
+# live registry, so an upgrade that changes the registry turns a test red
+# instead of drifting silently.
+_PRESIDIO_ENTITY_NAMES = frozenset(
+    {
+        "CREDIT_CARD",
+        "CRYPTO",
+        "DATE_TIME",
+        "EMAIL_ADDRESS",
+        "IBAN_CODE",
+        "IP_ADDRESS",
+        "LOCATION",
+        "MAC_ADDRESS",
+        "MEDICAL_LICENSE",
+        "NRP",
+        "ORGANIZATION",
+        "PERSON",
+        "PHONE_NUMBER",
+        "UK_NHS",
+        "URL",
+        "US_BANK_NUMBER",
+        "US_DRIVER_LICENSE",
+        "US_ITIN",
+        "US_PASSPORT",
+        "US_SSN",
+    }
+)
 
 
 def _scheme_of(url: str) -> str:
@@ -37,6 +73,11 @@ def _scheme_of(url: str) -> str:
     if separator:
         return head + separator
     return f"{url.split(':', 1)[0]}:" if ":" in url else ""
+
+
+def _split_comma_list(value: str) -> list[str]:
+    """A comma-separated setting as a list, parsed exactly as `pii_entities_list` does."""
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 class Settings(BaseSettings):
@@ -160,6 +201,44 @@ class Settings(BaseSettings):
     # Consumed by STORY-008's inspect().
     PATTERN_MAX_SCAN_CHARACTERS: int = 1_000_000
 
+    # PII for code (PRD-012). The `code` profile's PII policy is built from
+    # these six. The four PII_* settings above keep their meaning and apply to
+    # `chat` only; PII_REDACTION_ENABLED stays the master switch for every
+    # policy. Nothing reads these yet -- each field names the story that
+    # becomes its consumer.
+
+    # Presidio entity types detected under `code`. Pattern recognizers only
+    # (D7): with no NER type in the list (pii_redactor._NER_ENTITY_TYPES:
+    # PERSON, LOCATION, ORGANIZATION, NRP, DATE_TIME), the tokenizer-only
+    # analyzer is used. PERSON stays out by STORY-003's rule R4 -- it needs
+    # en_core_web_lg, which is 7x over the latency budget. Consumed by STORY-006
+    # (analyzer choice) and STORY-007 (the `code` policy).
+    PII_ENTITIES_CODE: str = "EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,IBAN_CODE"
+
+    # Minimum Presidio confidence to mask an entity under `code` (D6). 0.40 is
+    # STORY-003's rule R1: the highest candidate that still finds every prose
+    # file's entities and every required probe. Consumed by STORY-007.
+    PII_SCORE_THRESHOLD_CODE: float = 0.40
+
+    # Analyzable characters per request under `code` (D4); over it, the request
+    # is refused, fail closed. 200,000 is STORY-003's rule R3, which holds only
+    # with STORY-008's line-aligned 20,000-character chunks. Consumed by
+    # STORY-007 (the policy) and STORY-010 (the refusal arm).
+    PII_MAX_CHARACTERS_CODE: int = 200_000
+
+    # Redact the model's response under `code` (D1). Off: the reader of a coding
+    # agent's output is the file system, and a placeholder in a response becomes
+    # a placeholder in a file. Consumed by STORY-007.
+    PII_CODE_REDACT_OUTPUT: bool = False
+
+    # Redact `system` turns under `code` (D3). Off: it is the client's own
+    # prompt, and the largest fixed cost per request. Consumed by STORY-007.
+    PII_CODE_REDACT_SYSTEM: bool = False
+
+    # Skip fenced code blocks under `code` (D2); prose around them, and inline
+    # backtick spans, are still analyzed. Consumed by STORY-007.
+    PII_CODE_SKIP_CODE_BLOCKS: bool = True
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -233,10 +312,11 @@ class Settings(BaseSettings):
         "CONTEXT_MAX_CHARACTERS",
         "PIPELINE_MAX_WORKERS",
         "PATTERN_MAX_SCAN_CHARACTERS",
+        "PII_MAX_CHARACTERS_CODE",
     )
     @classmethod
     def _validate_positive_limit(cls, value: int, info) -> int:
-        """Each of these bounds a resource that cannot be 0 or negative (PRD-010, PRD-011)."""
+        """Each of these bounds a resource that cannot be 0 or negative (PRD-010, PRD-011, PRD-012)."""
         if value < 1:
             description = _POSITIVE_LIMIT_DESCRIPTIONS[info.field_name]
             raise ValueError(
@@ -268,9 +348,62 @@ class Settings(BaseSettings):
             )
         return name
 
+    @field_validator("PII_ENTITIES_CODE")
+    @classmethod
+    def _validate_pii_entities_code(cls, value: str) -> str:
+        """At least one entity type, each one Presidio knows (PRD-012).
+
+        Checked against _PRESIDIO_ENTITY_NAMES, not a loaded analyzer: Settings
+        is constructed before any model loads, and building an analyzer here
+        would put a model load on every import of this module. PERSON and
+        LOCATION are accepted -- an operator may opt into NER at NER's cost
+        (D7); STORY-006 routes such a list to the full analyzer.
+
+        The value is returned as given. pii_entities_code_list does the
+        parsing, as pii_entities_list does for PII_ENTITIES.
+        """
+        accepted = ", ".join(sorted(_PRESIDIO_ENTITY_NAMES))
+        names = _split_comma_list(value)
+        if not names:
+            raise ValueError(
+                f"PII_ENTITIES_CODE must name at least one Presidio entity type, "
+                f"got {value!r}. It is the entity list the code profile detects; "
+                "to turn PII redaction off, set PII_REDACTION_ENABLED=false "
+                f"instead. Accepted names: {accepted}."
+            )
+
+        unknown = [name for name in names if name not in _PRESIDIO_ENTITY_NAMES]
+        if unknown:
+            raise ValueError(
+                f"PII_ENTITIES_CODE names unknown Presidio entity type(s) "
+                f"{', '.join(unknown)} (in {value!r}). Names are case-sensitive. "
+                f"Accepted names: {accepted}."
+            )
+        return value
+
+    @field_validator("PII_SCORE_THRESHOLD_CODE")
+    @classmethod
+    def _validate_pii_score_threshold_code(cls, value: float) -> float:
+        """A confidence, so within [0, 1], or a startup error (PRD-012).
+
+        Written as `not 0 <= value <= 1` so that NaN, which fails every
+        comparison, is rejected too rather than slipping through.
+        """
+        if not 0 <= value <= 1:
+            raise ValueError(
+                f"PII_SCORE_THRESHOLD_CODE must be between 0 and 1, got {value}. "
+                "It is the minimum Presidio confidence for an entity to be "
+                "masked under the code profile."
+            )
+        return value
+
     @property
     def pii_entities_list(self) -> list[str]:
         return [item.strip() for item in self.PII_ENTITIES.split(",") if item.strip()]
+
+    @property
+    def pii_entities_code_list(self) -> list[str]:
+        return _split_comma_list(self.PII_ENTITIES_CODE)
 
     @property
     def model_allowlist_list(self) -> list[str]:
