@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - The row"
-status: in-progress
+status: done
 labels: [backend, audit, tests]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-001-audit-characterization.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-001-audit-characterization.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-001-audit-characterization.report.md
+commit: 126f0da
 depends_on: []
 blocks: [STORY-002, STORY-003, STORY-005]
 skills: []

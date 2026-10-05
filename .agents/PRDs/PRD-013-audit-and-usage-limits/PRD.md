@@ -6,7 +6,7 @@ status: draft
 base_branch: main
 epic_branch: epic/PRD-013-audit-and-usage-limits
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-05
 ---
 
 ## 1. Executive Summary
