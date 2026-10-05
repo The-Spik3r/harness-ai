@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - The row"
-status: todo
+status: in-progress
 labels: [backend, audit, tests]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-001-audit-characterization.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-002, STORY-003, STORY-005]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-05
 ---
 
 # STORY-001: Characterize today's audit row per arm and the client's usage parsing

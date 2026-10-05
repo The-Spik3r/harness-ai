@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No 
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Characterize today's audit row per arm and the client's usage parsing | technical | ⬜ todo | small | — | — |
+| STORY-001 | Characterize today's audit row per arm and the client's usage parsing | technical | 🟡 in-progress | small | [plan](../../plans/PRD-013-audit-and-usage-limits/STORY-001-audit-characterization.plan.md) | — |
 | STORY-002 | Eight additive audit columns: convergence, AuditLog, writer and both read shapes | technical | ⬜ todo | medium | — | — |
 | STORY-003 | OpenRouter client returns input and output tokens separately | feature | ⬜ todo | small | — | — |
 | STORY-004 | conversation_key derivation | feature | ⬜ todo | small | — | — |
