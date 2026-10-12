@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "1 - The row"
-status: todo
+status: in-progress
 labels: [backend, database, audit]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-002-audit-columns.plan.md
 report: null
 commit: null
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-011]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-12
 ---
 
 # STORY-002: Eight additive audit columns: convergence, AuditLog, writer and both read shapes
