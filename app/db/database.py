@@ -688,6 +688,11 @@ def init_db() -> None:
 
     PRD-012 STORY-011 adds `audit_logs.profile` on the same path, again with
     no new code here: nullable, no default, no backfill, not indexed.
+
+    PRD-013 STORY-002 adds eight `audit_logs` columns on the same path, again
+    with no new code here. Six are nullable with no default and no backfill.
+    `streamed` and `has_tool_calls` are `NOT NULL DEFAULT 0`, which `ADD
+    COLUMN` accepts because the default is non-NULL. None is indexed.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -772,8 +777,11 @@ def insert_audit_log(entry: AuditLog) -> int:
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
                 role, denied_permission, session_id, dedup_key,
-                pattern_role, pattern_action, profile
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pattern_role, pattern_action, profile,
+                ingress, message_count, input_tokens, output_tokens,
+                streamed, has_tool_calls, conversation_key, limit_exceeded
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -799,6 +807,14 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.pattern_role,
                 entry.pattern_action,
                 entry.profile,
+                entry.ingress,
+                entry.message_count,
+                entry.input_tokens,
+                entry.output_tokens,
+                int(entry.streamed),
+                int(entry.has_tool_calls),
+                entry.conversation_key,
+                entry.limit_exceeded,
             ),
         )
         return cursor.lastrowid
@@ -880,6 +896,14 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         pattern_role=row["pattern_role"],
         pattern_action=row["pattern_action"],
         profile=row["profile"],
+        ingress=row["ingress"],
+        message_count=row["message_count"],
+        input_tokens=row["input_tokens"],
+        output_tokens=row["output_tokens"],
+        streamed=bool(row["streamed"]),
+        has_tool_calls=bool(row["has_tool_calls"]),
+        conversation_key=row["conversation_key"],
+        limit_exceeded=row["limit_exceeded"],
     )
 
 
@@ -1222,7 +1246,15 @@ SELECT
               'dedup_key', dedup_key,
               'pattern_role', pattern_role,
               'pattern_action', pattern_action,
-              'profile', profile))
+              'profile', profile,
+              'ingress', ingress,
+              'message_count', message_count,
+              'input_tokens', input_tokens,
+              'output_tokens', output_tokens,
+              'streamed', streamed,
+              'has_tool_calls', has_tool_calls,
+              'conversation_key', conversation_key,
+              'limit_exceeded', limit_exceeded))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

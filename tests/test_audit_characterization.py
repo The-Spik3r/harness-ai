@@ -34,6 +34,8 @@ stubbed; authorization, the duplicate check, patterns and storage are real.
 `AuditLog` fields to `FIELDS_ADDED_SINCE` and adds its own assertions. It may
 import `ARM_CASES` and `_drive` (the `tests.test_pii_characterization` import
 precedent); it must not copy them.
+PRD-013 STORY-002 did the first of these: it added its eight names there and
+`test_no_arm_sets_these_prd013_fields`.
 
 Per the libSQL dev-server note: mass fixture errors here mean restart the
 dev container, not bisect code.
@@ -111,7 +113,11 @@ _VOLATILE_FIELDS = ("id", "timestamp")
 
 #: Fields added to AuditLog after this module was written. A later story adds
 #: its names here and adds its own assertions. It edits nothing above.
-FIELDS_ADDED_SINCE: frozenset[str] = frozenset()
+FIELDS_ADDED_SINCE: frozenset[str] = frozenset({
+    # PRD-013 STORY-002.
+    "ingress", "message_count", "input_tokens", "output_tokens",
+    "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
+})
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
@@ -517,6 +523,35 @@ def test_the_upstream_error_row_names_the_requested_model():
 
     assert upstream_error["model_used"] == _MODEL
     assert success["model_used"] == output_error["model_used"] == _REPORTED_MODEL
+
+
+#: PRD-013 STORY-002: the new fields that hold their default on every row
+#: written through `_drive`. It passes no ingress and no streamed flag, the
+#: stub reports no token split, nothing sets has_tool_calls before PRD-016, and
+#: limit_exceeded belongs to a thirteenth arm.
+#:
+#: `message_count` and `conversation_key` are absent on purpose. STORY-005 sets
+#: them on every arm, and an assertion written here may not be changed later.
+_UNSET_THROUGH_DRIVE = {
+    "ingress": None,
+    "input_tokens": None,
+    "output_tokens": None,
+    "streamed": False,
+    "has_tool_calls": False,
+    "limit_exceeded": None,
+}
+
+
+@pytest.mark.parametrize("arm", [pytest.param(case[0], id=case[0]) for case in ARM_CASES])
+def test_no_arm_sets_these_prd013_fields(temp_db, monkeypatch, arm):
+    before = _last_audit_id()
+
+    _drive(monkeypatch, arm)
+
+    written = _audit_rows_since(before)
+    assert written
+    for row in written:
+        assert {name: getattr(row, name) for name in _UNSET_THROUGH_DRIVE} == _UNSET_THROUGH_DRIVE
 
 
 # --- AC 2, AC 3: the prompt and the keys on a multi-turn row ---------------------

@@ -26,16 +26,26 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     dedup_key TEXT,
     pattern_role TEXT,
     pattern_action TEXT,
-    profile TEXT
+    profile TEXT,
+    ingress TEXT,
+    message_count INTEGER,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    streamed INTEGER NOT NULL DEFAULT 0,
+    has_tool_calls INTEGER NOT NULL DEFAULT 0,
+    conversation_key TEXT,
+    limit_exceeded TEXT
 )
 """
 
 # Columns added after the initial schema shipped (PRD-003 PII telemetry; PRD-005
 # RBAC adds to this in STORY-009; PRD-008 STORY-002 adds session_id; PRD-009
 # STORY-002 adds dedup_key; PRD-011 STORY-009 adds pattern_role and
-# pattern_action; PRD-012 STORY-011 adds profile). CREATE TABLE IF NOT EXISTS is a no-op against a
-# database created before they existed, so init_db() ALTERs in whichever of
-# these an old file is missing.
+# pattern_action; PRD-012 STORY-011 adds profile; PRD-013 STORY-002 adds
+# ingress, message_count, input_tokens, output_tokens, streamed,
+# has_tool_calls, conversation_key and limit_exceeded). CREATE TABLE IF NOT
+# EXISTS is a no-op against a database created before they existed, so
+# init_db() ALTERs in whichever of these an old file is missing.
 #
 # Every entry here is also declared in CREATE_AUDIT_LOGS_TABLE above. The two are
 # not redundant: this mapping brings a database that predates a column up to
@@ -79,6 +89,41 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # backfilled, and so does /query's foreign-session refusal, which writes
     # before any profile exists.
     "profile": "TEXT",
+    # PRD-013 (Section 6.2): which door the request came through -- `query`,
+    # `chat` or `v1`, named by the call site and never by a request field.
+    # Nullable with no default on purpose, like dedup_key: rows written before
+    # PRD-013 stay NULL and are never backfilled, and so does a direct call
+    # that passed none.
+    "ingress": "TEXT",
+    # PRD-013: `len(messages)` as received, before redaction. Nullable for the
+    # same reason: nothing recorded the count for an earlier row, and 0 would
+    # claim a request with no messages.
+    "message_count": "INTEGER",
+    # PRD-013: `usage.prompt_tokens` and `usage.completion_tokens`. Nullable
+    # because NULL has two true meanings that 0 would erase: no upstream call
+    # was made, or the provider omitted the split. tokens_used is unchanged
+    # and stays the reported total.
+    "input_tokens": "INTEGER",
+    "output_tokens": "INTEGER",
+    # PRD-013: the response was delivered as SSE; the request or response
+    # carried tool calls. NOT NULL DEFAULT 0, unlike the six around them,
+    # because 0 is true of every row written before them: neither was
+    # possible. Always 0 until PRD-014 and PRD-016 respectively.
+    "streamed": "INTEGER NOT NULL DEFAULT 0",
+    "has_tool_calls": "INTEGER NOT NULL DEFAULT 0",
+    # PRD-013 (Section 6.3): the grouping key over the user id and the
+    # conversation's opening turns. Nullable and never backfilled: an earlier
+    # row kept only the last turn's hash, so its key cannot be derived. Not
+    # indexed (PRD Section 4, Out of Scope).
+    "conversation_key": "TEXT",
+    # PRD-013 (D6): `requests` or `tokens` on a usage-limit refusal, NULL on
+    # every other row. It is the dedicated verdict column that lets that row
+    # be success=1. Nullable with no default: NULL is "not a usage-limit row",
+    # which is every earlier row.
+    #
+    # Nothing writes a non-default value into these eight yet: log_query gains
+    # the parameters in STORY-005.
+    "limit_exceeded": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -272,6 +317,19 @@ class AuditLog:
     # PRD-012 and on /query's foreign-session refusal. Declared after
     # pattern_action to mirror the table, so id stays the trailing field.
     profile: Optional[str] = None
+    # PRD-013 STORY-002 (Section 6.2). Same pattern as profile:
+    # insert_audit_log() writes all eight and _row_to_audit_log() maps them
+    # back on both read shapes. Nothing sets a non-default value until
+    # STORY-005. The two flags are bool, like pii_detected_input. Declared
+    # after profile to mirror the table, so id stays the trailing field.
+    ingress: Optional[str] = None
+    message_count: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    streamed: bool = False
+    has_tool_calls: bool = False
+    conversation_key: Optional[str] = None
+    limit_exceeded: Optional[str] = None
     id: Optional[int] = None
 
 

@@ -603,6 +603,75 @@ def _create_pre_profile_database(connect, url) -> None:
     legacy.close()
 
 
+def _create_pre_prd013_database(connect, url) -> None:
+    """Builds the 24-column audit_logs table exactly as it shipped before
+    PRD-013 STORY-002 -- after PRD-012's profile, before the eight columns of
+    PRD-013 Section 6.2 -- with the dedup index already in place.
+
+    The seventh of these fixtures, and the only one where the eight PRD-013
+    columns are the sole columns in flight, for the reason
+    `_create_pre_chat_sessions_database` gives about `session_id`. Two rows are
+    seeded, a `chat` success and a duplicate block, so a test can show the
+    migration leaves both as they were and backfills nothing.
+    """
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT,
+            session_id TEXT,
+            dedup_key TEXT,
+            pattern_role TEXT,
+            pattern_action TEXT,
+            profile TEXT
+        )
+        """
+    )
+    legacy.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, model_used, tokens_used, session_id, "
+        "dedup_key, profile) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "2026-10-01T09:00:00Z",
+            "carla@empresa.com",
+            "pre013",
+            "gpt-4",
+            42,
+            "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            "k-pre013",
+            "chat",
+        ),
+    )
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, was_duplicate_blocked, dedup_key, profile) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("2026-10-01T09:05:00Z", "carla@empresa.com", "pre013", 1, "k-pre013", "chat"),
+    )
+    legacy.commit()
+    legacy.close()
+
+
 def test_init_db_migrates_pre_rbac_database(uninitialized_db, db_connect):
     """A database created before PRD-005 gains role/denied_permission and
     keeps its rows, with NULL in both new fields (AC2).
@@ -958,6 +1027,16 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "pattern_action",
         # PRD-012 STORY-011 (D9): the profile that ran.
         "profile",
+        # PRD-013 STORY-002 (Section 6.2): ingress, size, token split, delivery
+        # flags, conversation key and the usage-limit verdict.
+        "ingress",
+        "message_count",
+        "input_tokens",
+        "output_tokens",
+        "streamed",
+        "has_tool_calls",
+        "conversation_key",
+        "limit_exceeded",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -2103,10 +2182,14 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     names = [field.name for field in dataclasses.fields(AuditLog)]
     # PRD-009 STORY-002 appended dedup_key after session_id, and PRD-011
     # STORY-009 (D6) appended pattern_role and pattern_action after that, and
-    # PRD-012 STORY-011 (D9) appended profile. The claim is unchanged: the
+    # PRD-012 STORY-011 (D9) appended profile, and PRD-013 STORY-002 (Section
+    # 6.2) appended eight more after profile. The claim is unchanged: the
     # surrogate key stays the trailing field.
-    assert names[-6:] == [
-        "session_id", "dedup_key", "pattern_role", "pattern_action", "profile", "id",
+    assert names[-14:] == [
+        "session_id", "dedup_key", "pattern_role", "pattern_action", "profile",
+        "ingress", "message_count", "input_tokens", "output_tokens",
+        "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
+        "id",
     ]
 
 
@@ -2658,6 +2741,259 @@ def test_audit_log_carries_profile_without_breaking_construction():
         profile="chat",
     )
     assert carried.profile == "chat"
+
+
+# ---------------------------------------------------------------------------
+# PRD-013 STORY-002: eight audit columns (Section 6.2).
+# ---------------------------------------------------------------------------
+
+#: The eight columns, name -> DDL, in PRD Section 6.2's order. A literal, not
+#: read from AUDIT_LOGS_ADDED_COLUMNS: it is what that mapping is checked
+#: against.
+_PRD013_COLUMNS = {
+    "ingress": "TEXT",
+    "message_count": "INTEGER",
+    "input_tokens": "INTEGER",
+    "output_tokens": "INTEGER",
+    "streamed": "INTEGER NOT NULL DEFAULT 0",
+    "has_tool_calls": "INTEGER NOT NULL DEFAULT 0",
+    "conversation_key": "TEXT",
+    "limit_exceeded": "TEXT",
+}
+_PRD013_FLAGS = tuple(n for n, ddl in _PRD013_COLUMNS.items() if "NOT NULL" in ddl)
+_PRD013_NULLABLE = tuple(n for n in _PRD013_COLUMNS if n not in _PRD013_FLAGS)
+
+#: Two rows with a different value in every field and opposite flags, so a
+#: transposition in insert_audit_log's hand-counted lists cannot hide behind
+#: two equal values.
+_PRD013_ROW_A = {
+    "ingress": "v1",
+    "message_count": 7,
+    "input_tokens": 2140,
+    "output_tokens": 312,
+    "streamed": True,
+    "has_tool_calls": False,
+    "conversation_key": "ck-a",
+    "limit_exceeded": "tokens",
+}
+_PRD013_ROW_B = {
+    "ingress": "chat",
+    "message_count": 3,
+    "input_tokens": 55,
+    "output_tokens": 8,
+    "streamed": False,
+    "has_tool_calls": True,
+    "conversation_key": "ck-b",
+    "limit_exceeded": "requests",
+}
+_PRD013_DEFAULTS = {
+    **{name: None for name in _PRD013_NULLABLE},
+    **{name: False for name in _PRD013_FLAGS},
+}
+
+
+def _prd013_fields(entry: AuditLog) -> dict:
+    return {name: getattr(entry, name) for name in _PRD013_COLUMNS}
+
+
+@pytest.mark.parametrize(("name", "ddl"), list(_PRD013_COLUMNS.items()), ids=list(_PRD013_COLUMNS))
+def test_audit_logs_declares_each_prd013_column_in_both_places(name, ddl):
+    """AC 1: the mapping converges an old database, the CREATE builds a fresh
+    one, and each column is in both with the same declaration."""
+    assert AUDIT_LOGS_ADDED_COLUMNS[name] == ddl
+    assert f"{name} {ddl}" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_the_prd013_columns_are_declared_last_and_in_order():
+    """The mapping's order is the order init_db() ALTERs in, and the CREATE's
+    is the order AuditLog mirrors."""
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-8:] == list(_PRD013_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-8:] == list(_PRD013_COLUMNS)
+
+
+@pytest.mark.parametrize("name", list(_PRD013_COLUMNS))
+def test_init_db_creates_each_prd013_column_with_its_shape(temp_db, name):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info[name]["type"] == _PRD013_COLUMNS[name].split()[0]
+    if name in _PRD013_FLAGS:
+        assert info[name]["notnull"] == 1
+        assert str(info[name]["dflt_value"]) == "0"
+    else:
+        assert info[name]["notnull"] == 0
+        assert info[name]["dflt_value"] is None
+
+
+def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, monkeypatch):
+    """AC 2: a database created before this story gains all eight columns,
+    once each, and no existing row is touched -- the six nullable columns read
+    NULL and the two flags read the column default, with no UPDATE issued."""
+    _create_pre_prd013_database(db_connect, uninitialized_db)
+    statements = _count_statements(monkeypatch)
+
+    init_db()
+
+    assert [sql for sql in statements if "ADD COLUMN" in sql.upper()] == [
+        f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
+        for name, ddl in _PRD013_COLUMNS.items()
+    ]
+    assert not any(
+        sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
+    ), statements
+
+    statements.clear()
+    init_db()  # the second boot converges without a second ALTER
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER" in sql.upper() for sql in statements), statements
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "audit_logs")
+        raw = conn.execute(
+            f"SELECT {', '.join(_PRD013_COLUMNS)} FROM audit_logs ORDER BY id"
+        ).fetchall()
+    assert len(columns) == 32
+    for name in _PRD013_COLUMNS:
+        assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
+
+    # As stored, before the mapper's bool() sees them: NULL and the integer 0.
+    assert len(raw) == 2
+    for row in raw:
+        assert [row[name] for name in _PRD013_NULLABLE] == [None] * 6
+        assert [row[name] for name in _PRD013_FLAGS] == [0, 0]
+
+    assert count_audit_logs() == 2
+    success, blocked = get_audit_log(1), get_audit_log(2)
+    for preserved in (success, blocked):
+        assert _prd013_fields(preserved) == _PRD013_DEFAULTS
+        assert preserved.streamed is False and preserved.has_tool_calls is False
+        assert preserved.dedup_key == "k-pre013"
+        assert preserved.profile == "chat"
+    assert success.tokens_used == 42
+    assert success.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert (success.was_duplicate_blocked, blocked.was_duplicate_blocked) == (False, True)
+
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-12T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="post013",
+            **_PRD013_ROW_A,
+        )
+    )
+    assert _prd013_fields(get_audit_log(new_id)) == _PRD013_ROW_A
+
+
+def test_prd013_fields_default_when_not_supplied(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(timestamp="2026-10-12T09:00:00Z", user_id="ana@empresa.com", prompt_hash="h40")
+    )
+
+    assert _prd013_fields(get_audit_log(new_id)) == _PRD013_DEFAULTS
+
+    with get_connection() as conn:
+        raw = conn.execute(
+            "SELECT streamed, has_tool_calls FROM audit_logs WHERE id = ?", (new_id,)
+        ).fetchone()
+    assert (raw["streamed"], raw["has_tool_calls"]) == (0, 0)
+
+
+def test_prd013_fields_round_trip(temp_db):
+    """AC 4, the `SELECT *` read shape."""
+    id_a = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-12T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h41",
+            dedup_key="k",
+            profile="code",
+            **_PRD013_ROW_A,
+        )
+    )
+    id_b = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-12T09:10:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="h42",
+            **_PRD013_ROW_B,
+        )
+    )
+
+    row_a, row_b = get_audit_log(id_a), get_audit_log(id_b)
+
+    assert _prd013_fields(row_a) == _PRD013_ROW_A
+    assert _prd013_fields(row_b) == _PRD013_ROW_B
+    assert row_a.streamed is True and row_a.has_tool_calls is False
+    assert row_b.streamed is False and row_b.has_tool_calls is True
+    # The neighbours too: a miscount in insert_audit_log's column list shifts
+    # every later value.
+    assert row_a.profile == "code"
+    assert row_a.dedup_key == "k"
+    assert row_a.prompt_hash == "h41"
+
+    assert list_audit_logs() == [row_b, row_a]
+
+
+def test_prd013_fields_survive_the_batched_read(temp_db):
+    """AC 4, the other read shape: `_SUMMARY_SQL`'s hand-written
+    `json_object(...)`. A key the mapper reads but that list lacks fails the
+    batched `rows` figure on every call, and on that path only."""
+    ids = [
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-10-12T09:{minute}:00Z",
+                user_id="ana@empresa.com",
+                prompt_hash=f"h{minute}",
+                **fields,
+            )
+        )
+        for minute, fields in (("15", _PRD013_ROW_A), ("20", _PRD013_ROW_B), ("25", {}))
+    ]
+
+    with get_connection() as conn:
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+    entries = {entry["id"]: entry for entry in json.loads(raw["rows"])}
+    assert all(set(_PRD013_COLUMNS) <= set(entry) for entry in entries.values())
+    # json_object hands the flags back as integers, which is what makes the
+    # mapper's bool() load-bearing on this path.
+    assert [(entries[i]["streamed"], entries[i]["has_tool_calls"]) for i in ids] == [
+        (1, 0),
+        (0, 1),
+        (0, 0),
+    ]
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    by_id = {row.id: row for row in snapshot.rows}
+    assert [_prd013_fields(by_id[i]) for i in ids] == [
+        _PRD013_ROW_A,
+        _PRD013_ROW_B,
+        _PRD013_DEFAULTS,
+    ]
+    for i in ids:
+        assert by_id[i] == get_audit_log(i)
+        assert type(by_id[i].streamed) is bool
+        assert type(by_id[i].has_tool_calls) is bool
+
+
+def test_audit_log_carries_the_prd013_fields_without_breaking_construction():
+    """Optional and defaulted, so every existing keyword construction of
+    AuditLog -- log_query, the migration script -- is untouched."""
+    bare = AuditLog(timestamp="2026-10-12T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc")
+    assert _prd013_fields(bare) == _PRD013_DEFAULTS
+
+    carried = AuditLog(
+        timestamp="2026-10-12T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        **_PRD013_ROW_A,
+    )
+    assert _prd013_fields(carried) == _PRD013_ROW_A
+
+    names = [field.name for field in dataclasses.fields(AuditLog)]
+    assert names[-9:] == [*_PRD013_COLUMNS, "id"]
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):
