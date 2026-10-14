@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "1 - The row"
-status: in-progress
+status: done
 labels: [backend, openrouter]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-003-split-token-counts.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-003-split-token-counts.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-003-split-token-counts.report.md
+commit: 9ede5a1
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-012]
 skills: []
 created: 2026-10-04
-updated: 2026-10-12
+updated: 2026-10-14
 ---
 
 # STORY-003: OpenRouter client returns input and output tokens separately
