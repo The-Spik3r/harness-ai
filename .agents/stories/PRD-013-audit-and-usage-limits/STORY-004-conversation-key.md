@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "1 - The row"
-status: todo
+status: in-progress
 labels: [backend, audit]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-004-conversation-key.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-005]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-14
 ---
 
 # STORY-004: conversation_key derivation
