@@ -6,7 +6,7 @@
 
 ## Progress
 
-3/18 stories done — 17%
+4/18 stories done — 22%
 
 ## Stories
 
@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No 
 | STORY-001 | Characterize today's audit row per arm and the client's usage parsing | technical | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-001-audit-characterization.plan.md) | `126f0da` |
 | STORY-002 | Eight additive audit columns: convergence, AuditLog, writer and both read shapes | technical | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-002-audit-columns.plan.md) | `3c61b53` |
 | STORY-003 | OpenRouter client returns input and output tokens separately | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-003-split-token-counts.plan.md) | `9ede5a1` |
-| STORY-004 | conversation_key derivation | feature | 🟡 in-progress | small | [plan](../../plans/PRD-013-audit-and-usage-limits/STORY-004-conversation-key.plan.md) | — |
+| STORY-004 | conversation_key derivation | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-004-conversation-key.plan.md) | `99845b5` |
 | STORY-005 | log_query and every pipeline arm write the new fields; ingress at every call site | feature | ⬜ todo | large | — | — |
 | STORY-006 | /audit entry fields and /stats token aggregates | feature | ⬜ todo | medium | — | — |
 | STORY-007 | Limit and break-glass settings with startup validators | technical | ⬜ todo | small | — | — |
