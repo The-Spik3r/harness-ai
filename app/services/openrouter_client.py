@@ -82,11 +82,24 @@ class GenerationParams:
         return cls(**{key: raw[key] for key in _ALLOWED_GENERATION_PARAMS if key in raw})
 
 
+def _token_count(value: Any) -> Optional[int]:
+    """A provider-reported token count, or None when it is not usable (PRD-013 F3)."""
+    # bool is a subclass of int: True/False must not be recorded as 1/0.
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 @dataclass
 class OpenRouterResult:
     response: str
     model_used: str
     tokens_used: int
+    # PRD-013 STORY-003: usage.prompt_tokens and usage.completion_tokens, None
+    # when the provider omitted or malformed the field. Declared after
+    # tokens_used with defaults so three-argument construction keeps working.
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
 
 
 def call_openrouter(
@@ -146,13 +159,23 @@ def call_openrouter(
             raise OpenRouterError(error_message)
 
         try:
-            tokens_used = data["usage"]["total_tokens"]
+            usage = data["usage"]
+            tokens_used = usage["total_tokens"]
         except (KeyError, IndexError, ValueError) as exc:
             raise OpenRouterError(
                 f"OpenRouter returned an unexpected response shape: {exc}"
             ) from exc
+        # PRD-013 F3: optional, and never a reason to fail a call that answered.
+        input_tokens = _token_count(usage.get("prompt_tokens"))
+        output_tokens = _token_count(usage.get("completion_tokens"))
     finally:
         if owns_client:
             http_client.close()
 
-    return OpenRouterResult(response=content, model_used=model, tokens_used=tokens_used)
+    return OpenRouterResult(
+        response=content,
+        model_used=model,
+        tokens_used=tokens_used,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
