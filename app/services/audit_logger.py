@@ -41,6 +41,24 @@ def log_query(
     # one caller: /query's foreign-session refusal (app/routers/query.py),
     # which writes before run_query resolves any profile, so NULL is the truth.
     profile: Optional[str] = None,
+    # PRD-013 STORY-005 (Sections 6.2, 6.9). Defaulted here but never omitted
+    # in the pipeline: every row run_conversation writes passes ingress,
+    # message_count, conversation_key and streamed explicitly -- _deny
+    # requires them, and tests/test_query_pipeline_audit_fields.py scans every
+    # direct call site -- because a forgotten arm must be a TypeError or a red
+    # test, not a NULL. ingress stays None for the direct callers (the test
+    # suite, scripts/), where NULL is the honest record (6.9). The token pair
+    # is set only by the two arms holding an upstream result. has_tool_calls
+    # and limit_exceeded are accepted now and first set by PRD-016 and
+    # STORY-011.
+    ingress: Optional[str] = None,
+    message_count: Optional[int] = None,
+    input_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    streamed: bool = False,
+    has_tool_calls: bool = False,
+    conversation_key: Optional[str] = None,
+    limit_exceeded: Optional[str] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -66,5 +84,13 @@ def log_query(
         pattern_role=pattern_role,
         pattern_action=pattern_action,
         profile=profile,
+        ingress=ingress,
+        message_count=message_count,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        streamed=streamed,
+        has_tool_calls=has_tool_calls,
+        conversation_key=conversation_key,
+        limit_exceeded=limit_exceeded,
     )
     return insert_audit_log(entry)

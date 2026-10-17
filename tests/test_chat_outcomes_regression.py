@@ -139,8 +139,9 @@ def _capturing_run_conversation(captured):
     have been -- never to produce the outcome under test.
     """
 
+    # `ingress` accepted since PRD-013 STORY-005; ChatState passes "chat".
     def _fake(identity, messages, device, model, openrouter_api_key,
-              params=None, call_openrouter=None, session_id=None):
+              params=None, call_openrouter=None, session_id=None, ingress=None):
         captured["messages"] = list(messages)
         return QuerySuccessResponse(
             response="ok", audit_id=1, model_used="gpt-4", tokens_used=1

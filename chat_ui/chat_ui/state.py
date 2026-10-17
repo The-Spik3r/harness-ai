@@ -1119,6 +1119,10 @@ class ChatState(rx.State):
                         openrouter_api_key=None,
                         call_openrouter=call_openrouter,
                         session_id=session_id or None,
+                        # PRD-013 Section 6.9: the chat UI names its own door.
+                        # The run_query branch below passes the same value, so
+                        # the two branches still differ only in their input.
+                        ingress="chat",
                     )
                 else:
                     trimmed = 0
@@ -1143,6 +1147,7 @@ class ChatState(rx.State):
                         # empty-string conversation id onto audit rows instead of
                         # NULL -- a value that reads as a session but joins to none.
                         session_id=session_id or None,
+                        ingress="chat",
                     )
             except OpenRouterError as exc:
                 await self._append_and_persist(

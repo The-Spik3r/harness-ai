@@ -1015,8 +1015,16 @@ def _stub_pipeline(monkeypatch, fake):
     (`app/services/query_pipeline.py:359-376`), so a stub written against the
     single-turn signature -- including one that raises -- keeps working
     unchanged.
+
+    PRD-013 STORY-005: both entry points now receive `ingress="chat"`. The two
+    shims accept and drop it, so the single-turn stubs here keep their
+    signature; tests/test_query_pipeline_audit_fields.py asserts the value.
     """
-    monkeypatch.setattr(chat_state_mod, "run_query", fake)
+
+    def _via_query(*args, ingress=None, **kwargs):
+        return fake(*args, **kwargs)
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _via_query)
 
     def _via_conversation(
         identity,
@@ -1027,6 +1035,7 @@ def _stub_pipeline(monkeypatch, fake):
         params=None,
         call_openrouter=None,
         session_id=None,
+        ingress=None,
     ):
         return fake(
             identity,
