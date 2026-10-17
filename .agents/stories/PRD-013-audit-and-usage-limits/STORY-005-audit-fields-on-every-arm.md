@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "1 - The row"
-status: todo
+status: in-progress
 labels: [backend, audit, pipeline]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-005-audit-fields-on-every-arm.plan.md
 report: null
 commit: null
 depends_on: [STORY-001, STORY-002, STORY-003, STORY-004]
 blocks: [STORY-006, STORY-011, STORY-013]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-17
 ---
 
 # STORY-005: log_query and every pipeline arm write the new fields; ingress at every call site
