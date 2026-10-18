@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "1 - The row"
-status: todo
+status: in-progress
 labels: [backend, api, audit]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-006-audit-and-stats-fields.plan.md
 report: null
 commit: null
 depends_on: [STORY-005]
 blocks: [STORY-015]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-17
 ---
 
 # STORY-006: /audit entry fields and /stats token aggregates
