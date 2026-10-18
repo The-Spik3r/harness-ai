@@ -28,12 +28,14 @@ from app.db.models import (
     CREATE_CHAT_MESSAGES_TABLE,
     CREATE_CHAT_SESSIONS_TABLE,
     CREATE_CHAT_SESSIONS_USER_INDEX,
+    CREATE_USAGE_DAILY_TABLE,
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
     USERS_ADDED_COLUMNS,
     AuditLog,
     ChatSession,
     StoredMessage,
+    UsageAdmission,
     User,
 )
 
@@ -701,6 +703,11 @@ def init_db() -> None:
     `chat_messages` pass gives: on a fresh database there is no table to
     interrogate until that CREATE. Both columns are nullable with no default,
     so every existing user reads NULL -- "use the role's limit".
+
+    PRD-013 STORY-009 adds `usage_daily`, a new table, so it arrives by CREATE
+    alone with no added-columns mapping. In steady state it is one more
+    `CREATE ... IF NOT EXISTS` no-op in the same transaction. Its position is
+    not load-bearing: no other statement in this block reads it.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -718,6 +725,7 @@ def init_db() -> None:
         conn.execute(CREATE_CHAT_MESSAGES_TABLE)
         _add_missing_columns(conn, "chat_messages", CHAT_MESSAGES_ADDED_COLUMNS)
         conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
+        conn.execute(CREATE_USAGE_DAILY_TABLE)
 
 
 def _add_missing_columns(
@@ -1633,6 +1641,96 @@ def set_user_limits(
         cursor = conn.execute(
             f"UPDATE users SET {set_clause} WHERE user_id = ?",
             (*(value for _, value in assignments), user_id),
+        )
+        return cursor.rowcount == 1
+
+
+# Usage counters (PRD-013 Section 6.5). One statement each, both on the
+# (user_id, day) primary key.
+#
+# **`RETURNING` works on the pinned driver** -- verified by STORY-009, because
+# it was not among STORY-001's six behaviors. The admit statement below, run
+# verbatim through raw `libsql==0.1.11` against the dev server, twice (the
+# second after a server restart):
+#
+#   insert path:   fetchall() = [('2026-10-18', 29872699, 1, 0)]
+#   conflict path: fetchall() = [('2026-10-18', 29872699, 2, 0)]
+#   description   = day, window_start, window_requests, tokens_today
+#   a fresh client reads the row back after commit(); window_start is an int
+#
+# So the gate is the one statement, one round trip, and `_Row` reads the four
+# columns by name. One thing to know: **`rowcount` is 0 on a RETURNING
+# statement**, insert and update alike, so nothing here may branch on it. The
+# returned row is the evidence the attempt was counted. (The plain UPDATE in
+# _CHARGE_USAGE_SQL reports `rowcount` 1 as STORY-001 found.)
+#
+# `day` and the window are the database's clock, never Python's: instances
+# with skewed clocks share one day and one minute. `strftime` returns TEXT,
+# which SQLite coerces for the integer division, so `window_start` is the
+# integer unix minute. Both statements bind positionally -- named
+# placeholders are not a verified behavior (see the _SUMMARY_SQL comment).
+_ADMIT_USAGE_SQL = """
+INSERT INTO usage_daily (user_id, day, requests, window_start, window_requests)
+VALUES (?, date('now'), 1, strftime('%s','now') / 60, 1)
+ON CONFLICT(user_id, day) DO UPDATE SET
+    requests = requests + 1,
+    window_requests = CASE WHEN window_start = excluded.window_start
+                           THEN window_requests + 1 ELSE 1 END,
+    window_start = excluded.window_start
+RETURNING day, window_start, window_requests,
+          input_tokens + output_tokens + unsplit_tokens AS tokens_today
+"""
+
+# Binds (input_tokens, output_tokens, unsplit_tokens, user_id, day).
+_CHARGE_USAGE_SQL = """
+UPDATE usage_daily
+   SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?,
+       unsplit_tokens = unsplit_tokens + ?
+ WHERE user_id = ? AND day = ?
+"""
+
+
+def admit_usage(user_id: str) -> UsageAdmission:
+    """Counts one authorized attempt and returns what both limit checks need.
+
+    Atomic: the increment and the read are one statement on the server, so two
+    instances admitting the same user at the same moment get two different
+    `window_requests` values. One round trip. A new minute resets
+    `window_requests` to 1 while `requests` keeps counting the day.
+
+    Compares no limit -- STORY-010's usage_limits does that -- and decides
+    nothing on failure: a storage error propagates as `StorageError`, and
+    failing closed is the caller's rule (D9)."""
+    with _session() as conn:
+        row = conn.execute(_ADMIT_USAGE_SQL, (user_id,)).fetchone()
+        return UsageAdmission(
+            day=row["day"],
+            window_start=row["window_start"],
+            window_requests=row["window_requests"],
+            tokens_today=row["tokens_today"],
+        )
+
+
+def charge_usage(
+    user_id: str,
+    day: str,
+    input_tokens: int,
+    output_tokens: int,
+    unsplit_tokens: int,
+) -> bool:
+    """Adds one call's reported tokens to the day admit_usage() returned.
+
+    Charging the admitted `day` rather than today means a request that
+    straddles midnight is charged to the day it was admitted (PRD Section 6.5).
+    `unsplit_tokens` is total_tokens for a call that reported no split.
+
+    Returns False when there is no row for (user_id, day), which a successful
+    admit rules out. What to do with it is STORY-012's call (D9: the charge
+    fails open)."""
+    with _session() as conn:
+        cursor = conn.execute(
+            _CHARGE_USAGE_SQL,
+            (input_tokens, output_tokens, unsplit_tokens, user_id, day),
         )
         return cursor.rowcount == 1
 

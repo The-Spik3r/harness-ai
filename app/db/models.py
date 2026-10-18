@@ -189,6 +189,42 @@ USERS_ADDED_COLUMNS = {
     "requests_per_minute": "INTEGER",
 }
 
+# Usage counters (PRD-013 Section 6.5, D3). One row per user per UTC day, and
+# the same row also holds the fixed one-minute rate window -- that is what lets
+# the gate be one statement: app/db/database.py's _ADMIT_USAGE_SQL increments
+# both counters and reads back everything both checks need in a single
+# round trip.
+#
+# `day` and `window_start` are only ever written from the database clock
+# (`date('now')`, `strftime('%s','now') / 60`), never from Python, so instances
+# with skewed clocks cannot split a day or a window.
+#
+# user_id and day declare NOT NULL explicitly, for the reason the users table
+# gives above: outside INTEGER PRIMARY KEY, SQLite lets a PRIMARY KEY column
+# hold NULL. The composite key is the only access path -- admit and charge both
+# address one (user_id, day) -- so there is no further index.
+#
+# No foreign key to users, for the reason the chat tables give below, and for
+# one of its own: the break-glass `admin` identity has no users row and is
+# still counted (PRD Section 6.6).
+#
+# A new table, so it arrives by CREATE alone and has no added-columns mapping.
+# No cleanup: the window is overwritten in place, and day rows accumulate at
+# one per active user per day -- they are what the usage view (STORY-016) reads.
+CREATE_USAGE_DAILY_TABLE = """
+CREATE TABLE IF NOT EXISTS usage_daily (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,                       -- 'YYYY-MM-DD', UTC, from the database clock
+    requests INTEGER NOT NULL DEFAULT 0,     -- authorized attempts today
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    unsplit_tokens INTEGER NOT NULL DEFAULT 0,   -- total_tokens of calls with no split reported
+    window_start INTEGER NOT NULL,           -- unix minute of the current rate window
+    window_requests INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+)
+"""
+
 # Transcript store (PRD-008). The conversation a user reads, kept apart from the
 # evidence audit_logs holds: that table stores hashes, truncated previews and
 # verdicts and is immutable; these two store what was actually said and are the
@@ -368,6 +404,22 @@ class User:
     # Written only by set_user_limits(); insert_user() leaves them NULL.
     token_budget_daily: Optional[int] = None
     requests_per_minute: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class UsageAdmission:
+    """What one admit_usage() call counted and read back (PRD-013 Section 6.5).
+
+    Everything the rate and budget checks need, from one statement. Every field
+    comes from the database, so none has a default. `day` is the day the
+    attempt was counted against, which is the day charge_usage() must charge.
+    Nothing here compares a limit: STORY-010's usage_limits does that.
+    """
+
+    day: str
+    window_start: int
+    window_requests: int
+    tokens_today: int
 
 
 @dataclass
