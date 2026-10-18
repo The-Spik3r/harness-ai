@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Limit primitives"
-status: in-progress
+status: done
 labels: [backend, database, identity, cli]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-008-per-user-overrides.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-008-per-user-overrides.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-008-per-user-overrides.report.md
+commit: 162820c
 depends_on: []
 blocks: [STORY-010, STORY-013, STORY-016]
 skills: []
