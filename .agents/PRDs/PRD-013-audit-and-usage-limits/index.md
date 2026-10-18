@@ -6,7 +6,7 @@
 
 ## Progress
 
-5/18 stories done — 28%
+6/18 stories done — 33%
 
 ## Stories
 
@@ -19,7 +19,7 @@ All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No 
 | STORY-003 | OpenRouter client returns input and output tokens separately | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-003-split-token-counts.plan.md) | `9ede5a1` |
 | STORY-004 | conversation_key derivation | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-004-conversation-key.plan.md) | `99845b5` |
 | STORY-005 | log_query and every pipeline arm write the new fields; ingress at every call site | feature | ✅ done | large | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-005-audit-fields-on-every-arm.plan.md) | `1ab83f2` |
-| STORY-006 | /audit entry fields and /stats token aggregates | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/STORY-006-audit-and-stats-fields.plan.md) | — |
+| STORY-006 | /audit entry fields and /stats token aggregates | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-006-audit-and-stats-fields.plan.md) | `eb77e8a` |
 | STORY-007 | Limit and break-glass settings with startup validators | technical | ⬜ todo | small | — | — |
 | STORY-008 | Per-user limit overrides: users columns, Identity fields and manage_users set-limits | feature | ⬜ todo | medium | — | — |
 | STORY-009 | usage_daily table with atomic admit and charge statements; RETURNING verified | spike | ⬜ todo | medium | — | — |
