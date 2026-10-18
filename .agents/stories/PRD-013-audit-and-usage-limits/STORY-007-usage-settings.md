@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Limit primitives"
-status: in-progress
+status: done
 labels: [backend, config]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-007-usage-settings.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-007-usage-settings.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-007-usage-settings.report.md
+commit: 2a26cfd
 depends_on: []
 blocks: [STORY-010, STORY-013]
 skills: []
