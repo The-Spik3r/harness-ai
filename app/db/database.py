@@ -1079,15 +1079,56 @@ def top_pii_entities(limit: int = 5) -> list[str]:
         return [row["entity"] for row in rows]
 
 
+# PRD-013 Section 6.10: the two token totals are sums over every row with NULL
+# as 0. `SUM` alone returns NULL over an empty table or a column that is NULL
+# on every row, so the COALESCE is what makes an empty table read 0 rather
+# than None. Written once and shared by the standalone functions and
+# `_SUMMARY_SQL`, as `_BLOCKED_SUSPICIOUS_WHERE` is, so the batched and
+# figure-by-figure reads cannot drift apart.
+_SUM_INPUT_TOKENS = "COALESCE(SUM(input_tokens), 0)"
+_SUM_OUTPUT_TOKENS = "COALESCE(SUM(output_tokens), 0)"
+
+# PRD-013 Section 6.2: a usage-limit refusal is the only row that names a
+# limit, so a non-NULL `limit_exceeded` is the whole definition. 0 until
+# STORY-011 writes such rows.
+_BLOCKED_USAGE_LIMITS_WHERE = "limit_exceeded IS NOT NULL"
+
+
+def sum_input_tokens() -> int:
+    with _session() as conn:
+        row = conn.execute(
+            f"SELECT {_SUM_INPUT_TOKENS} AS n FROM audit_logs"
+        ).fetchone()
+        return row["n"]
+
+
+def sum_output_tokens() -> int:
+    with _session() as conn:
+        row = conn.execute(
+            f"SELECT {_SUM_OUTPUT_TOKENS} AS n FROM audit_logs"
+        ).fetchone()
+        return row["n"]
+
+
+def count_blocked_usage_limits() -> int:
+    with _session() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_BLOCKED_USAGE_LIMITS_WHERE}"
+        ).fetchone()
+        return row["n"]
+
+
 # --------------------------------------------------------------------------
 # The batched summary read (STORY-010)
 # --------------------------------------------------------------------------
 
-#: The ten figures the admin summary is made of, in `_READS`' order.
+#: The thirteen figures the admin summary is made of, in `_READS`' order.
 #:
 #: The names are `chat_ui/chat_ui/admin_state.py`'s `_READS` field names on
-#: purpose, so its ten `READ_LABEL_*` entries map one-to-one onto them and
-#: `len(_READS) == 10` survives the batching (PRD-007 Risk 6).
+#: purpose, so its `READ_LABEL_*` entries map one-to-one onto them and
+#: `len(_READS) == len(SUMMARY_FIGURES)` survives the batching (PRD-007 Risk 6).
+#: The first ten are STORY-010's; PRD-013 appended the last three, after every
+#: existing figure, so no column and no positional parameter moved.
 SUMMARY_FIGURES = (
     "rows",
     "total_recorded",
@@ -1099,12 +1140,15 @@ SUMMARY_FIGURES = (
     "top_models",
     "top_users",
     "top_pii_entities",
+    "input_tokens",
+    "output_tokens",
+    "blocked_usage_limits",
 )
 
 
 @dataclass(frozen=True)
 class SummarySnapshot:
-    """All ten summary figures, with per-figure failure attribution.
+    """All thirteen summary figures, with per-figure failure attribution.
 
     **This type exists because one statement is all-or-nothing and the admin
     console is not.** `_READS` gives each figure its own `READ_LABEL_*` so a
@@ -1119,7 +1163,7 @@ class SummarySnapshot:
     exactly one of the two -- asserted below, because a figure silently in
     neither is the blank page arriving by another route.
 
-    The ten named properties are for callers that want the value or nothing;
+    The named properties are for callers that want the value or nothing;
     they raise the recorded failure. Callers that want attribution -- STORY-012
     is the one -- read `errors` and never trigger them.
     """
@@ -1180,8 +1224,20 @@ class SummarySnapshot:
     def top_pii_entities(self) -> list:
         return self._figure("top_pii_entities")
 
+    @property
+    def input_tokens(self) -> int:
+        return self._figure("input_tokens")
 
-# One statement, ten named columns -- **not** a client batch, because there is
+    @property
+    def output_tokens(self) -> int:
+        return self._figure("output_tokens")
+
+    @property
+    def blocked_usage_limits(self) -> int:
+        return self._figure("blocked_usage_limits")
+
+
+# One statement, thirteen named columns -- **not** a client batch, because there is
 # no client batch to use. STORY-001 §2.6 pasted the driver's whole surface:
 #
 #   dir(connection) = ['close','commit','cursor','execute','executemany',
@@ -1201,12 +1257,16 @@ class SummarySnapshot:
 # Every subquery is its standalone function's predicates copied verbatim, and
 # `split` is STORY-009's recursive CTE hoisted to the top so `top_pii_entities`
 # can be read from a scalar subquery beside the rest. Copied, not paraphrased:
-# AC 5 is that all ten agree with the individual functions figure for figure.
+# AC 5 is that every figure agrees with the individual functions figure for figure.
 #
 # **The four parameters bind positionally, in column order**:
 #     (row_limit, ranked_limit, ranked_limit, ranked_limit)
 # Reordering or inserting a column silently reorders them. Named placeholders
 # were not among STORY-001's six verified behaviors, so this does not use them.
+# PRD-013's three columns (`input_tokens`, `output_tokens`,
+# `blocked_usage_limits`) take no parameter and come after every existing one,
+# so the tuple did not change (PRD-013 Risk 8). A future column with a `?`
+# must also go last, and its value goes at the end of the tuple.
 #
 # `"rows"` is quoted: ROWS is a keyword (window frames) and an unquoted alias
 # is a syntax error.
@@ -1283,7 +1343,11 @@ SELECT
        WHERE entity IS NOT NULL
        GROUP BY entity
        ORDER BY COUNT(*) DESC, entity ASC
-       LIMIT ?)) AS top_pii_entities
+       LIMIT ?)) AS top_pii_entities,
+  (SELECT {_SUM_INPUT_TOKENS} FROM audit_logs) AS input_tokens,
+  (SELECT {_SUM_OUTPUT_TOKENS} FROM audit_logs) AS output_tokens,
+  (SELECT COUNT(*) FROM audit_logs WHERE {_BLOCKED_USAGE_LIMITS_WHERE})
+      AS blocked_usage_limits
 """
 
 
@@ -1313,26 +1377,29 @@ _SUMMARY_DECODERS = {
     "top_models": _decode_ranked,
     "top_users": _decode_ranked,
     "top_pii_entities": _decode_ranked,
+    "input_tokens": _decode_count,
+    "output_tokens": _decode_count,
+    "blocked_usage_limits": _decode_count,
 }
 
 
 def _summary_figure_by_figure(
     row_limit: int, ranked_limit: int, cause: Exception
 ) -> SummarySnapshot:
-    """The ten standalone reads, each guarded, when the one statement failed.
+    """The thirteen standalone reads, each guarded, when the one statement failed.
 
-    A dead statement carries no attribution: ten figures fail anonymously and
+    A dead statement carries no attribution: every figure fails anonymously and
     the console has nothing to name. That is the blank page Risk 6 describes,
     so the failure path buys the attribution back the only way left -- by
     reading the figures individually and letting each one succeed or fail on
-    its own. It costs up to ten round trips, and it is paid **only** when the
+    its own. It costs up to thirteen round trips, and it is paid **only** when the
     batch is already broken; the success path stays at one.
 
     `cause` is the statement's own failure. A figure that then reads fine is a
     figure that arrived, so `cause` is not recorded against it. It is used only
     when nothing at all came back -- the database is unreachable, or the table
     is gone -- where every figure carries it, so an outage still reads as an
-    outage rather than as ten unrelated coincidences.
+    outage rather than as thirteen unrelated coincidences.
     """
     reads = (
         ("rows", lambda: list_audit_logs(limit=row_limit)),
@@ -1345,6 +1412,9 @@ def _summary_figure_by_figure(
         ("top_models", lambda: top_models(limit=ranked_limit)),
         ("top_users", lambda: top_users(limit=ranked_limit)),
         ("top_pii_entities", lambda: top_pii_entities(limit=ranked_limit)),
+        ("input_tokens", sum_input_tokens),
+        ("output_tokens", sum_output_tokens),
+        ("blocked_usage_limits", count_blocked_usage_limits),
     )
     figures: dict = {}
     errors: dict = {}
@@ -1355,14 +1425,14 @@ def _summary_figure_by_figure(
             errors[name] = exc
     if not figures:
         # Nothing came back individually either: the database is unreachable or
-        # the table is gone. Report the statement's own failure rather than ten
+        # the table is gone. Report the statement's own failure rather than thirteen
         # copies of a downstream symptom.
         errors = {name: cause for name in SUMMARY_FIGURES}
     return SummarySnapshot(figures=figures, errors=errors)
 
 
 def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnapshot:
-    """All ten admin summary figures, in one round trip.
+    """All thirteen admin summary figures, in one round trip.
 
     Two callers ran the same fan-out sequentially: `_READS` in
     `chat_ui/chat_ui/admin_state.py` with ten reads, and `GET /stats` with
@@ -1375,10 +1445,10 @@ def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnap
     SELECT measured 1.7 ms against 16.3 ms for the ten it replaces.
 
     **Attribution rides on column names, not on statements.** Each figure is a
-    named column, so the ten `READ_LABEL_*` entries map one-to-one onto them
+    named column, so the `READ_LABEL_*` entries map one-to-one onto them
     and a figure that fails to decode fails alone. If the statement itself
     fails there are no columns to attribute anything to, and the read falls
-    back to the ten standalone functions to buy the attribution back.
+    back to the thirteen standalone functions to buy the attribution back.
 
     `row_limit` and `ranked_limit` are parameters, not constants baked into the
     statement: the callers pass `REGISTER_ROW_LIMIT` and `RANKED_LIMIT`. They

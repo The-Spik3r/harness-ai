@@ -35,10 +35,13 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_blocked_usage_limits,
     count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
     list_audit_logs,
+    sum_input_tokens,
+    sum_output_tokens,
     summary_snapshot,
     # Aliased because the state declares fields of these three names. The module
     # global and the class attribute live in different namespaces and Python
@@ -79,6 +82,8 @@ from .admin_copy import (
     VERDICT_HELD_LABEL,
     READ_LABEL_BLOCKED_DUPLICATES,
     READ_LABEL_BLOCKED_SUSPICIOUS,
+    READ_LABEL_INPUT_TOKENS,
+    READ_LABEL_OUTPUT_TOKENS,
     READ_LABEL_PII_QUERIES,
     READ_LABEL_ROWS,
     READ_LABEL_SUCCESSFUL,
@@ -87,6 +92,7 @@ from .admin_copy import (
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOTAL,
     READ_LABEL_UNIQUE_USERS,
+    READ_LABEL_USAGE_LIMITS,
     # Aliased to the name this module has used since STORY-004: `load()` formats
     # it and a future test may import it from here, so the move to admin_copy.py
     # stays a relocation of the string rather than of the call site.
@@ -210,11 +216,12 @@ _SORT_RANKS = {
     ),
 }
 
-# The ten reads, as data: (state field, what to call it in a fault message, the
-# database function that figure is read from, its keyword arguments). A table
-# rather than ten hand-written awaits because "all ten" is then one countable
-# structure — ten separate `await` lines can become nine in a refactor with
-# nothing to notice it, and STORY-006 asserts `len(_READS) == 10`. The label is
+# The reads, as data: (state field, what to call it in a fault message, the
+# database function that figure is read from, its keyword arguments). Ten since
+# PRD-006, thirteen since PRD-013 STORY-006. A table rather than hand-written
+# awaits because "all of them" is then one countable structure — ten separate
+# `await` lines can become nine in a refactor with nothing to notice it, and
+# the tests assert `len(_READS) == len(SUMMARY_FIGURES)`. The label is
 # the only user-facing string here, and since STORY-008 every one of them comes
 # from `admin_copy` — the fault message they are formatted into
 # (LOAD_FAILED_MESSAGE, imported above) lives there too, so the whole sentence an
@@ -276,6 +283,17 @@ _READS: tuple[tuple[str, str, object, dict], ...] = (
         READ_LABEL_TOP_PII,
         read_top_pii_entities,
         {"limit": RANKED_LIMIT},
+    ),
+    # PRD-013 STORY-006: appended after the ten, in `SUMMARY_FIGURES`' order.
+    # Read and committed here so the table and the figures stay one-to-one;
+    # rendering them is STORY-015.
+    ("input_tokens", READ_LABEL_INPUT_TOKENS, sum_input_tokens, {}),
+    ("output_tokens", READ_LABEL_OUTPUT_TOKENS, sum_output_tokens, {}),
+    (
+        "blocked_usage_limits",
+        READ_LABEL_USAGE_LIMITS,
+        count_blocked_usage_limits,
+        {},
     ),
 )
 
@@ -449,6 +467,11 @@ class AdminState(rx.State):
     top_models: list[str] = []
     top_users: list[str] = []
     top_pii_entities: list[str] = []
+    # PRD-013 STORY-006: committed by `load()` like the rest; rendered by
+    # STORY-015.
+    input_tokens: int = 0
+    output_tokens: int = 0
+    blocked_usage_limits: int = 0
     last_refreshed: str = ""
     loading: bool = False
     error: str = ""

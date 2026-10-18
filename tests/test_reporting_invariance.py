@@ -284,6 +284,10 @@ def test_stats_and_summary_snapshot_report_the_same_figures_on_the_fixed_seed(
         "top_users",
         "pii_detected_queries",
         "top_pii_entities",
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens",
+        "output_tokens",
+        "blocked_usage_limits",
     }
 
     # The batched rows are the same AuditLog objects the standalone read returns
@@ -567,6 +571,10 @@ def test_audit_and_stats_expose_the_multi_turn_row_with_no_new_field(temp_db):
         "top_users",
         "pii_detected_queries",
         "top_pii_entities",
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens",
+        "output_tokens",
+        "blocked_usage_limits",
     }
     # One of the two sends carried new PII; the other only carried it in
     # history (D7).

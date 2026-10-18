@@ -24,6 +24,7 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_blocked_usage_limits,
     count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
@@ -39,6 +40,8 @@ from app.db.database import (
     list_chat_messages,
     list_users,
     set_user_token_hash,
+    sum_input_tokens,
+    sum_output_tokens,
     summary_snapshot,
     top_models,
     top_pii_entities,
@@ -1634,6 +1637,10 @@ def _individually(row_limit: int = 100, ranked_limit: int = 5) -> dict:
         "top_models": top_models(limit=ranked_limit),
         "top_users": top_users(limit=ranked_limit),
         "top_pii_entities": top_pii_entities(limit=ranked_limit),
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens": sum_input_tokens(),
+        "output_tokens": sum_output_tokens(),
+        "blocked_usage_limits": count_blocked_usage_limits(),
     }
 
 
@@ -1710,6 +1717,10 @@ def test_summary_snapshot_types_match_the_standalone_functions(temp_db):
         "unique_users",
         "successful_queries",
         "pii_detected_queries",
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens",
+        "output_tokens",
+        "blocked_usage_limits",
     ):
         assert isinstance(snapshot.figures[name], int), name
     for name in ("top_models", "top_users", "top_pii_entities"):
@@ -1733,6 +1744,10 @@ def test_summary_snapshot_on_an_empty_database(temp_db):
         "top_models": [],
         "top_users": [],
         "top_pii_entities": [],
+        # PRD-013 6.10: three additive figures, 0 on an empty table (STORY-006).
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
     }
     assert snapshot.figures == _individually()
 
@@ -1823,7 +1838,8 @@ def test_summary_snapshot_issues_one_round_trip(temp_db, monkeypatch):
 
     statements.clear()
     _individually()
-    assert len(statements) == 10, statements
+    # PRD-013 STORY-006: ten figures became thirteen.
+    assert len(statements) == 13, statements
 
 
 def test_summary_snapshot_limits_are_parameters(temp_db):

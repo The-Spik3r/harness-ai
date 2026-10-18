@@ -115,6 +115,10 @@ from chat_ui.chat_ui.admin_copy import (
     READ_LABEL_TOP_MODELS,
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOP_PII,
+    # PRD-013 STORY-006.
+    READ_LABEL_INPUT_TOKENS,
+    READ_LABEL_OUTPUT_TOKENS,
+    READ_LABEL_USAGE_LIMITS,
     EMPTY_REGISTER_TITLE,
     EMPTY_REGISTER_BODY,
     EMPTY_MATCHES_TITLE,
@@ -319,6 +323,10 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert READ_LABEL_TOP_MODELS
     assert READ_LABEL_TOP_USERS
     assert READ_LABEL_TOP_PII
+    # PRD-013 STORY-006.
+    assert READ_LABEL_INPUT_TOKENS
+    assert READ_LABEL_OUTPUT_TOKENS
+    assert READ_LABEL_USAGE_LIMITS
     assert EMPTY_REGISTER_TITLE
     assert EMPTY_REGISTER_BODY
     assert EMPTY_MATCHES_TITLE
@@ -427,6 +435,10 @@ def test_admin_copy_constants_exist_and_not_empty():
         "READ_LABEL_TOP_MODELS",
         "READ_LABEL_TOP_USERS",
         "READ_LABEL_TOP_PII",
+        # PRD-013 STORY-006.
+        "READ_LABEL_INPUT_TOKENS",
+        "READ_LABEL_OUTPUT_TOKENS",
+        "READ_LABEL_USAGE_LIMITS",
         "EMPTY_REGISTER_TITLE",
         "EMPTY_REGISTER_BODY",
         "EMPTY_MATCHES_TITLE",

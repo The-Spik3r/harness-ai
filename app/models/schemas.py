@@ -188,6 +188,28 @@ class AuditQueryEntry(BaseModel):
     # defaulted and unvalidated for `session_id`'s reasons: NULL on every row
     # written before PRD-012 and on /query's foreign-session refusal.
     profile: Optional[str] = None
+    # PRD-013 Sections 6.2 and 6.10: which door the request came through, how
+    # big it was, what it cost, whether it was streamed or carried tool calls,
+    # which conversation it belongs to, and which usage limit refused it.
+    #
+    # Optional, defaulted and unvalidated for `session_id`'s reasons. The six
+    # nullable ones are NULL on every row written before PRD-013, and the two
+    # token fields are also NULL when no upstream call was made or the
+    # provider omitted the split. The two flags default to `False` rather than
+    # `None` because the columns are `NOT NULL DEFAULT 0`: 0 is true of every
+    # older row, since neither was possible then.
+    #
+    # `conversation_key` is a grouping aid; `session_id` stays authoritative
+    # for chat rows. `dedup_key` is still not exposed (PRD-009 D5). A row with
+    # `limit_exceeded` set is `success=true`, as a duplicate block is.
+    ingress: Optional[str] = None
+    message_count: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    streamed: bool = False
+    has_tool_calls: bool = False
+    conversation_key: Optional[str] = None
+    limit_exceeded: Optional[str] = None
 
 
 class AuditResponse(BaseModel):
@@ -205,3 +227,8 @@ class StatsResponse(BaseModel):
     top_users: List[str]
     pii_detected_queries: int = 0
     top_pii_entities: List[str] = []
+    # PRD-013 Section 6.10: sums over every row with NULL as 0, and the count
+    # of usage-limit refusals (0 until STORY-011 writes any).
+    input_tokens: int = 0
+    output_tokens: int = 0
+    blocked_usage_limits: int = 0

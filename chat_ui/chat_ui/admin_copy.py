@@ -157,7 +157,7 @@ FAULT_MESSAGE_TEMPLATE = (
     "again. ({detail})"
 )
 
-# What to call each of the ten reads inside FAULT_MESSAGE_TEMPLATE. These are the
+# What to call each of the thirteen reads inside FAULT_MESSAGE_TEMPLATE. These are the
 # labels `admin_state._READS` carries and are worded as the object of "Could not
 # read ___", which is why each begins with an article. Their values are pinned by
 # `tests/test_admin_state.py` — three are asserted as literals — so a rewording
@@ -172,6 +172,14 @@ READ_LABEL_PII_QUERIES = "the PII detection count"
 READ_LABEL_TOP_MODELS = "the model ranking"
 READ_LABEL_TOP_USERS = "the user ranking"
 READ_LABEL_TOP_PII = "the PII entity ranking"
+# PRD-013 STORY-006: the three figures the batched read gained. They exist so
+# that a failed read is named; nothing renders the figures until STORY-015.
+# "blocks", not "refusals": GATE_REFUSED_MESSAGE must stay the only string here
+# that mentions a refusal (PRD-006 Section 9, `tests/test_admin_copy.py`), and
+# "blocked" is already how the two other blocked counts are named.
+READ_LABEL_INPUT_TOKENS = "the input token total"
+READ_LABEL_OUTPUT_TOKENS = "the output token total"
+READ_LABEL_USAGE_LIMITS = "the usage-limit blocks"
 
 # --- The three empty states ----------------------------------------------
 # PRD-006 Section 4 names three register states — no rows recorded, rows recorded

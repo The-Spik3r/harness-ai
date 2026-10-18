@@ -123,6 +123,10 @@ def test_valid_token_returns_expected_shape_and_values(temp_db):
         "top_users",
         "pii_detected_queries",
         "top_pii_entities",
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens",
+        "output_tokens",
+        "blocked_usage_limits",
     }
     assert body["total_queries"] == 4
     assert body["blocked_duplicates"] == 1
@@ -195,6 +199,10 @@ def test_zero_rows_returns_zeroed_stats_without_error(temp_db):
         "top_users": [],
         "pii_detected_queries": 0,
         "top_pii_entities": [],
+        # PRD-013 6.10: three additive figures, 0 on an empty table (STORY-006).
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
     }
 
 
@@ -272,6 +280,10 @@ def test_auditor_role_reads_stats_with_unchanged_shape(temp_db):
         "top_users",
         "pii_detected_queries",
         "top_pii_entities",
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens",
+        "output_tokens",
+        "blocked_usage_limits",
     }
     assert body["total_queries"] == 1
 
@@ -373,7 +385,7 @@ def test_stats_issues_one_database_round_trip_for_its_figures(temp_db, monkeypat
 
 
 def _snapshot_of(**overrides) -> SummarySnapshot:
-    """A complete ten-figure snapshot -- `figures` and `errors` must partition
+    """A complete thirteen-figure snapshot -- `figures` and `errors` must partition
     `SUMMARY_FIGURES` exactly or `SummarySnapshot.__post_init__` refuses it."""
     figures = {
         "rows": [],
@@ -386,6 +398,11 @@ def _snapshot_of(**overrides) -> SummarySnapshot:
         "top_models": ["gpt-4"],
         "top_users": ["a", "b"],
         "top_pii_entities": ["EMAIL_ADDRESS"],
+        # PRD-013 6.10 (STORY-006). Distinct non-zero values, so a figure the
+        # endpoint dropped or swapped shows up in the body below.
+        "input_tokens": 2140,
+        "output_tokens": 312,
+        "blocked_usage_limits": 6,
     }
     figures.update(overrides)
     assert set(figures) == set(SUMMARY_FIGURES)
@@ -431,6 +448,10 @@ def test_stats_does_not_fetch_the_register_rows(temp_db, monkeypatch):
         "top_users": ["a", "b"],
         "pii_detected_queries": 5,
         "top_pii_entities": ["EMAIL_ADDRESS"],
+        # PRD-013 6.10: three additive figures, from `_snapshot_of` (STORY-006).
+        "input_tokens": 2140,
+        "output_tokens": 312,
+        "blocked_usage_limits": 6,
     }
 
 

@@ -162,6 +162,16 @@ def test_audit_response_shape():
                 "pattern_action": None,
                 # PRD-012 D9 (STORY-011): additive, nullable, defaulted.
                 "profile": None,
+                # PRD-013 6.10 (STORY-006): six nullable, two flags defaulted
+                # to False.
+                "ingress": None,
+                "message_count": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "streamed": False,
+                "has_tool_calls": False,
+                "conversation_key": None,
+                "limit_exceeded": None,
             }
         ],
     }
@@ -202,6 +212,10 @@ def test_stats_response_shape():
         "top_users": ["juan@empresa.com", "maria@empresa.com"],
         "pii_detected_queries": 0,
         "top_pii_entities": [],
+        # PRD-013 6.10 (STORY-006): additive, defaulted to 0.
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
     }
 
 

@@ -144,6 +144,10 @@ def _populate(state: AdminState) -> dict:
     state.top_models = ["gpt-4"]
     state.top_users = ["a.torres"]
     state.top_pii_entities = ["EMAIL_ADDRESS"]
+    # PRD-013 STORY-006: three additive figures.
+    state.input_tokens = 2140
+    state.output_tokens = 312
+    state.blocked_usage_limits = 6
     state.last_refreshed = "14:22:07"
     state.loading = True
     state.error = "previous fault"
@@ -158,6 +162,9 @@ def _populate(state: AdminState) -> dict:
         "top_models": [],
         "top_users": [],
         "top_pii_entities": [],
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
         "last_refreshed": "",
         "loading": False,
         "error": "",
@@ -380,6 +387,11 @@ _READ_RETURNS = {
     "top_models": ["gpt-4", "claude"],
     "top_users": ["a.torres"],
     "top_pii_entities": ["EMAIL_ADDRESS"],
+    # PRD-013 STORY-006: three additive reads. Non-zero, so a figure `load()`
+    # failed to commit would still read as its default.
+    "sum_input_tokens": 2140,
+    "sum_output_tokens": 312,
+    "count_blocked_usage_limits": 6,
 }
 
 
@@ -531,6 +543,10 @@ def _loaded_record(state: AdminState) -> dict:
         "top_models": list(state.top_models),
         "top_users": list(state.top_users),
         "top_pii_entities": list(state.top_pii_entities),
+        # PRD-013 STORY-006: three additive figures.
+        "input_tokens": state.input_tokens,
+        "output_tokens": state.output_tokens,
+        "blocked_usage_limits": state.blocked_usage_limits,
         "last_refreshed": state.last_refreshed,
     }
 
@@ -584,9 +600,10 @@ def test_the_read_table_names_all_ten_database_functions():
     import chat_ui.chat_ui.admin_state as admin_state_mod
 
     reads = admin_state_mod._READS
-    assert len(reads) == 10
-    assert len({field for field, _, _, _ in reads}) == 10
-    assert len({fn for _, _, fn, _ in reads}) == 10
+    # PRD-013 STORY-006: ten reads became thirteen.
+    assert len(reads) == 13
+    assert len({field for field, _, _, _ in reads}) == 13
+    assert len({fn for _, _, fn, _ in reads}) == 13
     assert {fn.__name__ for _, _, fn, _ in reads} == {
         "list_audit_logs",
         "count_audit_logs",
@@ -598,6 +615,10 @@ def test_the_read_table_names_all_ten_database_functions():
         "top_models",
         "top_users",
         "top_pii_entities",
+        # PRD-013 STORY-006.
+        "sum_input_tokens",
+        "sum_output_tokens",
+        "count_blocked_usage_limits",
     }
     for field, _, _, _ in reads:
         assert field in AdminState.base_vars, field
@@ -615,7 +636,7 @@ async def test_load_runs_all_ten_reads_off_the_event_loop(
 
     await _load(state)
 
-    assert len(reads.calls) == 10
+    assert len(reads.calls) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     assert threading.get_ident() not in reads.threads
     # The register's window is the cap PRD-006 Section 4 fixes, passed as the
     # keyword argument AC 1 names.
@@ -682,7 +703,7 @@ async def test_loading_is_true_for_the_duration_and_false_after(
 
     await _load(state)
 
-    assert len(seen) == 10
+    assert len(seen) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     assert all(seen), seen
     assert state.loading is False
 
@@ -1042,7 +1063,7 @@ async def test_a_second_concurrent_load_is_refused_by_the_loading_guard(
 
     await asyncio.gather(_load(state), _load(state))
 
-    assert len(reads.calls) == 10
+    assert len(reads.calls) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     assert state.loading is False
 
 
@@ -1741,7 +1762,7 @@ async def test_filtering_the_loaded_register_narrows_it_without_a_second_read(
 
     await _load(state)
 
-    assert len(reads.calls) == 10
+    assert len(reads.calls) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     calls_after_load = list(reads.calls)
 
     state.selected_verdicts = [VERDICT_FAULT]

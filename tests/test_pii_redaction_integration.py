@@ -194,9 +194,19 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
 
     assert sorted(entry) == [
         "audit_id",
+        # PRD-013 6.10: eight additive fields, interleaved alphabetically
+        # (STORY-006): conversation_key, has_tool_calls, ingress, input_tokens,
+        # limit_exceeded, message_count, output_tokens, streamed.
+        "conversation_key",
         "denied_permission",
         "device",
+        "has_tool_calls",
+        "ingress",
+        "input_tokens",
+        "limit_exceeded",
+        "message_count",
         "model",
+        "output_tokens",
         # PRD-011 D6: two additive, nullable fields (STORY-010).
         "pattern_action",
         "pattern_role",
@@ -208,6 +218,7 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "prompt_hash",
         "role",
         "session_id",
+        "streamed",
         "suspicious_pattern_detected",
         "timestamp",
         "user_id",
