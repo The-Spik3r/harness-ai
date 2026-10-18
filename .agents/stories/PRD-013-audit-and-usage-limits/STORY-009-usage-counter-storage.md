@@ -7,12 +7,12 @@ type: spike
 priority: high
 complexity: medium
 phase: "2 - Limit primitives"
-status: in-progress
+status: done
 labels: [backend, database, limits]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-009-usage-counter-storage.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-009-usage-counter-storage.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-009-usage-counter-storage.report.md
+commit: 13f01f6
 depends_on: []
 blocks: [STORY-010, STORY-016]
 skills: []
