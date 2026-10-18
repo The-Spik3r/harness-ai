@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Limit primitives"
-status: todo
+status: in-progress
 labels: [backend, database, identity, cli]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-008-per-user-overrides.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-010, STORY-013, STORY-016]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-18
 ---
 
 # STORY-008: Per-user limit overrides: users columns, Identity fields and manage_users set-limits
