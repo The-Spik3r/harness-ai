@@ -1,3 +1,6 @@
+import re
+from typing import Optional
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -59,6 +62,23 @@ _PRESIDIO_ENTITY_NAMES = frozenset(
     }
 )
 
+# Usage limits (PRD-013 Section 6.6). A limit map is `role=value` pairs with a
+# required `*` entry; a value is an integer >= 1 or the word below. Each
+# setting's validator message quotes its own example, so the operator who
+# mistyped one is shown a value that would have booted.
+_UNLIMITED = "unlimited"
+_LIMIT_MAP_EXAMPLES = {
+    "USAGE_DAILY_TOKEN_BUDGET": "*=1000000,admin=unlimited",
+    "USAGE_REQUESTS_PER_MINUTE": "*=60,admin=120",
+}
+# Digits only: a bare int() would also accept "+5", "1_000" and " 7 ".
+_LIMIT_VALUE_RE = re.compile(r"[0-9]+")
+
+# The ingresses BREAK_GLASS_INGRESSES may name (PRD-013 Section 6.8). `v1` is
+# absent by design, not by omission: ADMIN_TOKEN is never accepted there
+# (Decision D4), and the setting can tighten the other two but never loosen.
+_BREAK_GLASS_ACCEPTED = frozenset({"query", "chat"})
+
 
 def _scheme_of(url: str) -> str:
     """The scheme part of a URL, and the only part of one any message quotes.
@@ -78,6 +98,57 @@ def _scheme_of(url: str) -> str:
 def _split_comma_list(value: str) -> list[str]:
     """A comma-separated setting as a list, parsed exactly as `pii_entities_list` does."""
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_limit_map(setting: str, value: str) -> dict[str, Optional[int]]:
+    """A `role=value` limit map as `{role: limit}`, `None` meaning unlimited (PRD-013).
+
+    Entries are checked left to right -- shape, then value, then a repeated
+    role -- and the required `*` entry last, so an empty value reports the
+    missing `*`. Role names are not checked against the RBAC matrix:
+    RBAC_ROLES_FILE may define any role and is loaded after Settings is built,
+    and an unknown role simply gets `*` (PRD-013 Section 6.6).
+
+    The field validator calls this to stop a bad value at startup, and the
+    parsed properties call it again for the dict.
+    """
+    example = f"Example: {setting}={_LIMIT_MAP_EXAMPLES[setting]}."
+    limits: dict[str, Optional[int]] = {}
+
+    for entry in _split_comma_list(value):
+        role, separator, raw = entry.partition("=")
+        role, raw = role.strip(), raw.strip()
+        if not separator or not role:
+            raise ValueError(f"{setting} entry {entry!r} is not a role=value pair. {example}")
+
+        if raw == _UNLIMITED:
+            limit = None
+        elif _LIMIT_VALUE_RE.fullmatch(raw) and int(raw) >= 1:
+            limit = int(raw)
+        else:
+            zero_note = (
+                " 0 does not turn the limit off; set USAGE_LIMITS_ENABLED=false for that."
+                if _LIMIT_VALUE_RE.fullmatch(raw)
+                else ""
+            )
+            raise ValueError(
+                f"{setting} entry {entry!r} has value {raw!r}; each value must be an "
+                f"integer >= 1 or {_UNLIMITED!r}.{zero_note} {example}"
+            )
+
+        if role in limits:
+            raise ValueError(
+                f"{setting} lists role {role!r} twice (in {value!r}). Each role may "
+                f"appear once. {example}"
+            )
+        limits[role] = limit
+
+    if "*" not in limits:
+        raise ValueError(
+            f"{setting} must include a '*' entry, the limit for any role not listed, "
+            f"got {value!r}. {example}"
+        )
+    return limits
 
 
 class Settings(BaseSettings):
@@ -239,6 +310,33 @@ class Settings(BaseSettings):
     # backtick spans, are still analyzed. Consumed by STORY-007.
     PII_CODE_SKIP_CODE_BLOCKS: bool = True
 
+    # Usage limits and break-glass (PRD-013). Defaults and startup validation
+    # land now; no production code reads these yet -- each field names the
+    # story that becomes its consumer. The defaults are provisional (PRD-013
+    # Section 9.3, Assumptions): chosen so that no ordinary chat or script use
+    # reaches them, and so that a deployment is bounded from its first boot.
+
+    # Master switch for the usage gate and the token charge. Independent of
+    # RBAC_ENABLED, which does not turn limits off (Section 6.6); false writes
+    # and reads no counter. Consumed by STORY-011 (gate) and STORY-012 (charge).
+    USAGE_LIMITS_ENABLED: bool = True
+
+    # Tokens per user per UTC day, by role: `role=value` pairs with a required
+    # `*` entry, each value an integer >= 1 or `unlimited`. Read through
+    # usage_daily_token_budget_map. Consumed by STORY-010's limits_for.
+    USAGE_DAILY_TOKEN_BUDGET: str = "*=1000000"
+
+    # Authorized attempts per user per minute, by role, in the same shape.
+    # Read through usage_requests_per_minute_map. Consumed by STORY-010.
+    USAGE_REQUESTS_PER_MINUTE: str = "*=60"
+
+    # Ingresses on which the ADMIN_TOKEN identity may submit to the pipeline:
+    # any subset of `query` and `chat`, possibly empty. The default is today's
+    # behaviour on both. `v1` is always refused -- the setting can tighten and
+    # cannot loosen (D4). Read through break_glass_ingresses. Consumed by
+    # STORY-013's step 2b.
+    BREAK_GLASS_INGRESSES: str = "query,chat"
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -397,6 +495,47 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("USAGE_DAILY_TOKEN_BUDGET", "USAGE_REQUESTS_PER_MINUTE")
+    @classmethod
+    def _validate_usage_limit_map(cls, value: str, info) -> str:
+        """A well-formed limit map with a `*` entry, or a startup error (PRD-013).
+
+        A mistyped value must stop the boot rather than silently disable a
+        limit. The value is returned as given; the *_map properties parse it,
+        as pii_entities_code_list does for PII_ENTITIES_CODE.
+        """
+        _parse_limit_map(info.field_name, value)
+        return value
+
+    @field_validator("BREAK_GLASS_INGRESSES")
+    @classmethod
+    def _validate_break_glass_ingresses(cls, value: str) -> str:
+        """A subset of `query` and `chat`, never `v1` (PRD-013 Section 6.8, D4).
+
+        `v1` is checked before unknown names so that `query,v1` is told the
+        rule it broke, not merely that a name is unrecognised. Names are
+        case-sensitive, as the Ingress literal is.
+        """
+        accepted = ", ".join(sorted(_BREAK_GLASS_ACCEPTED))
+        names = _split_comma_list(value)
+
+        if "v1" in names:
+            raise ValueError(
+                f"BREAK_GLASS_INGRESSES may not include 'v1' (in {value!r}): ADMIN_TOKEN "
+                "is never accepted on /v1, and this setting can only narrow where it "
+                f"is accepted. Accepted values: {accepted} (any subset, or empty). "
+                "Example: BREAK_GLASS_INGRESSES=query,chat."
+            )
+
+        unknown = [name for name in names if name not in _BREAK_GLASS_ACCEPTED]
+        if unknown:
+            raise ValueError(
+                f"BREAK_GLASS_INGRESSES names unknown ingress(es) {', '.join(unknown)} "
+                f"(in {value!r}). Names are case-sensitive. Accepted values: "
+                f"{accepted} (any subset, or empty)."
+            )
+        return value
+
     @property
     def pii_entities_list(self) -> list[str]:
         return [item.strip() for item in self.PII_ENTITIES.split(",") if item.strip()]
@@ -404,6 +543,18 @@ class Settings(BaseSettings):
     @property
     def pii_entities_code_list(self) -> list[str]:
         return _split_comma_list(self.PII_ENTITIES_CODE)
+
+    @property
+    def usage_daily_token_budget_map(self) -> dict[str, Optional[int]]:
+        return _parse_limit_map("USAGE_DAILY_TOKEN_BUDGET", self.USAGE_DAILY_TOKEN_BUDGET)
+
+    @property
+    def usage_requests_per_minute_map(self) -> dict[str, Optional[int]]:
+        return _parse_limit_map("USAGE_REQUESTS_PER_MINUTE", self.USAGE_REQUESTS_PER_MINUTE)
+
+    @property
+    def break_glass_ingresses(self) -> frozenset[str]:
+        return frozenset(_split_comma_list(self.BREAK_GLASS_INGRESSES))
 
     @property
     def model_allowlist_list(self) -> list[str]:

@@ -936,3 +936,151 @@ def test_env_example_existing_pii_comments_name_their_profile():
         assert "chat" in block, f"{var}'s comment does not say it applies to the chat profile"
         if var == "PII_REDACTION_ENABLED":
             assert "code" in block, "PII_REDACTION_ENABLED's comment must say it also governs code"
+
+
+# --- PRD-013 STORY-007: usage-limit and break-glass settings -----------------
+#
+# Nothing reads these four yet -- STORY-010 (limit resolution), STORY-011 (the
+# gate), STORY-012 (the charge) and STORY-013 (the break-glass ingress policy)
+# are the consumers. What is asserted here is the defaults, the two parsed
+# shapes, and that every malformed value stops construction with a message
+# naming the setting, quoting the offending entry and showing a valid example.
+# `.env.example` is STORY-018's, not this block's.
+
+from app.config import _LIMIT_MAP_EXAMPLES  # noqa: E402
+
+_USAGE_VARS = (
+    "USAGE_LIMITS_ENABLED",
+    "USAGE_DAILY_TOKEN_BUDGET",
+    "USAGE_REQUESTS_PER_MINUTE",
+    "BREAK_GLASS_INGRESSES",
+)
+
+# Each limit-map setting and the property that parses it.
+_LIMIT_MAP_PROPERTIES = {
+    "USAGE_DAILY_TOKEN_BUDGET": "usage_daily_token_budget_map",
+    "USAGE_REQUESTS_PER_MINUTE": "usage_requests_per_minute_map",
+}
+
+
+def test_usage_settings_available_with_documented_defaults(monkeypatch):
+    """AC 1, with the developer's exported environment taken out of it."""
+    for var in _USAGE_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.USAGE_LIMITS_ENABLED is True
+    assert result.USAGE_DAILY_TOKEN_BUDGET == "*=1000000"
+    assert result.USAGE_REQUESTS_PER_MINUTE == "*=60"
+    assert result.BREAK_GLASS_INGRESSES == "query,chat"
+    assert result.usage_daily_token_budget_map == {"*": 1000000}
+    assert result.usage_requests_per_minute_map == {"*": 60}
+    assert result.break_glass_ingresses == frozenset({"query", "chat"})
+
+
+def test_usage_limits_enabled_parses_the_string_false():
+    """Asserted with `is`, as the earlier blocks do for their switches."""
+    assert _settings(DATABASE_URL=_LOCAL_URL, USAGE_LIMITS_ENABLED="false").USAGE_LIMITS_ENABLED is False
+
+
+@pytest.mark.parametrize("setting", sorted(_LIMIT_MAP_PROPERTIES))
+def test_limit_map_parses_roles_and_unlimited(setting):
+    """AC 2's example, over both settings: one parser serves both."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, **{setting: "*=60,admin=unlimited,auditor=10"})
+
+    assert getattr(result, _LIMIT_MAP_PROPERTIES[setting]) == {"*": 60, "admin": None, "auditor": 10}
+
+
+def test_limit_map_strips_whitespace_and_accepts_an_unlimited_star():
+    """Whitespace around roles and values is a `.env` habit, not an error;
+    `*` itself may be unlimited."""
+    spaced = _settings(DATABASE_URL=_LOCAL_URL, USAGE_REQUESTS_PER_MINUTE=" * = 5 , admin=unlimited ,")
+    unbounded = _settings(DATABASE_URL=_LOCAL_URL, USAGE_DAILY_TOKEN_BUDGET="*=unlimited")
+
+    assert spaced.usage_requests_per_minute_map == {"*": 5, "admin": None}
+    assert unbounded.usage_daily_token_budget_map == {"*": None}
+
+
+@pytest.mark.parametrize("setting", sorted(_LIMIT_MAP_PROPERTIES))
+@pytest.mark.parametrize(
+    "value,offending",
+    [
+        ("admin=10", "admin=10"),  # no `*` entry: the whole value is quoted
+        ("", ""),  # empty: no entries, so no `*`
+        ("*=0", "*=0"),
+        ("*=-5", "*=-5"),
+        ("*=abc", "*=abc"),
+        ("*=1.5", "*=1.5"),
+        ("*=1_000", "*=1_000"),
+        ("*=60,admin=Unlimited", "admin=Unlimited"),
+        ("*=60,admin=1,admin=2", "'admin'"),  # role twice
+        ("*=60,admin", "'admin'"),  # no `=`
+        ("*=60,=5", "'=5'"),  # empty role
+    ],
+)
+def test_an_invalid_limit_map_is_a_startup_error(setting, value, offending):
+    """AC 3: the setting, the offending entry and that setting's own example."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, **{setting: value})
+
+    message = str(exc_info.value)
+    assert setting in message
+    assert offending in message
+    assert _LIMIT_MAP_EXAMPLES[setting] in message
+
+
+def test_a_zero_limit_names_the_real_off_switch():
+    """0 reads like "off" and is not; the message says what is."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, USAGE_DAILY_TOKEN_BUDGET="*=0")
+
+    assert "USAGE_LIMITS_ENABLED" in str(exc_info.value)
+
+
+def test_limit_map_role_names_are_not_checked_against_rbac():
+    """PRD-013 Section 6.6: RBAC_ROLES_FILE may define any role and loads later."""
+    result = _settings(DATABASE_URL=_LOCAL_URL, USAGE_REQUESTS_PER_MINUTE="*=1,no-such-role=2")
+
+    assert result.usage_requests_per_minute_map == {"*": 1, "no-such-role": 2}
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("", frozenset()),
+        ("chat", frozenset({"chat"})),
+        ("query", frozenset({"query"})),
+        ("query,chat", frozenset({"query", "chat"})),
+        (" chat , chat ", frozenset({"chat"})),
+    ],
+)
+def test_break_glass_ingresses_accepts_any_subset_of_query_and_chat(value, expected):
+    """AC 4's first clause, including empty: the setting can tighten to nothing."""
+    assert _settings(DATABASE_URL=_LOCAL_URL, BREAK_GLASS_INGRESSES=value).break_glass_ingresses == expected
+
+
+@pytest.mark.parametrize("value", ["v1", "query,v1"])
+def test_break_glass_ingresses_refuses_v1(value):
+    """AC 4's second clause: the message says the token is never accepted there."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, BREAK_GLASS_INGRESSES=value)
+
+    message = str(exc_info.value)
+    assert "BREAK_GLASS_INGRESSES" in message
+    assert "ADMIN_TOKEN" in message
+    assert "/v1" in message
+
+
+@pytest.mark.parametrize("value,bad", [("admin", "admin"), ("Chat", "Chat"), ("query,console", "console")])
+def test_break_glass_ingresses_refuses_an_unknown_name(value, bad):
+    """AC 4's third clause: the accepted values are named, and the `/v1`
+    message is not reused for a name that is merely unknown."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, BREAK_GLASS_INGRESSES=value)
+
+    message = str(exc_info.value)
+    assert "BREAK_GLASS_INGRESSES" in message
+    assert bad in message
+    assert "chat, query" in message
+    assert "/v1" not in message
