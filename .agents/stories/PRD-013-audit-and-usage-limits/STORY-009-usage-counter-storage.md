@@ -7,17 +7,17 @@ type: spike
 priority: high
 complexity: medium
 phase: "2 - Limit primitives"
-status: todo
+status: in-progress
 labels: [backend, database, limits]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-009-usage-counter-storage.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-010, STORY-016]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-18
 ---
 
 # STORY-009: usage_daily table with atomic admit and charge statements; RETURNING verified

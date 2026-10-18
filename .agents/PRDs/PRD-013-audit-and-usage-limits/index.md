@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No 
 | STORY-006 | /audit entry fields and /stats token aggregates | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-006-audit-and-stats-fields.plan.md) | `eb77e8a` |
 | STORY-007 | Limit and break-glass settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-007-usage-settings.plan.md) | `2a26cfd` |
 | STORY-008 | Per-user limit overrides: users columns, Identity fields and manage_users set-limits | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-008-per-user-overrides.plan.md) | `162820c` |
-| STORY-009 | usage_daily table with atomic admit and charge statements; RETURNING verified | spike | ⬜ todo | medium | — | — |
+| STORY-009 | usage_daily table with atomic admit and charge statements; RETURNING verified | spike | 🟡 in-progress | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/STORY-009-usage-counter-storage.plan.md) | — |
 | STORY-010 | usage_limits: limit resolution and the rate and budget checks | feature | ⬜ todo | medium | — | — |
 | STORY-011 | Usage gate in the pipeline: response, audited arm and duplicate-lookup exclusion | feature | ⬜ todo | large | — | — |
 | STORY-012 | Charge tokens after the upstream call; BYOK and counter-failure rules | feature | ⬜ todo | medium | — | — |
