@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Limit primitives"
-status: todo
+status: in-progress
 labels: [backend, config]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-007-usage-settings.plan.md
 report: null
 commit: null
 depends_on: []
 blocks: [STORY-010, STORY-013]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-18
 ---
 
 # STORY-007: Limit and break-glass settings with startup validators
