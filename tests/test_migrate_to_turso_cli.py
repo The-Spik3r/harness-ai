@@ -178,6 +178,8 @@ def test_dest_columns_match_the_ddl():
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",
+        "token_budget_daily", "requests_per_minute",
+        # token_budget_daily, requests_per_minute: PRD-013 STORY-008 (Section 6.6)
     ]
     defaults = migrate._ddl_defaults(CREATE_AUDIT_LOGS_TABLE)
     assert defaults["was_duplicate_blocked"] == 0

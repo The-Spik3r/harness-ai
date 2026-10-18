@@ -23,10 +23,26 @@ class Identity:
     Produced only by resolve() below -- nothing else in production code
     constructs one. Frozen so a role cannot be mutated after the point it
     was verified (PRD Risk 5).
+
+    PRD-013 STORY-008 adds three fields, all defaulted so `Identity(user_id,
+    role)` still constructs, and all set only by resolve():
+
+    - `break_glass` is True only for the ADMIN_TOKEN credential (PRD-013
+      Section 6.8). A user token whose role is `admin` is not break-glass.
+    - `token_budget_daily` and `requests_per_minute` are the user's per-user
+      overrides from the `users` row resolve() already reads, so carrying them
+      costs no extra round trip (Section 6.6). None means "use the role's".
+      The break-glass identity has no row, so both stay None.
+
+    Nothing reads them yet: usage_limits.limits_for (STORY-010) and the
+    break-glass ingress policy (STORY-013) do.
     """
 
     user_id: str
     role: str
+    break_glass: bool = False
+    token_budget_daily: Optional[int] = None
+    requests_per_minute: Optional[int] = None
 
 
 def hash_token(token: str) -> str:
@@ -53,10 +69,17 @@ def resolve(token: Optional[str]) -> Optional[Identity]:
         return None
 
     if secrets.compare_digest(token, settings.ADMIN_TOKEN):
-        return Identity(user_id=_ADMIN_BREAK_GLASS_USER_ID, role=_ADMIN_ROLE)
+        return Identity(
+            user_id=_ADMIN_BREAK_GLASS_USER_ID, role=_ADMIN_ROLE, break_glass=True
+        )
 
     user = find_user_by_token_hash(hash_token(token))
     if user is None:
         return None
 
-    return Identity(user_id=user.user_id, role=user.role)
+    return Identity(
+        user_id=user.user_id,
+        role=user.role,
+        token_budget_daily=user.token_budget_daily,
+        requests_per_minute=user.requests_per_minute,
+    )

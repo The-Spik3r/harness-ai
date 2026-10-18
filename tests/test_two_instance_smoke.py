@@ -857,10 +857,14 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
             instance.name,
             schema["columns"]["audit_logs"],
         )
+        # token_budget_daily, requests_per_minute: PRD-013 STORY-008, converged
+        # through USERS_ADDED_COLUMNS by both instances booting at once.
         assert schema["columns"]["users"] == [
             "active",
             "created_at",
+            "requests_per_minute",
             "role",
+            "token_budget_daily",
             "token_hash",
             "user_id",
         ], instance.name

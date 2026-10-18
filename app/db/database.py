@@ -30,6 +30,7 @@ from app.db.models import (
     CREATE_CHAT_SESSIONS_USER_INDEX,
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
+    USERS_ADDED_COLUMNS,
     AuditLog,
     ChatSession,
     StoredMessage,
@@ -693,6 +694,13 @@ def init_db() -> None:
     with no new code here. Six are nullable with no default and no backfill.
     `streamed` and `has_tool_calls` are `NOT NULL DEFAULT 0`, which `ADD
     COLUMN` accepts because the default is non-NULL. None is indexed.
+
+    PRD-013 STORY-008 makes `users` the third table on this path, for the
+    per-user limit overrides `token_budget_daily` and `requests_per_minute`.
+    The pass sits **after** `CREATE_USERS_TABLE` for the reason the
+    `chat_messages` pass gives: on a fresh database there is no table to
+    interrogate until that CREATE. Both columns are nullable with no default,
+    so every existing user reads NULL -- "use the role's limit".
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -703,6 +711,7 @@ def init_db() -> None:
         _add_missing_columns(conn, "audit_logs", AUDIT_LOGS_ADDED_COLUMNS)
         conn.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
         conn.execute(CREATE_USERS_TABLE)
+        _add_missing_columns(conn, "users", USERS_ADDED_COLUMNS)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
         conn.execute(CREATE_CHAT_SESSIONS_TABLE)
         conn.execute(CREATE_CHAT_SESSIONS_USER_INDEX)
@@ -1480,6 +1489,8 @@ def _row_to_user(row: _Row) -> User:
         token_hash=row["token_hash"],
         active=bool(row["active"]),
         created_at=row["created_at"],
+        token_budget_daily=row["token_budget_daily"],
+        requests_per_minute=row["requests_per_minute"],
     )
 
 
@@ -1581,6 +1592,47 @@ def set_user_token_hash(user_id: str, token_hash: str) -> bool:
         cursor = conn.execute(
             "UPDATE users SET token_hash = ? WHERE user_id = ?",
             (token_hash, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+# "Leave this column alone" for set_user_limits(). None cannot mean that,
+# because None is a real value there: it writes NULL, "use the role's limit".
+_UNCHANGED: Any = object()
+
+
+def set_user_limits(
+    user_id: str,
+    *,
+    token_budget_daily: Optional[int] = _UNCHANGED,
+    requests_per_minute: Optional[int] = _UNCHANGED,
+) -> bool:
+    """Per-user limit overrides (PRD-013 STORY-008, `manage_users.py
+    set-limits`). Only the columns passed are written: an omitted argument
+    leaves its column as it is, and `None` clears it to NULL.
+
+    Values are not validated here -- the CLI owns parsing (`default`, `>= 1`).
+    Column names come from the fixed pairs below, never from the caller.
+
+    Returns False when no such user exists, so the CLI can report a typo. The
+    next resolve() of that user's token sees the change: it already reads the
+    row on every request (PRD Section 6.6)."""
+    assignments = [
+        (column, value)
+        for column, value in (
+            ("token_budget_daily", token_budget_daily),
+            ("requests_per_minute", requests_per_minute),
+        )
+        if value is not _UNCHANGED
+    ]
+    if not assignments:
+        raise ValueError("set_user_limits() needs at least one limit to set")
+
+    set_clause = ", ".join(f"{column} = ?" for column, _ in assignments)
+    with _session() as conn:
+        cursor = conn.execute(
+            f"UPDATE users SET {set_clause} WHERE user_id = ?",
+            (*(value for _, value in assignments), user_id),
         )
         return cursor.rowcount == 1
 

@@ -39,6 +39,7 @@ from app.db.database import (
     list_audit_logs,
     list_chat_messages,
     list_users,
+    set_user_limits,
     set_user_token_hash,
     sum_input_tokens,
     sum_output_tokens,
@@ -63,6 +64,8 @@ from app.db.models import (
     CREATE_CHAT_MESSAGES_TABLE,
     CREATE_CHAT_SESSIONS_TABLE,
     CREATE_CHAT_SESSIONS_USER_INDEX,
+    CREATE_USERS_TABLE,
+    USERS_ADDED_COLUMNS,
     AuditLog,
     ChatSession,
     StoredMessage,
@@ -483,6 +486,50 @@ def _create_pre_history_trimmed_database(connect, url) -> None:
             "openai/gpt-4o-mini",
             7,
         ),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def _create_pre_user_limits_database(connect, url) -> None:
+    """Builds the `users` table exactly as it shipped before PRD-013 STORY-008:
+    the five columns of PRD-005, with its unique token-hash index, and no
+    token_budget_daily or requests_per_minute.
+
+    The first of these fixtures over `users`. Every other table is created from
+    its current constant, so the two limit columns are the only ones in flight,
+    for the reason `_create_pre_dedup_key_database`'s docstring gives.
+
+    Two users are seeded -- one active, one revoked -- so a test can show the
+    migration left both NULL and preserved everything else.
+    """
+    legacy = connect(url)
+    legacy.execute(CREATE_AUDIT_LOGS_TABLE)
+    legacy.execute(CREATE_CHAT_SESSIONS_TABLE)
+    legacy.execute(CREATE_CHAT_MESSAGES_TABLE)
+    legacy.execute(
+        """
+        CREATE TABLE users (
+            user_id TEXT PRIMARY KEY NOT NULL,
+            role TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    legacy.execute(
+        "CREATE UNIQUE INDEX idx_users_token_hash ON users(token_hash)"
+    )
+    legacy.execute(
+        "INSERT INTO users (user_id, role, token_hash, active, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("dana", "user", "hash-dana", 1, "2026-10-01T09:00:00Z"),
+    )
+    legacy.execute(
+        "INSERT INTO users (user_id, role, token_hash, active, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("eli", "admin", "hash-eli", 0, "2026-10-02T09:00:00Z"),
     )
     legacy.commit()
     legacy.close()
@@ -1930,9 +1977,17 @@ def test_users_schema_matches_expected_columns(temp_db):
         "token_hash",
         "active",
         "created_at",
+        # PRD-013 STORY-008: the per-user limit overrides.
+        "token_budget_daily",
+        "requests_per_minute",
     }
-    for name, row in columns.items():
-        assert row["notnull"] == 1, f"{name} must be NOT NULL"
+    for name in ("user_id", "role", "token_hash", "active", "created_at"):
+        assert columns[name]["notnull"] == 1, f"{name} must be NOT NULL"
+    # NULL is "use the role's limit" (PRD-013 Section 6.6), so these two must
+    # stay nullable with no default.
+    for name in ("token_budget_daily", "requests_per_minute"):
+        assert columns[name]["notnull"] == 0, f"{name} must be nullable"
+        assert columns[name]["dflt_value"] is None, f"{name} must have no default"
     assert columns["active"]["dflt_value"] == "1"
     assert columns["user_id"]["pk"] == 1
     assert all(
@@ -2268,6 +2323,59 @@ def test_chat_messages_added_columns_declaring_not_null_also_declare_a_default()
             assert "DEFAULT NULL" not in declaration, (
                 f"{name}: DEFAULT NULL does not satisfy NOT NULL"
             )
+
+
+def test_users_added_columns_carries_two_nullable_limits():
+    """PRD-013 STORY-008. Nullable with no default, and the NULL is the
+    feature: it means "use the role's limit" (Section 6.6), which is the true
+    value for every user that predates the columns. A default of any number
+    would silently give every existing user an override.
+
+    Declared in both places, like every migrated column on the other two tables.
+    """
+    assert USERS_ADDED_COLUMNS == {
+        "token_budget_daily": "INTEGER",
+        "requests_per_minute": "INTEGER",
+    }
+    for name, ddl in USERS_ADDED_COLUMNS.items():
+        assert f"{name} INTEGER" in CREATE_USERS_TABLE
+        assert "NOT NULL" not in ddl.upper()
+        assert "DEFAULT" not in ddl.upper()
+
+
+def test_every_users_added_column_is_also_declared_in_the_create():
+    """The third twin of test_every_added_column_is_also_declared_in_the_create,
+    for the same reason: a column only in the mapping means every fresh
+    deployment ALTERs its own brand-new table on first boot."""
+    declared = _declared_columns(CREATE_USERS_TABLE)
+    for name in USERS_ADDED_COLUMNS:
+        assert name in declared, f"{name} is migrated in but never created"
+
+
+def test_users_added_columns_declaring_not_null_also_declare_a_default():
+    """The third twin of
+    test_added_columns_declaring_not_null_also_declare_a_default. Vacuous today,
+    since both entries are nullable, and written for the next entry."""
+    for name, ddl in USERS_ADDED_COLUMNS.items():
+        declaration = ddl.upper()
+        if "NOT NULL" in declaration:
+            assert "DEFAULT" in declaration, (
+                f"{name}: NOT NULL requires a DEFAULT -- "
+                f"SQLite rejects ADD COLUMN NOT NULL without one"
+            )
+            assert "DEFAULT NULL" not in declaration, (
+                f"{name}: DEFAULT NULL does not satisfy NOT NULL"
+            )
+
+
+def test_user_carries_limit_overrides_without_breaking_construction():
+    """The two fields default to None and sit after created_at, so every
+    existing positional `User(user_id, role, token_hash)` still constructs."""
+    user = User("ana", "user", "h")
+    assert user.token_budget_daily is None
+    assert user.requests_per_minute is None
+    names = [f.name for f in dataclasses.fields(User)]
+    assert names[-2:] == ["token_budget_daily", "requests_per_minute"]
 
 
 def test_stored_message_carries_history_trimmed_without_breaking_construction():
@@ -3340,6 +3448,162 @@ def test_init_db_adds_no_history_trimmed_alter_to_a_fresh_database(
         assert "history_trimmed" in _column_names(conn, "chat_messages")
 
 
+# --- PRD-013 STORY-008: users limit overrides --------------------------------
+
+
+def test_init_db_migrates_a_pre_user_limits_database(uninitialized_db, db_connect):
+    """STORY-008 AC1: a `users` table that predates the overrides gains both
+    columns through USERS_ADDED_COLUMNS, every existing row reads NULL on both,
+    and nothing else about the rows changes."""
+    _create_pre_user_limits_database(db_connect, uninitialized_db)
+
+    init_db()
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "users")
+    assert "token_budget_daily" in columns
+    assert "requests_per_minute" in columns
+
+    dana = get_user("dana")
+    assert dana.token_budget_daily is None
+    assert dana.requests_per_minute is None
+    assert (dana.role, dana.token_hash, dana.active, dana.created_at) == (
+        "user", "hash-dana", True, "2026-10-01T09:00:00Z",
+    )
+    eli = get_user("eli")
+    assert eli.token_budget_daily is None
+    assert eli.requests_per_minute is None
+    assert eli.active is False  # the revoked row is migrated, not reactivated
+    # The lookup path that resolve() uses reads the migrated row too.
+    assert find_user_by_token_hash("hash-dana").token_budget_daily is None
+
+
+def test_init_db_adds_the_user_limit_columns_after_creating_the_table(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The ordering rule for the third pass, pinned directly:
+    CREATE_USERS_TABLE precedes both ALTERs, on the one bootstrap connection.
+    The same rule, for the same reason, as the chat_messages pass."""
+    _create_pre_user_limits_database(db_connect, uninitialized_db)
+    statements: list[str] = []
+    connections: list[object] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    def _record(conn):
+        proxy = _RecordingConnection(conn)
+        connections.append(proxy)
+        return proxy
+
+    _install(monkeypatch, _record)
+
+    init_db()
+
+    normalized = [" ".join(sql.upper().split()) for sql in statements]
+    alters = [
+        i
+        for i, sql in enumerate(normalized)
+        if sql.startswith("ALTER TABLE USERS ADD COLUMN")
+    ]
+    assert len(alters) == 2, statements
+    assert CREATE_USERS_TABLE in statements, statements
+    assert statements.index(CREATE_USERS_TABLE) < alters[0], statements
+    # check_database_reachable()'s probe plus the one bootstrap `_session()`.
+    assert len(connections) == 2
+
+
+def test_init_db_adds_no_user_limit_alter_to_a_fresh_database(
+    uninitialized_db, monkeypatch
+):
+    """On a database with no tables, CREATE_USERS_TABLE declares both columns
+    itself, so the pass that follows must find them and issue nothing."""
+    statements: list[str] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    _install(monkeypatch, _RecordingConnection)
+
+    init_db()
+
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER TABLE USERS" in sql.upper() for sql in statements), statements
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = _column_names(conn, "users")
+    assert "token_budget_daily" in columns
+    assert "requests_per_minute" in columns
+
+
+_DANA_HASH = "hash-dana"
+
+
+def _insert_dana() -> None:
+    insert_user(User(user_id="dana", role="user", token_hash=_DANA_HASH))
+
+
+def test_set_user_limits_sets_one_column_and_leaves_the_other(temp_db):
+    _insert_dana()
+    set_user_limits("dana", requests_per_minute=30)
+
+    assert set_user_limits("dana", token_budget_daily=5_000_000) is True
+
+    dana = get_user("dana")
+    assert dana.token_budget_daily == 5_000_000
+    assert dana.requests_per_minute == 30  # untouched by the second call
+
+
+def test_set_user_limits_none_clears_to_null(temp_db):
+    _insert_dana()
+    set_user_limits("dana", token_budget_daily=100, requests_per_minute=10)
+
+    assert set_user_limits("dana", token_budget_daily=None) is True
+
+    dana = get_user("dana")
+    assert dana.token_budget_daily is None
+    assert dana.requests_per_minute == 10
+
+
+def test_set_user_limits_sets_both_in_one_call(temp_db):
+    _insert_dana()
+
+    assert set_user_limits("dana", token_budget_daily=7, requests_per_minute=8)
+
+    dana = get_user("dana")
+    assert (dana.token_budget_daily, dana.requests_per_minute) == (7, 8)
+
+
+def test_set_user_limits_unknown_user_returns_false_and_writes_nothing(temp_db):
+    assert set_user_limits("ghost", token_budget_daily=5) is False
+    assert get_user("ghost") is None
+    assert list_users() == []
+
+
+def test_set_user_limits_with_nothing_to_set_raises(temp_db):
+    _insert_dana()
+
+    with pytest.raises(ValueError):
+        set_user_limits("dana")
+
+
+def test_find_user_by_token_hash_carries_the_overrides(temp_db):
+    """The row resolve() reads on every request carries the overrides, so
+    Identity gets them with no extra round trip (PRD-013 Section 6.6)."""
+    _insert_dana()
+    set_user_limits("dana", token_budget_daily=5_000_000)
+
+    user = find_user_by_token_hash(_DANA_HASH)
+
+    assert user.token_budget_daily == 5_000_000
+    assert user.requests_per_minute is None
+
+
 def test_init_db_creates_the_dedup_index_after_adding_the_column(
     uninitialized_db, db_connect, monkeypatch
 ):
@@ -4314,9 +4578,10 @@ def test_two_init_db_calls_racing_on_history_trimmed_both_converge(
     `ADD COLUMN history_trimmed`, and `_is_duplicate_column()` turns the loser's
     failure into convergence rather than a container that will not boot.
 
-    Each thread now crosses the reusable barrier twice, once per table, because
-    `_GatedConnection` gates on every `PRAGMA table_info` and `init_db()` reads
-    two. Both threads run the identical path, so the cycles match; an asymmetric
+    Each thread now crosses the reusable barrier three times, once per table,
+    because `_GatedConnection` gates on every `PRAGMA table_info` and
+    `init_db()` reads three (`users` joined in PRD-013 STORY-008). Both threads
+    run the identical path, so the cycles match; an asymmetric
     one would raise `BrokenBarrierError` inside the 30 s timeout and fail this
     test rather than hang the suite.
     """

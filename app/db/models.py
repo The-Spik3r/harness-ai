@@ -155,7 +155,9 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL,
     token_hash TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    token_budget_daily INTEGER,
+    requests_per_minute INTEGER
 )
 """
 
@@ -165,6 +167,27 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE_USERS_TOKEN_HASH_INDEX = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_token_hash ON users(token_hash)"
 )
+
+# The third added-columns mapping (PRD-013 STORY-008, Section 6.6): the two
+# per-user limit overrides. CREATE TABLE IF NOT EXISTS is a no-op against a
+# users table created before this PRD, so init_db() ALTERs them in through the
+# same _add_missing_columns() the audit_logs and chat_messages mappings use.
+#
+# Every entry here is also declared in CREATE_USERS_TABLE above, for the reason
+# AUDIT_LOGS_ADDED_COLUMNS gives: this brings an old database up to date, the
+# CREATE is what a fresh one is built to.
+#
+# Nullable with no default on purpose. NULL means "use the role's limit from
+# USAGE_DAILY_TOKEN_BUDGET / USAGE_REQUESTS_PER_MINUTE", which is the true
+# value for every user that existed before this column did. A default of any
+# number would silently give every existing user an override. Additive only.
+#
+# Nothing reads them yet: app/services/identity.py carries them on Identity,
+# and usage_limits.limits_for consumes them in STORY-010.
+USERS_ADDED_COLUMNS = {
+    "token_budget_daily": "INTEGER",
+    "requests_per_minute": "INTEGER",
+}
 
 # Transcript store (PRD-008). The conversation a user reads, kept apart from the
 # evidence audit_logs holds: that table stores hashes, truncated previews and
@@ -340,6 +363,11 @@ class User:
     token_hash: str
     active: bool = True
     created_at: Optional[str] = None  # insert_user() stamps it when omitted
+    # PRD-013 STORY-008: per-user limit overrides. None means "use the role's".
+    # Declared after created_at so positional construction keeps working.
+    # Written only by set_user_limits(); insert_user() leaves them NULL.
+    token_budget_daily: Optional[int] = None
+    requests_per_minute: Optional[int] = None
 
 
 @dataclass
