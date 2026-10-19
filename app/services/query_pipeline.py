@@ -33,9 +33,9 @@ from app.services.pattern_detector import inspect, strip_fenced_blocks
 from app.services.pii_policy import PiiPolicy, get_pii_policy
 from app.services.pii_redactor import PiiRedactorError, redact, redact_for_policy
 # By name into this module, not `usage_limits.admit`: the suite replaces
-# `query_pipeline.admit` to spy on the gate or fail it, the binding rule
-# `_redact` documents for `redact`.
-from app.services.usage_limits import admit
+# `query_pipeline.admit` and `query_pipeline.charge` to spy on the gate and
+# the charge or fail them, the binding rule `_redact` documents for `redact`.
+from app.services.usage_limits import admit, charge
 
 QueryPipelineResult = Union[
     QuerySuccessResponse,
@@ -320,7 +320,7 @@ def run_conversation(
     # usage_daily: the pipeline's round trips are exactly the pre-PRD-013 ones.
     #
     # BYOK spends the caller's own key, so it is rate-limited but not held to
-    # the budget (D8). `admission` is kept in a local: STORY-012 charges the
+    # the budget (D8). `admission` is kept in a local: step 7b charges the
     # `day` it was counted against, so a request straddling midnight is
     # charged to the day it was admitted.
     #
@@ -334,7 +334,7 @@ def run_conversation(
     # Section 6.2) -- the rule step 3's comment states. It carries the key like
     # every row, and find_duplicate_timestamp excludes it, so a prompt refused
     # today is not held as a duplicate when sent again after the reset (D6).
-    # None when the switch is off, which STORY-012 reads as "charge nothing".
+    # None when the switch is off, which step 7b reads as "charge nothing".
     admission = None
     if settings.USAGE_LIMITS_ENABLED:
         admission = admit(identity, charges_budget=openrouter_api_key is None)
@@ -628,6 +628,33 @@ def run_conversation(
             streamed=streamed,
         )
         raise
+
+    # Step 7b: charge (PRD-013 Sections 6.1, 6.5; D8; F11; T3, T8).
+    #
+    # Here, as soon as the provider has reported usage and before step 8, so
+    # the output-redaction error arm below cannot skip it: tokens spent on a
+    # response the user never receives are still spent (PRD-009 Risk 4, T3).
+    # The upstream-error arm above re-raises before reaching this line, so a
+    # call that reported nothing charges nothing.
+    #
+    # `admission` is None exactly when the switch was off at step 2c; reading
+    # it rather than the setting means a request is charged by the rule it was
+    # admitted under, and always has a row to charge. BYOK spends the caller's
+    # own key, so it is rate-limited at 2c but charges nothing here (D8, T14);
+    # its audit row still records the tokens.
+    #
+    # The admitted `day`, not today: a request straddling midnight is charged
+    # to the day it was admitted. charge() fails open (T8) -- a storage error
+    # is logged at ERROR with the user, day and counts and the caller still
+    # gets the answer; the audit row's token columns are the record.
+    if admission is not None and openrouter_api_key is None:
+        charge(
+            identity.user_id,
+            admission.day,
+            openrouter_result.input_tokens,
+            openrouter_result.output_tokens,
+            openrouter_result.tokens_used,
+        )
 
     # Step 8: redact the response only when the policy's output switch is on,
     # then audit and return. `chat` always redacts it. `code` does not by

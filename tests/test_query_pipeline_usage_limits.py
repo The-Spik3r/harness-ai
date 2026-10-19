@@ -1,6 +1,7 @@
-"""PRD-013 STORY-011: the usage gate in `run_conversation` (step 2c).
+"""PRD-013 STORY-011 and STORY-012: the usage gate (step 2c) and the charge (step 7b).
 
-Sections 6.1, 6.5-6.7; D6, D7, D8; F10; T2, T7, T11. What is pinned here:
+Sections 6.1, 6.5-6.7; D6, D7, D8; F10, F11; T2, T3, T6, T7, T8, T11, T14.
+What is pinned here:
 
 - the refusal's body and its one audit row (`success=1`, `limit_exceeded`,
   `role`, the non-NULL key, the doors and counts every row carries);
@@ -10,7 +11,17 @@ Sections 6.1, 6.5-6.7; D6, D7, D8; F10; T2, T7, T11. What is pinned here:
   refuse still count;
 - a refused prompt is never a prior query (D6);
 - the gate fails closed (T7) and the master switch turns it off entirely;
-- BYOK is rate-limited and not held to the budget (D8).
+- BYOK is rate-limited and not held to the budget (D8);
+- the charge (STORY-012): on success and on the output-redaction-error arm,
+  never on the upstream-error arm (T3); to the day the gate returned; an
+  unsplit response to `unsplit_tokens`, which counts toward the budget;
+  nothing for BYOK, whose row still records the tokens (D8, T14); a storage
+  failure fails open with one ERROR line (T8);
+- the budget is check-then-charge and can be overshot by in-flight requests
+  (Section 6.5, T6) -- documented by a test rather than hidden.
+
+`charge()`'s own rules (split vs unsplit, the log line, what it swallows) are
+pinned in `tests/test_usage_limits.py`; the tests here pin the call site.
 
 **Determinism.** Every refusal stubs `usage_limits.admit_usage` with a fixed
 `window_start`, as `tests/test_usage_limits.py` does, so no test races a real
@@ -18,6 +29,7 @@ minute boundary. The tests that count against real storage read the day's
 `requests` total, which a minute rolling over mid-test cannot reset.
 """
 
+import logging
 import os
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
@@ -45,7 +57,8 @@ from app.models.schemas import (
 from app.services.conversation_key import conversation_key
 from app.services.duplicate_checker import dedup_key, hash_prompt
 from app.services.identity import Identity, hash_token
-from app.services.openrouter_client import OpenRouterResult
+from app.services.openrouter_client import OpenRouterError, OpenRouterResult
+from app.services.pii_redactor import PiiRedactorError
 from app.services.usage_limits import UsageLimitError
 
 _JUAN = Identity(user_id="juan@empresa.com", role="user")
@@ -123,6 +136,50 @@ def _answer(messages, model="gpt-4", api_key=None):
     return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
 
 
+def _split_answer(messages, model="gpt-4", api_key=None):
+    """A response reporting the split: 120 in, 30 out, 150 in all."""
+    return OpenRouterResult(
+        response="Hi there!", model_used=model, tokens_used=150,
+        input_tokens=120, output_tokens=30,
+    )
+
+
+def _unsplit_answer(messages, model="gpt-4", api_key=None):
+    """A response reporting only the total."""
+    return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=150)
+
+
+def _failing_upstream(messages, model="gpt-4", api_key=None):
+    raise OpenRouterError("upstream unavailable")
+
+
+def _today(user_id: str):
+    """(input, output, unsplit) charged to `user_id`, None when it has no row.
+
+    Summed across days like `_requests_today`, so a midnight rolling over
+    mid-test cannot split the reading.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(input_tokens), 0) AS i,"
+            " COALESCE(SUM(output_tokens), 0) AS o, COALESCE(SUM(unsplit_tokens), 0) AS u"
+            " FROM usage_daily WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return None if row["n"] == 0 else (row["i"], row["o"], row["u"])
+
+
+def _seed_today(user_id: str, input_tokens: int) -> None:
+    """Today's counter row with `input_tokens` already spent and no attempts."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO usage_daily "
+            "(user_id, day, requests, window_start, window_requests, input_tokens) "
+            "VALUES (?, date('now'), 0, strftime('%s','now') / 60, 0, ?)",
+            (user_id, input_tokens),
+        )
+
+
 def _run(identity=_JUAN, prompt="how do I parse a date?", *, upstream=_answer,
          api_key=None, **kwargs):
     return query_pipeline.run_conversation(
@@ -143,6 +200,20 @@ def admit_calls(monkeypatch):
         return real_admit(identity, charges_budget=charges_budget)
 
     monkeypatch.setattr(query_pipeline, "admit", _spy_admit)
+    return calls
+
+
+@pytest.fixture
+def charge_calls(monkeypatch):
+    """A spy on the pipeline's `charge` binding, recording every argument."""
+    calls: list = []
+    real_charge = query_pipeline.charge
+
+    def _spy_charge(user_id, day, input_tokens, output_tokens, total_tokens):
+        calls.append((user_id, day, input_tokens, output_tokens, total_tokens))
+        return real_charge(user_id, day, input_tokens, output_tokens, total_tokens)
+
+    monkeypatch.setattr(query_pipeline, "charge", _spy_charge)
     return calls
 
 
@@ -537,3 +608,240 @@ def test_byok_is_still_rate_limited(temp_db, monkeypatch):
 
     assert isinstance(result, QueryBlockedUsageLimitResponse)
     assert result.limit == "requests"
+
+
+# --- STORY-012 AC 1: charged on success -------------------------------------
+#
+# Real storage throughout: the gate's real upsert creates today's row and the
+# charge's real UPDATE adds to it.
+
+
+def test_a_successful_request_charges_its_split_to_the_admitted_day(temp_db):
+    result = _run(upstream=_split_answer)
+
+    assert isinstance(result, QuerySuccessResponse)
+    assert _today(_JUAN.user_id) == (120, 30, 0)
+
+
+def test_a_later_request_sees_tokens_today_increased_by_the_charge(temp_db, monkeypatch):
+    seen: list = []
+    real_admit_usage = usage_limits.admit_usage
+
+    def _recording_admit_usage(user_id):
+        usage = real_admit_usage(user_id)
+        seen.append(usage.tokens_today)
+        return usage
+
+    monkeypatch.setattr(usage_limits, "admit_usage", _recording_admit_usage)
+
+    assert isinstance(_run(prompt="first", upstream=_split_answer), QuerySuccessResponse)
+    assert isinstance(_run(prompt="second", upstream=_split_answer), QuerySuccessResponse)
+
+    assert seen == [0, 150]
+
+
+# --- STORY-012 AC 2: which arms are charged ---------------------------------
+
+
+def test_an_output_redaction_failure_is_still_charged(temp_db, monkeypatch):
+    """T3, PRD-009 Risk 4: the provider answered, so the tokens were spent,
+    even though the user never receives the response."""
+
+    def _redact(text, *args):
+        if text == "Hi there!":
+            raise PiiRedactorError("PII analysis failed: boom")
+        return text, []
+
+    monkeypatch.setattr(query_pipeline, "redact", _redact)
+
+    with pytest.raises(PiiRedactorError, match="boom"):
+        _run(upstream=_split_answer)
+
+    assert _today(_JUAN.user_id) == (120, 30, 0)
+    row = _last_audit_entry()
+    assert row.success is False
+    assert (row.input_tokens, row.output_tokens) == (120, 30)
+
+
+def test_an_upstream_error_charges_nothing(temp_db, monkeypatch):
+    monkeypatch.setattr(query_pipeline, "charge", _fail_if_called)
+
+    with pytest.raises(OpenRouterError, match="upstream unavailable"):
+        _run(upstream=_failing_upstream)
+
+    # The row exists -- the attempt was counted at 2c -- and holds no tokens.
+    assert _requests_today(_JUAN.user_id) == 1
+    assert _today(_JUAN.user_id) == (0, 0, 0)
+
+
+def test_check_order_ends_with_the_charge(temp_db, monkeypatch):
+    """PRD 9.2's invariant, its tail: ... -> upstream -> charge, and the charge
+    before step 8's output redaction. The test above pins everything earlier."""
+    trace: list = []
+    real_charge = query_pipeline.charge
+    real_redact = query_pipeline.redact
+
+    def _recording_upstream(messages, model="gpt-4", api_key=None):
+        trace.append("upstream")
+        return _split_answer(messages, model, api_key)
+
+    def _spy_charge(*args):
+        trace.append("charge")
+        return real_charge(*args)
+
+    def _spy_redact(text, *args):
+        if text == "Hi there!":
+            trace.append("redact_output")
+        return real_redact(text, *args)
+
+    monkeypatch.setattr(query_pipeline, "charge", _spy_charge)
+    monkeypatch.setattr(query_pipeline, "redact", _spy_redact)
+
+    assert isinstance(_run(upstream=_recording_upstream), QuerySuccessResponse)
+    assert trace == ["upstream", "charge", "redact_output"]
+
+
+# --- STORY-012 AC 3: no split -----------------------------------------------
+
+
+def test_a_response_without_the_split_charges_unsplit_tokens(temp_db):
+    assert isinstance(_run(upstream=_unsplit_answer), QuerySuccessResponse)
+
+    assert _today(_JUAN.user_id) == (0, 0, 150)
+
+
+def test_unsplit_tokens_count_toward_the_budget(temp_db, monkeypatch):
+    _limits(monkeypatch, budget="*=100")
+
+    assert isinstance(_run(prompt="first", upstream=_unsplit_answer), QuerySuccessResponse)
+    result = _run(prompt="second", upstream=_fail_if_called)
+
+    assert isinstance(result, QueryBlockedUsageLimitResponse)
+    assert (result.limit, result.actual) == ("tokens", 150)
+
+
+# --- STORY-012 AC 4: BYOK ---------------------------------------------------
+
+
+def test_byok_consumes_a_unit_is_not_budget_refused_and_charges_nothing(temp_db, monkeypatch):
+    """D8, T14: the caller's own key pays, so the harness budget neither
+    refuses nor records it -- but the window counts it and the row has it."""
+    _limits(monkeypatch, budget="*=100")
+    _seed_today(_ROOT.user_id, input_tokens=100)  # the budget is spent
+    monkeypatch.setattr(query_pipeline, "charge", _fail_if_called)
+
+    result = _run(identity=_ROOT, api_key="sk-caller-supplied", upstream=_split_answer)
+
+    assert isinstance(result, QuerySuccessResponse)
+    assert _requests_today(_ROOT.user_id) == 1
+    assert _today(_ROOT.user_id) == (100, 0, 0)
+    row = _last_audit_entry()
+    assert (row.input_tokens, row.output_tokens) == (120, 30)
+
+
+def test_the_harness_key_is_charged_and_byok_is_not(temp_db, charge_calls):
+    _run(identity=_ROOT, prompt="on the harness key", upstream=_split_answer)
+    _run(identity=_ROOT, prompt="on my own key", api_key="sk-caller-supplied",
+         upstream=_split_answer)
+
+    assert [call[0] for call in charge_calls] == [_ROOT.user_id]
+    assert charge_calls[0][2:] == (120, 30, 150)
+
+
+# --- STORY-012 AC 5: the charge fails open ----------------------------------
+
+
+def test_a_charge_storage_failure_still_returns_success_with_its_row(
+    temp_db, monkeypatch, caplog
+):
+    """T8: the model has answered, so the user gets it; the ERROR line and
+    the audit row's token columns are the record of what went uncounted."""
+
+    def _broken(*args):
+        raise StorageError("counter unreachable")
+
+    monkeypatch.setattr(usage_limits, "charge_usage", _broken)
+
+    with caplog.at_level(logging.DEBUG, logger="app.services.usage_limits"):
+        result = _run(upstream=_split_answer)
+
+    assert isinstance(result, QuerySuccessResponse)
+    row = _last_audit_entry()
+    assert (row.id, row.success) == (result.audit_id, True)
+    assert (row.input_tokens, row.output_tokens) == (120, 30)
+
+    with get_connection() as conn:
+        day = conn.execute(
+            "SELECT day FROM usage_daily WHERE user_id = ?", (_JUAN.user_id,)
+        ).fetchone()["day"]
+    records = [r for r in caplog.records if r.name == "app.services.usage_limits"]
+    assert len(records) == 1
+    assert records[0].levelno == logging.ERROR
+    message = records[0].getMessage()
+    for part in (f"user_id={_JUAN.user_id}", f"day={day}", "input_tokens=120",
+                 "output_tokens=30", "counter unreachable"):
+        assert part in message, (part, message)
+
+
+# --- STORY-012: the admitted day, and the switch ----------------------------
+
+
+def test_the_charge_goes_to_the_day_the_gate_returned(temp_db, monkeypatch, charge_calls):
+    """PRD 6.5: a request straddling midnight is charged to the day it was
+    admitted. The stubbed gate admits on `_DAY`, which need not be today; the
+    charge must use it rather than read a clock."""
+    _returns(monkeypatch, _usage())
+    charged: list = []
+
+    def _recording_charge_usage(user_id, day, *counts):
+        charged.append((user_id, day, *counts))
+        return True
+
+    monkeypatch.setattr(usage_limits, "charge_usage", _recording_charge_usage)
+
+    assert isinstance(_run(upstream=_split_answer), QuerySuccessResponse)
+
+    assert charge_calls == [(_JUAN.user_id, _DAY, 120, 30, 150)]
+    assert charged == [(_JUAN.user_id, _DAY, 120, 30, 0)]
+
+
+def test_with_limits_off_nothing_is_charged(temp_db, monkeypatch):
+    monkeypatch.setattr(settings, "USAGE_LIMITS_ENABLED", False)
+    monkeypatch.setattr(query_pipeline, "charge", _fail_if_called)
+
+    assert isinstance(_run(upstream=_split_answer), QuerySuccessResponse)
+    assert _usage_rows() == 0
+
+
+# --- STORY-012: the overshoot is check-then-charge (PRD 6.5, T6) ------------
+
+
+def test_two_requests_admitted_under_a_nearly_spent_budget_both_complete(temp_db, monkeypatch):
+    """Documents an accepted property, not a bug (PRD Section 6.5, T6).
+
+    The budget is check-then-charge: a request admitted at 999 of 1,000 runs,
+    and so does every request already in flight. Request B is sent from
+    inside request A's upstream call, so B is admitted after A was and before
+    A is charged -- two concurrent admissions, deterministically, with no
+    threads. Both complete and the day ends over budget. The overshoot is
+    bounded by the rate limit times one response; reserving `max_tokens`
+    before the call would close it and is a Future Consideration.
+    """
+    _limits(monkeypatch, budget="*=1000")
+    _seed_today(_JUAN.user_id, input_tokens=999)
+    inner: list = []
+
+    def _upstream_that_lets_b_in(messages, model="gpt-4", api_key=None):
+        inner.append(_run(prompt="request B", upstream=_split_answer))
+        return _split_answer(messages, model, api_key)
+
+    outer = _run(prompt="request A", upstream=_upstream_that_lets_b_in)
+
+    assert isinstance(outer, QuerySuccessResponse)
+    assert len(inner) == 1 and isinstance(inner[0], QuerySuccessResponse)
+    assert sum(_today(_JUAN.user_id)) == 999 + 150 + 150
+
+    # The next attempt sees the overshoot and is refused.
+    refused = _run(prompt="request C", upstream=_fail_if_called)
+    assert isinstance(refused, QueryBlockedUsageLimitResponse)
+    assert (refused.limit, refused.actual) == ("tokens", 1299)

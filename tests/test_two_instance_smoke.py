@@ -1426,16 +1426,23 @@ def test_round_trip_cost_is_measured_and_reported(instances, smoke_user, capsys)
     # the `admit_usage` upsert with RETURNING, between the identity read and
     # the duplicate check -- the added round trip PRD-013 Risk 1 accepts and
     # STORY-017 measures. USAGE_LIMITS_ENABLED=false restores the three above.
+    #
+    # PRD-013 STORY-012: five. The charge (step 7b) is one `UPDATE
+    # usage_daily` between the duplicate read and the audit insert, the second
+    # round trip Risk 1 accepts. USAGE_LIMITS_ENABLED=false still restores the
+    # three above.
     assert [statement.split()[0].upper() for statement in query_statements] == [
         "SELECT",
         "INSERT",
         "SELECT",
+        "UPDATE",
         "INSERT",
     ], query_statements
     assert "FROM users" in query_statements[0], query_statements[0]
     assert "INTO usage_daily" in query_statements[1], query_statements[1]
     assert "FROM audit_logs" in query_statements[2], query_statements[2]
-    assert "INTO audit_logs" in query_statements[3], query_statements[3]
+    assert "usage_daily" in query_statements[3], query_statements[3]
+    assert "INTO audit_logs" in query_statements[4], query_statements[4]
 
     assert len(console_statements) == 1, (
         "an admin console load is one batched read since STORY-010; issued "
@@ -1448,7 +1455,7 @@ def test_round_trip_cost_is_measured_and_reported(instances, smoke_user, capsys)
             "\n--- STORY-016 measured round-trip cost "
             "(local libSQL dev server, same host) ---\n"
             f"  POST /query        : {len(query_statements)} statements "
-            "(identity read, usage gate, duplicate check, audit write), "
+            "(identity read, usage gate, duplicate check, usage charge, audit write), "
             f"{measured['elapsed_ms']:.1f} ms\n"
             f"  admin console load : {len(console_statements)} statement, "
             f"{console['elapsed_ms']:.1f} ms\n"
