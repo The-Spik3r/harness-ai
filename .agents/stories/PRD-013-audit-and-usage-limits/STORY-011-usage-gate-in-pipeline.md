@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Enforcement"
-status: todo
+status: in-progress
 labels: [backend, pipeline, limits, api, security]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-011-usage-gate-in-pipeline.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-005, STORY-010]
 blocks: [STORY-012, STORY-014, STORY-015, STORY-016]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-011: Usage gate in the pipeline: response, audited arm and duplicate-lookup exclusion
