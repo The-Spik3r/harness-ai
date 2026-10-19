@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "3 - Enforcement"
-status: todo
+status: in-progress
 labels: [frontend, chat-ui]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-014-chat-usage-limit-bubble.plan.md
 report: null
 commit: null
 depends_on: [STORY-011]
 blocks: [STORY-018]
 skills: [frontend-design]
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-014: Chat UI usage-limit bubble
