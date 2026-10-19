@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Limit primitives"
-status: todo
+status: in-progress
 labels: [backend, limits]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-010-usage-limits-service.plan.md
 report: null
 commit: null
 depends_on: [STORY-007, STORY-008, STORY-009]
 blocks: [STORY-011]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-010: usage_limits: limit resolution and the rate and budget checks
