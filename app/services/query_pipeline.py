@@ -48,6 +48,10 @@ QueryPipelineResult = Union[
 
 ContextLimit = Literal["messages", "characters"]
 
+# The doors a call site may name (PRD-013 Sections 6.8, 6.9): `/query`, the
+# chat UI, and `/v1`, which PRD-014 adds. None is a direct caller.
+Ingress = Literal["query", "chat", "v1"]
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +103,26 @@ def _context_limit_exceeded(
         return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
 
     return None
+
+
+def _break_glass_refused(identity: Identity, ingress: Optional[Ingress]) -> bool:
+    """Whether step 2b refuses this identity on this door (PRD-013 Section 6.8, D4).
+
+    The marker is the credential, not the role: only `resolve(ADMIN_TOKEN)`
+    sets `break_glass`. A user token with the `admin` role, and an
+    `Identity("admin", "admin")` built directly, both carry False and are never
+    refused here.
+
+    Fails closed: `None` -- a direct call that named no door -- is in no
+    allowed set, so the break-glass identity is refused there too (T9).
+
+    The allowed set is read off `settings` **here, per call**, for the reason
+    `_context_limit_exceeded` gives. It can only tighten: the setting's
+    validator rejects `v1`, so no configuration admits the token there.
+
+    Module-level, so the check-order tests can spy on it by name.
+    """
+    return identity.break_glass and ingress not in settings.break_glass_ingresses
 
 
 def _analyzable_characters(messages: Sequence[Message], policy: PiiPolicy) -> int:
@@ -171,7 +195,7 @@ def _deny(
     prompt: str,
     device: Optional[str],
     # Required, and deliberately not defaulted or closed over: this helper is
-    # the single log_query call site serving all three authorization arms, and
+    # the single log_query call site serving every authorization arm, and
     # a captured variable is how one of them silently stops passing the session
     # on. Required means a forgotten arm is a TypeError, not a NULL nobody
     # notices for a release. (PRD-008 STORY-009)
@@ -194,7 +218,7 @@ def _deny(
     # three: a defaulted False would quietly mislabel a PRD-014 SSE refusal.
     # The parameter name shadows the imported conversation_key() inside this
     # helper, harmlessly, like dedup_key above.
-    ingress: Optional[str],
+    ingress: Optional[Ingress],
     message_count: int,
     conversation_key: Optional[str],
     streamed: bool,
@@ -239,7 +263,7 @@ def run_conversation(
     # (ChatState), "v1" (PRD-014). None for direct callers, the test suite and
     # scripts/, where NULL is the honest record; tests/test_query_pipeline_
     # audit_fields.py fails if a production call site omits it.
-    ingress: Optional[str] = None,
+    ingress: Optional[Ingress] = None,
     # Whether the response is delivered as SSE. Always False until PRD-014.
     streamed: bool = False,
 ) -> QueryPipelineResult:
@@ -301,11 +325,31 @@ def run_conversation(
                 reason="Missing required permission",
             )
 
+    # Step 2b: break-glass ingress policy (PRD-013 Sections 6.1, 6.8; D4, F12, T9).
+    #
+    # After every authorization arm, so the three arms above run first and
+    # unchanged (Section 9.1). Before the usage gate, so a refused break-glass
+    # attempt consumes no one's window and is never charged.
+    #
+    # It reuses the forbidden arm: one row, `success=True`, and the existing
+    # QueryBlockedForbiddenResponse, which the chat UI's forbidden bubble
+    # already renders. "ingress:break_glass" is a label on the row, as
+    # `query:model:{model}` is -- never an RBAC permission, so it is not in
+    # authz's _KNOWN_PERMISSIONS and no role can be granted it. The admin
+    # role's model-allowlist bypass is untouched (Section 6.8, last bullet).
+    if _break_glass_refused(identity, ingress):
+        return _deny(
+            identity, prompt, device, session_id=session_id, dedup_key=key,
+            profile=profile_name, ingress=ingress, message_count=message_count,
+            conversation_key=conv_key, streamed=streamed,
+            exc=PermissionDenied("ingress:break_glass"),
+            reason="Break-glass credential not permitted on this ingress",
+        )
+
     # Step 2c: the usage gate (PRD-013 Sections 6.1, 6.5-6.7; D7, D8, F10).
     #
     # Lettered, not renumbered: three PRDs and the comments below cite steps
-    # 3-8 by number. STORY-013's break-glass arm (2b) goes between the BYOK
-    # arm above and this block.
+    # 3-8 by number. The break-glass arm (2b) sits directly above.
     #
     # The position is the decision (D7). After every authorization arm, so a
     # caller without `query:submit` learns nothing about limits and consumes
@@ -743,7 +787,7 @@ def run_query(
     *,
     # PRD-013 Section 6.9: `/query` is this adapter's caller, so the default
     # names it. ChatState's history-off branch passes "chat".
-    ingress: Optional[str] = "query",
+    ingress: Optional[Ingress] = "query",
 ) -> QueryPipelineResult:
     return run_conversation(
         identity,
