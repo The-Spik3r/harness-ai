@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Enforcement"
-status: in-progress
+status: done
 labels: [backend, pipeline, limits, api, security]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-011-usage-gate-in-pipeline.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-011-usage-gate-in-pipeline.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-011-usage-gate-in-pipeline.report.md
+commit: 8dc6b4d
 depends_on: [STORY-002, STORY-005, STORY-010]
 blocks: [STORY-012, STORY-014, STORY-015, STORY-016]
 skills: []
