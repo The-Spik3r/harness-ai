@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/18 stories done — 67%
+13/18 stories done — 72%
 
 ## Stories
 
@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No 
 | STORY-010 | usage_limits: limit resolution and the rate and budget checks | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-010-usage-limits-service.plan.md) | `3570281` |
 | STORY-011 | Usage gate in the pipeline: response, audited arm and duplicate-lookup exclusion | feature | ✅ done | large | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-011-usage-gate-in-pipeline.plan.md) | `8dc6b4d` |
 | STORY-012 | Charge tokens after the upstream call; BYOK and counter-failure rules | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-012-charge-after-upstream.plan.md) | `01c415d` |
-| STORY-013 | Break-glass ingress policy | feature | 🟡 in-progress | small | [plan](../../plans/PRD-013-audit-and-usage-limits/STORY-013-break-glass-ingress-policy.plan.md) | — |
+| STORY-013 | Break-glass ingress policy | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-013-break-glass-ingress-policy.plan.md) | `180ca6c` |
 | STORY-014 | Chat UI usage-limit bubble | feature | ⬜ todo | medium | — | — |
 | STORY-015 | Admin console: Register fields, verdict, search and summary figures | feature | ⬜ todo | medium | — | — |
 | STORY-016 | Admin console: Usage table | feature | ⬜ todo | medium | — | — |
