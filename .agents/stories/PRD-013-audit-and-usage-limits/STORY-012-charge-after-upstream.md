@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Enforcement"
-status: in-progress
+status: done
 labels: [backend, pipeline, limits]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-012-charge-after-upstream.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-012-charge-after-upstream.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-012-charge-after-upstream.report.md
+commit: 01c415d
 depends_on: [STORY-003, STORY-011]
 blocks: [STORY-017]
 skills: []
