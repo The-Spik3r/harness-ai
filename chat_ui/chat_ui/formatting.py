@@ -9,6 +9,8 @@ ChatMessage as a plain string field.
 PRD-008 added the rail's two, `derive_title` and `format_activity`, which are
 the same rule applied to `models.ChatSessionSummary` instead: a title and an
 activity time are derived once, in Python, and the row carries the strings.
+PRD-013 added `format_usage_limit_notice`, the usage-limit bubble's sentence
+with its reset time, for the same reason.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -21,6 +23,7 @@ from .copy import (
     DUPLICATE_WINDOW_RELEASE_TEMPLATE,
     SESSION_ACTIVITY_UNKNOWN,
     SESSION_UNTITLED_TITLE,
+    USAGE_LIMIT_NOTICES,
 )
 
 
@@ -81,6 +84,39 @@ def format_duplicate_info(first_query_at: str) -> tuple[str, str]:
         return main_text, release_text
     except Exception:
         return DUPLICATE_UNPARSEABLE_TEMPLATE.format(absolute=first_query_at), ""
+
+
+# The only reset time the token budget can have: `usage_limits._next_utc_midnight`
+# returns the next 00:00 UTC and nothing else. So an unparseable `resets_at`
+# falls back to that value rather than to a vaguer sentence -- a bad timestamp
+# degrades nothing the reader is told.
+_USAGE_RESET_FALLBACK = "00:00"
+
+
+def format_usage_limit_notice(limit: str, resets_at: str) -> str:
+    """The usage-limit bubble's sentence, finished (PRD-013 STORY-014).
+
+    Built once, when `_do_send` builds the bubble, and stored whole in
+    `detail`, so a restored bubble reads exactly as the live one did. The reset
+    is formatted here because components only ever see Vars.
+
+    `limit` indexes `USAGE_LIMIT_NOTICES` rather than `.get()`-ing it. This runs
+    after `_do_send`'s `try`, so an unknown limit would raise past it; that is
+    acceptable only because `tests/test_copy.py` pins the map's keys to
+    `QueryBlockedUsageLimitResponse.limit`'s literal, so the miss fails CI
+    before it can fail a send. The `requests` notice has no placeholder, and
+    `str.format` ignores the unused `reset`, so one path serves both.
+    """
+    try:
+        dt = datetime.fromisoformat(resets_at.replace("Z", "+00:00"))
+        # A naive value is the audit format without its "Z", so it is UTC;
+        # `astimezone` alone would read it as the server's local time.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        reset = dt.astimezone(timezone.utc).strftime("%H:%M")
+    except (AttributeError, ValueError):
+        reset = _USAGE_RESET_FALLBACK
+    return USAGE_LIMIT_NOTICES[limit].format(reset=reset)
 
 
 # The auto-title cap. A rail row is a label on a shelf, not a sentence, and a

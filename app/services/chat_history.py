@@ -19,11 +19,12 @@ So `assemble` reads **only** `kind == "assistant"` rows and emits a pair from
 each. Fact 2 is what makes fact 1 survivable.
 
 **D4 holds by construction, not by exclusion.** `duplicate`, `injection`,
-`forbidden`, `upstream_error`, `internal_error` and `context_limit` rows are
-never *read*, and neither are the `user` bubbles that preceded them. There is no
-deny-list of kinds here to keep in sync with the bubble model: a kind added
-later -- STORY-013's `context_limit` is the next one -- is excluded the moment it
-exists, because it is not `"assistant"`. A refused prompt cannot come back in
+`forbidden`, `upstream_error`, `internal_error`, `context_limit` and
+`usage_limit` rows are never *read*, and neither are the `user` bubbles that
+preceded them. There is no deny-list of kinds here to keep in sync with the
+bubble model: a kind added later -- STORY-013's `context_limit` was the next
+one, PRD-013 STORY-014's `usage_limit` the one after -- is excluded the moment
+it exists, because it is not `"assistant"`. A refused prompt cannot come back in
 through history (PRD Section 5, story 3).
 
 **This module does not redact (D5).** Stored `prompt` is raw, and step 6 of PRD

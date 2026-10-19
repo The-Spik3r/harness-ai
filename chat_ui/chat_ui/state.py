@@ -36,7 +36,12 @@ from .copy import (
     TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
 )
-from .formatting import derive_title, format_activity, format_duplicate_info
+from .formatting import (
+    derive_title,
+    format_activity,
+    format_duplicate_info,
+    format_usage_limit_notice,
+)
 from .config import DEFAULT_MODEL
 
 def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
@@ -1271,22 +1276,27 @@ class ChatState(rx.State):
                     # because there was no answer.
                 )
             elif isinstance(result, QueryBlockedUsageLimitResponse):
-                # Interim (PRD-013 STORY-011): routed through the existing
-                # internal-error bubble so a refused send is never silently
-                # dropped. STORY-014 replaces this arm with the `usage_limit`
-                # bubble and its copy. Meanwhile `detail` keeps the limit and
-                # the reset on the persisted row.
                 bubble = ChatMessage(
-                    kind="internal_error",
-                    content="internal_error",
+                    kind="usage_limit",
+                    # The pipeline's reason, stored but not shown -- the split
+                    # the context_limit arm above makes, for the same reason:
+                    # the restored transcript and the audit row agree about why
+                    # this send did not happen.
+                    content=result.reason,
                     prompt=text,
-                    detail=f"{result.reason}: {result.limit}, resets at {result.resets_at}",
+                    # The finished sentence, reset time included. Built here
+                    # because components receive Vars (the note atop
+                    # admin_models.py), and stored whole in the existing
+                    # `detail` column so a restored bubble reads exactly as the
+                    # live one did (PRD-013 Section 6.10). `history_trimmed`
+                    # stays 0: there was no answer.
+                    detail=format_usage_limit_notice(result.limit, result.resets_at),
                 )
             else:
                 # Unreachable: this chain now covers all six members of
                 # QueryResponse (PRD-010 STORY-013 added the fifth, PRD-013
-                # STORY-011 the sixth, routed to an interim bubble until
-                # STORY-014). Kept so a seventh
+                # STORY-011 the sixth, which STORY-014 gave its own
+                # `usage_limit` bubble). Kept so a seventh
                 # member added later without updating the chain surfaces as a
                 # visible bubble instead of an unhandled exception -- the same
                 # "no silent drops" guarantee `render_fallback` makes at the

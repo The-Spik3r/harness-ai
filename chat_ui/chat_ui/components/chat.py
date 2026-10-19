@@ -13,6 +13,7 @@ from chat_ui.components.bubbles import (
     render_internal_error,
     render_pending_indicator,
     render_upstream_error,
+    render_usage_limit,
     render_user,
 )
 from chat_ui.state import ChatState
@@ -27,7 +28,11 @@ def message_bubble(message) -> rx.Component:
     two failures, then the default. `context_limit` sits with the blocks
     because that is what it is -- a refusal with a `BLOCKED` status, not a
     fault. It must stay above `render_fallback`, which is the arm that exists
-    so an unknown kind is still logged rather than dropped."""
+    so an unknown kind is still logged rather than dropped.
+
+    PRD-013 STORY-014's `usage_limit` was the eighth, one more arm again, and
+    it sits beside `context_limit` for the same reason: a `BLOCKED` refusal,
+    not a fault."""
     return rx.match(
         message.kind,
         ("user", render_user(message)),
@@ -36,6 +41,7 @@ def message_bubble(message) -> rx.Component:
         ("injection", render_injection(message)),
         ("forbidden", render_forbidden(message)),
         ("context_limit", render_context_limit(message)),
+        ("usage_limit", render_usage_limit(message)),
         ("upstream_error", render_upstream_error(message)),
         ("internal_error", render_internal_error(message)),
         render_fallback(message),
