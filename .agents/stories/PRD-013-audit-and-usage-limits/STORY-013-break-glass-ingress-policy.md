@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "3 - Enforcement"
-status: todo
+status: in-progress
 labels: [backend, pipeline, security, identity]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-013-break-glass-ingress-policy.plan.md
 report: null
 commit: null
 depends_on: [STORY-005, STORY-007, STORY-008]
 blocks: [STORY-018]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-013: Break-glass ingress policy
