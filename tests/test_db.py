@@ -2515,6 +2515,10 @@ _DEDUP_LOOKUP_SQL = (
     # A residual filter, like the three above -- the index assertion below
     # still holds.
     "AND (pattern_action IS NULL OR pattern_action <> 'flag') "
+    # PRD-013 STORY-011 (D6): a usage-limit refusal is not a prior query. A
+    # residual filter, like the four above -- the index assertion below still
+    # holds.
+    "AND limit_exceeded IS NULL "
     "ORDER BY timestamp ASC LIMIT 1"
 )
 
@@ -2738,6 +2742,31 @@ def test_duplicate_lookup_ignores_a_flag_row(temp_db, pattern_action, is_prior_q
     )
 
     found = database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-22T09:00:00Z")
+
+    assert (found is not None) is is_prior_query
+
+
+@pytest.mark.parametrize(
+    "limit_exceeded, is_prior_query",
+    [(None, True), ("requests", False), ("tokens", False)],
+)
+def test_duplicate_lookup_ignores_a_usage_limit_row(temp_db, limit_exceeded, is_prior_query):
+    """PRD-013 STORY-011 (D6): a usage-limit refusal is success=1 but is not a
+    verdict about the prompt, which never reached the model, so it is not a
+    prior query. NULL (every row written before PRD-013, and every other
+    verdict) still counts (Risk 5)."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-19T09:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h",
+            success=True,
+            dedup_key="k",
+            limit_exceeded=limit_exceeded,
+        )
+    )
+
+    found = database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-10-18T09:00:00Z")
 
     assert (found is not None) is is_prior_query
 

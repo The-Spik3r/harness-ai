@@ -131,12 +131,40 @@ class QueryBlockedContextLimitResponse(BaseModel):
     actual: int
 
 
+class QueryBlockedUsageLimitResponse(BaseModel):
+    """An authorized attempt refused for being over a usage limit (PRD-013 Section 6.7).
+
+    `200` with a `BLOCKED` body on `/query`, like every other block there, and
+    never `429` (D5): the `403` the brief mentions is the `/v1` mapping, and
+    PRD-014 owns it. The body distinguishes the two limits and carries
+    `resets_at` so that mapping can choose per limit.
+
+    Only one limit is reported: the rate is checked first and the budget only
+    if the rate passed, the rule `QueryBlockedContextLimitResponse` follows.
+    `maximum` is the limit the identity was held to for that call (its
+    override, else its role's entry, else `*`). `actual` is the count in the
+    current minute's window for `requests` and the tokens used today for
+    `tokens`. `resets_at` is UTC in the audit timestamp format: the end of the
+    minute for `requests`, the next 00:00 UTC for `tokens`, both derived from
+    the database's clock, never the instance's.
+    """
+
+    status: Literal["BLOCKED"] = "BLOCKED"
+    reason: str
+    limit: Literal["requests", "tokens"]
+    maximum: int
+    actual: int
+    resets_at: str
+
+
 QueryResponse = Union[
     QuerySuccessResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedContextLimitResponse,
+    # Last, so every existing member keeps its position in this plain union.
+    QueryBlockedUsageLimitResponse,
 ]
 
 

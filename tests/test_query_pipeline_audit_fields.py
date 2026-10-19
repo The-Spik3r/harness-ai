@@ -503,10 +503,14 @@ def test_every_production_pipeline_call_names_its_door():
 
 
 def test_every_direct_log_query_call_passes_the_three_fields():
-    """AC 5. Ten in the pipeline (nine arms and `_deny`), one in the router."""
+    """AC 5. Eleven in the pipeline (ten arms and `_deny`), one in the router.
+
+    PRD-013 STORY-011 added the usage-limit arm (step 2c), so the count went
+    from 11 to 12; the three-field requirement below is unchanged and covers it.
+    """
     sites = _scan().log_query
 
-    assert len(sites) == 11, [f"{path}:{lineno}" for path, _, _, lineno in sites]
+    assert len(sites) == 12, [f"{path}:{lineno}" for path, _, _, lineno in sites]
     required = {"ingress", "message_count", "conversation_key"}
     missing = [
         f"{path}:{lineno} lacks {sorted(required - keywords)}"

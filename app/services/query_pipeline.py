@@ -8,6 +8,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
 from app.services.audit_logger import log_query
@@ -31,6 +32,10 @@ from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect, strip_fenced_blocks
 from app.services.pii_policy import PiiPolicy, get_pii_policy
 from app.services.pii_redactor import PiiRedactorError, redact, redact_for_policy
+# By name into this module, not `usage_limits.admit`: the suite replaces
+# `query_pipeline.admit` to spy on the gate or fail it, the binding rule
+# `_redact` documents for `redact`.
+from app.services.usage_limits import admit
 
 QueryPipelineResult = Union[
     QuerySuccessResponse,
@@ -38,6 +43,7 @@ QueryPipelineResult = Union[
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedContextLimitResponse,
+    QueryBlockedUsageLimitResponse,
 ]
 
 ContextLimit = Literal["messages", "characters"]
@@ -291,8 +297,70 @@ def run_conversation(
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
                 profile=profile_name, ingress=ingress, message_count=message_count,
-            conversation_key=conv_key, streamed=streamed, exc=exc,
+                conversation_key=conv_key, streamed=streamed, exc=exc,
                 reason="Missing required permission",
+            )
+
+    # Step 2c: the usage gate (PRD-013 Sections 6.1, 6.5-6.7; D7, D8, F10).
+    #
+    # Lettered, not renumbered: three PRDs and the comments below cite steps
+    # 3-8 by number. STORY-013's break-glass arm (2b) goes between the BYOK
+    # arm above and this block.
+    #
+    # The position is the decision (D7). After every authorization arm, so a
+    # caller without `query:submit` learns nothing about limits and consumes
+    # no one's window (T11) -- it has no usage_daily row at all. Before the
+    # context limit, the duplicate check and patterns, so every authorized
+    # attempt counts toward the rate, including the ones those steps refuse:
+    # a looping agent's retries are mostly duplicates (T2), and a resend after
+    # a forced failure is an attempt too (PRD-009 T3).
+    #
+    # The switch is read here, per call, for the reason _context_limit_exceeded
+    # gives. Off means admit() is not called and no statement touches
+    # usage_daily: the pipeline's round trips are exactly the pre-PRD-013 ones.
+    #
+    # BYOK spends the caller's own key, so it is rate-limited but not held to
+    # the budget (D8). `admission` is kept in a local: STORY-012 charges the
+    # `day` it was counted against, so a request straddling midnight is
+    # charged to the day it was admitted.
+    #
+    # admit() fails closed (T7): a counter outage raises UsageLimitError,
+    # which propagates with no row written and nothing sent upstream -- the
+    # router maps it to 500 beside DuplicateCheckError, ChatState to the
+    # internal-error bubble.
+    #
+    # A refusal is `success=True`, unlike step 3: a verdict was reached and
+    # the row names it in a dedicated column, `limit_exceeded` (PRD-013
+    # Section 6.2) -- the rule step 3's comment states. It carries the key like
+    # every row, and find_duplicate_timestamp excludes it, so a prompt refused
+    # today is not held as a duplicate when sent again after the reset (D6).
+    # None when the switch is off, which STORY-012 reads as "charge nothing".
+    admission = None
+    if settings.USAGE_LIMITS_ENABLED:
+        admission = admit(identity, charges_budget=openrouter_api_key is None)
+        if not admission.admitted:
+            refusal = admission.refusal
+            log_query(
+                user_id=identity.user_id,
+                prompt=prompt,
+                device=device,
+                success=True,
+                role=identity.role,
+                limit_exceeded=refusal.limit,
+                session_id=session_id,
+                dedup_key=key,
+                profile=profile_name,
+                ingress=ingress,
+                message_count=message_count,
+                conversation_key=conv_key,
+                streamed=streamed,
+            )
+            return QueryBlockedUsageLimitResponse(
+                reason="Usage limit reached",
+                limit=refusal.limit,
+                maximum=refusal.maximum,
+                actual=refusal.actual,
+                resets_at=refusal.resets_at,
             )
 
     # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).

@@ -498,8 +498,9 @@ def test_every_log_query_call_site_in_the_pipeline_passes_session_id():
     # this count was written to catch. Nine since PRD-011 STORY-009 added the
     # pattern flag arm, which carries both keys. Ten since PRD-012 STORY-010
     # added the redaction_characters arm (D4), which carries both keys too.
-    # Raise it again with the eleventh.
-    assert len(calls) == 10, f"expected ten log_query call sites, found {len(calls)}"
+    # Eleven since PRD-013 STORY-011 added the usage-limit arm (step 2c, D6),
+    # which carries both keys too. Raise it again with the twelfth.
+    assert len(calls) == 11, f"expected eleven log_query call sites, found {len(calls)}"
 
     missing = [call for call in calls if "session_id=session_id" not in call]
     assert missing == [], f"log_query call sites not passing session_id: {missing}"

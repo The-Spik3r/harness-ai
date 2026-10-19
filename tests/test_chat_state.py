@@ -32,6 +32,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
 from app.config import settings
@@ -39,6 +40,7 @@ from app.services import chat_sessions
 from app.services.chat_sessions import ChatSessionError
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError, dedup_key, hash_prompt
+from app.services.usage_limits import UsageLimitError
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
@@ -447,6 +449,65 @@ async def test_chat_state_send_duplicate_check_error_appends_internal_error_bubb
     assert state.messages[-1].content == "internal_error"
     assert state.messages[-1].detail == "db locked"
     assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_usage_limit_error_appends_internal_error_bubble(temp_db, monkeypatch):
+    """PRD-013 STORY-011 (F10): the usage counter could not be read, so the gate
+    failed closed. The chat routes it through the internal-error bubble, like a
+    failed duplicate lookup."""
+
+    def _raise_usage_limit_error(*args, **kwargs):
+        raise UsageLimitError("Usage admission failed: counter unreachable")
+
+    _stub_pipeline(monkeypatch, _raise_usage_limit_error)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1].kind == "internal_error"
+    assert state.messages[-1].content == "internal_error"
+    assert state.messages[-1].detail == "Usage admission failed: counter unreachable"
+    assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_usage_limit_renders_the_interim_internal_error_bubble(
+    temp_db, monkeypatch
+):
+    """PRD-013 STORY-011: an interim pin, the way PRD-010 STORY-008 pinned the
+    context limit before STORY-013 gave it a bubble. STORY-014 is expected to
+    delete this test and assert the `usage_limit` bubble instead.
+
+    Until then a refused send is routed through the existing internal-error
+    bubble by an explicit arm, never silently dropped and never reported as an
+    "Unhandled response type", and its `detail` keeps the limit and the reset.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedUsageLimitResponse(
+            reason="Usage limit reached",
+            limit="tokens",
+            maximum=1000000,
+            actual=1003412,
+            resets_at="2026-10-20T00:00:00Z",
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    bubble = state.messages[-1]
+    assert bubble.kind == "internal_error"
+    assert bubble.prompt == "hello world"
+    assert bubble.detail == "Usage limit reached: tokens, resets at 2026-10-20T00:00:00Z"
+    assert "Unhandled response type" not in bubble.detail
     assert state.pending is False
 
 

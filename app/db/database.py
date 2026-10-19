@@ -859,6 +859,12 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
         # request that then failed upstream a "duplicate" of an attempt nobody
         # answered. NULL passes -- every row written before PRD-011 -- and a
         # block row passes, as a content verdict (PRD-009 F4).
+        # A usage-limit refusal (PRD-013 D6) is excluded too. It is success = 1
+        # because a verdict was reached, but the verdict is about the caller's
+        # spend, not the prompt, and the prompt never reached the model.
+        # Counting it would hold a prompt refused for budget today as a
+        # duplicate when it is sent again tomorrow. NULL passes, so every row
+        # written before PRD-013 behaves as before (PRD-013 Risk 5).
         row = conn.execute(
             """
             SELECT timestamp FROM audit_logs
@@ -867,6 +873,7 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
               AND was_duplicate_blocked = 0
               AND denied_permission IS NULL
               AND (pattern_action IS NULL OR pattern_action <> 'flag')
+              AND limit_exceeded IS NULL
             ORDER BY timestamp ASC
             LIMIT 1
             """,

@@ -12,6 +12,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
 from app.services import chat_history, chat_sessions
@@ -22,6 +23,7 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation, run_query
+from app.services.usage_limits import UsageLimitError
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
     CONTEXT_LIMIT_DETAIL_TEMPLATE,
@@ -1161,7 +1163,11 @@ class ChatState(rx.State):
                     session_id,
                 )
                 return
-            except (DuplicateCheckError, PiiRedactorError) as exc:
+            # UsageLimitError (PRD-013 F10): the usage counter could not be
+            # read, so the gate failed closed before anything left the
+            # process. Named here rather than left to the bare `except`
+            # below, so the routing reads as a decision.
+            except (DuplicateCheckError, PiiRedactorError, UsageLimitError) as exc:
                 await self._append_and_persist(
                     ChatMessage(
                         kind="internal_error",
@@ -1264,9 +1270,23 @@ class ChatState(rx.State):
                     # leave it there: no exchange was dropped from an answer,
                     # because there was no answer.
                 )
+            elif isinstance(result, QueryBlockedUsageLimitResponse):
+                # Interim (PRD-013 STORY-011): routed through the existing
+                # internal-error bubble so a refused send is never silently
+                # dropped. STORY-014 replaces this arm with the `usage_limit`
+                # bubble and its copy. Meanwhile `detail` keeps the limit and
+                # the reset on the persisted row.
+                bubble = ChatMessage(
+                    kind="internal_error",
+                    content="internal_error",
+                    prompt=text,
+                    detail=f"{result.reason}: {result.limit}, resets at {result.resets_at}",
+                )
             else:
-                # Unreachable: this chain now covers all five members of
-                # QueryResponse (STORY-013 added the fifth). Kept so a sixth
+                # Unreachable: this chain now covers all six members of
+                # QueryResponse (PRD-010 STORY-013 added the fifth, PRD-013
+                # STORY-011 the sixth, routed to an interim bubble until
+                # STORY-014). Kept so a seventh
                 # member added later without updating the chain surfaces as a
                 # visible bubble instead of an unhandled exception -- the same
                 # "no silent drops" guarantee `render_fallback` makes at the

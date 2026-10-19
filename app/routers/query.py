@@ -12,6 +12,7 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query
+from app.services.usage_limits import UsageLimitError
 
 _FOREIGN_SESSION_DETAIL = "session_id does not belong to the authenticated identity"
 
@@ -28,6 +29,11 @@ async def query(
     except ChatSessionError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except DuplicateCheckError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    # PRD-013 T7, D9: the usage counter could not be read. The gate fails
+    # closed -- nothing was sent upstream and no row was written -- exactly as
+    # a failed duplicate lookup does.
+    except UsageLimitError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except PiiRedactorError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
