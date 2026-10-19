@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Enforcement"
-status: todo
+status: in-progress
 labels: [backend, pipeline, limits]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/STORY-012-charge-after-upstream.plan.md
 report: null
 commit: null
 depends_on: [STORY-003, STORY-011]
 blocks: [STORY-017]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-012: Charge tokens after the upstream call; BYOK and counter-failure rules
