@@ -6,7 +6,7 @@
 
 ## Progress
 
-3/8 stories done — 38%
+4/8 stories done — 50%
 
 ## Stories
 
@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-014-test-suite-db-isolation`. No
 | STORY-001 | Characterize the suite's storage use: baseline run, driver calls per test, census and undeclared-storage list | technical | ✅ done | small | [plan](../../plans/PRD-014-test-suite-db-isolation/completed/STORY-001-storage-characterization.plan.md) | `398e60e` |
 | STORY-002 | db marker: registered, applied from the storage fixtures and _DB_NODEIDS, independent of --run-benchmark | technical | ✅ done | small | [plan](../../plans/PRD-014-test-suite-db-isolation/completed/STORY-002-db-marker.plan.md) | `6628c25` |
 | STORY-003 | Reset only db tests, refuse storage in every other test, and declare every test the guard catches | technical | ✅ done | medium | [plan](../../plans/PRD-014-test-suite-db-isolation/completed/STORY-003-reset-and-guard.plan.md) | `241fae0` |
-| STORY-004 | Lazy _libsql_endpoint: pytest -m "not db" passes with Docker stopped | technical | ⬜ todo | small | — | — |
+| STORY-004 | Lazy _libsql_endpoint: pytest -m "not db" passes with Docker stopped | technical | ✅ done | small | [plan](../../plans/PRD-014-test-suite-db-isolation/completed/STORY-004-docker-free-run.plan.md) | `96de11b` |
 | STORY-005 | Driver recorder and a libsql diagnostics section with a verdict on every failing db test | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Spike: run the db tests from inside the Docker network vs the host to test the port-forwarding hypothesis (D5) | spike | ⬜ todo | small | — | — |
 | STORY-007 | README and conftest docstring for the db split, plus a three-run regression sweep | technical | ⬜ todo | small | — | — |

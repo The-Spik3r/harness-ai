@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Enforce"
-status: todo
+status: done
 labels: [tests, conftest, docker]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-004-docker-free-run.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-004-docker-free-run.report.md
+commit: 96de11b
 depends_on: [STORY-003]
 blocks: [STORY-007]
 skills: []
