@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - See it and prove it"
-status: todo
+status: done
 labels: [frontend, admin-console, audit]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-015-console-register-and-summary.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-015-console-register-and-summary.report.md
+commit: b6085a4
 depends_on: [STORY-006, STORY-011]
 blocks: [STORY-016, STORY-018]
 skills: [frontend-design]
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-015: Admin console: Register fields, verdict, search and summary figures
