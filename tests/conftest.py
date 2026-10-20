@@ -33,8 +33,11 @@ record. It is offline, takes no token, and cannot reach production:
 Point the suite somewhere else with `HARNESS_TEST_LIBSQL_URL`.
 """
 
+import itertools
 import os
+import time
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, NoReturn, Optional
 
@@ -162,13 +165,22 @@ def pytest_collection_modifyitems(config, items) -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
-    """Notes when the storage guard's own exception failed setup or call.
+    """Notes guard failures, and adds `libsql diagnostics` to failing `db` tests.
 
     `_storage_policy` fails a test at teardown when its guard recorded an
     access, which catches an access something swallowed. When nothing did, the
     raised exception has already failed the test, and a second report from
-    teardown would turn one undeclared test into "1 failed, 1 error". STORY-005
-    adds the `libsql diagnostics` section to this hook.
+    teardown would turn one undeclared test into "1 failed, 1 error".
+
+    **The diagnostics section (PRD-014 STORY-005).** A `db` test whose setup,
+    call or teardown failed gets a `libsql diagnostics` section built from the
+    driver calls recorded so far. It ends in a line starting `libsql verdict: `,
+    so `grep "libsql verdict"` over a run's output classifies every failure. A
+    passing test gets no section. The section **may be partial**:
+    `monkeypatch.undo()` (seven sites in `tests/test_db.py`) removes the wrapper
+    for the rest of that test, and a client built while it is gone is never
+    recorded. The session probe in `_libsql_endpoint` runs before the wrapper
+    exists, and its failure exits the run with its own message.
     """
     report = yield
     if (
@@ -179,6 +191,8 @@ def pytest_runtest_makereport(item, call):
         and str(call.excinfo.value).startswith(f"{item.nodeid} reached storage")
     ):
         item.stash[_REFUSED] = True
+    if report.failed and item.get_closest_marker(_DB_MARKER) is not None:
+        report.sections.append(("libsql diagnostics", _diagnostics(item.stash.get(_RECORDS, []))))
     return report
 
 
@@ -246,6 +260,186 @@ def _drop_every_table_and_index() -> None:
         ).fetchall()
         for name, kind in sorted(objects, key=lambda row: row[1], reverse=True):
             conn.execute(f'DROP {kind.upper()} IF EXISTS "{name}"')
+
+
+# --- The driver recorder (PRD-014 STORY-005, Section 6.6) ---------------------
+
+#: A call this slow is a stall whether or not it raised. The brief's stalls took
+#: 15-21 s, and no healthy call against the local server measured near 10 s.
+_STALL_SECONDS = 10.0
+
+#: Driver text that means "the infrastructure failed", not "the statement did".
+#: `stream_expired` comes first so the live expiry message, which carries both
+#: the prose and the code, is labelled by its code.
+_INFRA_MARKERS = (
+    "stream_expired",
+    *(marker for marker in database._DEAD_STREAM if marker != "stream_expired"),
+    "tcp connect error",
+    "os error 10060",
+)
+
+
+@dataclass(frozen=True)
+class _Call:
+    """One driver call: `connect`, or a method on a recorded client."""
+
+    op: str
+    seconds: float
+    client: Optional[int]  # None for a `connect` that failed
+    idle: Optional[float]  # seconds the client sat unused before it; None for `connect`
+    error: Optional[str]  # the matched `_INFRA_MARKERS` label, if the call raised one
+
+
+#: What the driver did during one test, across setup, call and teardown.
+_RECORDS = pytest.StashKey[list[_Call]]()
+
+#: The test that calls record into. Not the test that built the client:
+#: `_shared_client()` caches one across tests.
+_current: Optional[pytest.Item] = None
+
+_client_numbers = itertools.count(1)
+
+
+def _begin(item) -> None:
+    global _current
+    _current = item
+
+
+def _end(item) -> None:
+    global _current
+    if _current is item:
+        _current = None
+
+
+def _record(call: _Call) -> None:
+    """Into the running test. Outside any `db` test there is nowhere to put it."""
+    if _current is not None:
+        _current.stash.setdefault(_RECORDS, []).append(call)
+
+
+def _infra_error(message: str) -> Optional[str]:
+    """The infrastructure marker in `message`, as it is spelled there, or None.
+
+    Only the marker, cut from `database._redacted()` output, ever reaches a
+    report: a whole driver message can quote SQL (`near "...": syntax error`),
+    and PRD Section 9.2 allows neither SQL nor a credential in the section.
+    """
+    text = database._redacted(message)
+    haystack = text.lower()
+    for marker in _INFRA_MARKERS:
+        at = haystack.find(marker)
+        if at >= 0:
+            return text[at : at + len(marker)]
+    return None
+
+
+class _RecordedClient:
+    """Forwards every attribute to the real client, timing each method call.
+
+    **The original exception, re-raised.** `_translated()` and
+    `_is_dead_stream()` classify driver errors by their message, so a wrapped
+    or replaced exception would change what the application does (PRD R4).
+
+    **Idle time per client.** The time since this client was last used, taken
+    before each call. It is what showed the brief's failures were *not* idle
+    streams dying (0-0.45 s before every one).
+
+    Records go to whichever test is running (`_current`), so a client built by
+    one test and lent to the next by `_shared_client()` reports in the second.
+    Nothing assigns to a client in `app/`, so there is no `__setattr__` to forward.
+    """
+
+    def __init__(self, real) -> None:
+        self._real = real
+        self._number = next(_client_numbers)
+        self._last_used = time.monotonic()
+
+    def __getattr__(self, name):
+        attr = getattr(self._real, name)
+        if not callable(attr):
+            return attr
+
+        def timed(*args, **kwargs):
+            started = time.monotonic()
+            idle = started - self._last_used
+            error = None
+            try:
+                return attr(*args, **kwargs)
+            except Exception as exc:
+                error = _infra_error(str(exc))
+                raise
+            finally:
+                self._last_used = time.monotonic()
+                _record(_Call(name, self._last_used - started, self._number, idle, error))
+
+        return timed
+
+
+def _recorded_connect(real) -> Callable[..., _RecordedClient]:
+    """`libsql.connect`, timed, handing back a `_RecordedClient`.
+
+    `connect` is recorded too: the 21 s `tcp connect error` in the brief's
+    evidence happened at construction, during a test's setup.
+    """
+
+    def connect(*args, **kwargs) -> _RecordedClient:
+        started = time.monotonic()
+        try:
+            client = _RecordedClient(real(*args, **kwargs))
+        except Exception as exc:
+            _record(_Call("connect", time.monotonic() - started, None, None, _infra_error(str(exc))))
+            raise
+        _record(_Call("connect", time.monotonic() - started, client._number, None, None))
+        return client
+
+    return connect
+
+
+def _verdict(records: list[_Call]) -> str:
+    """One line that says whether the infrastructure was involved (PRD Section 6.6)."""
+    if not records:
+        return "no driver calls recorded"
+    failed = [call for call in records if call.error is not None]
+    if failed:
+        call = max(failed, key=lambda call: call.seconds)
+        return f"likely infrastructure -- {call.op} took {call.seconds:.2f} s and ended in {call.error}"
+    slowest = max(records, key=lambda call: call.seconds)
+    if slowest.seconds >= _STALL_SECONDS:
+        return f"likely infrastructure -- {slowest.op} took {slowest.seconds:.2f} s (no driver error)"
+    return f"no infrastructure signal ({len(records)} calls, slowest {slowest.seconds:.2f} s)"
+
+
+def _diagnostics(records: list[_Call]) -> str:
+    """The `libsql diagnostics` section's text. Its last line starts `libsql verdict: `.
+
+    Method names, durations, idle times and marker labels only, never SQL text,
+    parameters or whole driver messages (PRD Section 9.2). **ASCII only**, as
+    `_UNDECLARED` is: piped or `tee`d output on Windows is cp1252, and a reader
+    decoding it as UTF-8 (pytester, a log parser) fails on `—`, `×` or `→`.
+    """
+    verdict = f"libsql verdict: {_verdict(records)}"
+    if not records:
+        return f"calls: 0\n{verdict}"
+    clients = len({call.client for call in records if call.client is not None})
+    connects = sum(call.op == "connect" for call in records)
+    slowest = max(records, key=lambda call: call.seconds)
+    idle = f" (client idle {slowest.idle:.2f} s before)" if slowest.idle is not None else ""
+    ended = f" -> {slowest.error}" if slowest.error is not None else ""
+    stalls = ", ".join(f"{call.op} {call.seconds:.3f} s" for call in records if call.seconds >= _STALL_SECONDS)
+    errors: dict[str, int] = {}
+    for call in records:
+        if call.error is not None:
+            errors[call.error] = errors.get(call.error, 0) + 1
+    return "\n".join(
+        (
+            f"calls: {len(records)} on {clients} client{'s' if clients != 1 else ''}, "
+            f"{connects} connect{'s' if connects != 1 else ''}",
+            f"slowest: {slowest.op} {slowest.seconds:.3f} s{idle}{ended}",
+            f"over {_STALL_SECONDS:g} s: {stalls or 'none'}",
+            "driver errors: " + (", ".join(f"{n} x {label}" for label, n in errors.items()) or "none"),
+            verdict,
+        )
+    )
 
 
 #: What a test that is not `db` is told when it reaches storage (PRD-014 Section 10).
@@ -408,12 +602,25 @@ def _storage_policy(request, monkeypatch):
     either point itself is restored in the right order. The one way round it is
     `monkeypatch.undo()` in a test that is not `db`; the seven calls in
     `tests/test_db.py` are all in `db` tests.
+
+    **Since PRD-014 STORY-005 a `db` test's driver calls are recorded.**
+    `libsql.connect` is wrapped by `_recorded_connect()` after the session probe,
+    which is not recorded, and `_current` points at this test from before the
+    reset until this fixture's teardown. That teardown runs after the test's own
+    fixtures have torn down, so their calls are recorded too. The `finally` clears
+    the pointer even when the reset fails. A test that patches `libsql.connect`
+    itself layers over the wrapper and sees its own fake, unrecorded.
     """
     item = request.node
     if item.get_closest_marker(_DB_MARKER) is not None:
         monkeypatch.setattr(settings, "DATABASE_URL", request.getfixturevalue("_libsql_endpoint"))
-        _reset_database()
-        yield
+        monkeypatch.setattr(libsql, "connect", _recorded_connect(libsql.connect))
+        _begin(item)
+        try:
+            _reset_database()
+            yield
+        finally:
+            _end(item)
         return
     monkeypatch.setattr(settings, "DATABASE_URL", _ENDPOINT)
     sink: list[str] = []

@@ -6,7 +6,8 @@ marker that silently stopped applying would not turn anything red: `-m db`
 would just select fewer tests and `-m "not db"` would quietly reach storage.
 So the rule is checked here, against the conftest's own constants. The guard
 (STORY-003) is checked the same way, and so is the lazy endpoint (STORY-004).
-The recorder adds its tests to this file when it lands.
+So is the driver recorder and its `libsql diagnostics` section (STORY-005), on
+fabricated records and a fake driver: no test here causes a real stall.
 
 The guard's tests never call the guard *installed* on themselves: its teardown
 check would fail them. In-process they build their own `_refuse()`. The cases
@@ -22,6 +23,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import libsql
 import pytest
@@ -29,14 +31,23 @@ import pytest
 from app.config import settings
 from app.db import database
 from app.db.database import get_connection
+from tests import conftest as harness
 from tests.conftest import (
     _DB_NODEIDS,
     _ENDPOINT,
+    _RECORDS,
+    _STALL_SECONDS,
     _STORAGE_FIXTURES,
     _UNDECLARED,
+    _Call,
+    _diagnostics,
     _first_app_frame,
     _in_db_nodeids,
+    _infra_error,
+    _RecordedClient,
+    _recorded_connect,
     _refuse,
+    _verdict,
 )
 
 pytest_plugins = ("pytester",)
@@ -202,6 +213,214 @@ def test_the_teardown_check_recognises_the_message_by_its_first_words():
     assert _UNDECLARED.startswith("{nodeid} reached storage")
 
 
+# --- The recorder and the verdict, in-process (STORY-005) -----------------------
+
+#: The live idle-expiry text (PRD-008 STORY-014), which carries both spellings.
+_STREAM_EXPIRED = (
+    'Hrana: `api error: `status=400 Bad Request, body={"message":"The stream has expired '
+    'due to inactivity","code":"STREAM_EXPIRED"}``'
+)
+
+#: A connect timeout as the driver words it, with a token in the URL to be redacted.
+_CONNECT_TIMEOUT = (
+    "Hrana: `http error: `error sending request for url "
+    "(http://127.0.0.1:9/v2/pipeline?authToken=s3cret): client error (Connect): "
+    "tcp connect error: A connection attempt failed (os error 10060)``"
+)
+
+
+def _call(op="execute", seconds=0.01, client=1, idle=0.1, error=None) -> _Call:
+    return _Call(op, seconds, client, idle, error)
+
+
+def _item() -> SimpleNamespace:
+    return SimpleNamespace(stash=pytest.Stash())
+
+
+class _FakeReal:
+    """The driver's client, as far as the proxy can tell."""
+
+    autocommit = False
+
+    def __init__(self, raises: Exception | None = None) -> None:
+        self.raises = raises
+
+    def execute(self, sql, *parameters):
+        if self.raises is not None:
+            raise self.raises
+        return "cursor"
+
+
+def test_the_verdict_with_nothing_recorded():
+    assert _verdict([]) == "no driver calls recorded"
+
+
+def test_the_verdict_on_a_dead_stream():
+    records = [_call(seconds=0.02), _call(seconds=15.047, error="STREAM_EXPIRED")]
+    assert _verdict(records) == "likely infrastructure -- execute took 15.05 s and ended in STREAM_EXPIRED"
+
+
+def test_the_verdict_on_a_connect_error():
+    records = [_call(op="connect", seconds=21.004, client=None, idle=None, error="tcp connect error")]
+    assert _verdict(records) == "likely infrastructure -- connect took 21.00 s and ended in tcp connect error"
+
+
+def test_the_verdict_on_os_error_10060():
+    records = [_call(seconds=2.5, error="os error 10060")]
+    assert _verdict(records) == "likely infrastructure -- execute took 2.50 s and ended in os error 10060"
+
+
+def test_the_verdict_on_a_stall_without_an_error():
+    records = [_call(seconds=0.01), _call(op="commit", seconds=12.3)]
+    assert _verdict(records) == "likely infrastructure -- commit took 12.30 s (no driver error)"
+
+
+def test_the_verdict_with_no_infrastructure_signal():
+    records = [_call(seconds=0.01), _call(seconds=0.4)]
+    assert _verdict(records) == "no infrastructure signal (2 calls, slowest 0.40 s)"
+
+
+def test_a_driver_error_outranks_a_slower_stall():
+    records = [_call(seconds=14.0), _call(seconds=0.3, error="STREAM_EXPIRED")]
+    assert _verdict(records) == "likely infrastructure -- execute took 0.30 s and ended in STREAM_EXPIRED"
+
+
+def test_a_call_just_under_the_threshold_is_not_a_stall():
+    assert _verdict([_call(seconds=_STALL_SECONDS - 0.01)]).startswith("no infrastructure signal")
+
+
+def test_the_section_lists_counts_slowest_stalls_and_errors():
+    records = [
+        _call(op="connect", seconds=0.2, client=1, idle=None),
+        _call(seconds=0.01, client=1),
+        _call(op="connect", seconds=0.1, client=2, idle=None),
+        _call(seconds=15.047, client=2, idle=0.12, error="STREAM_EXPIRED"),
+        _call(op="commit", seconds=11.0, client=2),
+    ]
+    assert _diagnostics(records).splitlines() == [
+        "calls: 5 on 2 clients, 2 connects",
+        "slowest: execute 15.047 s (client idle 0.12 s before) -> STREAM_EXPIRED",
+        "over 10 s: execute 15.047 s, commit 11.000 s",
+        "driver errors: 1 x STREAM_EXPIRED",
+        "libsql verdict: likely infrastructure -- execute took 15.05 s and ended in STREAM_EXPIRED",
+    ]
+
+
+def test_a_quiet_section_says_none():
+    lines = _diagnostics([_call(op="connect", idle=None), _call()]).splitlines()
+    assert lines[0] == "calls: 2 on 1 client, 1 connect"
+    assert "over 10 s: none" in lines
+    assert "driver errors: none" in lines
+    assert lines[-1].startswith("libsql verdict: no infrastructure signal")
+
+
+def test_an_empty_section_still_ends_in_a_verdict():
+    assert _diagnostics([]).splitlines() == ["calls: 0", "libsql verdict: no driver calls recorded"]
+
+
+def test_the_infra_markers_are_labelled_as_spelled():
+    assert _infra_error(_STREAM_EXPIRED) == "STREAM_EXPIRED"
+    assert _infra_error("Hrana: `api error: `status=400 Bad Request, body=Received an invalid baton``") == "invalid baton"
+    assert _infra_error(_CONNECT_TIMEOUT) == "tcp connect error"
+    assert _infra_error("Hrana: ... (os error 10060)") == "os error 10060"
+
+
+def test_a_statement_error_gets_no_label():
+    assert _infra_error('Hrana: `stream error: `Error { message: "SQLite error: no such table: users" }``') is None
+
+
+def test_the_section_carries_neither_the_token_nor_sql(monkeypatch):
+    item = _item()
+    monkeypatch.setattr(harness, "_current", item)
+    secret_sql = "SELECT secret_column FROM users WHERE token_hash = ?"
+    client = _RecordedClient(_FakeReal(raises=ValueError(f"{_CONNECT_TIMEOUT} while running {secret_sql}")))
+
+    with pytest.raises(ValueError):
+        client.execute(secret_sql, ("p4ram",))
+
+    section = _diagnostics(item.stash[_RECORDS])
+    assert "tcp connect error" in section
+    for leaked in ("s3cret", "secret_column", "p4ram"):
+        assert leaked not in section, leaked
+
+
+def test_the_proxy_forwards_a_plain_attribute():
+    assert _RecordedClient(_FakeReal()).autocommit is False
+
+
+def test_the_proxy_reraises_the_drivers_own_exception_and_records_it(monkeypatch):
+    """`_translated()` and `_is_dead_stream()` read the message of the very object raised."""
+    item = _item()
+    monkeypatch.setattr(harness, "_current", item)
+    original = ValueError(_STREAM_EXPIRED)
+    client = _RecordedClient(_FakeReal(raises=original))
+
+    with pytest.raises(ValueError) as excinfo:
+        client.execute("SELECT 1")
+
+    assert excinfo.value is original
+    (call,) = item.stash[_RECORDS]
+    assert (call.op, call.client, call.error) == ("execute", client._number, "STREAM_EXPIRED")
+    assert call.idle is not None and call.idle >= 0
+
+
+def test_a_cached_client_records_into_the_test_that_uses_it(monkeypatch):
+    """`_shared_client()` lends a client built in one test to the next."""
+    first, second = _item(), _item()
+    monkeypatch.setattr(harness, "_current", first)
+    client = _RecordedClient(_FakeReal())
+    assert client.execute("SELECT 1") == "cursor"
+
+    monkeypatch.setattr(harness, "_current", second)
+    client.execute("SELECT 2")
+    client.execute("SELECT 3")
+
+    assert len(first.stash[_RECORDS]) == 1
+    assert len(second.stash[_RECORDS]) == 2
+
+
+def test_outside_any_db_test_a_call_is_forwarded_and_not_recorded(monkeypatch):
+    monkeypatch.setattr(harness, "_current", None)
+    assert _RecordedClient(_FakeReal()).execute("SELECT 1") == "cursor"
+
+
+def test_connect_is_recorded_and_returns_a_recorded_client(monkeypatch):
+    item = _item()
+    monkeypatch.setattr(harness, "_current", item)
+    real = _FakeReal()
+
+    client = _recorded_connect(lambda url, auth_token=None: real)("http://x", auth_token="")
+
+    assert isinstance(client, _RecordedClient) and client._real is real
+    (call,) = item.stash[_RECORDS]
+    assert (call.op, call.client, call.idle, call.error) == ("connect", client._number, None, None)
+
+
+def test_a_failed_connect_is_recorded_and_reraised_unchanged(monkeypatch):
+    item = _item()
+    monkeypatch.setattr(harness, "_current", item)
+    original = ValueError(_CONNECT_TIMEOUT)
+
+    def refuse(*args, **kwargs):
+        raise original
+
+    with pytest.raises(ValueError) as excinfo:
+        _recorded_connect(refuse)("http://x")
+
+    assert excinfo.value is original
+    (call,) = item.stash[_RECORDS]
+    assert (call.op, call.client, call.error) == ("connect", None, "tcp connect error")
+
+
+def test_ending_another_items_recording_leaves_the_pointer(monkeypatch):
+    mine, other = _item(), _item()
+    monkeypatch.setattr(harness, "_current", mine)
+    harness._end(other)
+    assert harness._current is mine
+    harness._end(mine)
+    assert harness._current is None
+
+
 # --- The guard, in a child run of the real conftest -----------------------------
 
 #: Every guard child module starts here. Since STORY-004 a child with no `db`
@@ -239,12 +458,81 @@ from app.config import settings
 _GET_CONNECTION_REFUSED = "test_child.py::test_it reached storage (app/db/database.py:get_connection)"
 
 
-def _run_child(pytester, monkeypatch, body: str, prelude: str = _CHILD_PRELUDE):
+#: The recorder's children start here: a fake driver installed at import, so
+#: `_storage_policy` wraps it as it would the real one, and `db` tests run
+#: with no server. `_FAIL["text"]`, once set, is what the next `execute` raises.
+_FAKE_DRIVER_PRELUDE = """
+import libsql
+import pytest
+
+from app.db.database import get_connection
+
+STREAM_EXPIRED = (
+    'Hrana: `api error: `status=400 Bad Request, body={"message":"The stream has expired '
+    'due to inactivity","code":"STREAM_EXPIRED"}``'
+)
+CONNECT_TIMEOUT = (
+    "Hrana: `http error: `error sending request for url "
+    "(http://127.0.0.1:9/v2/pipeline?authToken=s3cret): client error (Connect): "
+    "tcp connect error: A connection attempt failed (os error 10060)``"
+)
+_FAIL = {"text": None, "connect": None}
+
+
+class _FakeCursor:
+    description = None
+    lastrowid = None
+    rowcount = 0
+
+    def fetchone(self):
+        return (1,)
+
+    def fetchall(self):
+        return []
+
+
+class _FakeClient:
+    def execute(self, sql, *parameters):
+        if _FAIL["text"] is not None:
+            raise ValueError(_FAIL["text"])
+        return _FakeCursor()
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+def _fake_connect(url, auth_token=None):
+    if _FAIL["connect"] is not None:
+        raise ValueError(_FAIL["connect"])
+    return _FakeClient()
+
+
+libsql.connect = _fake_connect
+
+
+@pytest.fixture(scope="session")
+def _libsql_endpoint():
+    return "http://127.0.0.1:9"
+"""
+
+
+def _run_child(pytester, monkeypatch, body: str, prelude: str = _CHILD_PRELUDE, *args: str):
     monkeypatch.setenv("PYTHONPATH", str(_REPO_ROOT))
     monkeypatch.setenv("HARNESS_TEST_LIBSQL_URL", "http://127.0.0.1:9")
     pytester.makeconftest((_REPO_ROOT / "tests" / "conftest.py").read_text(encoding="utf-8"))
     pytester.makepyfile(test_child=prelude + textwrap.dedent(body))
-    return pytester.runpytest_subprocess("-p", "no:cacheprovider")
+    return pytester.runpytest_subprocess("-p", "no:cacheprovider", *args)
+
+
+def _section(output: str) -> str:
+    """The `libsql diagnostics` section of a child's output, header to verdict."""
+    lines = output.splitlines()
+    start = next(i for i, line in enumerate(lines) if "libsql diagnostics" in line)
+    end = next(i for i in range(start, len(lines)) if lines[i].startswith("libsql verdict: "))
+    return "\n".join(lines[start : end + 1])
 
 
 def _assert_no_network(output: str) -> None:
@@ -370,6 +658,104 @@ def test_a_test_that_touches_no_storage_does_not_hear_from_the_guard(pytester, m
     """)
 
     result.assert_outcomes(passed=1)
+
+
+# --- The diagnostics section, in a child run of the real conftest ---------------
+
+
+def test_a_failing_db_test_reports_libsql_diagnostics(pytester, monkeypatch):
+    result = _run_child(pytester, monkeypatch, """
+        @pytest.mark.db
+        def test_it():
+            with get_connection() as conn:
+                conn.execute("SELECT 1").fetchone()
+            assert False
+    """, _FAKE_DRIVER_PRELUDE)
+
+    result.assert_outcomes(failed=1)
+    section = _section(result.stdout.str())
+    assert "calls: " in section and "on 1 client, 1 connect" in section
+    assert "libsql verdict: no infrastructure signal (" in section
+
+
+def test_a_passing_db_test_has_no_section(pytester, monkeypatch):
+    """`-rA` prints passing tests' sections too, so absence here means none was added."""
+    result = _run_child(pytester, monkeypatch, """
+        @pytest.mark.db
+        def test_it():
+            with get_connection() as conn:
+                conn.execute("SELECT 1").fetchone()
+    """, _FAKE_DRIVER_PRELUDE, "-rA")
+
+    result.assert_outcomes(passed=1)
+    assert "libsql diagnostics" not in result.stdout.str()
+
+
+def test_a_dead_stream_during_the_call_is_classified_as_infrastructure(pytester, monkeypatch):
+    """Through `runpytest_subprocess`'s pipe, so the section must be ASCII: piped output on Windows is cp1252."""
+    result = _run_child(pytester, monkeypatch, """
+        @pytest.mark.db
+        def test_it():
+            _FAIL["text"] = STREAM_EXPIRED
+            with get_connection() as conn:
+                conn.execute("SELECT 1")
+    """, _FAKE_DRIVER_PRELUDE)
+
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ["libsql verdict: likely infrastructure -- execute took * s and ended in STREAM_EXPIRED"]
+    )
+    assert "driver errors: 1 x STREAM_EXPIRED" in _section(result.stdout.str())
+
+
+def test_a_connect_error_in_setup_is_classified_and_redacted(pytester, monkeypatch):
+    """The token still shows in the driver's own traceback, which is not ours to
+    edit. The section must not repeat it."""
+    result = _run_child(pytester, monkeypatch, """
+        _FAIL["connect"] = CONNECT_TIMEOUT
+
+        @pytest.mark.db
+        def test_it():
+            pass
+    """, _FAKE_DRIVER_PRELUDE)
+
+    result.assert_outcomes(errors=1)
+    section = _section(result.stdout.str())
+    assert "calls: 1 on 0 clients, 1 connect" in section
+    assert "libsql verdict: likely infrastructure -- connect took " in section
+    assert section.endswith("and ended in tcp connect error")
+    assert "s3cret" not in section
+
+
+def test_a_teardown_failure_records_the_teardowns_calls(pytester, monkeypatch):
+    """The test's fixtures tear down before `_storage_policy` clears the pointer."""
+    result = _run_child(pytester, monkeypatch, """
+        @pytest.fixture
+        def dies_at_teardown():
+            yield
+            _FAIL["text"] = STREAM_EXPIRED
+            with get_connection() as conn:
+                conn.execute("SELECT 1")
+
+        @pytest.mark.db
+        def test_it(dies_at_teardown):
+            pass
+    """, _FAKE_DRIVER_PRELUDE)
+
+    result.assert_outcomes(passed=1, errors=1)
+    output = result.stdout.str()
+    assert "ERROR at teardown of test_it" in output
+    assert _section(output).endswith("and ended in STREAM_EXPIRED")
+
+
+def test_a_failing_test_that_is_not_db_has_no_section(pytester, monkeypatch):
+    result = _run_child(pytester, monkeypatch, """
+        def test_it():
+            assert False
+    """, _FAKE_DRIVER_PRELUDE)
+
+    result.assert_outcomes(failed=1)
+    assert "libsql diagnostics" not in result.stdout.str()
 
 
 # --- The lazy endpoint, in a child run of the real conftest ---------------------
