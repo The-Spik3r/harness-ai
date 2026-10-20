@@ -18,8 +18,9 @@ also stays here rather than spreading.
 **Where isolation comes from now.** It used to come from `tmp_path`: a distinct
 file per test. One libSQL server serves one database, so isolation is now a
 **reset** rather than a fresh name -- `_reset_database()` drops every table and
-index before each test, from an autouse fixture, so every test starts empty
-whether it asked for a database or not. The promise the old docstring made is
+index before each `db` test, from the autouse `_storage_policy`. Since PRD-014 a
+test that is not `db` cannot reach storage at all, so it has nothing to start
+empty. The promise the old docstring made is
 unchanged; only the mechanism behind it moved. What did not survive is distinct
 URLs per test: see `database_url_factory`.
 
@@ -33,7 +34,9 @@ Point the suite somewhere else with `HARNESS_TEST_LIBSQL_URL`.
 """
 
 import os
-from typing import Callable
+import traceback
+from pathlib import Path
+from typing import Callable, NoReturn, Optional
 
 import pytest
 
@@ -157,6 +160,28 @@ def pytest_collection_modifyitems(config, items) -> None:
             item.add_marker(skip)
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Notes when the storage guard's own exception failed setup or call.
+
+    `_storage_policy` fails a test at teardown when its guard recorded an
+    access, which catches an access something swallowed. When nothing did, the
+    raised exception has already failed the test, and a second report from
+    teardown would turn one undeclared test into "1 failed, 1 error". STORY-005
+    adds the `libsql diagnostics` section to this hook.
+    """
+    report = yield
+    if (
+        report.when in ("setup", "call")
+        and report.failed
+        and call.excinfo is not None
+        and call.excinfo.errisinstance(pytest.fail.Exception)
+        and str(call.excinfo.value).startswith(f"{item.nodeid} reached storage")
+    ):
+        item.stash[_REFUSED] = True
+    return report
+
+
 def child_db_env(url: str) -> dict:
     """The `DATABASE_URL` entry a probe subprocess needs.
 
@@ -223,6 +248,82 @@ def _drop_every_table_and_index() -> None:
             conn.execute(f'DROP {kind.upper()} IF EXISTS "{name}"')
 
 
+#: What a test that is not `db` is told when it reaches storage (PRD-014 Section 10).
+#: The teardown check and `pytest_runtest_makereport` recognise it by its first words.
+_UNDECLARED = (
+    "{nodeid} reached storage ({where}) without declaring it.\n"
+    "Request temp_db (or database_url / uninitialized_db / database_url_factory / db_connect),\n"
+    "add @pytest.mark.db, or -- for a suite that must not be edited -- add its nodeid to\n"
+    "_DB_NODEIDS in tests/conftest.py."
+)
+
+#: The repository root, from the application package rather than pytest's rootdir, so
+#: frames resolve the same in a `pytester` child whose rootdir is a temp directory.
+_REPO = Path(database.__file__).resolve().parents[2]
+
+#: Where "the first app frame" may live.
+_APP_ROOTS = (_REPO / "app", _REPO / "chat_ui")
+
+_HERE = Path(__file__).resolve()
+
+
+def _where(path: Path, name: str) -> str:
+    try:
+        shown = path.relative_to(_REPO).as_posix()
+    except ValueError:
+        shown = path.as_posix()
+    return f"{shown}:{name}"
+
+
+def _first_app_frame(test_path: Optional[Path] = None) -> str:
+    """The innermost frame of application code on the current stack, e.g.
+    `app/db/database.py:get_connection`.
+
+    Failing that -- a test that calls `libsql.connect` itself -- the innermost
+    frame in the test's own file, and failing that the innermost frame outside
+    this one, so the message always names somewhere to look.
+    """
+    frames = [(Path(frame.filename).resolve(), frame.name) for frame in reversed(traceback.extract_stack())]
+    for path, name in frames:
+        if any(path.is_relative_to(root) for root in _APP_ROOTS):
+            return _where(path, name)
+    if test_path is not None:
+        target = Path(test_path).resolve()
+        for path, name in frames:
+            if path == target:
+                return _where(path, name)
+    for path, name in frames:
+        if path != _HERE:
+            return _where(path, name)
+    return "unknown"
+
+
+def _refuse(item, sink: list[str]) -> Callable[..., NoReturn]:
+    """What `database._shared_client` and `libsql.connect` become in a test that is not `db`.
+
+    **`pytest.fail`, which raises a `BaseException`.** Routers and services turn
+    `Exception` into status codes (`StorageError` into a `503`, for one), so an
+    `Exception` would be swallowed and the test could pass on the error page.
+    `pytest.fail.Exception` gets past every `except Exception`.
+
+    **The sink is the backstop for what does catch it** -- an `except
+    BaseException`, a worker thread from `asyncio.to_thread`, a background task:
+    `_storage_policy` fails the test at teardown when anything was recorded.
+
+    **Not "point the test at an unreachable URL".** On Windows a refused localhost
+    connect costs about two seconds of SYN retries per test, and it reads as a
+    network error -- the very ambiguity PRD-014 exists to remove. This refuses
+    before any socket is opened.
+    """
+
+    def refused(*args, **kwargs) -> NoReturn:
+        where = _first_app_frame(getattr(item, "path", None))
+        sink.append(where)
+        pytest.fail(_UNDECLARED.format(nodeid=item.nodeid, where=where), pytrace=False)
+
+    return refused
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _libsql_endpoint() -> str:
     """Proves the endpoint is reachable once, and says how to start it if not.
@@ -246,9 +347,18 @@ def _libsql_endpoint() -> str:
     return _ENDPOINT
 
 
+#: Set on an item whose setup or call already failed through the guard, so the
+#: teardown check does not report the same access a second time.
+_REFUSED = pytest.StashKey[bool]()
+
+
 @pytest.fixture(autouse=True)
-def _never_the_configured_database(_libsql_endpoint, monkeypatch) -> None:
-    """Every test starts on an empty database, whether it asked for one or not.
+def _storage_policy(request, monkeypatch):
+    """A `db` test starts on an empty database; any other test cannot reach one.
+
+    Until PRD-014 STORY-003 this fixture was `_never_the_configured_database`,
+    and it reset the database before every test, whether it asked for one or
+    not. The history that shaped it still holds:
 
     Until STORY-005, `DATABASE_URL` defaulted to `sqlite:///harness_ai.db`, so a
     test that reached storage without requesting a fixture quietly opened the
@@ -272,9 +382,39 @@ def _never_the_configured_database(_libsql_endpoint, monkeypatch) -> None:
     anything in", and the reset is what makes that true. Explicit fixtures still
     win: `database_url` below patches the same setting afterwards, and pytest
     instantiates autouse fixtures first.
+
+    **Since PRD-014 STORY-003 only `db` tests are reset** (the marker from
+    `pytest_collection_modifyitems`), and every other test is refused storage
+    outright. Two thirds of the suite never needed a database, yet each paid a
+    reset and each was exposed to the libSQL stalls that made full runs red at
+    random. A test that is not `db` gets `DATABASE_URL` set to the endpoint --
+    code that only *reads* the setting behaves as before -- and two patch points
+    replaced by `_refuse()`: `database._shared_client`, which every
+    `get_connection()` goes through and which also stops a client cached by an
+    earlier `db` test from being lent, and `libsql.connect`, which catches direct
+    construction. Isolation still holds without the reset: a test that cannot
+    reach storage can neither see rows nor leave them. Declared first among the
+    function-scoped autouse fixtures, so nothing it guards runs before it.
+
+    The guard rides on the test's own `monkeypatch`, so a test that patches
+    either point itself is restored in the right order. The one way round it is
+    `monkeypatch.undo()` in a test that is not `db`; the seven calls in
+    `tests/test_db.py` are all in `db` tests.
     """
-    monkeypatch.setattr(settings, "DATABASE_URL", _libsql_endpoint)
-    _reset_database()
+    item = request.node
+    if item.get_closest_marker(_DB_MARKER) is not None:
+        monkeypatch.setattr(settings, "DATABASE_URL", request.getfixturevalue("_libsql_endpoint"))
+        _reset_database()
+        yield
+        return
+    monkeypatch.setattr(settings, "DATABASE_URL", _ENDPOINT)
+    sink: list[str] = []
+    refused = _refuse(item, sink)
+    monkeypatch.setattr(database, "_shared_client", refused)
+    monkeypatch.setattr(libsql, "connect", refused)
+    yield
+    if sink and not item.stash.get(_REFUSED, False):
+        pytest.fail(_UNDECLARED.format(nodeid=item.nodeid, where=sink[0]), pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -365,8 +505,9 @@ def database_url_factory(_libsql_endpoint) -> Callable[[str], str]:
     the client addresses by hostname (`<ns>.localhost`) and which does not
     resolve inside a container -- a suite that passes on one machine and fails on
     another. What replaces the guarantee: every probe is created inside a test,
-    after `_never_the_configured_database` has emptied the database, so each one
+    after `_storage_policy` has emptied the database, so each one
     still starts from nothing. `name` is kept because it documents the call site.
+    (Requesting this fixture makes the test `db`, which is what gets it reset.)
     """
 
     def make(name: str) -> str:
