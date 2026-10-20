@@ -324,12 +324,20 @@ def _refuse(item, sink: list[str]) -> Callable[..., NoReturn]:
     return refused
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def _libsql_endpoint() -> str:
     """Proves the endpoint is reachable once, and says how to start it if not.
 
     A hard failure rather than a skip: a suite that quietly stops exercising
     storage still reports green, which is worse than a red one.
+
+    **Since PRD-014 STORY-004 it is not autouse.** Only `_storage_policy`'s `db`
+    branch and the storage fixtures (`database_url`, `database_url_factory`)
+    instantiate it, so a `-m "not db"` session never probes and runs with
+    Docker stopped. The price is where a full run with Docker stopped ends: at
+    the *first `db` test*, not before the first test. The tests that ran before
+    it have already reported and the rest never run, so it is still a hard
+    exit, and it still names the fix.
     """
     try:
         libsql.connect(_ENDPOINT).execute("SELECT 1").fetchone()

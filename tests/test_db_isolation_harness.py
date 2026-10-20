@@ -5,8 +5,8 @@ stories key the reset, the guard and the diagnostics on that one decision. A
 marker that silently stopped applying would not turn anything red: `-m db`
 would just select fewer tests and `-m "not db"` would quietly reach storage.
 So the rule is checked here, against the conftest's own constants. The guard
-(STORY-003) is checked the same way, and the lazy endpoint and the recorder add
-their tests to this file as they land.
+(STORY-003) is checked the same way, and so is the lazy endpoint (STORY-004).
+The recorder adds its tests to this file when it lands.
 
 The guard's tests never call the guard *installed* on themselves: its teardown
 check would fail them. In-process they build their own `_refuse()`. The cases
@@ -204,10 +204,12 @@ def test_the_teardown_check_recognises_the_message_by_its_first_words():
 
 # --- The guard, in a child run of the real conftest -----------------------------
 
-#: Every child module starts here. The `_libsql_endpoint` override replaces the
-#: conftest's session probe (closest definition wins), so a child makes no
-#: network call; `HARNESS_TEST_LIBSQL_URL` points at a dead port as well, so a
-#: connect that did happen would fail loudly rather than reach the dev server.
+#: Every guard child module starts here. Since STORY-004 a child with no `db`
+#: test never runs the conftest's session probe anyway, so the `_libsql_endpoint`
+#: override (closest definition wins) is belt-and-braces: it keeps a `db` arm,
+#: should a guard child ever grow one, off the network. `HARNESS_TEST_LIBSQL_URL`
+#: points at a dead port as well, so a connect that did happen would fail loudly
+#: rather than reach the dev server.
 _CHILD_PRELUDE = """
 import asyncio
 import time
@@ -225,14 +227,23 @@ def _libsql_endpoint():
     return "http://127.0.0.1:9"
 """
 
+#: The lazy endpoint's children start here instead: no override, so the real
+#: `_libsql_endpoint` decides whether the dead port is ever probed. On top of
+#: `_CHILD_PRELUDE` these tests would pass with the fixture autouse again.
+_LAZY_PRELUDE = """
+import pytest
+
+from app.config import settings
+"""
+
 _GET_CONNECTION_REFUSED = "test_child.py::test_it reached storage (app/db/database.py:get_connection)"
 
 
-def _run_child(pytester, monkeypatch, body: str):
+def _run_child(pytester, monkeypatch, body: str, prelude: str = _CHILD_PRELUDE):
     monkeypatch.setenv("PYTHONPATH", str(_REPO_ROOT))
     monkeypatch.setenv("HARNESS_TEST_LIBSQL_URL", "http://127.0.0.1:9")
     pytester.makeconftest((_REPO_ROOT / "tests" / "conftest.py").read_text(encoding="utf-8"))
-    pytester.makepyfile(test_child=_CHILD_PRELUDE + textwrap.dedent(body))
+    pytester.makepyfile(test_child=prelude + textwrap.dedent(body))
     return pytester.runpytest_subprocess("-p", "no:cacheprovider")
 
 
@@ -359,3 +370,33 @@ def test_a_test_that_touches_no_storage_does_not_hear_from_the_guard(pytester, m
     """)
 
     result.assert_outcomes(passed=1)
+
+
+# --- The lazy endpoint, in a child run of the real conftest ---------------------
+
+
+def test_a_test_that_is_not_db_runs_with_the_endpoint_unreachable(pytester, monkeypatch):
+    """`-m "not db"` with Docker stopped, in one test: nothing asks for the probe."""
+    result = _run_child(pytester, monkeypatch, """
+        def test_it():
+            assert settings.DATABASE_URL == "http://127.0.0.1:9"
+    """, prelude=_LAZY_PRELUDE)
+
+    result.assert_outcomes(passed=1)
+    assert "is unreachable" not in result.stdout.str()
+
+
+def test_a_db_test_exits_the_run_with_the_unreachable_message(pytester, monkeypatch):
+    """`pytest.exit` leaves no outcome summary to parse, so the return code and
+    the message are the assertion."""
+    result = _run_child(pytester, monkeypatch, """
+        @pytest.mark.db
+        def test_it():
+            pass
+    """, prelude=_LAZY_PRELUDE)
+
+    assert result.ret == 1
+    result.stdout.fnmatch_lines(["*The libSQL dev server at http://127.0.0.1:9 is unreachable*"])
+    output = result.stdout.str()
+    assert "Start it with:" in output
+    assert "1 passed" not in output
