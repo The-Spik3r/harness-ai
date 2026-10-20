@@ -36,6 +36,14 @@ Estimated total: ~98–117 stories.
 
 **Shortcut (explicit debt):** 009 → 010 → 014 with conservative defaults (patterns on `user` turns only, PII on input only, audit unchanged). ~38–46 stories. Do not start 016 until 011–013 and 015 are closed.
 
+## Other briefs
+
+Outside the endpoint track. They do not change the order or the dependencies above.
+
+| Brief | Target PRD | Est. stories | Depends on | Status |
+|---|---|---|---|---|
+| [Test suite: database isolation and diagnosable failures](./PRE-PRD-017-test-suite-db-isolation.md) | [PRD-014](../.agents/PRDs/PRD-014-test-suite-db-isolation/PRD.md) | 6–8 | — | `promoted` |
+
 ## How to promote a brief
 
 1. Confirm the brief's **Open decisions** are answered (or accept the proposed defaults).
