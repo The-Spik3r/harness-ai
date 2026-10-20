@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-013-audit-and-usage-limits` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
-17/18 stories done — 94%
+18/18 stories done — 100%
 
 ## Stories
 
@@ -31,7 +31,7 @@ All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No 
 | STORY-015 | Admin console: Register fields, verdict, search and summary figures | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-015-console-register-and-summary.plan.md) | `b6085a4` |
 | STORY-016 | Admin console: Usage table | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-016-console-usage-table.plan.md) | `6308359` |
 | STORY-017 | Two-instance limit test and latency measurement | technical | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-017-two-instance-limits-and-latency.plan.md) | `5df7c69` |
-| STORY-018 | Regression sweep, README and .env docs | technical | ⬜ todo | medium | — | — |
+| STORY-018 | Regression sweep, README and .env docs | technical | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-018-regression-and-docs.plan.md) | `af85840` |
 
 ## Status Icons
 - ⬜ todo

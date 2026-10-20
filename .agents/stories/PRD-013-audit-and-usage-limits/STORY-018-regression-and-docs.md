@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - See it and prove it"
-status: todo
+status: done
 labels: [tests, docs]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-018-regression-and-docs.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-018-regression-and-docs.report.md
+commit: af85840
 depends_on: [STORY-013, STORY-014, STORY-015, STORY-016, STORY-017]
 blocks: []
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-20
 ---
 
 # STORY-018: Regression sweep, README and .env docs
