@@ -22,6 +22,7 @@ from typing import Optional
 
 from app.db.models import AuditLog
 
+from .admin_copy import DETAIL_FLAG_NO_LABEL, DETAIL_FLAG_YES_LABEL
 from .admin_models import AuditRow
 from .formatting import humanize_compact
 
@@ -35,11 +36,17 @@ from .formatting import humanize_compact
 #     was_duplicate_blocked   -> held
 #     suspicious_pattern      -> denied  (a block, or a pre-PRD-011 row with a
 #                                         NULL action; never a flag -- PRD-011 D6)
+#     limit_exceeded          -> denied  (a usage-limit refusal, written with
+#                                         success=1 -- PRD-013 D6)
 #     not success             -> fault
 #     otherwise               -> cleared
 #
 # Fixed here and nowhere else, so two rows with identical fields can never
 # render differently.
+#
+# Not covered, and deliberately left alone: a permission refusal
+# (`denied_permission` set, success=1) still reads **cleared**. PRD-013's
+# Evidence records it; changing it is outside that PRD.
 VERDICT_CLEARED = "cleared"
 VERDICT_HELD = "held"
 VERDICT_DENIED = "denied"
@@ -59,6 +66,11 @@ SHARE_UNDEFINED = "—"
 # register scans on. The full string is kept on the row for the disclosure.
 DEVICE_TRUNCATE_LENGTH = 32
 DEVICE_ELLIPSIS = "…"
+
+# Between the two halves of the register's tokens cell, "2,140 / 312". A format
+# rather than copy, like DEVICE_ELLIPSIS: the slash is the split itself. Which
+# half is which (input first) is stated once, by COLUMN_TOKENS_TITLE on the head.
+TOKENS_SPLIT_SEPARATOR = " / "
 
 # The refresh stamp's format. Seconds included deliberately: two refreshes a
 # minute apart must produce two visibly different stamps, or the control reads
@@ -81,6 +93,10 @@ def derive_verdict(log: AuditLog) -> str:
     field would encode the pipeline's statement order into the console and
     break the first time it is reordered. **fault** stays one verdict, and
     `error_message` carries the distinction on disclosure.
+
+    A usage-limit row (PRD-013) is **denied**, after the pattern arm and before
+    the success check. Both arms say denied, so their relative order cannot
+    change a verdict.
     """
     if log.was_duplicate_blocked:
         return VERDICT_HELD
@@ -91,6 +107,13 @@ def derive_verdict(log: AuditLog) -> str:
     # block, so it stays **denied**: the same rule the blocked_suspicious
     # counters use in `app/db/database.py`.
     if log.suspicious_pattern is not None and log.pattern_action != "flag":
+        return VERDICT_DENIED
+    # PRD-013 D6: a usage-limit refusal is written with success=1 and the limit
+    # named in its own column, so without this it would read **cleared**.
+    # `is not None` rather than truthiness, matching the `/stats` predicate
+    # (`_BLOCKED_USAGE_LIMITS_WHERE` in `app/db/database.py`), so the register
+    # and the summary agree on which rows these are.
+    if log.limit_exceeded is not None:
         return VERDICT_DENIED
     if not log.success:
         return VERDICT_FAULT
@@ -119,8 +142,9 @@ def format_count(value: Optional[int]) -> str:
     Var. `AdminState.register_scope` calls this when the read completes; the
     register reads the field.
 
-    General rather than a `format_scope`, because the summary's nine figures are
-    the second caller (STORY-015) and a count is a count on both sheets.
+    General rather than a `format_scope`, because the summary's figures are the
+    second caller and the register's tokens cell and message count the third
+    (PRD-013 STORY-015): a count is a count on every surface.
 
     0 returns "0", not the absent mark: nothing recorded is a fact, and the same
     distinction `to_audit_row` makes for `tokens_used` below.
@@ -135,6 +159,41 @@ def _text(value: Optional[object]) -> str:
     if value is None or value == "":
         return VALUE_ABSENT
     return str(value)
+
+
+def _flag(value: Optional[bool]) -> str:
+    """A recorded boolean, as the word the disclosure shows.
+
+    `False` is "no", a fact. `None` is the absent mark, never "no": the schema
+    makes both flags NOT NULL and the mapper coerces them with `bool()`, so it
+    does not arrive today, but a row that somehow lacked the value must not be
+    shown as having recorded False.
+    """
+    if value is None:
+        return VALUE_ABSENT
+    return DETAIL_FLAG_YES_LABEL if value else DETAIL_FLAG_NO_LABEL
+
+
+def _format_tokens(log: AuditLog) -> str:
+    """The register's tokens cell (PRD-013 Section 6.10).
+
+    "2,140 / 312" when the row recorded both halves of the split; the total
+    when it recorded only that; the absent mark when it recorded neither. A
+    half split falls back to the total: the client sets both or neither, and
+    showing one side would imply the other was 0.
+
+    0 tokens is a recorded fact, not a missing value, so every test is against
+    None rather than truthiness.
+    """
+    if log.input_tokens is not None and log.output_tokens is not None:
+        return (
+            format_count(log.input_tokens)
+            + TOKENS_SPLIT_SEPARATOR
+            + format_count(log.output_tokens)
+        )
+    if log.tokens_used is not None:
+        return format_count(log.tokens_used)
+    return VALUE_ABSENT
 
 
 def _parse_pii_entities(raw: Optional[str]) -> list[str]:
@@ -206,9 +265,7 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         user_id=log.user_id,
         verdict=derive_verdict(log),
         model_used=_text(log.model_used),
-        # 0 tokens is a recorded fact, not a missing value, so this tests
-        # against None rather than truthiness.
-        tokens_used=str(log.tokens_used) if log.tokens_used is not None else VALUE_ABSENT,
+        tokens_used=_format_tokens(log),
         pii_indicator=bool(log.pii_detected_input or log.pii_detected_output),
         device_short=device_short,
         device_full=device_full,
@@ -221,4 +278,12 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         pattern_role=_text(log.pattern_role),
         pattern_action=_text(log.pattern_action),
         profile=_text(log.profile),
+        # PRD-013 (STORY-015): disclosure-only, the absent mark on every row
+        # written before PRD-013.
+        ingress=_text(log.ingress),
+        message_count=format_count(log.message_count),
+        conversation_key=_text(log.conversation_key),
+        streamed=_flag(log.streamed),
+        has_tool_calls=_flag(log.has_tool_calls),
+        limit_exceeded=_text(log.limit_exceeded),
     )

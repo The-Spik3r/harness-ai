@@ -57,7 +57,10 @@ from .admin_copy import (
     EMPTY_MATCHES_TEMPLATE,
     FIGURE_BLOCKED_DUPLICATES_LABEL,
     FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
     FIGURE_COMPLETION_LABEL,
+    FIGURE_INPUT_TOKENS_LABEL,
+    FIGURE_OUTPUT_TOKENS_LABEL,
     FIGURE_PII_QUERIES_LABEL,
     FIGURE_TOP_MODELS_LABEL,
     FIGURE_TOP_PII_LABEL,
@@ -76,6 +79,7 @@ from .admin_copy import (
     REGISTER_SCOPE_TEMPLATE,
     SHARE_TEMPLATE,
     SUMMARY_SCOPE_ALL_TIME,
+    SUMMARY_SCOPE_TOKENS,
     VERDICT_CLEARED_LABEL,
     VERDICT_DENIED_LABEL,
     VERDICT_FAULT_LABEL,
@@ -286,7 +290,7 @@ _READS: tuple[tuple[str, str, object, dict], ...] = (
     ),
     # PRD-013 STORY-006: appended after the ten, in `SUMMARY_FIGURES`' order.
     # Read and committed here so the table and the figures stay one-to-one;
-    # rendering them is STORY-015.
+    # STORY-015 renders them (`blocked_figures`, `token_figures`).
     ("input_tokens", READ_LABEL_INPUT_TOKENS, sum_input_tokens, {}),
     ("output_tokens", READ_LABEL_OUTPUT_TOKENS, sum_output_tokens, {}),
     (
@@ -335,19 +339,30 @@ def _ranked_figure(label: str, items: list[str]) -> SummaryFigure:
     )
 
 
-def _count_figure(label: str, count: int, share: str = "") -> SummaryFigure:
+def _count_figure(
+    label: str,
+    count: int,
+    share: str = "",
+    *,
+    scope: str = SUMMARY_SCOPE_ALL_TIME,
+) -> SummaryFigure:
     """One counted figure: the number, thousands-separated, and its scope.
 
-    Every figure on the sheet carries SUMMARY_SCOPE_ALL_TIME, and it is applied
-    here rather than at each call site so a tenth figure cannot arrive without
-    one. PRD-006 Risk 4 makes that a requirement, not a nicety: an all-time
-    total sitting beside the register's hundred-row window "invites a wrong
-    reading", and the scope on the figure is the whole mitigation.
+    Every figure carries a scope, and the default is applied here rather than
+    at each call site so a new figure cannot arrive without one. PRD-006 Risk 4
+    makes that a requirement, not a nicety: an all-time total sitting beside the
+    register's hundred-row window "invites a wrong reading", and the scope on
+    the figure is the whole mitigation.
+
+    `scope` is keyword-only and defaults to SUMMARY_SCOPE_ALL_TIME, so every
+    figure that predates it is unchanged. A figure passes another scope only
+    where "every recorded row" would be false: the token totals (PRD-013),
+    which count NULL as 0 and so cover only the rows that recorded a split.
     """
     return SummaryFigure(
         label=label,
         value=format_count(count),
-        scope=SUMMARY_SCOPE_ALL_TIME,
+        scope=scope,
         share=share,
     )
 
@@ -366,6 +381,13 @@ def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
     and the register's join back to the chat is a user quoting "#127" out of the
     success footer (PRD-004 STORY-010) — so the coercion happens here, in
     Python, not in a component against a Var.
+
+    Since PRD-013 (Section 6.10) it also matches `conversation_key` and
+    `ingress`, so pasting a key copied from one row's disclosure shows every
+    loaded row of that conversation, and `v1` shows the agent traffic. Still a
+    substring match over the loaded window, never a database read: a word like
+    `chat` also matches a model or user that contains it, and the verdict
+    filter narrows from there.
     """
     if verdicts and row.verdict not in verdicts:
         return False
@@ -377,6 +399,9 @@ def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
             row.user_id.casefold(),
             row.model_used.casefold(),
             str(row.audit_id),
+            # PRD-013 (STORY-015)
+            row.conversation_key.casefold(),
+            row.ingress.casefold(),
         )
     )
 
@@ -392,8 +417,8 @@ def filter_rows(
     Section 5, story 4 — "denied plus a.torres narrows 100 rows to 2").
 
     The needle is case-folded and stripped **once** here rather than per row: the
-    comparison is case-insensitive, and a hundred rows times three fields is
-    three hundred `.casefold()` calls that would otherwise be four hundred.
+    comparison is case-insensitive, and a hundred rows times the matched fields
+    would otherwise be a hundred more `.casefold()` calls.
     """
     needle = search.strip().casefold()
     if not verdicts and not needle:
@@ -731,16 +756,22 @@ class AdminState(rx.State):
         return REFRESHED_TEMPLATE.format(time=self.last_refreshed)
 
     # --- The summary sheet (STORY-015) ------------------------------------
-    # Five vars, not one, and that is the sheet's structure rather than an
+    # Six vars, not one, and that is the sheet's structure rather than an
     # arbitrary split. PRD-006 Section 6.1 fixes it: the counts, with
     # `blocked_duplicates` and `blocked_suspicious` **indented beneath**
     # `total_queries` "because they are a subset of it and indentation is the
     # honest structural statement of that relationship"; then the who/what facts
     # "because they answer a different kind of question than the counts do"; then
-    # PII telemetry closing the sheet. The blocked pair is its own list because
-    # the component renders it through one `rx.foreach` at one indent — two
+    # PII telemetry closing the sheet. The blocked counts are their own list
+    # because the component renders them through one `rx.foreach` at one indent —
     # hand-placed rows could drift apart from each other, and the indent is the
     # claim.
+    #
+    # PRD-013 (STORY-015) adds two things, each where its structure puts it. The
+    # usage-limit count is a third blocked count: one row of the table each, so
+    # a subset of the total, indented with the other two. The token totals are
+    # not counts of rows at all, so they are a block of their own, `token_figures`,
+    # directly after the counts they measure in another unit.
     #
     # Figures are built here rather than in `components/summary.py` for the
     # reason `admin_formatting.py`'s docstring states generally: `format_count`'s
@@ -760,12 +791,13 @@ class AdminState(rx.State):
 
     @rx.var
     def blocked_figures(self) -> list[SummaryFigure]:
-        """The two blocked counts, each as a count *and* as a share of the total.
+        """The three blocked counts, each as a count *and* as a share of the total.
 
         Both halves are required (AC 2): `412` alone does not say whether that is
         most of the traffic or a rounding error, and `13.0%` alone hides how many
-        rows an investigation would have to read. Duplicates before patterns,
-        matching `_READS` and `StatsResponse`'s own field order.
+        rows an investigation would have to read. Duplicates, then patterns, then
+        usage limits (PRD-013), matching `_READS` and `StatsResponse`'s own field
+        order.
         """
         return [
             _count_figure(
@@ -777,6 +809,13 @@ class AdminState(rx.State):
                 FIGURE_BLOCKED_SUSPICIOUS_LABEL,
                 self.blocked_suspicious,
                 _share_line(self.blocked_suspicious, self.total_recorded),
+            ),
+            # PRD-013 (STORY-015): a usage-limit row is success=1 and one row
+            # of `audit_logs`, so it is a subset of the total like the two above.
+            _count_figure(
+                FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
+                self.blocked_usage_limits,
+                _share_line(self.blocked_usage_limits, self.total_recorded),
             ),
         ]
 
@@ -804,6 +843,32 @@ class AdminState(rx.State):
             self.successful_queries,
             _share_line(self.successful_queries, self.total_recorded),
         )
+
+    @rx.var
+    def token_figures(self) -> list[SummaryFigure]:
+        """The input and output token totals (PRD-013): the sheet's Tokens block.
+
+        No share. A token sum taken as a share of a query count is not a ratio
+        of anything, and `_figure_value` already renders nothing for an empty
+        share. Not indented: tokens are not a subset of any figure above them.
+
+        The scope is SUMMARY_SCOPE_TOKENS rather than the all-time default,
+        because the sums read NULL as 0 (`/stats`' own rule): a row written
+        before the split, or an upstream-error row, contributes nothing, so
+        "every recorded row" would be a false claim about what was summed.
+        """
+        return [
+            _count_figure(
+                FIGURE_INPUT_TOKENS_LABEL,
+                self.input_tokens,
+                scope=SUMMARY_SCOPE_TOKENS,
+            ),
+            _count_figure(
+                FIGURE_OUTPUT_TOKENS_LABEL,
+                self.output_tokens,
+                scope=SUMMARY_SCOPE_TOKENS,
+            ),
+        ]
 
     @rx.var
     def who_figures(self) -> list[SummaryFigure]:

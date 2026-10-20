@@ -41,7 +41,24 @@ AUDIT_ROW_FIELDS = {
     "pattern_action",
     # PRD-012 D9 (STORY-011): the profile that ran, disclosure-only.
     "profile",
+    # PRD-013 (STORY-015): the audit fields, disclosure-only and pre-formatted.
+    "ingress",
+    "message_count",
+    "conversation_key",
+    "streamed",
+    "has_tool_calls",
+    "limit_exceeded",
 }
+
+# PRD-013 (STORY-015): the six disclosure fields, each a pre-formatted string.
+AUDIT_FIELD_NAMES = (
+    "ingress",
+    "message_count",
+    "conversation_key",
+    "streamed",
+    "has_tool_calls",
+    "limit_exceeded",
+)
 
 SUMMARY_FIGURE_FIELDS = {"label", "value", "scope", "share", "items"}
 
@@ -73,7 +90,8 @@ def test_audit_row_constructs_with_no_arguments():
     assert row.audit_id == 0
     for name in ("timestamp_absolute", "timestamp_relative", "user_id", "verdict",
                  "model_used", "tokens_used", "device_short", "device_full",
-                 "prompt_hash", "error_message", "suspicious_pattern"):
+                 "prompt_hash", "error_message", "suspicious_pattern",
+                 *AUDIT_FIELD_NAMES):
         assert getattr(row, name) == ""
     for name in ("pii_indicator", "pii_detected_input", "pii_detected_output"):
         assert getattr(row, name) is False
@@ -91,6 +109,10 @@ def test_audit_row_types():
     # tokens_used is pre-formatted: Optional[int] would force an rx.cond over
     # None at render, which is exactly what the derived-once rule forbids.
     assert isinstance(AuditRow().tokens_used, str)
+    # PRD-013 (STORY-015): the six audit fields are strings too, the two flags
+    # included, so the disclosure renders each without a render-time branch.
+    for name in AUDIT_FIELD_NAMES:
+        assert isinstance(getattr(AuditRow(), name), str), name
 
 
 def test_audit_row_verdict_defaults_to_empty_not_cleared():
@@ -156,6 +178,12 @@ def test_audit_row_populated_from_audit_log_drops_previews():
         pii_entities=log.pii_entities.split(",") if log.pii_entities else [],
         pii_detected_input=log.pii_detected_input,
         pii_detected_output=log.pii_detected_output,
+        ingress="v1",
+        message_count="7",
+        conversation_key="ab" * 32,
+        streamed="no",
+        has_tool_calls="no",
+        limit_exceeded="tokens",
     )
 
     serialized = str(row.model_dump())

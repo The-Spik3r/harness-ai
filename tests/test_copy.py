@@ -406,6 +406,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "COLUMN_VERDICT",
         "COLUMN_MODEL",
         "COLUMN_TOKENS",
+        # PRD-013 (STORY-015)
+        "COLUMN_TOKENS_TITLE",
         "COLUMN_PII",
         "COLUMN_DEVICE",
         "COLUMN_ID",
@@ -418,6 +420,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "REGISTER_SCOPE_TEMPLATE",
         "REGISTER_FILTERED_TEMPLATE",
         "SUMMARY_SCOPE_ALL_TIME",
+        # PRD-013 (STORY-015)
+        "SUMMARY_SCOPE_TOKENS",
         "SUMMARY_SCOPE_NOTE",
         "REFRESH_LABEL",
         "REFRESH_IN_FLIGHT_LABEL",
@@ -478,12 +482,25 @@ def test_admin_copy_constants_exist_and_not_empty():
         "DETAIL_PII_ENTITIES_LABEL",
         "DETAIL_PII_INPUT_LABEL",
         "DETAIL_PII_OUTPUT_LABEL",
+        # PRD-013 (STORY-015)
+        "DETAIL_LIMIT_LABEL",
+        "DETAIL_CONVERSATION_LABEL",
+        "DETAIL_INGRESS_LABEL",
+        "DETAIL_MESSAGE_COUNT_LABEL",
+        "DETAIL_STREAMED_LABEL",
+        "DETAIL_TOOL_CALLS_LABEL",
+        "DETAIL_FLAG_YES_LABEL",
+        "DETAIL_FLAG_NO_LABEL",
         "SUMMARY_COUNTS_HEADING",
+        # PRD-013 (STORY-015)
+        "SUMMARY_TOKENS_HEADING",
         "SUMMARY_WHO_HEADING",
         "SUMMARY_PII_HEADING",
         "FIGURE_TOTAL_LABEL",
         "FIGURE_BLOCKED_DUPLICATES_LABEL",
         "FIGURE_BLOCKED_SUSPICIOUS_LABEL",
+        # PRD-013 (STORY-015)
+        "FIGURE_BLOCKED_USAGE_LIMITS_LABEL",
         "FIGURE_COMPLETION_LABEL",
         "FIGURE_COMPLETION_NOTE",
         "FIGURE_UNIQUE_USERS_LABEL",
@@ -491,6 +508,9 @@ def test_admin_copy_constants_exist_and_not_empty():
         "FIGURE_TOP_USERS_LABEL",
         "FIGURE_PII_QUERIES_LABEL",
         "FIGURE_TOP_PII_LABEL",
+        # PRD-013 (STORY-015)
+        "FIGURE_INPUT_TOKENS_LABEL",
+        "FIGURE_OUTPUT_TOKENS_LABEL",
         "RANKED_CUT_TEMPLATE",
         "SHARE_TEMPLATE",
         "RANKED_EMPTY_LABEL",

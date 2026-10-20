@@ -442,7 +442,24 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 # Both files are newer than `merge-base main HEAD` while local `main` stands at
 # PRD-009, so today the census does not see them. The entries are here for
 # the day PRD-010 lands on `main` and moves the base past them.
+#
+# PRD-013 STORY-015 renders three more summary figures (the usage-limit count,
+# indented as a third blocked figure, and a Tokens block). Three console tests
+# named the old counts and were renamed, each asserting the new count in its
+# place. The renames exist because the old names would now state false counts:
+#   - test_admin_state.py:
+#       test_the_sheet_carries_all_nine_stats_response_figures ->
+#         test_the_sheet_carries_all_twelve_stats_response_figures
+#       test_the_blocked_figures_are_the_two_that_indent ->
+#         test_the_blocked_figures_are_the_three_that_indent
+#   - test_summary.py:
+#       test_the_three_blocks_are_headed -> test_the_four_blocks_are_headed
 _DELIBERATELY_SUPERSEDED_TESTS = {
+    "tests/test_admin_state.py": {
+        "test_the_sheet_carries_all_nine_stats_response_figures",
+        "test_the_blocked_figures_are_the_two_that_indent",
+    },
+    "tests/test_summary.py": {"test_the_three_blocks_are_headed"},
     "tests/test_query_pipeline_multiturn.py": {
         "test_provisional_policy_inspects_last_user_turn_only",
         "test_inspection_target_still_carries_its_provisional_marker",

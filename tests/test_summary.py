@@ -14,12 +14,12 @@ cannot: that no colour is written as a literal hex, that every string resolves
 from `admin_copy`, that the sheet paints none of the register's verdict inks, and
 that the type roles are the way round PRD-006 Section 6.1 inverts them.
 
-**Where the nine figures are asserted.** Not here. The labels, values, scopes and
+**Where the twelve figures are asserted.** Not here. The labels, values, scopes and
 shares live on `SummaryFigure` objects built in `AdminState`, so the compiled
 sheet carries `total_figure?.["label"]` rather than the words — which is the
 derived-once rule working, not a gap. `tests/test_admin_state.py` asserts the
-nine figures and their contents; what this file asserts is that the sheet binds
-to all five figure vars, so every figure that exists reaches the screen. The two
+twelve figures and their contents; what this file asserts is that the sheet binds
+to all six figure vars, so every figure that exists reaches the screen. The two
 halves together are the claim.
 
 **`figure["items"]`, not `figure.items`.** `SummaryFigure.items` collides with
@@ -49,12 +49,14 @@ _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
 
 SUMMARY_SOURCE_PATH = REPO_ROOT / "chat_ui" / "chat_ui" / "components" / "summary.py"
 
-# Every string the sheet itself puts on screen — the three block headings, the
+# Every string the sheet itself puts on screen — the four block headings, the
 # two explanatory lines, the ranked list's empty case and the empty sheet's
-# panel. The nine figure labels are deliberately absent: they arrive through
+# panel. The twelve figure labels are deliberately absent: they arrive through
 # `SummaryFigure`, and `tests/test_admin_state.py` asserts them there.
 COPY_NAMES = (
     "SUMMARY_COUNTS_HEADING",
+    # PRD-013 (STORY-015)
+    "SUMMARY_TOKENS_HEADING",
     "SUMMARY_WHO_HEADING",
     "SUMMARY_PII_HEADING",
     "SUMMARY_SCOPE_NOTE",
@@ -64,12 +66,14 @@ COPY_NAMES = (
     "EMPTY_SUMMARY_BODY",
 )
 
-# The five figure vars, and therefore the nine figures. A sheet that dropped one
-# would render eight figures and pass every other test in this file.
+# The six figure vars, and therefore the twelve figures. A sheet that dropped one
+# would render fewer figures and pass every other test in this file.
 FIGURE_VARS = (
     "total_figure",
     "blocked_figures",
     "completion_figure",
+    # PRD-013 (STORY-015)
+    "token_figures",
     "who_figures",
     "pii_figures",
 )
@@ -265,9 +269,9 @@ def test_the_summary_loads_no_chat_component(probe):
 def test_every_figure_var_reaches_the_sheet(probe, var):
     """AC 1, in the half a component test can carry.
 
-    The nine labels are on `SummaryFigure` objects the state builds, so the
+    The twelve labels are on `SummaryFigure` objects the state builds, so the
     compiled sheet references the vars rather than the words —
-    `tests/test_admin_state.py` asserts the nine figures those vars hold. What is
+    `tests/test_admin_state.py` asserts the twelve figures those vars hold. What is
     asserted here is that all five reach the screen, so no figure is built and
     then left unrendered.
     """
@@ -284,16 +288,21 @@ def test_every_figure_field_is_rendered(probe, field):
     assert f'["{field}"]' in probe["rendered"], field
 
 
-def test_the_three_blocks_are_headed(probe):
+def test_the_four_blocks_are_headed(probe):
     """PRD-006 Section 6.1's structure: the counts, the who/what facts, then PII
-    telemetry closing the sheet."""
+    telemetry closing the sheet — with PRD-013's Tokens directly after the
+    counts, in that order."""
     assert not probe["errors"], probe["errors"]
-    for heading in (
+    headings = (
         admin_copy.SUMMARY_COUNTS_HEADING,
+        admin_copy.SUMMARY_TOKENS_HEADING,
         admin_copy.SUMMARY_WHO_HEADING,
         admin_copy.SUMMARY_PII_HEADING,
-    ):
+    )
+    for heading in headings:
         assert heading in probe["rendered"], heading
+    positions = [probe["rendered"].index(f'"{heading}"') for heading in headings]
+    assert positions == sorted(positions), positions
 
 
 def test_only_the_blocked_figures_are_indented(probe, source):
@@ -362,7 +371,7 @@ def test_the_ranked_lists_state_their_cut(probe):
 
 
 def test_the_empty_sheet_says_why(probe):
-    """A total of 0 is stated, not shown as nine dashes, and the panel ends in the
+    """A total of 0 is stated, not shown as twelve dashes, and the panel ends in the
     action available from it."""
     assert not probe["errors"], probe["errors"]
     assert admin_copy.EMPTY_SUMMARY_TITLE in probe["empty_summary"]

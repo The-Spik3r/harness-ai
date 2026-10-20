@@ -34,6 +34,10 @@ from chat_ui.chat_ui.admin_formatting import (
     format_share,
     to_audit_row,
 )
+# PRD-013 (STORY-015)
+from chat_ui.chat_ui.admin_formatting import TOKENS_SPLIT_SEPARATOR, _flag
+from chat_ui.chat_ui.admin_copy import DETAIL_FLAG_NO_LABEL, DETAIL_FLAG_YES_LABEL
+from chat_ui.chat_ui.admin_models import AuditRow
 
 NOW = datetime(2026, 8, 28, 14, 22, 7, tzinfo=timezone.utc)
 
@@ -387,3 +391,127 @@ def test_format_count_reads_zero_as_a_count_not_an_absence():
 def test_format_count_never_raises_on_a_missing_figure():
     """No figure may raise into a page render."""
     assert format_count(None) == VALUE_ABSENT
+
+
+# --- PRD-013 (STORY-015): the audit fields on the register ---------------
+# Appended only. Every verdict test above is unchanged (STORY-015 AC 4).
+
+_AUDIT_FIELDS = (
+    "ingress",
+    "message_count",
+    "conversation_key",
+    "streamed",
+    "has_tool_calls",
+    "limit_exceeded",
+)
+
+
+def test_tokens_cell_reads_input_slash_output_when_split():
+    """AC 1: the split, thousands-separated, input first."""
+    log = make_log(input_tokens=2140, output_tokens=312, tokens_used=2452)
+    assert to_audit_row(log, NOW).tokens_used == "2,140 / 312"
+    assert TOKENS_SPLIT_SEPARATOR == " / "
+
+
+def test_tokens_cell_falls_back_to_the_total():
+    """AC 1: a row with only a total shows the total. A half split is not a
+    split: showing one side would imply the other was 0."""
+    only_total = make_log(input_tokens=None, output_tokens=None, tokens_used=2452)
+    assert to_audit_row(only_total, NOW).tokens_used == "2,452"
+
+    half = make_log(input_tokens=10, output_tokens=None, tokens_used=12)
+    assert to_audit_row(half, NOW).tokens_used == "12"
+
+
+def test_tokens_cell_absent_when_neither():
+    """AC 1: neither split nor total is the absent mark; a 0 split is a fact."""
+    neither = make_log(input_tokens=None, output_tokens=None, tokens_used=None)
+    assert to_audit_row(neither, NOW).tokens_used == VALUE_ABSENT
+
+    zero = make_log(input_tokens=0, output_tokens=0, tokens_used=0)
+    assert to_audit_row(zero, NOW).tokens_used == "0 / 0"
+
+
+def test_to_audit_row_carries_the_audit_fields():
+    """AC 2: each field reaches the row pre-formatted."""
+    key = "ab" * 32
+    row = to_audit_row(
+        make_log(
+            ingress="v1",
+            message_count=1234,
+            conversation_key=key,
+            streamed=False,
+            has_tool_calls=True,
+            limit_exceeded="tokens",
+        ),
+        NOW,
+    )
+
+    assert row.ingress == "v1"
+    assert row.message_count == "1,234"
+    assert row.conversation_key == key
+    assert row.streamed == DETAIL_FLAG_NO_LABEL
+    assert row.has_tool_calls == DETAIL_FLAG_YES_LABEL
+    assert row.limit_exceeded == "tokens"
+
+
+def test_pre_prd013_row_shows_the_absent_mark():
+    """AC 2: a row written before PRD-013 has the four nullable fields NULL;
+    each reads as the absent mark. The flags are NOT NULL, so they read "no"."""
+    row = to_audit_row(make_log(), NOW)
+
+    assert row.ingress == VALUE_ABSENT
+    assert row.message_count == VALUE_ABSENT
+    assert row.conversation_key == VALUE_ABSENT
+    assert row.limit_exceeded == VALUE_ABSENT
+    assert row.streamed == DETAIL_FLAG_NO_LABEL
+    assert row.has_tool_calls == DETAIL_FLAG_NO_LABEL
+
+
+def test_a_null_flag_is_absent_never_no():
+    assert _flag(None) == VALUE_ABSENT
+    assert _flag(False) == DETAIL_FLAG_NO_LABEL
+    assert _flag(True) == DETAIL_FLAG_YES_LABEL
+
+
+def test_a_usage_limit_row_is_denied():
+    """AC 4: either limit is a denial."""
+    assert derive_verdict(make_log(limit_exceeded="requests")) == VERDICT_DENIED
+    assert derive_verdict(make_log(limit_exceeded="tokens")) == VERDICT_DENIED
+
+
+def test_a_duplicate_still_outranks_a_usage_limit():
+    """AC 4: the line sits after was_duplicate_blocked and before success."""
+    held = make_log(was_duplicate_blocked=True, limit_exceeded="tokens")
+    assert derive_verdict(held) == VERDICT_HELD
+
+    denied_not_fault = make_log(limit_exceeded="tokens", success=False)
+    assert derive_verdict(denied_not_fault) == VERDICT_DENIED
+
+
+def test_no_limit_changes_no_existing_verdict():
+    """AC 4: limit_exceeded=None leaves every pre-PRD-013 verdict where it was."""
+    flag = make_log(
+        suspicious_pattern="ignore previous instructions",
+        pattern_action="flag",
+        limit_exceeded=None,
+    )
+    assert derive_verdict(flag) == VERDICT_CLEARED
+    assert derive_verdict(make_log(limit_exceeded=None)) == VERDICT_CLEARED
+    assert derive_verdict(make_log(success=False, limit_exceeded=None)) == VERDICT_FAULT
+
+
+def test_no_preview_reaches_the_audit_fields():
+    """Risk 2 over the six new fields: a sentinel preview lands in none."""
+    row = to_audit_row(
+        make_log(
+            prompt_preview="SECRET-PROMPT-TEXT",
+            response_preview="SECRET-RESPONSE-TEXT",
+            ingress="v1",
+            conversation_key="cd" * 32,
+        ),
+        NOW,
+    )
+    for name in _AUDIT_FIELDS:
+        assert name in AuditRow.model_fields
+        assert "SECRET" not in getattr(row, name), name

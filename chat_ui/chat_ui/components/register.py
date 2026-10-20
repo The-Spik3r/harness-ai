@@ -113,23 +113,38 @@ from chat_ui.components.admin_shell import refreshed_stamp
 # template strings would satisfy "the numeric columns align down the full
 # window" right up until someone edited one of them; one constant makes the
 # alignment true by construction rather than by discipline.
+#
+# The tokens track is 7.5rem since PRD-013 (STORY-015): the cell reads
+# "2,140 / 312" when the row recorded a split. Measured live in the data face at
+# TEXT_DATA, "999,999 / 99,999" is 115px, so 7.5rem (120px) holds sixteen
+# characters; 7rem held fifteen and clipped it. Past that the cell truncates
+# like any other.
 _GRID = (
-    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 5rem 3.5rem minmax(9rem, 1fr) "
+    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 7.5rem 3.5rem minmax(9rem, 1fr) "
     "5.5rem 2.5rem"
 )
 
 # Below this the ten columns crush rather than wrap. The table scrolls
 # sideways inside its own container instead of the page doing it. Raised from
-# 58rem with the control column: its 2.5rem track plus one 0.75rem column gap.
-_MIN_WIDTH = "61.25rem"
+# 58rem with the control column: its 2.5rem track plus one 0.75rem column gap;
+# and by 2.5rem more with the wider tokens track (PRD-013 STORY-015).
+_MIN_WIDTH = "63.75rem"
 
 
-def _head_cell(label: str, align: str = "left") -> rx.Component:
+def _head_cell(label: str, align: str = "left", title: str = "") -> rx.Component:
     """One column head: a signpost, set apart from row data by size and case.
 
     `TEXT_MICRO` is the step theme.py introduced for exactly this — "register
     column heads — a signpost, never row data".
+
+    `title` is for a head whose one word cannot carry how its values read: the
+    tokens head states the "input / output" order once, on hover, instead of on
+    every row (PRD-013 STORY-015). Merged into the role attribute rather than
+    passed through as props, which would collide with `custom_attrs`.
     """
+    attrs = {"role": "columnheader"}
+    if title:
+        attrs["title"] = title
     return rx.box(
         label,
         font_family=theme.FONT_DISPLAY,
@@ -139,7 +154,7 @@ def _head_cell(label: str, align: str = "left") -> rx.Component:
         text_transform="uppercase",
         text_align=align,
         color=theme.MUTE,
-        custom_attrs={"role": "columnheader"},
+        custom_attrs=attrs,
     )
 
 
@@ -416,8 +431,17 @@ def _detail(row) -> rx.Component:
     The string fields cannot arrive blank and get no fallback here:
     `admin_formatting._text` already wrote `VALUE_ABSENT` into `prompt_hash`,
     `error_message`, `suspicious_pattern`, `pattern_role`, `pattern_action`
-    (PRD-011 D6) and `profile` (PRD-012 D9) when their column was NULL, and
-    `_truncate_device` did the same for `device_full`. Absence is stated at the
+    (PRD-011 D6), `profile` (PRD-012 D9) and PRD-013's `limit_exceeded`,
+    `conversation_key` and `ingress` when their column was NULL;
+    `format_count` did it for `message_count` and `_flag` for the two flags,
+    which arrive as words; and `_truncate_device` did the same for
+    `device_full`.
+
+    PRD-013 (STORY-015) keeps the evidence-first order. The usage limit is read
+    on a denied row the way the pattern is, so it sits under the pattern lines;
+    the conversation key is a hash identifying what was sent, so it sits under
+    the prompt hash; ingress, message count and the two flags describe the
+    request and follow it. Absence is stated at the
     boundary, which is where this module's "read fields, do not compute" rule
     puts it. Only the entity list and the two booleans need a render-time
     branch, because an empty list and a False have no absent mark to carry.
@@ -436,7 +460,16 @@ def _detail(row) -> rx.Component:
             # or flagged, directly under the pattern they qualify.
             _detail_field(admin_copy.DETAIL_PATTERN_ROLE_LABEL, row.pattern_role),
             _detail_field(admin_copy.DETAIL_PATTERN_ACTION_LABEL, row.pattern_action),
+            # PRD-013 (STORY-015): which limit refused a usage-limit row.
+            _detail_field(admin_copy.DETAIL_LIMIT_LABEL, row.limit_exceeded),
             _detail_field(admin_copy.DETAIL_PROMPT_HASH_LABEL, row.prompt_hash),
+            # PRD-013 (STORY-015): the conversation this row belongs to, then
+            # how the request arrived.
+            _detail_field(admin_copy.DETAIL_CONVERSATION_LABEL, row.conversation_key),
+            _detail_field(admin_copy.DETAIL_INGRESS_LABEL, row.ingress),
+            _detail_field(admin_copy.DETAIL_MESSAGE_COUNT_LABEL, row.message_count),
+            _detail_field(admin_copy.DETAIL_STREAMED_LABEL, row.streamed),
+            _detail_field(admin_copy.DETAIL_TOOL_CALLS_LABEL, row.has_tool_calls),
             _detail_field(admin_copy.DETAIL_DEVICE_LABEL, row.device_full),
             # PRD-012 D9: directly above the PII lines it qualifies -- under
             # `code`, no output PII means the response was not analyzed.
@@ -485,8 +518,10 @@ def _row_line(row) -> rx.Component:
 
     Ten children and no eleventh. `device_full`, `prompt_hash`, `error_message`,
     `pii_entities`, `pii_detected_input`, `pii_detected_output`,
-    `suspicious_pattern`, `pattern_role`, `pattern_action` and `profile` are
-    disclosure-only fields on `AuditRow` and are read
+    `suspicious_pattern`, `pattern_role`, `pattern_action`, `profile` and
+    PRD-013's `limit_exceeded`, `conversation_key`, `ingress`, `message_count`,
+    `streamed` and `has_tool_calls` are disclosure-only fields on `AuditRow` and
+    are read
     by `_detail`, never here — the row states the verdict, the record states the
     evidence.
 
@@ -563,7 +598,11 @@ def _column_head() -> rx.Component:
         _head_cell(admin_copy.COLUMN_USER),
         _head_cell(admin_copy.COLUMN_VERDICT),
         _head_cell(admin_copy.COLUMN_MODEL),
-        _head_cell(admin_copy.COLUMN_TOKENS, align="right"),
+        _head_cell(
+            admin_copy.COLUMN_TOKENS,
+            align="right",
+            title=admin_copy.COLUMN_TOKENS_TITLE,
+        ),
         _head_cell(admin_copy.COLUMN_PII),
         _head_cell(admin_copy.COLUMN_DEVICE),
         _head_cell(admin_copy.COLUMN_ID, align="right"),
@@ -727,12 +766,15 @@ def _verdict_filter() -> rx.Component:
 
 
 def _search_field() -> rx.Component:
-    """The free-text filter over `user_id` / `model_used` / `audit_id`.
+    """The free-text filter over `user_id` / `model_used` / `audit_id` /
+    `conversation_key` / `ingress`.
 
     This is the register's join back to the chat: the `#127` a user quotes out
     of the success footer (PRD-004 STORY-010) resolves to its row by being typed
     here. The `audit_id` coercion is `admin_state._matches`' — Python-side,
-    against an int field, never in this component.
+    against an int field, never in this component. Since PRD-013 it is also the
+    join across an agent's turns: a conversation key pasted from one row's
+    disclosure shows every loaded row of that conversation.
 
     **Debounced by construction.** `TextFieldRoot.create` wraps the field in
     `DebounceInput` whenever both `value` and `on_change` are given, at the
@@ -758,7 +800,9 @@ def _search_field() -> rx.Component:
                 "autoComplete": "off",
                 "autoCorrect": "off",
             },
-            width="13rem",
+            # 15rem since PRD-013 (STORY-015): wide enough for the placeholder
+            # unclipped, and still beside its label at a 360px viewport.
+            width="15rem",
             height="1.75rem",
             font_family=theme.FONT_DATA,
             font_size=theme.TEXT_DATA,
