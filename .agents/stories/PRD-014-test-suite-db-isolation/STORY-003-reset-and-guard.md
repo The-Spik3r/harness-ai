@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Enforce"
-status: todo
+status: done
 labels: [tests, conftest, isolation]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-003-reset-and-guard.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-003-reset-and-guard.report.md
+commit: 241fae0
 depends_on: [STORY-001, STORY-002]
 blocks: [STORY-004, STORY-005, STORY-007]
 skills: []
