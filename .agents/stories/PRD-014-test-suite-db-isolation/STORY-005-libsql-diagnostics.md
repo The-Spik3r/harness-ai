@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Diagnose and investigate"
-status: todo
+status: done
 labels: [tests, conftest, diagnostics, libsql]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-005-libsql-diagnostics.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-005-libsql-diagnostics.report.md
+commit: 16402fa
 depends_on: [STORY-002, STORY-003]
 blocks: [STORY-006, STORY-007]
 skills: []
