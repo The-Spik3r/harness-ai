@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-014
 plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-001-storage-characterization.plan.md
 epic_branch: epic/PRD-014-test-suite-db-isolation
-commit: pending
+commit: 398e60e
 status: COMPLETE
 completed: 2026-10-20
 ---
@@ -13,7 +13,7 @@ completed: 2026-10-20
 **Plan**: `.agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-001-storage-characterization.plan.md`
 **Epic Branch**: `epic/PRD-014-test-suite-db-isolation`
 **Base**: `main` @ `728dd60` (the PRD-013 merge)
-**Commit**: `pending`
+**Commit**: `398e60e`
 
 ## Summary
 

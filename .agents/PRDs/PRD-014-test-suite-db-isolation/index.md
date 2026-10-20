@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/8 stories done — 0%
+1/8 stories done — 13%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-014-test-suite-db-isolation`. No
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Characterize the suite's storage use: baseline run, driver calls per test, census and undeclared-storage list | technical | 🟡 in-progress | small | [plan](../../plans/PRD-014-test-suite-db-isolation/STORY-001-storage-characterization.plan.md) | — |
+| STORY-001 | Characterize the suite's storage use: baseline run, driver calls per test, census and undeclared-storage list | technical | ✅ done | small | [plan](../../plans/PRD-014-test-suite-db-isolation/completed/STORY-001-storage-characterization.plan.md) | `398e60e` |
 | STORY-002 | db marker: registered, applied from the storage fixtures and _DB_NODEIDS, independent of --run-benchmark | technical | ⬜ todo | small | — | — |
 | STORY-003 | Reset only db tests, refuse storage in every other test, and declare every test the guard catches | technical | ⬜ todo | medium | — | — |
 | STORY-004 | Lazy _libsql_endpoint: pytest -m "not db" passes with Docker stopped | technical | ⬜ todo | small | — | — |

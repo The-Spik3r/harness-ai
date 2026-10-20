@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Measure and mark"
-status: in-progress
+status: done
 labels: [tests, characterization, libsql]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: .agents/plans/PRD-014-test-suite-db-isolation/STORY-001-storage-characterization.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-001-storage-characterization.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-001-storage-characterization.report.md
+commit: 398e60e
 depends_on: []
 blocks: [STORY-002, STORY-003]
 skills: []
