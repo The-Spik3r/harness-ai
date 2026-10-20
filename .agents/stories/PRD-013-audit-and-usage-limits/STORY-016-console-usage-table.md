@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - See it and prove it"
-status: todo
+status: done
 labels: [frontend, admin-console, limits, database]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-016-console-usage-table.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-016-console-usage-table.report.md
+commit: 6308359
 depends_on: [STORY-008, STORY-009, STORY-011, STORY-015]
 blocks: [STORY-018]
 skills: [frontend-design]
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # STORY-016: Admin console: Usage table
