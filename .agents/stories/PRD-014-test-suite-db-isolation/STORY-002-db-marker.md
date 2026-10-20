@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Measure and mark"
-status: todo
+status: done
 labels: [tests, conftest, pytest]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-002-db-marker.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-002-db-marker.report.md
+commit: 6628c25
 depends_on: [STORY-001]
 blocks: [STORY-003, STORY-005]
 skills: []
