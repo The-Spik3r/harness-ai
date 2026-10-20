@@ -422,6 +422,32 @@ class UsageAdmission:
     tokens_today: int
 
 
+@dataclass(frozen=True)
+class UsageDay:
+    """One user's counters for the database's current UTC day, as
+    usage_snapshot() reads them (PRD-013 STORY-016, Section 6.10).
+
+    Raw facts only: the per-user overrides as stored, and no resolved limit.
+    Section 6.6 resolves limits in Python with `usage_limits.limits_for`, the
+    function the gate itself calls, so the usage view and the gate cannot
+    disagree about a budget.
+
+    `role is None` means the user has no `users` row. The break-glass `admin`
+    identity is the expected case: it is counted (Section 6.6) but never
+    inserted. `denied` counts today's audit rows with `limit_exceeded` set.
+    """
+
+    user_id: str
+    role: Optional[str]
+    token_budget_daily: Optional[int]
+    requests_per_minute: Optional[int]
+    requests: int
+    input_tokens: int
+    output_tokens: int
+    unsplit_tokens: int
+    denied: int
+
+
 @dataclass
 class ChatSession:
     session_id: str

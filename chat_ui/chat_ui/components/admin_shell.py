@@ -1,5 +1,6 @@
 """The console's frame: the token gate, the masthead, and the switch between
-the two views.
+the views -- Register and Summary since PRD-006, and Usage since PRD-013
+STORY-016.
 
 The counterpart to `shell.py`, and a separate module for the same structural
 reason `admin_copy.py` is separate from `copy.py`. Three properties below are
@@ -56,6 +57,11 @@ from chat_ui.components.ground_switch import ground_switch
 # (PRD-006 Section 6, routing constraint).
 ROUTE_REGISTER = "/admin/audit"
 ROUTE_SUMMARY = "/admin/stats"
+# PRD-013 STORY-016: the Usage table. Its own view rather than a block on the
+# summary sheet: every summary figure is all-time and this table is today only,
+# and one sheet carrying both windows is the misreading PRD-006 Risk 4 is about.
+# Not a backend path, so the Caddyfile's @backend_routes matcher is untouched.
+ROUTE_USAGE = "/admin/usage"
 
 # Which of the two views a page is. Passed down from the page rather than read
 # off the router: the masthead's correctness would otherwise depend on a string
@@ -63,6 +69,7 @@ ROUTE_SUMMARY = "/admin/stats"
 # two halves.
 VIEW_REGISTER = "register"
 VIEW_SUMMARY = "summary"
+VIEW_USAGE = "usage"
 
 
 def admin_gate() -> rx.Component:
@@ -198,7 +205,7 @@ def admin_gate() -> rx.Component:
 
 
 def _view_link(view: str, label: str, href: str, active: str) -> rx.Component:
-    """One destination in the two-view switch.
+    """One destination in the view switch.
 
     The active view is set as plain text, not as a link to itself — a control
     that does nothing is the one thing the skill's "let each element do exactly
@@ -323,7 +330,7 @@ def refreshed_stamp() -> rx.Component:
     )
 
 
-def fault_panel() -> rx.Component:
+def fault_panel(message=None) -> rx.Component:
     """A read that raised, named — never a silently empty table.
 
     PRD-006 Section 4's requirement, and the half `AdminState.register_state`
@@ -356,9 +363,18 @@ def fault_panel() -> rx.Component:
     read failed, and the margin's mark is worth less the moment it appears
     outside the margin. Everything around the signature stays hairlines and
     alignment, and this panel is around it.
+
+    **`message` is which read's fault this panel shows** (PRD-013 STORY-016).
+    It defaults to `AdminState.error`, the register-and-summary read, so every
+    existing call site is unchanged. The Usage view passes
+    `AdminState.usage_error`: its read is separate and fails on its own, and
+    one panel definition keeps one title and one retry across the console
+    rather than a second panel that could drift from this one.
     """
+    if message is None:
+        message = AdminState.error
     return rx.cond(
-        AdminState.error != "",
+        message != "",
         rx.vstack(
             rx.box(
                 admin_copy.FAULT_TITLE,
@@ -368,7 +384,7 @@ def fault_panel() -> rx.Component:
                 color=theme.INK,
             ),
             rx.box(
-                AdminState.error,
+                message,
                 font_family=theme.FONT_BODY,
                 font_size=theme.TEXT_DATA,
                 line_height="1.6",
@@ -390,11 +406,15 @@ def fault_panel() -> rx.Component:
 
 
 def admin_masthead(active: str) -> rx.Component:
-    """The console header: wordmark, the two-view switch, refresh, sign out.
+    """The console header: wordmark, the view switch, refresh, sign out.
 
     PRD-006 Section 6.1: "one column, no sidebar. The two views are peers
     reached from a rule-separated switch in the header, because there are
-    exactly two and a sidebar for two destinations is furniture."
+    exactly two and a sidebar for two destinations is furniture." PRD-013
+    STORY-016 adds Usage as a third peer. Three is still a switch rather than a
+    sidebar: the destinations are still peers, still read in one glance, and a
+    third rule-separated word costs the header nothing the wrap below does not
+    already absorb.
 
     Refresh takes the same rule-separated slot the switch and sign out take, so
     the header reads as three clusters rather than as a toolbar. The line it
@@ -458,8 +478,25 @@ def admin_masthead(active: str) -> rx.Component:
                     margin_left="0.75rem",
                     border_left=f"1px solid {theme.RULE}",
                 ),
+                # PRD-013 STORY-016: the third peer, separated the same way.
+                rx.box(
+                    _view_link(
+                        VIEW_USAGE,
+                        admin_copy.VIEW_USAGE_LABEL,
+                        ROUTE_USAGE,
+                        active,
+                    ),
+                    padding_left="0.75rem",
+                    margin_left="0.75rem",
+                    border_left=f"1px solid {theme.RULE}",
+                ),
                 align="center",
                 spacing="0",
+                # PRD-013 STORY-016: at phone width the three-view switch takes
+                # a row of its own (theme.py's narrow-viewport rule), so the
+                # session controls share the next one instead of sign-out
+                # wrapping alone behind a rule that separates it from nothing.
+                class_name="hx-view-switch",
             ),
             rx.box(
                 refresh_control(),
@@ -505,6 +542,13 @@ def admin_masthead(active: str) -> rx.Component:
             class_name="hx-header-meta",
             align="center",
             spacing="3",
+            # PRD-013 STORY-016: with three views the cluster is 30px wider
+            # than a 390px screen leaves it, which pushed the sign-out control off the
+            # edge (measured in the E2E pass). It wraps instead: the view switch
+            # takes one row and the session controls the next (`hx-view-switch`
+            # above). On a wide screen nothing overflows, so nothing wraps.
+            flex_wrap="wrap",
+            row_gap="0.75rem",
         ),
         justify="between",
         align="center",

@@ -58,10 +58,12 @@ MASTHEAD_SEPARATOR = " · "
 CONSOLE_VIEW_REGISTER = "REGISTER"
 CONSOLE_VIEW_SUMMARY = "SUMMARY"
 
-# The two-view switch. Exactly two destinations, so they are peers in the
-# masthead rather than a sidebar (PRD-006 Section 6.1).
+# The view switch. Two destinations under PRD-006, three since PRD-013 added the
+# Usage table (STORY-016): still few enough to be peers in the masthead rather
+# than a sidebar (PRD-006 Section 6.1).
 VIEW_REGISTER_LABEL = "Register"
 VIEW_SUMMARY_LABEL = "Summary"
+VIEW_USAGE_LABEL = "Usage"
 
 SIGN_OUT_LABEL = "Sign out"
 
@@ -189,6 +191,10 @@ READ_LABEL_TOP_PII = "the PII entity ranking"
 READ_LABEL_INPUT_TOKENS = "the input token total"
 READ_LABEL_OUTPUT_TOKENS = "the output token total"
 READ_LABEL_USAGE_LIMITS = "the usage-limit blocks"
+# PRD-013 STORY-016: the Usage table's read. Not one of the thirteen above and
+# not in `admin_state._READS`: it is a separate read with its own fault (F16), so
+# a failure here names itself and never blanks the summary or the Register.
+READ_LABEL_USAGE = "the usage for today"
 
 # --- The three empty states ----------------------------------------------
 # PRD-006 Section 4 names three register states — no rows recorded, rows recorded
@@ -227,6 +233,51 @@ EMPTY_SUMMARY_TITLE = "Nothing to summarize."
 EMPTY_SUMMARY_BODY = (
     "No query has been recorded, so every figure would be zero. Refresh once "
     "traffic starts."
+)
+
+# --- Usage (PRD-013 STORY-016) -------------------------------------------
+# The Usage table: what each user has used today against their token budget.
+# Plain words for what an operator controls and recognises (frontend-design):
+# "Budget" and "Used", not token_budget_daily or tokens_today.
+#
+# The window, stated on the table rather than implied: every figure states its
+# window (PRD-006 Risk 4), and this view's window is not the summary's.
+USAGE_CAPTION = "Today, UTC"
+
+# Column heads. "User" is COLUMN_USER, shared with the register.
+COLUMN_ROLE = "Role"
+COLUMN_REQUESTS = "Requests"
+COLUMN_INPUT = "Input"
+COLUMN_OUTPUT = "Output"
+COLUMN_BUDGET = "Budget"
+COLUMN_USED = "Used"
+# "Denied", never "Refused": GATE_REFUSED_MESSAGE must stay the only string here
+# that mentions a refusal (`tests/test_admin_copy.py`), and "denied" is the
+# verdict the Register shows for these same rows.
+COLUMN_DENIED = "Denied"
+
+# Each head keeps one word; what its values mean is stated once, on hover.
+COLUMN_BUDGET_TITLE = (
+    "Tokens a day: this user's own limit where one is set, otherwise their role's"
+)
+# Used is the number the gate compares against the budget, which includes tokens
+# a provider reported with no input/output split -- so Input + Output can sum to
+# less than it. The title says so, and names the order the rows are in.
+COLUMN_USED_TITLE = (
+    "Share of the budget used today, counting tokens with no input/output "
+    "split. Highest first."
+)
+COLUMN_DENIED_TITLE = "Requests denied at a usage limit today"
+
+# The budget cell for a user with no budget. A word, not a symbol.
+USAGE_BUDGET_UNLIMITED = "unlimited"
+
+# The empty day. The title is the PRD's own sentence (Section 6.10); the body
+# says when a row appears and gives the action.
+EMPTY_USAGE_TITLE = "No one has sent anything today."
+EMPTY_USAGE_BODY = (
+    "A user appears here after their first request of the day. Counts reset at "
+    "00:00 UTC; Refresh to read them again."
 )
 
 # --- Filter and sort controls --------------------------------------------

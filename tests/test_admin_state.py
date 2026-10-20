@@ -374,11 +374,35 @@ def test_admin_state_has_no_write_path_to_the_audit_log():
     assert not hasattr(admin_state_mod, "insert_audit_log")
 
 
+def test_admin_console_has_no_path_to_the_usage_counters():
+    """PRD-013 (STORY-016): the Usage table reads `usage_daily` and resolves
+    limits with `limits_for`, but neither console module may reach a counter
+    write -- `usage_limits` holds `admit`/`charge`, `database` holds
+    `admit_usage`/`charge_usage`, and both are imported from by name only."""
+    import chat_ui.chat_ui.admin_formatting as admin_formatting_mod
+    import chat_ui.chat_ui.admin_state as admin_state_mod
+
+    for module in (admin_state_mod, admin_formatting_mod):
+        for name in ("admit_usage", "charge_usage", "admit", "charge", "usage_limits"):
+            assert not hasattr(module, name), (module.__name__, name)
+
+
 # ---------------------------------------------------------------------------
 # The load path (STORY-004)
 # ---------------------------------------------------------------------------
 
 _ORIGINAL_READS = _admin_state_module._READS
+
+
+@pytest.fixture(autouse=True)
+def _no_usage_read(monkeypatch):
+    """PRD-013 (STORY-016): `load()` makes a second, separate read for the Usage
+    table. Every load test in this file is about the register and the summary,
+    so the usage read is stubbed empty by default -- the fakes that replace only
+    `summary_snapshot` would otherwise reach the database for it. `_Reads.install`
+    overrides this with its own recorder; `tests/test_usage_view.py` tests the
+    usage read itself."""
+    monkeypatch.setattr(_admin_state_module, "usage_snapshot", lambda: [])
 
 _READ_RETURNS = {
     "list_audit_logs": None,  # filled per test with _logs()
@@ -448,10 +472,18 @@ class _Reads:
     rather than numbers the fake invents.
     """
 
-    def __init__(self, monkeypatch, failing=None, on_call=None, *, logs=None):
+    def __init__(
+        self, monkeypatch, failing=None, on_call=None, *, logs=None, usage=None
+    ):
         self._monkeypatch = monkeypatch
         self.failing = failing
         self.on_call = on_call
+        # PRD-013 (STORY-016): what the Usage read returns. `load()` now makes
+        # a second, separate read; stubbing it here keeps every load test in
+        # this file off the database, and leaves `calls` a record of the
+        # summary reads alone, as every assertion on it expects.
+        self.usage = [] if usage is None else list(usage)
+        self.usage_calls = 0
         # Keyword-only, defaulting to `_logs()` — STORY-006 needs `load()` to
         # return its own five constructed rows, and every earlier call site
         # passes nothing and takes the identical path.
@@ -476,7 +508,12 @@ class _Reads:
         self._monkeypatch.setattr(
             admin_state_mod, "summary_snapshot", self._snapshot
         )
+        self._monkeypatch.setattr(admin_state_mod, "usage_snapshot", self._usage)
         return self
+
+    def _usage(self):
+        self.usage_calls += 1
+        return list(self.usage)
 
     def _snapshot(self, row_limit, ranked_limit):
         """The database, as `load()` now reaches it: one call, ten figures.

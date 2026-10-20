@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.db.models import AuditLog
-from chat_ui.chat_ui.admin_models import AuditRow, SummaryFigure
+from chat_ui.chat_ui.admin_models import AuditRow, SummaryFigure, UsageRow
 
 # The exact field set the register and its disclosure render (STORY-001 AC 1).
 AUDIT_ROW_FIELDS = {
@@ -190,3 +190,36 @@ def test_audit_row_populated_from_audit_log_drops_previews():
     assert log.prompt_preview not in serialized
     assert log.response_preview not in serialized
     assert "preview" not in serialized
+
+
+# --- PRD-013 (STORY-016): the Usage table's row ---------------------------
+
+# The Usage table's eight columns, in render order (PRD-013 Section 6.10).
+USAGE_ROW_FIELDS = [
+    "user_id",
+    "role",
+    "requests",
+    "input_tokens",
+    "output_tokens",
+    "budget",
+    "used",
+    "denied",
+]
+
+
+def test_usage_row_fields_in_column_order():
+    assert list(UsageRow.model_fields) == USAGE_ROW_FIELDS
+
+
+def test_usage_row_fields_are_preformatted_strings():
+    """Components read fields and compute nothing, so every value -- counts,
+    the budget and the share -- arrives as a string."""
+    row = UsageRow()
+    for name in USAGE_ROW_FIELDS:
+        assert UsageRow.model_fields[name].annotation is str, name
+        assert getattr(row, name) == "", name
+
+
+def test_usage_row_has_no_preview_fields():
+    """The AuditRow guard, carried to the console's other row model."""
+    assert not [name for name in UsageRow.model_fields if "preview" in name]

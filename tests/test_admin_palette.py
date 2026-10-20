@@ -54,6 +54,8 @@ ADMIN_MODULE_PATTERNS = (
     "chat_ui/chat_ui/components/admin_*.py",
     "chat_ui/chat_ui/components/register.py",
     "chat_ui/chat_ui/components/summary.py",
+    # PRD-013 (STORY-016): the Usage view is an admin module too.
+    "chat_ui/chat_ui/components/usage.py",
 )
 
 

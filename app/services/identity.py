@@ -15,6 +15,13 @@ _TOKEN_NBYTES = 32
 _ADMIN_BREAK_GLASS_USER_ID = "admin"
 _ADMIN_ROLE = "admin"
 
+# Public names for the same two values, for the admin console's Usage table
+# (PRD-013 STORY-016): the break-glass identity has no `users` row, so the table
+# recognises its counter row by this id and resolves its limits with the role
+# `resolve()` gives it. Aliases, not a second definition.
+BREAK_GLASS_USER_ID = _ADMIN_BREAK_GLASS_USER_ID
+BREAK_GLASS_ROLE = _ADMIN_ROLE
+
 
 @dataclass(frozen=True)
 class Identity:

@@ -14,7 +14,11 @@ The module is **read-only by construction**. PRD-006 Section 9, verbatim:
 `insert_audit_log` is not imported, and there is no write path from any admin
 page." The ten read functions are imported by name for exactly that reason — a
 `from app.db import database` would make `insert_audit_log` reachable as an
-attribute and hand back the write path the named imports deny.
+attribute and hand back the write path the named imports deny. The Usage
+table's read (PRD-013 STORY-016) is imported the same way, by name:
+`usage_snapshot` reads `usage_daily`, and neither counter writer
+(`admit_usage`, `charge_usage`) nor `usage_limits.admit`/`charge` is reachable
+from this module.
 
 The gate is **not an oracle**. Every failure — an empty token, a wrong-length
 token, a wrong token of the right length — sets the same message and leaves
@@ -43,6 +47,8 @@ from app.db.database import (
     sum_input_tokens,
     sum_output_tokens,
     summary_snapshot,
+    # PRD-013 STORY-016: the Usage table's one statement. A read, like the rest.
+    usage_snapshot,
     # Aliased because the state declares fields of these three names. The module
     # global and the class attribute live in different namespaces and Python
     # resolves each correctly, but a reader of `load()` cannot tell which one a
@@ -96,6 +102,7 @@ from .admin_copy import (
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOTAL,
     READ_LABEL_UNIQUE_USERS,
+    READ_LABEL_USAGE,
     READ_LABEL_USAGE_LIMITS,
     # Aliased to the name this module has used since STORY-004: `load()` formats
     # it and a future test may import it from here, so the move to admin_copy.py
@@ -113,8 +120,9 @@ from .admin_formatting import (
     format_refreshed_at,
     format_share,
     to_audit_row,
+    to_usage_rows,
 )
-from .admin_models import AuditRow, SummaryFigure
+from .admin_models import AuditRow, SummaryFigure, UsageRow
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
 # pagination past 100 rows out of scope, and `list_audit_logs` is the only
@@ -180,6 +188,18 @@ SUMMARY_STATES = (
     SUMMARY_STATE_FAULT,
     SUMMARY_STATE_EMPTY,
     SUMMARY_STATE_FIGURES,
+)
+
+# The Usage table's render states (PRD-013 STORY-016), in the order
+# `usage_state` resolves them. The fault value is the other two surfaces' own
+# "read_failed", for the reason SUMMARY_STATE_FAULT gives.
+USAGE_STATE_FAULT = "read_failed"
+USAGE_STATE_EMPTY = "nobody_today"
+USAGE_STATE_ROWS = "rows"
+USAGE_STATES = (
+    USAGE_STATE_FAULT,
+    USAGE_STATE_EMPTY,
+    USAGE_STATE_ROWS,
 )
 
 # One label per verdict key, for the sentence that names the filter which
@@ -500,6 +520,14 @@ class AdminState(rx.State):
     last_refreshed: str = ""
     loading: bool = False
     error: str = ""
+
+    # --- Usage (PRD-013 STORY-016) -----------------------------------------
+    # Today's per-user usage, read by its own statement and failing under its
+    # own label: `usage_error`, never `error`, so a failed usage read leaves
+    # the Register and the summary exactly as they are (F16). Both defaults are
+    # falsy, so `sign_out()`'s `reset()` clears them with no edit there.
+    usage_rows: list[UsageRow] = []
+    usage_error: str = ""
 
     # --- Filter and sort --------------------------------------------------
     # Plain state vars, all four. PRD-006 Section 6: "the visible rows are an
@@ -932,6 +960,29 @@ class AdminState(rx.State):
             return SUMMARY_STATE_EMPTY
         return SUMMARY_STATE_FIGURES
 
+    @rx.var
+    def usage_state(self) -> str:
+        """Which of the three states the Usage table is showing.
+
+        The `register_state` order, for its reason: a *first* usage read that
+        fails leaves `usage_rows == []` with `usage_error` set, and rendering
+        that as "No one has sent anything today." would present a failure as a
+        fact about the day. So the error is tested first, and the fault arm
+        renders the table -- the last good rows, under the panel that names the
+        read.
+
+        Reads `usage_error`, never `error`: a failed summary read says nothing
+        about today's usage, and the two reads fail independently.
+
+        Both dependencies are read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records above.
+        """
+        if self.usage_error:
+            return USAGE_STATE_FAULT
+        if not self.usage_rows:
+            return USAGE_STATE_EMPTY
+        return USAGE_STATE_ROWS
+
     @rx.event
     def set_token_input(self, text: str):
         self.token_input = text
@@ -1114,6 +1165,18 @@ class AdminState(rx.State):
         which some fields are new and others old, so a figure that fails eighth of
         ten cannot leave a register that half agrees with its summary.
 
+        **The usage read is separate** (PRD-013 STORY-016, F16). Today's
+        per-user usage is not a summary figure, so it is not in `_READS` and
+        not in `summary_snapshot()`: it is its own statement, one more round
+        trip per load, with its own label and its own `usage_error`. It runs
+        **before** the summary read so the summary's early returns cannot skip
+        it -- a failed summary read still refreshes usage -- and its failure
+        never touches `error`, so the Register and the summary stay standing
+        (and `register_state`/`summary_state` never see it). It commits on its
+        own, which is the point: it is a different surface with a different
+        window, and "nothing on screen has changed" is true of each surface's
+        own fault.
+
         The `finally` clears `loading` on **both** paths. A flag stranded True
         locks STORY-017's refresh control permanently — PRD-004 Risk 3, the same
         failure the chat's composer already guards against.
@@ -1131,11 +1194,28 @@ class AdminState(rx.State):
                 return
             self.loading = True
             self.error = ""
+            self.usage_error = ""
 
         try:
             # One clock read for the whole batch, so the rows' relative times and
             # the refresh stamp cannot disagree by a straggling second.
             now = datetime.now(timezone.utc)
+
+            # Today's usage, first and on its own (see the docstring). The
+            # formatting is inside the `try` too: `to_usage_rows` resolves
+            # limits from settings, and a failure there is still this read's.
+            try:
+                usage_rows = to_usage_rows(await asyncio.to_thread(usage_snapshot))
+            except Exception as exc:
+                async with self:
+                    self.usage_error = LOAD_FAILED_MESSAGE.format(
+                        read=READ_LABEL_USAGE, detail=exc
+                    )
+            else:
+                async with self:
+                    self.usage_rows = usage_rows
+                    self.usage_error = ""
+
             # One hop, one statement, all ten figures (STORY-010). The limits are
             # passed rather than left to the function's defaults, for the reason
             # RANKED_LIMIT's comment gives: the "top 5" on screen and the

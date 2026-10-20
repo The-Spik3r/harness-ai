@@ -36,6 +36,7 @@ from app.db.models import (
     ChatSession,
     StoredMessage,
     UsageAdmission,
+    UsageDay,
     User,
 )
 
@@ -1740,6 +1741,71 @@ def charge_usage(
             (input_tokens, output_tokens, unsplit_tokens, user_id, day),
         )
         return cursor.rowcount == 1
+
+
+# The admin console's usage table (PRD-013 STORY-016, Section 6.10): one
+# statement, and no parameters at all, so the positional-binding caveat on
+# _SUMMARY_SQL does not arise.
+#
+# `usage_daily` drives the query. A user denied today necessarily has a counted
+# attempt today, because admit_usage() increments before the limit is compared
+# (Section 6.5), so the LEFT JOIN of denials loses nothing -- except a request
+# admitted just before 00:00 UTC whose audit row lands just after, which is the
+# same midnight straddle Section 6.5 accepts for the charge.
+#
+# `users` is LEFT JOINed so the break-glass `admin`, which has no users row, is
+# kept; its role is resolved in Python (admin_formatting.to_usage_rows), never
+# as a SQL COALESCE that would also label any orphan row "admin".
+#
+# Every "today" is the database's clock, as usage_daily.day is: SQLite
+# evaluates 'now' once per statement, so the three uses agree. audit_logs
+# stores `timestamp` as _TIMESTAMP_FORMAT ('YYYY-MM-DDTHH:MM:SSZ'), so the
+# lexical range [date('now'), date('now','+1 day')) is exactly that UTC day.
+# The audit timestamp is the writing instance's clock, so skew can move a
+# denial written within seconds of midnight across the boundary.
+#
+# The denial predicate is _BLOCKED_USAGE_LIMITS_WHERE interpolated, not
+# retyped: /stats, the Register's verdict and this table count the same rows.
+_USAGE_SNAPSHOT_SQL = f"""
+SELECT d.user_id, u.role, u.token_budget_daily, u.requests_per_minute,
+       d.requests, d.input_tokens, d.output_tokens, d.unsplit_tokens,
+       COALESCE(r.denied, 0) AS denied
+  FROM usage_daily AS d
+  LEFT JOIN users AS u ON u.user_id = d.user_id
+  LEFT JOIN (SELECT user_id, COUNT(*) AS denied
+               FROM audit_logs
+              WHERE {_BLOCKED_USAGE_LIMITS_WHERE}
+                AND timestamp >= date('now')
+                AND timestamp < date('now', '+1 day')
+              GROUP BY user_id) AS r ON r.user_id = d.user_id
+ WHERE d.day = date('now')
+ ORDER BY d.user_id
+"""
+
+
+def usage_snapshot() -> list[UsageDay]:
+    """Every user's counters for the database's current UTC day, in one statement.
+
+    Read-only, and resolves no limit: the caller does that with
+    `usage_limits.limits_for`, so the table and the gate share one rule. Ordered
+    by user_id so the caller's sort has a deterministic tie order. A storage
+    failure propagates as StorageError; naming it is the caller's job (the
+    console's READ_LABEL_USAGE)."""
+    with _session() as conn:
+        return [
+            UsageDay(
+                user_id=row["user_id"],
+                role=row["role"],
+                token_budget_daily=row["token_budget_daily"],
+                requests_per_minute=row["requests_per_minute"],
+                requests=row["requests"],
+                input_tokens=row["input_tokens"],
+                output_tokens=row["output_tokens"],
+                unsplit_tokens=row["unsplit_tokens"],
+                denied=row["denied"],
+            )
+            for row in conn.execute(_USAGE_SNAPSHOT_SQL).fetchall()
+        ]
 
 
 def _row_to_chat_session(row: _Row) -> ChatSession:

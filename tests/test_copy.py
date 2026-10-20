@@ -382,6 +382,23 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert RANKED_CUT_TEMPLATE
     assert SHARE_TEMPLATE
     assert RANKED_EMPTY_LABEL
+    # PRD-013 (STORY-016): the Usage view's copy, read off the module.
+    assert admin_copy.VIEW_USAGE_LABEL
+    assert admin_copy.READ_LABEL_USAGE
+    assert admin_copy.USAGE_CAPTION
+    assert admin_copy.COLUMN_ROLE
+    assert admin_copy.COLUMN_REQUESTS
+    assert admin_copy.COLUMN_INPUT
+    assert admin_copy.COLUMN_OUTPUT
+    assert admin_copy.COLUMN_BUDGET
+    assert admin_copy.COLUMN_USED
+    assert admin_copy.COLUMN_DENIED
+    assert admin_copy.COLUMN_BUDGET_TITLE
+    assert admin_copy.COLUMN_USED_TITLE
+    assert admin_copy.COLUMN_DENIED_TITLE
+    assert admin_copy.USAGE_BUDGET_UNLIMITED
+    assert admin_copy.EMPTY_USAGE_TITLE
+    assert admin_copy.EMPTY_USAGE_BODY
     # And nothing is missing from the list: a constant added to admin_copy.py
     # without an assertion here would otherwise ship untested, which is the
     # failure mode "each constant is asserted non-empty" exists to prevent.
@@ -443,6 +460,23 @@ def test_admin_copy_constants_exist_and_not_empty():
         "READ_LABEL_INPUT_TOKENS",
         "READ_LABEL_OUTPUT_TOKENS",
         "READ_LABEL_USAGE_LIMITS",
+        # PRD-013 (STORY-016): the Usage view.
+        "VIEW_USAGE_LABEL",
+        "READ_LABEL_USAGE",
+        "USAGE_CAPTION",
+        "COLUMN_ROLE",
+        "COLUMN_REQUESTS",
+        "COLUMN_INPUT",
+        "COLUMN_OUTPUT",
+        "COLUMN_BUDGET",
+        "COLUMN_USED",
+        "COLUMN_DENIED",
+        "COLUMN_BUDGET_TITLE",
+        "COLUMN_USED_TITLE",
+        "COLUMN_DENIED_TITLE",
+        "USAGE_BUDGET_UNLIMITED",
+        "EMPTY_USAGE_TITLE",
+        "EMPTY_USAGE_BODY",
         "EMPTY_REGISTER_TITLE",
         "EMPTY_REGISTER_BODY",
         "EMPTY_MATCHES_TITLE",
