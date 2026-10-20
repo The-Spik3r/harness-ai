@@ -265,6 +265,7 @@ def test_the_summary_loads_no_chat_component(probe):
     assert not probe["chat_modules_loaded"], probe["chat_modules_loaded"]
 
 
+# PRD-013 STORY-015 (Section 6.10): nine figures became twelve (token totals, usage-limit count).
 @pytest.mark.parametrize("var", FIGURE_VARS)
 def test_every_figure_var_reaches_the_sheet(probe, var):
     """AC 1, in the half a component test can carry.
@@ -370,6 +371,7 @@ def test_the_ranked_lists_state_their_cut(probe):
     assert admin_copy.RANKED_EMPTY_LABEL in probe["who"]
 
 
+# PRD-013 STORY-015 (Section 6.10): nine figures became twelve (token totals, usage-limit count).
 def test_the_empty_sheet_says_why(probe):
     """A total of 0 is stated, not shown as twelve dashes, and the panel ends in the
     action available from it."""

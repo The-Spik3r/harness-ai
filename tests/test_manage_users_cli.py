@@ -7,6 +7,7 @@ import pytest
 
 from app.config import settings
 from app.db.database import find_user_by_token_hash, get_user
+# resolve: PRD-013 STORY-008 (D1), set-limits overrides reach the resolved Identity.
 from app.services.identity import hash_token, resolve
 from scripts.manage_users import main
 

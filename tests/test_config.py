@@ -1084,3 +1084,74 @@ def test_break_glass_ingresses_refuses_an_unknown_name(value, bad):
     assert bad in message
     assert "chat, query" in message
     assert "/v1" not in message
+
+
+# --- PRD-013 STORY-018: .env.example documents the usage-limit settings ------
+#
+# STORY-007 added the four fields and left `.env.example` to this story. They
+# are documented in their own group, in field order, with the defaults the
+# fields carry; and the ADMIN_TOKEN comment now says where the token is refused.
+
+_USAGE_VARS = (
+    "USAGE_LIMITS_ENABLED",
+    "USAGE_DAILY_TOKEN_BUDGET",
+    "USAGE_REQUESTS_PER_MINUTE",
+    "BREAK_GLASS_INGRESSES",
+)
+
+
+def _env_example_comment(text: str, var: str) -> str:
+    comment = re.search(rf"(?m)((?:^#.*\n)+){var}=", text)
+    assert comment, f"{var} has no comment block above it"
+    return comment.group(1)
+
+
+def test_env_example_documents_every_usage_var_with_a_comment():
+    """PRD-013 STORY-018 AC 4: all four present, each with an explanation above it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _USAGE_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_usage_vars_appear_in_settings_field_order():
+    """PRD-013 STORY-018 AC 4. The order is read from `Settings.model_fields`,
+    so a field moved in `app/config.py` moves the expectation with it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [name for name in Settings.model_fields if name in _USAGE_VARS]
+
+    assert sorted(declared_order) == sorted(_USAGE_VARS)
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_usage_defaults_match_settings():
+    """PRD-013 STORY-018 AC 4: the template carries the shipped defaults, not
+    the validator's examples (`admin=120`, `admin=unlimited`)."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _USAGE_VARS}
+
+    assert _env_example_value(text, "USAGE_LIMITS_ENABLED") == str(defaults["USAGE_LIMITS_ENABLED"]).lower()
+    for var in ("USAGE_DAILY_TOKEN_BUDGET", "USAGE_REQUESTS_PER_MINUTE", "BREAK_GLASS_INGRESSES"):
+        assert _env_example_value(text, var) == defaults[var]
+
+
+def test_env_example_admin_token_comment_names_v1_and_the_setting():
+    """PRD-013 STORY-018 AC 4: the ADMIN_TOKEN entry says it is refused on /v1
+    and names the setting that can refuse it elsewhere (Section 9.3)."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    block = _env_example_comment(text, "ADMIN_TOKEN")
+
+    assert "v1" in block
+    assert "BREAK_GLASS_INGRESSES" in block
+
+
+def test_env_example_says_what_disabling_usage_limits_does():
+    """PRD-013 STORY-018 AC 4, on substance rather than an exact sentence: the
+    off state writes and reads no counter."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    block = _env_example_comment(text, "USAGE_LIMITS_ENABLED").lower()
+
+    assert "false" in block
+    assert "counter" in block

@@ -10,6 +10,7 @@ import inspect
 import pytest
 
 from app.config import settings
+# set_user_limits: PRD-013 STORY-008 (D1), per-user overrides on the users row.
 from app.db.database import deactivate_user, insert_user, set_user_limits
 from app.db.models import User
 from app.services import identity as identity_module
@@ -60,6 +61,7 @@ def test_resolve_deactivated_user_returns_none(temp_db):
 
 
 def test_resolve_admin_token_returns_synthetic_admin_identity(temp_db):
+    # PRD-013 STORY-008 (D4, Section 6.8): only the ADMIN_TOKEN path sets break_glass.
     assert resolve(settings.ADMIN_TOKEN) == Identity(
         user_id="admin", role="admin", break_glass=True
     )
@@ -77,6 +79,7 @@ def test_resolve_admin_token_uses_compare_digest(monkeypatch, temp_db):
 
     result = resolve(settings.ADMIN_TOKEN)
 
+    # PRD-013 STORY-008 (D4, Section 6.8): only the ADMIN_TOKEN path sets break_glass.
     assert result == Identity(user_id="admin", role="admin", break_glass=True)
     assert len(calls) == 1
     assert calls[0] == (settings.ADMIN_TOKEN, settings.ADMIN_TOKEN)

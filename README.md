@@ -137,7 +137,7 @@ All captures were taken from a running instance with [agent-browser](https://www
         └───────────────────────┘
 ```
 
-Blocked requests (missing/invalid credential, missing permission, duplicate, or suspicious pattern) short-circuit at step 0, 3, or 4 — the model provider is never called, and the block is still logged. Redaction sits after every check, so a blocked request is never analyzed for PII. The diagram shows the `chat` profile, the one both ingresses run; under the `code` profile the response-redaction box is skipped and `system` turns are not redacted — see [PII redaction](#pii-redaction).
+Blocked requests (missing/invalid credential, missing permission, usage limit, duplicate, or suspicious pattern) short-circuit before the provider — the model provider is never called, and the block is still logged. The diagram predates the usage gate: right after step 0's authorization, the gate counts the attempt in Turso (`usage_daily`) and refuses a user over a limit, and after the provider answers, the tokens it reported are charged to the same row — see [Usage limits](#usage-limits). Redaction sits after every check, so a blocked request is never analyzed for PII. The diagram shows the `chat` profile, the one both ingresses run; under the `code` profile the response-redaction box is skipped and `system` turns are not redacted — see [PII redaction](#pii-redaction).
 
 The transcript write is **not** a pipeline step. It happens in the chat UI after the pipeline has returned, it is allowed to fail without taking the answer with it, and `CHAT_HISTORY_ENABLED=false` removes it entirely — which is why the eight steps above are exactly the eight steps of the previous release. `POST /query` writes no transcript at all; it only records which conversation a row belonged to.
 
@@ -153,10 +153,11 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | **Duplicate blocking** | Exact-match (word-for-word) detection of a prompt the **same account** already had answered within a rolling 24-hour window. Scoped per user, never across users — see [Duplicate detection scope](#duplicate-detection-scope). |
 | **Prompt-injection blocking** | Word-boundary matching against a per-deployment pattern file, applied per message role: the caller's own turns are blocked on a hit, and an instruction planted in a tool result is flagged in the audit rather than blocked. See [Pattern policy](#pattern-policy). |
 | **PII redaction** | Under the `chat` profile (`POST /query` and the chat UI), [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt and its history before they reach OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a `chat` request, and the audit log keeps the raw text. A `code` profile for coding agents masks prose only, runs pattern recognizers only, leaves the response alone, and refuses a request too large to analyze. See [PII redaction](#pii-redaction). English-only in this release. |
-| **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens, flags, and timestamp. IP addresses and geolocation are never captured. |
+| **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens (input and output), flags, and timestamp, plus the ingress it came through, its message count and a conversation key that groups an agent's turns. IP addresses and geolocation are never captured. |
 | **Persisted chat sessions** | The chat UI holds named, per-conversation transcripts in Turso — restored on reload, on a new browser session, and from any instance sharing the database. Each transcript is readable only by the account that wrote it; no admin surface exposes one. `CHAT_HISTORY_ENABLED=false` turns the whole feature off, from the same image. |
 | **Multi-turn context** | The chat sends the conversation, not just the latest message: every answered exchange in the session that fits the configured limits goes upstream, redacted, on every send. The pipeline takes a list of messages; `POST /query` is the one-message case and is unchanged. See [Multi-turn context](#multi-turn-context). |
-| **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. |
+| **Usage limits** | A daily token budget and a per-minute request rate for every user, set by role with per-user overrides, on by default, and held in the shared database so a second instance does not double them. A user over a limit gets a `BLOCKED` answer saying when to try again, never a `429`, and the refusal is audited. See [Usage limits](#usage-limits). |
+| **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. The admin console adds a Usage page: what each user has used today. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
 | **Model-agnostic** | Works with any model OpenRouter serves — Claude, GPT, or others — with no code changes. |
 
@@ -176,12 +177,13 @@ A duplicate is **the same account sending the same prompt, in the same conversat
 - **Duplicate blocks.** A held repeat does not extend the window. A prompt is allowed again 24 hours after it was *answered*, however many times it was held in between.
 - **Other users' rows.** Two accounts sending the same text are both answered, and nobody can hold a colleague's prompt for a day by sending it first.
 - **Rows written before this release.** They carry no duplicate key and never match.
+- **Usage-limit refusals.** A prompt refused at a [usage limit](#usage-limits) never reached the model, so sending it again after the limit resets is answered, not held.
 
 Excluding a row from the lookup does not remove it from the record: every one of these attempts still writes its audit row, and `GET /audit`, `GET /stats` and the admin console report exactly what they did before.
 
 Two weaknesses are accepted on purpose:
 
-- **One repeat per account.** Because the scope is per user, N accounts can each send the same prompt once per window. Accounts are admin-provisioned with `scripts/manage_users.py`, which bounds N; per-user rate limits and token budgets that close the gap are planned as PRD-013 and are not built yet.
+- **One repeat per account.** Because the scope is per user, N accounts can each send the same prompt once per window. Accounts are admin-provisioned with `scripts/manage_users.py`, which bounds N; and since PRD-013 every account also has a daily token budget and a per-minute request rate, which bound what those N accounts can spend. See [Usage limits](#usage-limits).
 - **A one-off gap right after upgrading.** Rows written before this release have no key, so a prompt answered in the 24 hours before the upgrade can be sent once more after it. The gap closes on its own 24 hours after deploy; no backfill is run.
 
 Every case above has an end-to-end test in `tests/test_duplicate_scope.py`. The full threat reasoning — including what the rescoping made stronger — is in [PRD-009, Section 9.2](.agents/PRDs/PRD-009-duplicate-rescoping/PRD.md#92-threat-reasoning).
@@ -337,6 +339,45 @@ Measured on Python 3.11.9 with 12 logical CPUs, Presidio 2.2.364 and spaCy 3.8.1
 
 The full design, including the threat reasoning behind each cell of the table, is in [PRD-012](.agents/PRDs/PRD-012-pii-for-code/PRD.md).
 
+### Usage limits
+
+**Every user has two limits, and they are on by default.** A daily token budget, `USAGE_DAILY_TOKEN_BUDGET` (default `*=1000000`: one million tokens per user per UTC day), and a request rate, `USAGE_REQUESTS_PER_MINUTE` (default `*=60`: sixty requests per user per minute). Both are keyed by the authenticated user, never by a request field, and both are counted in one row per user per day in the shared database, by one atomic statement on the database's clock, so a second instance does not double them. `tests/test_two_instance_smoke.py` proves it with two processes on one database. **An upgraded deployment gets these limits without opting in.** The defaults are starting points, chosen so that ordinary chat and script use never reaches them; confirm them against your own traffic. `USAGE_LIMITS_ENABLED=false` turns both off and writes no counter at all. `RBAC_ENABLED=false` does not turn them off.
+
+**Limits are set per role.** Each setting is a list of `role=value` pairs with a required `*` entry for every role not named; a value is a whole number of at least `1` or the word `unlimited`. For example, `USAGE_DAILY_TOKEN_BUDGET=*=1000000,admin=unlimited` and `USAGE_REQUESTS_PER_MINUTE=*=60,admin=120` — examples, not the defaults, which name only `*`. A role the map does not name gets `*`, including a role defined only in `RBAC_ROLES_FILE`. `0` is a startup error, not "off": the error message names `USAGE_LIMITS_ENABLED` instead. The `ADMIN_TOKEN` identity gets the `admin` role's limits; it is not exempt.
+
+**One user can be given their own limits.** For each limit separately, a user's own override wins, then their role's entry, then `*`. Overrides live on the `users` row and are set with `scripts/manage_users.py`, beside the other user commands:
+
+```bash
+python scripts/manage_users.py create-user --user-id dana --role user      # prints the token once
+python scripts/manage_users.py list-users                                  # id, role, active, created, budget, rate
+python scripts/manage_users.py set-limits --user-id dana --token-budget 5000000
+python scripts/manage_users.py set-limits --user-id dana --requests-per-minute default
+python scripts/manage_users.py issue-token --user-id dana                  # rotates the token
+python scripts/manage_users.py deactivate-user --user-id dana
+```
+
+`set-limits` needs at least one of the two flags, and leaves the other limit as it was. A value is a whole number of at least `1`, or `default`, which clears the override so the role's entry applies again; there is no per-user `unlimited` — give the user a role whose entry is `unlimited` instead. `list-users` prints `default` where no override is set. The identity is read again on every request and every chat send, so a change applies to the user's next one, with no restart.
+
+**The rate counts attempts, not answers.** Every request that passes authorization counts once against the minute: one held as a duplicate, one blocked for a pattern, one refused for length and one that then fails upstream all count, so a looping agent cannot retry for free. A caller refused authorization — no `query:submit`, a disallowed model, BYOK without permission, the break-glass token on a refused ingress — counts nothing and leaves no counter row. **The budget charges what the provider reported**, input plus output tokens: on success, and also when the model answered but the response then failed redaction, because the tokens were spent; never when the upstream call itself failed. When the provider reports only a total, the total is charged.
+
+**The rate window is fixed, not sliding.** It is the calendar minute on the database's clock, so a user can send the full limit in the last seconds of one minute and again in the first seconds of the next — at most twice the limit inside one 60-second span. The day's counters start over at 00:00 UTC, which opens one such boundary a day as well. A refused attempt still counts in the minute it was refused in, but it cannot extend a lockout: the count starts over when the minute does.
+
+**The budget can be overshot.** The check comes before the call and the charge after it, so a request admitted just under the budget runs to completion, and so does every request already in flight. The overshoot is bounded by the rate limit times the size of one response. Reserving `max_tokens` against the budget before the call would close it; that is not built.
+
+**A request on the caller's own key is rate-limited but not budget-charged.** A request that supplies `openrouter_api_key` spends the caller's key, not the deployment's, so it counts toward the rate, is never refused for budget, and charges nothing — its tokens are still recorded on its audit row. Bringing a key requires `query:byok`, which only `admin` holds by default.
+
+**The gate fails closed; the charge fails open.** If the counter cannot be read, the request fails with a `500` and nothing is sent upstream — the same choice the duplicate check makes, because a database outage must not become a window with no limit. If the charge cannot be written after the model has answered, the caller still gets the answer, the failure is logged at `ERROR`, and the audit row's `input_tokens` and `output_tokens` remain the record; usage is under-counted for as long as the outage lasts.
+
+**What the caller sees.** `POST /query` answers `200` with a `BLOCKED` body naming the limit, the maximum, the count and when it resets — never `429`; see [`POST /query` — blocked (usage limit)](#post-query--blocked-usage-limit). When both limits are broken, the rate is the one reported. The chat shows a held bubble — *You've reached today's usage limit. You can send again after 00:00 UTC.* for the budget, *You're sending too fast. Wait a minute, then send again.* for the rate — and a reload restores it. Every refusal writes one audit row with `limit_exceeded` set, and a refused prompt is **never a prior query**: sent again after the reset, it is answered, not held as a duplicate.
+
+**What an admin sees.** In the admin console, a usage-limit row on the Register reads **denied**, the tokens column reads input / output, and the search box finds a conversation by its `conversation_key` or a row by its `ingress`. The Summary adds input and output token totals and *Denied at a usage limit*, the same three figures `GET /stats` returns. The **Usage** page is one table for today (UTC), one row per user who has sent anything: role, requests, input and output tokens, budget, share of it used, and requests denied at a limit; an empty day reads *No one has sent anything today.*
+
+**`ADMIN_TOKEN` is accepted only where it is allowed.** The break-glass token is accepted on `POST /query` and the chat UI by default (`BREAK_GLASS_INGRESSES=query,chat`, today's behaviour on both), and either can be removed. It is **never accepted on `/v1`**, the [OpenAI-compatible endpoint](#openai-compatible-endpoint) PRD-014 will add, and the setting cannot add it. A refused attempt gets the existing [refused-by-policy body](#post-query--200-refused-by-policy) with `"reason": "Break-glass credential not permitted on this ingress"` and `"required_permission": "ingress:break_glass"`, and is audited with that `denied_permission`. The admin console is not an ingress: it still signs in with `ADMIN_TOKEN`.
+
+**What it costs.** Two database round trips per request: with limits on, every `POST /query` makes five statements — identity read, usage gate, duplicate check, usage charge, audit write — where it made three. Measured against the local libSQL dev server on the same host, 50 runs each: **`admit` about 8.5 ms and `charge` about 7.5 ms at p50, about 16 ms combined at p50 and 17.5 ms at p95**, one statement per call. A remote Turso endpoint adds its own network latency to each of the two, and has not been measured. The script is `scripts/measure_usage_latency.py`: `python scripts/measure_usage_latency.py --runs 50` against the configured database, or add `--database-url libsql://<db>-<org>.turso.io --allow-remote-database` with `TURSO_AUTH_TOKEN` set to measure a remote one. `USAGE_LIMITS_ENABLED=false` restores the three-statement path. See [The database is a hard dependency of every request](#the-database-is-a-hard-dependency-of-every-request).
+
+The full design, including the threat reasoning, is in [PRD-013](.agents/PRDs/PRD-013-audit-and-usage-limits/PRD.md).
+
 ---
 
 ## Requirements
@@ -473,7 +514,7 @@ Commit SHAs link to `REPORTS_REPO_URL`. The Docker image copies `.agents/PRDs`, 
 
 ### Where state lives
 
-All four tables the harness owns — `audit_logs`, `users`, `chat_sessions` and `chat_messages` — live in a [Turso](https://turso.tech) (libSQL) database, reached over the network. There is no database file in the repository, in the image, or in the compose stack, and there is no local-file fallback: a `sqlite:` `DATABASE_URL` is a startup error rather than a file, deliberately, because a local database written to an ephemeral container layer is read by nobody and backed up by nobody.
+All five tables the harness owns — `audit_logs`, `users`, `chat_sessions`, `chat_messages` and `usage_daily` (one usage counter row per user per UTC day) — live in a [Turso](https://turso.tech) (libSQL) database, reached over the network. There is no database file in the repository, in the image, or in the compose stack, and there is no local-file fallback: a `sqlite:` `DATABASE_URL` is a startup error rather than a file, deliberately, because a local database written to an ephemeral container layer is read by nobody and backed up by nobody.
 
 To provision one: create a database, take its `libsql://<database>-<org>.turso.io` URL and an auth token, and put both in `.env` as `DATABASE_URL` and `TURSO_AUTH_TOKEN`. Any libSQL endpoint works — the local dev server on `http://` is the same contract without the token.
 
@@ -483,7 +524,7 @@ To provision one: create a database, take its `libsql://<database>-<org>.turso.i
 
 **Only the author reads a transcript.** Ownership is a required parameter on every session and message function in `app/db/database.py`, re-checked on every read rather than trusted from the client; `chat_messages` carries no `user_id` of its own, so reads and deletes scope through a subselect on `chat_sessions`. A `session_id` belonging to someone else is refused at `POST /query` with a `403`, and returns an empty transcript through every other path — the same answer as a session that does not exist, so the id space cannot be probed. **There is no admin path to a transcript**: `GET /audit` gains a `session_id` and nothing more, and the admin console renders no transcript at all.
 
-**`audit_logs` is unchanged.** It still stores the prompt hash and the 500-character raw previews it always did, and it gained exactly one column, `session_id`. Nothing about the audit trail's contents moved in this release.
+**`audit_logs` is unchanged.** It still stores the prompt hash and the 500-character raw previews it always did, and it gained exactly one column, `session_id`. Nothing about the audit trail's contents moved in this release. PRD-013 later added eight metadata columns — ingress, message count, the token split, two flags, a conversation key and the usage limit — and no content: no new preview and no new text. See [`GET /audit`](#get-audit-requires-auditreadall-or-auditreadown).
 
 **`CHAT_HISTORY_ENABLED=false` is a supported configuration, not a degraded mode.** With it off, no transcript row is written and none is read, the session rail is *absent* rather than empty, and the chat behaves exactly as it did before this release — same image, same code path, no fork to maintain. It is the configuration for a deployment that must not hold prompt text at rest. `POST /query` is unaffected either way: it never wrote a transcript, and with the flag off a supplied `session_id` is still recorded on the audit row as a label. The switch governs the transcript, not the audit column.
 
@@ -506,9 +547,9 @@ Treat multi-instance as *unblocked*, not *delivered*.
 
 ### The database is a hard dependency of every request
 
-With the local file gone, every `POST /query` makes network round trips it never used to — one for the duplicate check, one for the audit write. Retry, circuit-breaker, and offline-buffering behavior are deliberately outside the current scope, which has a consequence worth knowing before you size a deployment rather than during an incident: **a transient database outage fails requests instead of degrading them.** Endpoints that previously could not fail on storage now can.
+With the local file gone, every `POST /query` makes network round trips it never used to. With [usage limits](#usage-limits) on, the default, there are five statements per request — the identity read, the usage gate, the duplicate check, the usage charge and the audit write — about 16 ms of it (p50, same-host dev server) for the two usage statements; with `USAGE_LIMITS_ENABLED=false` there are three. Retry, circuit-breaker, and offline-buffering behavior are deliberately outside the current scope, which has a consequence worth knowing before you size a deployment rather than during an incident: **a transient database outage fails requests instead of degrading them.** Endpoints that previously could not fail on storage now can.
 
-There is no exception for the duplicate check. A storage failure during the duplicate lookup returns `500`, and the query never reaches the model — the check fails closed, as `tests/test_query_router.py::test_duplicate_check_storage_failure_returns_500` asserts. An earlier version of this section said the opposite; the code never did. Letting a failed check through would turn every database outage into a window with no duplicate control, which would be a security decision, not a resilience detail. Resilience work is the first item on the roadmap beyond this migration.
+There is no exception for the duplicate check. A storage failure during the duplicate lookup returns `500`, and the query never reaches the model — the check fails closed, as `tests/test_query_router.py::test_duplicate_check_storage_failure_returns_500` asserts. An earlier version of this section said the opposite; the code never did. Letting a failed check through would turn every database outage into a window with no duplicate control, which would be a security decision, not a resilience detail. The usage gate fails closed the same way, for the same reason: a counter it cannot read is a `500`, never an unlimited request. Its charge, written after the model has answered, fails open instead — the answer is returned, the failure is logged at `ERROR`, and the audit row keeps the token counts. Resilience work is the first item on the roadmap beyond this migration.
 
 ### Migrating an existing SQLite deployment
 
@@ -533,7 +574,7 @@ Four properties matter when you run it:
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `OPENROUTER_API_KEY` | Yes | — | API key used to call the upstream LLM provider via OpenRouter. |
-| `ADMIN_TOKEN` | Yes | — | Break-glass bearer token that always resolves to the `admin` role, independent of the `users` table. Not the primary auth mechanism — issue individual tokens with `scripts/manage_users.py` instead. |
+| `ADMIN_TOKEN` | Yes | — | Break-glass bearer token that always resolves to the `admin` role, independent of the `users` table. Not the primary auth mechanism — issue individual tokens with `scripts/manage_users.py` instead. **Never accepted on `/v1`**, the OpenAI-compatible endpoint PRD-014 will add; `BREAK_GLASS_INGRESSES` can also refuse it on `POST /query` and the chat UI. The admin console signs in with it regardless. It carries the `admin` role's usage limits. |
 | `DATABASE_URL` | Yes | — | libSQL endpoint for the `audit_logs` and `users` database: `libsql://<database>-<org>.turso.io`, `https://...`, or `http://127.0.0.1:8080` for the local dev server. No default, and a `sqlite:` value is a startup error — the local-file path was removed deliberately, not deprecated. |
 | `TURSO_AUTH_TOKEN` | Yes for remote | — | Bearer token for the database. Required whenever `DATABASE_URL` is `libsql://` or `https://`; unused by the local `http://` dev server, which takes no token. Never logged — configuration errors quote the URL's scheme only, never the URL itself. |
 | `DB_BOOTSTRAP_ENABLED` | No | `true` | Whether startup probes the database and applies the schema. The only sanctioned `false` is the Docker builder stage, where the image must build with no database reachable. `false` in a running deployment boots an application whose schema was never created. |
@@ -564,6 +605,10 @@ Four properties matter when you run it:
 | `PII_CODE_REDACT_OUTPUT` | No | `false` | Redact the model's response under `code`. Off because a coding agent writes its response into files, where a placeholder corrupts them; on, if any unmasked output is worse than that. |
 | `PII_CODE_REDACT_SYSTEM` | No | `false` | Redact `system` turns under `code`. Off because it is the client's own prompt and the largest fixed cost per request; on for a deployment that distrusts its clients' prompts. |
 | `PII_CODE_SKIP_CODE_BLOCKS` | No | `true` | Skip fenced code blocks under `code`. On, PII inside a fence reaches the provider unmasked while prose and inline backtick spans are still masked; off, fenced code is analyzed too, at the risk of placeholders in code. |
+| `USAGE_LIMITS_ENABLED` | No | `true` | Master switch for the usage gate and the token charge. On by default, so an upgraded deployment is limited from its first boot. `false` writes and reads no counter, and each request makes the three round trips it made before. Independent of `RBAC_ENABLED`, which does not turn limits off. See [Usage limits](#usage-limits). |
+| `USAGE_DAILY_TOKEN_BUDGET` | No | `*=1000000` | Tokens per user per UTC day, by role: `role=value` pairs with a required `*` entry, each value a whole number of at least `1` or `unlimited` — e.g. `*=1000000,admin=unlimited`. A missing `*`, a role named twice, `0` or any other value is a **startup error** naming the setting. A starting point, not a recommendation; per-user overrides are set with `scripts/manage_users.py set-limits`. |
+| `USAGE_REQUESTS_PER_MINUTE` | No | `*=60` | Authorized attempts per user per calendar minute, by role, in the same shape and with the same validation — e.g. `*=60,admin=120`. The window is fixed, not sliding, and on the database's clock, so every instance shares it. |
+| `BREAK_GLASS_INGRESSES` | No | `query,chat` | Where `ADMIN_TOKEN` may submit queries: any subset of `query` (`POST /query`) and `chat` (the chat UI), or empty for neither. `v1` is a **startup error** — the token is never accepted on the OpenAI-compatible endpoint, and this setting can only narrow where it is accepted, never widen it. Names are case-sensitive. The admin console is not affected. |
 | `REPORTS_AGENTS_DIR` | No | *(repo-root `.agents`)* | Directory the Reports section reads PRD boards, stories and reports from. |
 | `REPORTS_REPO_URL` | No | `https://github.com/The-Spik3r/harness-ai` | Repository a report's commit SHA links to, as `{REPORTS_REPO_URL}/commit/{sha}`. |
 
@@ -686,6 +731,23 @@ The check sits after authorization and before the duplicate check. After, so a c
 
 For `POST /query` the reachable case is a single prompt over `CONTEXT_MAX_CHARACTERS` (200,000 by default, ≈50k tokens of English), which previously went upstream. See [Multi-turn context](#multi-turn-context).
 
+### `POST /query` — blocked (usage limit)
+
+```json
+{
+  "status": "BLOCKED",
+  "reason": "Usage limit reached",
+  "limit": "tokens",
+  "maximum": 1000000,
+  "actual": 1003412,
+  "resets_at": "2026-10-05T00:00:00Z"
+}
+```
+
+The eighth `POST /query` outcome, added by PRD-013; the seven before it are unchanged. `limit` is `requests` (the per-minute rate) or `tokens` (the daily budget), and when both are broken, `requests` is the one reported. `maximum` is the limit that applied to this user — their own override, their role's entry, or `*`. `actual` is this minute's attempt count, this one included, for `requests`, and the tokens already charged today for `tokens`, which can be above `maximum` (see [Usage limits](#usage-limits) on overshoot). `resets_at` is UTC in the audit timestamp format: the start of the next minute for `requests`, the next 00:00 UTC for `tokens`. It is a `200`, like every other block on this endpoint, never a `429`.
+
+The check sits after authorization and the break-glass check, and before the context limit and every content check. After, so a caller without `query:submit` learns nothing about the deployment's limits and spends nothing; before, so a refused request is never analyzed. The attempt is audited as one row with `success=true` and `limit_exceeded` set to the limit, the way a duplicate block is recorded, and it is never treated as a prior query by the duplicate check. If the usage counter cannot be read, the response is a `500` and nothing is sent upstream.
+
 ### `GET /audit` (requires `audit:read:all` or `audit:read:own`)
 
 ```bash
@@ -714,7 +776,15 @@ curl http://localhost:8000/audit \
       "session_id": "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
       "pattern_role": null,
       "pattern_action": null,
-      "profile": "chat"
+      "profile": "chat",
+      "ingress": "query",
+      "message_count": 1,
+      "input_tokens": 38,
+      "output_tokens": 7,
+      "streamed": false,
+      "has_tool_calls": false,
+      "conversation_key": "5c1f0e9d2b7a4c3e8f6d1a0b9c8e7f6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
+      "limit_exceeded": null
     }
   ]
 }
@@ -729,6 +799,29 @@ curl http://localhost:8000/audit \
 `pattern_role` and `pattern_action` say which message tripped a pattern and what was done about it: `pattern_role` is the role of the message the match was found in (`user`, `tool`, …), and `pattern_action` is `block` or `flag`. Both are `null` on rows with no pattern hit and on every row written before this release. `suspicious_pattern_detected` keeps its meaning — *a pattern matched* — so it is `true` for a flag as well as a block; `pattern_action` is what tells them apart. See [Pattern policy](#pattern-policy).
 
 `profile` names the policy that ran — `chat` for every row `POST /query` and the chat UI write — and the admin console's Register page shows it too. It is `null` on rows written before this release and on `POST /query`'s refusal of a foreign `session_id`. It matters for reading the PII flags: under the `code` profile the response is not analyzed, so `pii_detected_output: false` there means *not looked at*, not *clean*. See [PII redaction](#pii-redaction).
+
+Eight fields describe the request itself (PRD-013):
+
+| Field | Meaning |
+|---|---|
+| `ingress` | The door the request came through: `query` (`POST /query`), `chat` (the chat UI) or `v1` (the OpenAI-compatible endpoint, once it exists). `null` on a direct call that named none |
+| `message_count` | Messages in the conversation as received, before redaction: `1` on `POST /query`, the whole history plus the new turn in the chat |
+| `input_tokens` | Prompt tokens the provider reported (`usage.prompt_tokens`). `null` when no upstream call was made or the provider reported no split |
+| `output_tokens` | Completion tokens the provider reported (`usage.completion_tokens`), under the same rule. `tokens_used` is unchanged: still the provider's total |
+| `streamed` | The response was delivered as a stream. Always `false` until the OpenAI-compatible endpoint exists |
+| `has_tool_calls` | The request or response carried tool calls. Always `false` until tool calling exists |
+| `conversation_key` | A grouping key for the conversation the row belongs to; see below |
+| `limit_exceeded` | `requests` or `tokens` on a [usage-limit refusal](#post-query--blocked-usage-limit); `null` on every other row |
+
+Rows written before PRD-013 return `null` for the six nullable fields and `false` for `streamed` and `has_tool_calls`, which were impossible then. No row is backfilled.
+
+`conversation_key` is a versioned hash of the user, the first `system` message and the first `user` message, over the raw text. An agent resends its whole history on every request, so every turn of one agent conversation carries the same key. It is a grouping aid, not an identity, with three limits:
+
+- **Different conversations can share a key.** Two conversations by one user that open with the same system prompt and the same first instruction share it, and so does every identical `POST /query` prompt by one user.
+- **One conversation can change key.** A client that compacts its context and rewrites its first user message starts a new key.
+- **In the chat, the key can change mid-session.** Once a long chat drops its oldest exchange to fit the context limits, the first user message sent is a different one. For chat rows, `session_id` is the authoritative grouping.
+
+It is a hash of text this endpoint's reader can already identify through `user_id` and the previews, and it is not reversible. `GET /audit` does not filter on it; the admin console's Register search does.
 
 ### `GET /stats` (requires `stats:read`)
 
@@ -747,9 +840,14 @@ curl http://localhost:8000/stats \
   "top_models": ["gpt-4", "claude-3-sonnet"],
   "top_users": ["juan@empresa.com", "maria@empresa.com"],
   "pii_detected_queries": 34,
-  "top_pii_entities": ["EMAIL_ADDRESS", "PERSON"]
+  "top_pii_entities": ["EMAIL_ADDRESS", "PERSON"],
+  "input_tokens": 412880,
+  "output_tokens": 96410,
+  "blocked_usage_limits": 4
 }
 ```
+
+`input_tokens` and `output_tokens` are sums over every audit row, with a row that recorded no split counted as `0`, so on a deployment upgraded from before PRD-013 they cover only the rows written since. `blocked_usage_limits` counts usage-limit refusals. Those rows are `success=true`, so they count in `success_rate` the way duplicate blocks do. The admin console's Summary shows the same three figures.
 
 `pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows. Both count what was analyzed: a `code` row's response was not, so it can only be flagged on input. No ingress runs `code` today, so the figures are what they were.
 
@@ -838,6 +936,15 @@ The `Authorization: Bearer <token>` header is missing, doesn't match any active 
 **`403 Forbidden` on `/query`, `/audit`, or `/stats`**
 The credential is valid, but the role lacks the permission that endpoint requires — for example, an `auditor` calling `/query`, or a `user` calling `/stats`. This is different from `401`: authentication succeeded, authorization did not. See the role→permission matrix in the Features table above, or `app/services/authz.py`.
 
+**`"reason": "Usage limit reached"` on `POST /query`, or *You've reached today's usage limit* in the chat**
+The user is over one of their [usage limits](#usage-limits). `limit` says which — `requests` clears at the next minute, `tokens` at the next 00:00 UTC, both given in `resets_at`. To raise it for one user, `python scripts/manage_users.py set-limits --user-id <id> --token-budget <N>` (or `--requests-per-minute <N>`), which applies to their next request; to raise it for a role, change `USAGE_DAILY_TOKEN_BUDGET` or `USAGE_REQUESTS_PER_MINUTE` and restart. The admin console's Usage page shows who is near their budget.
+
+**`500` on `POST /query` with `Usage admission failed: …`**
+The usage gate could not read its counter in the database, so the request was refused without reaching the model — fail closed by design, like the duplicate check. Check the database as for `DatabaseUnreachableError`; see [The database is a hard dependency of every request](#the-database-is-a-hard-dependency-of-every-request). Setting `USAGE_LIMITS_ENABLED=false` removes the dependency, and the limits with it.
+
+**`"required_permission": "ingress:break_glass"` when using `ADMIN_TOKEN`**
+`BREAK_GLASS_INGRESSES` does not include the ingress you used. Use an admin user's own token from `scripts/manage_users.py` instead, or add `query` or `chat` back to the setting.
+
 ---
 
 ## Roadmap
@@ -854,6 +961,7 @@ The credential is valid, but the role lacks the permission that endpoint require
 - [x] [Multi-turn context](#multi-turn-context) — the chat sends its history, so a session is a conversation
 - [x] [Configurable, per-deployment pattern lists](#pattern-policy) — per-role scope, word matching, indirect injection flagged
 - [x] [PII redaction for code](#pii-redaction) — policy per profile, role and direction; fenced blocks skipped; within a measured latency budget
+- [x] [Audit fields and usage limits](#usage-limits) — per-user token budget and rate limit, shared across instances; ingress, token split and conversation key on every audit row; `ADMIN_TOKEN` scoped by ingress
 
 ### Planned
 
