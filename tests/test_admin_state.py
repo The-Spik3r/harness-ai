@@ -70,7 +70,10 @@ from chat_ui.chat_ui.admin_copy import (
     EMPTY_MATCHES_TEMPLATE,
     FIGURE_BLOCKED_DUPLICATES_LABEL,
     FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
     FIGURE_COMPLETION_LABEL,
+    FIGURE_INPUT_TOKENS_LABEL,
+    FIGURE_OUTPUT_TOKENS_LABEL,
     FIGURE_PII_QUERIES_LABEL,
     FIGURE_TOP_MODELS_LABEL,
     FIGURE_TOP_PII_LABEL,
@@ -86,6 +89,7 @@ from chat_ui.chat_ui.admin_copy import (
     REGISTER_SCOPE_TEMPLATE,
     SHARE_TEMPLATE,
     SUMMARY_SCOPE_ALL_TIME,
+    SUMMARY_SCOPE_TOKENS,
     VERDICT_DENIED_LABEL,
     VERDICT_HELD_LABEL,
 )
@@ -144,6 +148,10 @@ def _populate(state: AdminState) -> dict:
     state.top_models = ["gpt-4"]
     state.top_users = ["a.torres"]
     state.top_pii_entities = ["EMAIL_ADDRESS"]
+    # PRD-013 STORY-006: three additive figures.
+    state.input_tokens = 2140
+    state.output_tokens = 312
+    state.blocked_usage_limits = 6
     state.last_refreshed = "14:22:07"
     state.loading = True
     state.error = "previous fault"
@@ -158,6 +166,9 @@ def _populate(state: AdminState) -> dict:
         "top_models": [],
         "top_users": [],
         "top_pii_entities": [],
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
         "last_refreshed": "",
         "loading": False,
         "error": "",
@@ -363,11 +374,35 @@ def test_admin_state_has_no_write_path_to_the_audit_log():
     assert not hasattr(admin_state_mod, "insert_audit_log")
 
 
+def test_admin_console_has_no_path_to_the_usage_counters():
+    """PRD-013 (STORY-016): the Usage table reads `usage_daily` and resolves
+    limits with `limits_for`, but neither console module may reach a counter
+    write -- `usage_limits` holds `admit`/`charge`, `database` holds
+    `admit_usage`/`charge_usage`, and both are imported from by name only."""
+    import chat_ui.chat_ui.admin_formatting as admin_formatting_mod
+    import chat_ui.chat_ui.admin_state as admin_state_mod
+
+    for module in (admin_state_mod, admin_formatting_mod):
+        for name in ("admit_usage", "charge_usage", "admit", "charge", "usage_limits"):
+            assert not hasattr(module, name), (module.__name__, name)
+
+
 # ---------------------------------------------------------------------------
 # The load path (STORY-004)
 # ---------------------------------------------------------------------------
 
 _ORIGINAL_READS = _admin_state_module._READS
+
+
+@pytest.fixture(autouse=True)
+def _no_usage_read(monkeypatch):
+    """PRD-013 (STORY-016): `load()` makes a second, separate read for the Usage
+    table. Every load test in this file is about the register and the summary,
+    so the usage read is stubbed empty by default -- the fakes that replace only
+    `summary_snapshot` would otherwise reach the database for it. `_Reads.install`
+    overrides this with its own recorder; `tests/test_usage_view.py` tests the
+    usage read itself."""
+    monkeypatch.setattr(_admin_state_module, "usage_snapshot", lambda: [])
 
 _READ_RETURNS = {
     "list_audit_logs": None,  # filled per test with _logs()
@@ -380,6 +415,11 @@ _READ_RETURNS = {
     "top_models": ["gpt-4", "claude"],
     "top_users": ["a.torres"],
     "top_pii_entities": ["EMAIL_ADDRESS"],
+    # PRD-013 STORY-006: three additive reads. Non-zero, so a figure `load()`
+    # failed to commit would still read as its default.
+    "sum_input_tokens": 2140,
+    "sum_output_tokens": 312,
+    "count_blocked_usage_limits": 6,
 }
 
 
@@ -432,10 +472,18 @@ class _Reads:
     rather than numbers the fake invents.
     """
 
-    def __init__(self, monkeypatch, failing=None, on_call=None, *, logs=None):
+    def __init__(
+        self, monkeypatch, failing=None, on_call=None, *, logs=None, usage=None
+    ):
         self._monkeypatch = monkeypatch
         self.failing = failing
         self.on_call = on_call
+        # PRD-013 (STORY-016): what the Usage read returns. `load()` now makes
+        # a second, separate read; stubbing it here keeps every load test in
+        # this file off the database, and leaves `calls` a record of the
+        # summary reads alone, as every assertion on it expects.
+        self.usage = [] if usage is None else list(usage)
+        self.usage_calls = 0
         # Keyword-only, defaulting to `_logs()` — STORY-006 needs `load()` to
         # return its own five constructed rows, and every earlier call site
         # passes nothing and takes the identical path.
@@ -460,7 +508,12 @@ class _Reads:
         self._monkeypatch.setattr(
             admin_state_mod, "summary_snapshot", self._snapshot
         )
+        self._monkeypatch.setattr(admin_state_mod, "usage_snapshot", self._usage)
         return self
+
+    def _usage(self):
+        self.usage_calls += 1
+        return list(self.usage)
 
     def _snapshot(self, row_limit, ranked_limit):
         """The database, as `load()` now reaches it: one call, ten figures.
@@ -531,6 +584,10 @@ def _loaded_record(state: AdminState) -> dict:
         "top_models": list(state.top_models),
         "top_users": list(state.top_users),
         "top_pii_entities": list(state.top_pii_entities),
+        # PRD-013 STORY-006: three additive figures.
+        "input_tokens": state.input_tokens,
+        "output_tokens": state.output_tokens,
+        "blocked_usage_limits": state.blocked_usage_limits,
         "last_refreshed": state.last_refreshed,
     }
 
@@ -584,9 +641,10 @@ def test_the_read_table_names_all_ten_database_functions():
     import chat_ui.chat_ui.admin_state as admin_state_mod
 
     reads = admin_state_mod._READS
-    assert len(reads) == 10
-    assert len({field for field, _, _, _ in reads}) == 10
-    assert len({fn for _, _, fn, _ in reads}) == 10
+    # PRD-013 STORY-006: ten reads became thirteen.
+    assert len(reads) == 13
+    assert len({field for field, _, _, _ in reads}) == 13
+    assert len({fn for _, _, fn, _ in reads}) == 13
     assert {fn.__name__ for _, _, fn, _ in reads} == {
         "list_audit_logs",
         "count_audit_logs",
@@ -598,6 +656,10 @@ def test_the_read_table_names_all_ten_database_functions():
         "top_models",
         "top_users",
         "top_pii_entities",
+        # PRD-013 STORY-006.
+        "sum_input_tokens",
+        "sum_output_tokens",
+        "count_blocked_usage_limits",
     }
     for field, _, _, _ in reads:
         assert field in AdminState.base_vars, field
@@ -615,7 +677,7 @@ async def test_load_runs_all_ten_reads_off_the_event_loop(
 
     await _load(state)
 
-    assert len(reads.calls) == 10
+    assert len(reads.calls) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     assert threading.get_ident() not in reads.threads
     # The register's window is the cap PRD-006 Section 4 fixes, passed as the
     # keyword argument AC 1 names.
@@ -682,7 +744,7 @@ async def test_loading_is_true_for_the_duration_and_false_after(
 
     await _load(state)
 
-    assert len(seen) == 10
+    assert len(seen) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     assert all(seen), seen
     assert state.loading is False
 
@@ -886,6 +948,47 @@ async def test_the_first_failing_figure_in_read_order_names_the_fault(
     assert state.loading is False
 
 
+_NEW_FIGURES = ("input_tokens", "output_tokens", "blocked_usage_limits")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failing", _NEW_FIGURES)
+async def test_a_failed_new_figure_is_named_and_the_sheet_stays_standing(
+    configured_token, monkeypatch, failing
+):
+    """STORY-015 AC 5: a failure of one of PRD-013's three reads names *that*
+    figure, and the rest of the sheet stays rendered.
+
+    "Rendered" is the console's standing contract rather than a partial commit:
+    nothing is written, so the last good record stays on screen under a fault
+    that names the figure (`FAULT_MESSAGE_TEMPLATE`, "Nothing on screen has
+    changed"), and the summary's fault arm renders the sheet, not a panel.
+    """
+    state = _state()
+    _authenticate(state, configured_token)
+    _Reads(monkeypatch).install()
+    await _load(state)
+    before = _loaded_record(state)
+    labels_before = [figure.label for figure in _figures(state)]
+    values_before = [figure.value for figure in _figures(state)]
+
+    figures = _snapshot_values()
+    figures.pop(failing)
+    _fixed_snapshot(monkeypatch, figures, {failing: ValueError(f"{failing} broke")})
+    await _load(state)
+
+    assert _label_for(failing) in state.error
+    for other, label, _fn, _kwargs in _ORIGINAL_READS:
+        if other != failing:
+            assert label not in state.error, other
+    assert _loaded_record(state) == before
+    assert state.summary_state == SUMMARY_STATE_FAULT
+    assert [figure.label for figure in _figures(state)] == labels_before
+    assert [figure.value for figure in _figures(state)] == values_before
+    assert len(labels_before) == 12
+    assert state.loading is False
+
+
 @pytest.mark.asyncio
 async def test_a_batched_read_that_raises_outright_still_names_a_read(
     configured_token, monkeypatch
@@ -1042,7 +1145,7 @@ async def test_a_second_concurrent_load_is_refused_by_the_loading_guard(
 
     await asyncio.gather(_load(state), _load(state))
 
-    assert len(reads.calls) == 10
+    assert len(reads.calls) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     assert state.loading is False
 
 
@@ -1197,7 +1300,8 @@ def test_evaluating_visible_rows_performs_no_database_read(
 
     state = _loaded(configured_token)
     for verdicts in ([], ["denied"], ["cleared", "fault"]):
-        for text in ("", "127", "a.torres", "zzz"):
+        # PRD-013 (STORY-015): a pasted conversation key and an ingress too.
+        for text in ("", "127", "a.torres", "zzz", "ab" * 32, "v1"):
             for key in ("", "timestamp", "user", "verdict", "unrecognised"):
                 for descending in (False, True):
                     state.selected_verdicts = verdicts
@@ -1239,6 +1343,62 @@ def test_free_text_matches_user_model_and_id_case_insensitively(
     state.search = text
 
     assert _visible(state) == expected
+
+
+# PRD-013 (STORY-015): rows carrying the audit fields, kept apart from
+# `_FILTER_ROWS` so every expectation above stays as it was. No user or model
+# here contains `v1`, `chat` or `query`, so an ingress match is exact.
+_KEY_A = "ab" * 32
+_KEY_B = "cd" * 32
+_AUDIT_FILTER_ROWS = [
+    AuditRow(audit_id=140, user_id="agent.ops", verdict="cleared", model_used="gpt-4",
+             conversation_key=_KEY_A, ingress="v1"),
+    AuditRow(audit_id=139, user_id="m.silva", verdict="denied", model_used="gpt-4",
+             conversation_key=_KEY_B, ingress="chat"),
+    AuditRow(audit_id=138, user_id="agent.ops", verdict="cleared", model_used="claude-3",
+             conversation_key=_KEY_A, ingress="v1"),
+    AuditRow(audit_id=137, user_id="j.rios", verdict="cleared", model_used="gpt-4",
+             conversation_key="—", ingress="—"),
+    AuditRow(audit_id=136, user_id="a.torres", verdict="held", model_used="gpt-4",
+             conversation_key="ef" * 32, ingress="query"),
+]
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (_KEY_A, [140, 138]),
+        (_KEY_A.upper(), [140, 138]),
+        (_KEY_A[:12], [140, 138]),
+        (_KEY_B, [139]),
+        ("v1", [140, 138]),
+        ("chat", [139]),
+        ("QUERY", [136]),
+    ],
+    ids=["key", "key-upper", "key-prefix", "other-key", "v1", "chat", "query-upper"],
+)
+def test_free_text_matches_conversation_key_and_ingress(
+    configured_token, text, expected
+):
+    """STORY-015 AC 3 (PRD-013 Section 6.10): pasting a key shows one
+    conversation, and an ingress name shows its traffic — only those rows."""
+    state = _state()
+    _authenticate(state, configured_token)
+    state.rows = list(_AUDIT_FILTER_ROWS)
+    state.search = text
+
+    assert _visible(state) == expected
+
+
+def test_the_conversation_search_composes_with_the_verdict(configured_token):
+    """The key narrows like any other text: AND with the verdict selection."""
+    state = _state()
+    _authenticate(state, configured_token)
+    state.rows = list(_AUDIT_FILTER_ROWS)
+    state.search = "v1"
+    state.selected_verdicts = ["denied"]
+
+    assert _visible(state) == []
 
 
 def test_the_two_filters_compose_as_and(configured_token):
@@ -1741,7 +1901,7 @@ async def test_filtering_the_loaded_register_narrows_it_without_a_second_read(
 
     await _load(state)
 
-    assert len(reads.calls) == 10
+    assert len(reads.calls) == 13  # PRD-013 STORY-006: ten reads became thirteen.
     calls_after_load = list(reads.calls)
 
     state.selected_verdicts = [VERDICT_FAULT]
@@ -2062,12 +2222,17 @@ _SUMMARY_COUNTS = {
     "top_models": ["gpt-4", "claude-3"],
     "top_users": ["a.torres", "m.silva"],
     "top_pii_entities": ["EMAIL_ADDRESS", "PERSON"],
+    # PRD-013 (STORY-015)
+    "input_tokens": 1204331,
+    "output_tokens": 188020,
+    "blocked_usage_limits": 9,
 }
 
-# The nine `StatsResponse` fields, as the labels the sheet gives them. Driven
-# from `admin_copy` by name rather than typed as literals, so a reworded label
-# moves this assertion with it instead of breaking it.
-_NINE_FIGURE_LABELS = {
+# The twelve figures, as the labels the sheet gives them: PRD-006's nine
+# `StatsResponse` fields and PRD-013's three. Driven from `admin_copy` by name
+# rather than typed as literals, so a reworded label moves this assertion with it
+# instead of breaking it.
+_FIGURE_LABELS = {
     FIGURE_TOTAL_LABEL,
     FIGURE_BLOCKED_DUPLICATES_LABEL,
     FIGURE_BLOCKED_SUSPICIOUS_LABEL,
@@ -2077,7 +2242,14 @@ _NINE_FIGURE_LABELS = {
     FIGURE_TOP_USERS_LABEL,
     FIGURE_PII_QUERIES_LABEL,
     FIGURE_TOP_PII_LABEL,
+    # PRD-013 (STORY-015)
+    FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
+    FIGURE_INPUT_TOKENS_LABEL,
+    FIGURE_OUTPUT_TOKENS_LABEL,
 }
+
+# The two figures that state a narrower scope than "every recorded row".
+_TOKEN_FIGURE_LABELS = {FIGURE_INPUT_TOKENS_LABEL, FIGURE_OUTPUT_TOKENS_LABEL}
 
 
 def _summarized(configured_token, **overrides) -> AdminState:
@@ -2095,21 +2267,23 @@ def _figures(state: AdminState) -> list[SummaryFigure]:
         state.total_figure,
         *state.blocked_figures,
         state.completion_figure,
+        *state.token_figures,
         *state.who_figures,
         *state.pii_figures,
     ]
 
 
-def test_the_sheet_carries_all_nine_stats_response_figures(configured_token):
-    """AC 1. Nine figures, one per `StatsResponse` field, and no tenth: an extra
-    figure fails as loudly as a missing one, because a figure with no field
-    behind it is a number the record cannot back."""
+def test_the_sheet_carries_all_twelve_stats_response_figures(configured_token):
+    """AC 1. Twelve figures, one per `StatsResponse` field (PRD-006's nine and
+    PRD-013's three), and no thirteenth: an extra figure fails as loudly as a
+    missing one, because a figure with no field behind it is a number the
+    record cannot back."""
     state = _summarized(configured_token)
 
     labels = [figure.label for figure in _figures(state)]
 
-    assert len(labels) == 9
-    assert set(labels) == _NINE_FIGURE_LABELS
+    assert len(labels) == 12
+    assert set(labels) == _FIGURE_LABELS
 
 
 def test_every_figure_states_its_scope(configured_token):
@@ -2119,7 +2293,12 @@ def test_every_figure_states_its_scope(configured_token):
     state = _summarized(configured_token)
 
     for figure in _figures(state):
-        assert figure.scope == SUMMARY_SCOPE_ALL_TIME, figure.label
+        # PRD-013 (STORY-015): the token sums read NULL as 0, so "every
+        # recorded row" would be false for them; they state their own scope.
+        if figure.label in _TOKEN_FIGURE_LABELS:
+            assert figure.scope == SUMMARY_SCOPE_TOKENS, figure.label
+        else:
+            assert figure.scope == SUMMARY_SCOPE_ALL_TIME, figure.label
 
 
 def test_the_blocked_figures_are_a_count_and_a_share(configured_token):
@@ -2128,7 +2307,7 @@ def test_the_blocked_figures_are_a_count_and_a_share(configured_token):
     hides how many rows an investigation would have to read."""
     state = _summarized(configured_token)
 
-    duplicates, suspicious = state.blocked_figures
+    duplicates, suspicious, usage = state.blocked_figures
 
     assert duplicates.label == FIGURE_BLOCKED_DUPLICATES_LABEL
     assert duplicates.value == format_count(412)
@@ -2136,19 +2315,45 @@ def test_the_blocked_figures_are_a_count_and_a_share(configured_token):
     assert suspicious.label == FIGURE_BLOCKED_SUSPICIOUS_LABEL
     assert suspicious.value == format_count(37)
     assert suspicious.share == SHARE_TEMPLATE.format(share=format_share(37, 3180))
+    # PRD-013 (STORY-015)
+    assert usage.label == FIGURE_BLOCKED_USAGE_LIMITS_LABEL
+    assert usage.value == format_count(9)
+    assert usage.share == SHARE_TEMPLATE.format(share=format_share(9, 3180))
 
 
-def test_the_blocked_figures_are_the_two_that_indent(configured_token):
+def test_the_blocked_figures_are_the_three_that_indent(configured_token):
     """AC 2's first half, as far as state can carry it: `blocked_figures` holds
-    exactly the two figures `components/summary.py` renders through
-    `_indented_figure`, so the subset claim cannot pick up a third member that is
-    not a subset of the total."""
+    exactly the figures `components/summary.py` renders through
+    `_indented_figure`, so the subset claim cannot pick up a member that is not a
+    subset of the total. PRD-013's usage-limit count is one: each is one row."""
     state = _summarized(configured_token)
 
     assert [figure.label for figure in state.blocked_figures] == [
         FIGURE_BLOCKED_DUPLICATES_LABEL,
         FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+        FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
     ]
+
+
+def test_the_token_figures_are_thousands_separated_and_unshared(configured_token):
+    """STORY-015 AC 5: the two totals, input first, each with its scope line and
+    no share — a token sum is not a share of a query count."""
+    state = _summarized(configured_token)
+
+    input_figure, output_figure = state.token_figures
+
+    assert (input_figure.label, input_figure.value) == (
+        FIGURE_INPUT_TOKENS_LABEL,
+        "1,204,331",
+    )
+    assert (output_figure.label, output_figure.value) == (
+        FIGURE_OUTPUT_TOKENS_LABEL,
+        "188,020",
+    )
+    for figure in state.token_figures:
+        assert figure.share == "", figure.label
+        assert figure.scope == SUMMARY_SCOPE_TOKENS, figure.label
+        assert figure.items == [], figure.label
 
 
 def test_the_completion_figure_is_success_rates_value_under_a_true_label(
@@ -2239,14 +2444,17 @@ def test_a_total_of_zero_renders_the_placeholder_rather_than_raising(
 
     figures = _figures(state)
 
-    assert len(figures) == 9
+    assert len(figures) == 12
     for figure in figures:
         assert figure.share in ("", SHARE_UNDEFINED), figure.label
     assert state.completion_figure.share == SHARE_UNDEFINED
     assert [f.share for f in state.blocked_figures] == [
         SHARE_UNDEFINED,
         SHARE_UNDEFINED,
+        SHARE_UNDEFINED,
     ]
+    # PRD-013 (STORY-015): a zero token total is a count, not an absence.
+    assert [f.value for f in state.token_figures] == ["0", "0"]
 
 
 def test_an_unshared_figure_carries_no_share_rather_than_a_placeholder(

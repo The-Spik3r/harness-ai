@@ -12,6 +12,7 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query
+from app.services.usage_limits import UsageLimitError
 
 _FOREIGN_SESSION_DETAIL = "session_id does not belong to the authenticated identity"
 
@@ -28,6 +29,11 @@ async def query(
     except ChatSessionError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except DuplicateCheckError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    # PRD-013 T7, D9: the usage counter could not be read. The gate fails
+    # closed -- nothing was sent upstream and no row was written -- exactly as
+    # a failed duplicate lookup does.
+    except UsageLimitError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except PiiRedactorError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -93,6 +99,12 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
     #    `run_query`, the single place the profile is resolved for `/query`,
     #    so no profile ran, and NULL records that. It is the one row `/query`
     #    writes without `profile='chat'`.
+    # 7. `ingress="query"` and `message_count=1`, but `conversation_key=None`,
+    #    explicitly (PRD-013 Section 6.9). The router knows the first two --
+    #    this is the `/query` door and the request is one prompt -- so it
+    #    records them. The key is derived only inside `run_query`, the single
+    #    place that defines it for `/query`, for the reason 5. gives for
+    #    `dedup_key`. `streamed` takes its default: `/query` never streams.
     #
     # PRD-010 STORY-006: this used to sit inside `query()`'s own `try`, so a
     # storage failure during the check mapped to the same 500 as one during
@@ -113,6 +125,9 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
             session_id=request.session_id,
             dedup_key=None,  # see 5. above
             profile=None,  # see 6. above
+            ingress="query",  # see 7. above
+            message_count=1,
+            conversation_key=None,
         )
         raise HTTPException(status_code=403, detail=_FOREIGN_SESSION_DETAIL)
 
@@ -124,4 +139,8 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
         openrouter_api_key=request.openrouter_api_key,
         call_openrouter=call_openrouter,
         session_id=request.session_id,
+        # Spelled out although it is run_query's default: every production call
+        # site names its door, and the scan in
+        # tests/test_query_pipeline_audit_fields.py holds them to it.
+        ingress="query",
     )

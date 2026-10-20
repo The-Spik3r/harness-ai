@@ -32,6 +32,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
 from app.config import settings
@@ -39,6 +40,7 @@ from app.services import chat_sessions
 from app.services.chat_sessions import ChatSessionError
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError, dedup_key, hash_prompt
+from app.services.usage_limits import UsageLimitError
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
@@ -447,6 +449,83 @@ async def test_chat_state_send_duplicate_check_error_appends_internal_error_bubb
     assert state.messages[-1].content == "internal_error"
     assert state.messages[-1].detail == "db locked"
     assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_usage_limit_error_appends_internal_error_bubble(temp_db, monkeypatch):
+    """PRD-013 STORY-011 (F10): the usage counter could not be read, so the gate
+    failed closed. The chat routes it through the internal-error bubble, like a
+    failed duplicate lookup."""
+
+    def _raise_usage_limit_error(*args, **kwargs):
+        raise UsageLimitError("Usage admission failed: counter unreachable")
+
+    _stub_pipeline(monkeypatch, _raise_usage_limit_error)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    assert state.messages[-1].kind == "internal_error"
+    assert state.messages[-1].content == "internal_error"
+    assert state.messages[-1].detail == "Usage admission failed: counter unreachable"
+    assert state.messages[-1].prompt == "hello world"
+    assert state.pending is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "limit,maximum,actual,resets_at,expected",
+    [
+        (
+            "tokens", 1000000, 1003412, "2026-10-20T00:00:00Z",
+            "You've reached today's usage limit. You can send again after 00:00 UTC.",
+        ),
+        (
+            "requests", 60, 61, "2026-10-19T14:23:00Z",
+            "You're sending too fast. Wait a minute, then send again.",
+        ),
+    ],
+    ids=["tokens", "requests"],
+)
+async def test_chat_state_send_usage_limit_renders_a_usage_limit_bubble(
+    temp_db, monkeypatch, limit, maximum, actual, resets_at, expected
+):
+    """PRD-013 STORY-014: replaces STORY-011's interim `internal_error` pin.
+
+    STORY-011 routed `QueryBlockedUsageLimitResponse` through the internal-error
+    bubble by an explicit arm, so a refused send was never silently dropped.
+    That test's docstring promised "STORY-014 is expected to delete this test
+    and assert the `usage_limit` bubble instead", and this is that -- the
+    PRD-010 STORY-013 precedent above, `..._renders_a_context_limit_bubble`.
+
+    `content` is the pipeline's reason and is not what the bubble shows;
+    `detail` is the finished sentence `render_usage_limit` draws, built at send
+    time so a restored bubble reproduces it with no recomputation.
+    """
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedUsageLimitResponse(
+            reason="Usage limit reached",
+            limit=limit,
+            maximum=maximum,
+            actual=actual,
+            resets_at=resets_at,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    bubble = state.messages[-1]
+    assert bubble.kind == "usage_limit"
+    assert bubble.content == "Usage limit reached"
+    assert bubble.detail == expected
+    assert bubble.prompt == "hello world"
     assert state.pending is False
 
 
@@ -1015,8 +1094,16 @@ def _stub_pipeline(monkeypatch, fake):
     (`app/services/query_pipeline.py:359-376`), so a stub written against the
     single-turn signature -- including one that raises -- keeps working
     unchanged.
+
+    PRD-013 STORY-005: both entry points now receive `ingress="chat"`. The two
+    shims accept and drop it, so the single-turn stubs here keep their
+    signature; tests/test_query_pipeline_audit_fields.py asserts the value.
     """
-    monkeypatch.setattr(chat_state_mod, "run_query", fake)
+
+    def _via_query(*args, ingress=None, **kwargs):
+        return fake(*args, **kwargs)
+
+    monkeypatch.setattr(chat_state_mod, "run_query", _via_query)
 
     def _via_conversation(
         identity,
@@ -1027,6 +1114,7 @@ def _stub_pipeline(monkeypatch, fake):
         params=None,
         call_openrouter=None,
         session_id=None,
+        ingress=None,
     ):
         return fake(
             identity,
@@ -1470,6 +1558,19 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
             ),
             "context_limit",
         ),
+        # PRD-013 STORY-014: the usage-limit bubble, persisted like the rest.
+        # `content` and `detail` are the two fields it draws from, so `_fields`
+        # covers its restored half.
+        (
+            QueryBlockedUsageLimitResponse(
+                reason="Usage limit reached",
+                limit="tokens",
+                maximum=1000000,
+                actual=1003412,
+                resets_at="2026-10-20T00:00:00Z",
+            ),
+            "usage_limit",
+        ),
         (OpenRouterError("upstream timeout"), "upstream_error"),
         (PiiRedactorError("redactor down"), "internal_error"),
     ],
@@ -1479,6 +1580,7 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
         "injection",
         "forbidden",
         "context_limit",
+        "usage_limit",
         "upstream_error",
         "internal_error",
     ],
@@ -1847,6 +1949,19 @@ def _fields(bubble: ChatMessage) -> dict:
             ),
             "context_limit",
         ),
+        # PRD-013 STORY-014: the usage-limit bubble, persisted like the rest.
+        # `content` and `detail` are the two fields it draws from, so `_fields`
+        # covers its restored half.
+        (
+            QueryBlockedUsageLimitResponse(
+                reason="Usage limit reached",
+                limit="tokens",
+                maximum=1000000,
+                actual=1003412,
+                resets_at="2026-10-20T00:00:00Z",
+            ),
+            "usage_limit",
+        ),
         (OpenRouterError("upstream timeout"), "upstream_error"),
         (PiiRedactorError("redactor down"), "internal_error"),
     ],
@@ -1856,6 +1971,7 @@ def _fields(bubble: ChatMessage) -> dict:
         "injection",
         "forbidden",
         "context_limit",
+        "usage_limit",
         "upstream_error",
         "internal_error",
     ],

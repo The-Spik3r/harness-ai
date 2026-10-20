@@ -100,10 +100,12 @@ def _capturing_run_conversation(captured, result=None):
             response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
         )
 
+    # `ingress` since PRD-013 STORY-005: ChatState passes "chat" on both branches.
     def _fake(identity, messages, device, model, openrouter_api_key,
-              params=None, call_openrouter=None, session_id=None):
+              params=None, call_openrouter=None, session_id=None, ingress=None):
         captured["messages"] = list(messages)
         captured["session_id"] = session_id
+        captured["ingress"] = ingress
         captured["called"] = captured.get("called", 0) + 1
         return result
 
@@ -243,6 +245,8 @@ _RUN_QUERY_KWARGS = {
     "openrouter_api_key",
     "call_openrouter",
     "session_id",
+    # PRD-013 STORY-005: the door, named at the call site (Section 6.9).
+    "ingress",
 }
 
 

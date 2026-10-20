@@ -886,10 +886,12 @@ def test_every_log_query_call_site_in_the_pipeline_passes_profile():
     one caller outside this module -- /query's foreign-session refusal, which
     writes before any profile exists -- so the keyword cannot be required
     there; this scan is what requires it here. `_deny` passes its required
-    parameter; the nine direct sites pass `profile_name`."""
+    parameter; the direct sites pass `profile_name`."""
     calls = _log_query_call_sources(inspect.getsource(query_pipeline))
 
-    assert len(calls) == 10, f"expected ten log_query call sites, found {len(calls)}"
+    # Eleven since PRD-013 STORY-011 added the usage-limit arm (step 2c, D6),
+    # which passes `profile_name` like the others.
+    assert len(calls) == 11, f"expected eleven log_query call sites, found {len(calls)}"
 
     missing = [call for call in calls if "profile=" not in call]
     assert missing == [], f"log_query call sites not passing profile: {missing}"

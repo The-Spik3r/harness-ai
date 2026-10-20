@@ -7,7 +7,8 @@ import pytest
 
 from app.config import settings
 from app.db.database import find_user_by_token_hash, get_user
-from app.services.identity import hash_token
+# resolve: PRD-013 STORY-008 (D1), set-limits overrides reach the resolved Identity.
+from app.services.identity import hash_token, resolve
 from scripts.manage_users import main
 
 
@@ -184,3 +185,131 @@ def test_issue_token_unknown_user_exits_nonzero(temp_db, capsys):
 
     assert exit_code == 1
     assert "no user" in capsys.readouterr().err
+
+
+# --- set-limits (PRD-013 STORY-008 AC2, AC3) ---
+
+
+def _create_and_capture_token(user_id: str, capsys) -> str:
+    main(["create-user", "--user-id", user_id, "--role", "user"])
+    out = capsys.readouterr().out
+    (line,) = [line for line in out.splitlines() if "cannot be recovered" in line]
+    return line.rsplit(": ", 1)[1]
+
+
+def test_set_limits_token_budget_sets_it_and_reaches_resolve(temp_db, capsys):
+    """AC2, run as the story writes it: Dana's budget is set, her rate is
+    unchanged, and the next resolve() of her own token carries the budget."""
+    token = _create_and_capture_token("dana", capsys)
+    main(["set-limits", "--user-id", "dana", "--requests-per-minute", "30"])
+    capsys.readouterr()
+
+    exit_code = main(["set-limits", "--user-id", "dana", "--token-budget", "5000000"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "dana" in captured.out
+    assert "5000000" in captured.out
+    dana = get_user("dana")
+    assert dana.token_budget_daily == 5000000
+    assert dana.requests_per_minute == 30  # unchanged
+    identity = resolve(token)
+    assert identity.token_budget_daily == 5000000
+    assert identity.requests_per_minute == 30
+
+
+@pytest.mark.parametrize(
+    "flag, column",
+    [
+        ("--token-budget", "token_budget_daily"),
+        ("--requests-per-minute", "requests_per_minute"),
+    ],
+)
+@pytest.mark.parametrize("word", ["default", "DEFAULT"])
+def test_set_limits_default_clears_the_column_to_null(temp_db, capsys, flag, column, word):
+    """AC3: `default` clears that one column; the other keeps its override."""
+    main(["create-user", "--user-id", "dana", "--role", "user"])
+    main([
+        "set-limits", "--user-id", "dana",
+        "--token-budget", "100", "--requests-per-minute", "10",
+    ])
+    capsys.readouterr()
+
+    exit_code = main(["set-limits", "--user-id", "dana", flag, word])
+
+    assert exit_code == 0
+    assert "default" in capsys.readouterr().out
+    dana = get_user("dana")
+    assert getattr(dana, column) is None
+    other = "requests_per_minute" if column == "token_budget_daily" else "token_budget_daily"
+    assert getattr(dana, other) is not None
+
+
+@pytest.mark.parametrize("flag", ["--token-budget", "--requests-per-minute"])
+@pytest.mark.parametrize("bad", ["0", "-5", "abc", "1.5", "unlimited", ""])
+def test_set_limits_rejects_a_bad_value_and_writes_nothing(temp_db, capsys, flag, bad):
+    """AC3: a value below 1 or a non-number exits non-zero with a message on
+    stderr, and the row keeps the override it had."""
+    main(["create-user", "--user-id", "dana", "--role", "user"])
+    main(["set-limits", "--user-id", "dana", "--token-budget", "7", "--requests-per-minute", "8"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["set-limits", "--user-id", "dana", flag, bad])
+
+    assert exc_info.value.code != 0
+    err = capsys.readouterr().err
+    assert "default" in err  # the message names the accepted forms
+    dana = get_user("dana")
+    assert (dana.token_budget_daily, dana.requests_per_minute) == (7, 8)
+
+
+def test_set_limits_unknown_user_exits_nonzero_and_writes_nothing(temp_db, capsys):
+    exit_code = main(["set-limits", "--user-id", "ghost", "--token-budget", "5"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "no user" in captured.err
+    assert "ghost" in captured.err
+    assert captured.out == ""
+    assert get_user("ghost") is None
+
+
+def test_set_limits_with_neither_flag_exits_nonzero(temp_db, capsys):
+    main(["create-user", "--user-id", "dana", "--role", "user"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["set-limits", "--user-id", "dana"])
+
+    assert exc_info.value.code != 0
+    assert "--token-budget" in capsys.readouterr().err
+
+
+# --- list-users shows both limits (PRD-013 STORY-008 AC4) ---
+
+
+def test_list_users_prints_default_for_unset_limits(temp_db, capsys):
+    main(["create-user", "--user-id", "ana", "--role", "user"])
+    capsys.readouterr()
+
+    main(["list-users"])
+
+    (line,) = capsys.readouterr().out.splitlines()
+    assert line.split("\t")[-2:] == ["default", "default"]
+
+
+def test_list_users_prints_the_overrides_once_set(temp_db, capsys):
+    main(["create-user", "--user-id", "ana", "--role", "user"])
+    main(["create-user", "--user-id", "dana", "--role", "user"])
+    main(["set-limits", "--user-id", "dana", "--token-budget", "5000000"])
+    capsys.readouterr()
+
+    main(["list-users"])
+
+    lines = {
+        line.split("\t")[0]: line.split("\t")
+        for line in capsys.readouterr().out.splitlines()
+    }
+    assert lines["dana"][-2:] == ["5000000", "default"]
+    assert lines["ana"][-2:] == ["default", "default"]

@@ -14,7 +14,11 @@ The module is **read-only by construction**. PRD-006 Section 9, verbatim:
 `insert_audit_log` is not imported, and there is no write path from any admin
 page." The ten read functions are imported by name for exactly that reason — a
 `from app.db import database` would make `insert_audit_log` reachable as an
-attribute and hand back the write path the named imports deny.
+attribute and hand back the write path the named imports deny. The Usage
+table's read (PRD-013 STORY-016) is imported the same way, by name:
+`usage_snapshot` reads `usage_daily`, and neither counter writer
+(`admit_usage`, `charge_usage`) nor `usage_limits.admit`/`charge` is reachable
+from this module.
 
 The gate is **not an oracle**. Every failure — an empty token, a wrong-length
 token, a wrong token of the right length — sets the same message and leaves
@@ -35,11 +39,16 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_blocked_usage_limits,
     count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
     list_audit_logs,
+    sum_input_tokens,
+    sum_output_tokens,
     summary_snapshot,
+    # PRD-013 STORY-016: the Usage table's one statement. A read, like the rest.
+    usage_snapshot,
     # Aliased because the state declares fields of these three names. The module
     # global and the class attribute live in different namespaces and Python
     # resolves each correctly, but a reader of `load()` cannot tell which one a
@@ -54,7 +63,10 @@ from .admin_copy import (
     EMPTY_MATCHES_TEMPLATE,
     FIGURE_BLOCKED_DUPLICATES_LABEL,
     FIGURE_BLOCKED_SUSPICIOUS_LABEL,
+    FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
     FIGURE_COMPLETION_LABEL,
+    FIGURE_INPUT_TOKENS_LABEL,
+    FIGURE_OUTPUT_TOKENS_LABEL,
     FIGURE_PII_QUERIES_LABEL,
     FIGURE_TOP_MODELS_LABEL,
     FIGURE_TOP_PII_LABEL,
@@ -73,12 +85,15 @@ from .admin_copy import (
     REGISTER_SCOPE_TEMPLATE,
     SHARE_TEMPLATE,
     SUMMARY_SCOPE_ALL_TIME,
+    SUMMARY_SCOPE_TOKENS,
     VERDICT_CLEARED_LABEL,
     VERDICT_DENIED_LABEL,
     VERDICT_FAULT_LABEL,
     VERDICT_HELD_LABEL,
     READ_LABEL_BLOCKED_DUPLICATES,
     READ_LABEL_BLOCKED_SUSPICIOUS,
+    READ_LABEL_INPUT_TOKENS,
+    READ_LABEL_OUTPUT_TOKENS,
     READ_LABEL_PII_QUERIES,
     READ_LABEL_ROWS,
     READ_LABEL_SUCCESSFUL,
@@ -87,6 +102,8 @@ from .admin_copy import (
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOTAL,
     READ_LABEL_UNIQUE_USERS,
+    READ_LABEL_USAGE,
+    READ_LABEL_USAGE_LIMITS,
     # Aliased to the name this module has used since STORY-004: `load()` formats
     # it and a future test may import it from here, so the move to admin_copy.py
     # stays a relocation of the string rather than of the call site.
@@ -103,8 +120,9 @@ from .admin_formatting import (
     format_refreshed_at,
     format_share,
     to_audit_row,
+    to_usage_rows,
 )
-from .admin_models import AuditRow, SummaryFigure
+from .admin_models import AuditRow, SummaryFigure, UsageRow
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
 # pagination past 100 rows out of scope, and `list_audit_logs` is the only
@@ -172,6 +190,18 @@ SUMMARY_STATES = (
     SUMMARY_STATE_FIGURES,
 )
 
+# The Usage table's render states (PRD-013 STORY-016), in the order
+# `usage_state` resolves them. The fault value is the other two surfaces' own
+# "read_failed", for the reason SUMMARY_STATE_FAULT gives.
+USAGE_STATE_FAULT = "read_failed"
+USAGE_STATE_EMPTY = "nobody_today"
+USAGE_STATE_ROWS = "rows"
+USAGE_STATES = (
+    USAGE_STATE_FAULT,
+    USAGE_STATE_EMPTY,
+    USAGE_STATE_ROWS,
+)
+
 # One label per verdict key, for the sentence that names the filter which
 # emptied the register. The same key/label separation
 # `components/register.py:_VERDICT_CHIPS` keeps — the key is the formatter's and
@@ -210,11 +240,12 @@ _SORT_RANKS = {
     ),
 }
 
-# The ten reads, as data: (state field, what to call it in a fault message, the
-# database function that figure is read from, its keyword arguments). A table
-# rather than ten hand-written awaits because "all ten" is then one countable
-# structure — ten separate `await` lines can become nine in a refactor with
-# nothing to notice it, and STORY-006 asserts `len(_READS) == 10`. The label is
+# The reads, as data: (state field, what to call it in a fault message, the
+# database function that figure is read from, its keyword arguments). Ten since
+# PRD-006, thirteen since PRD-013 STORY-006. A table rather than hand-written
+# awaits because "all of them" is then one countable structure — ten separate
+# `await` lines can become nine in a refactor with nothing to notice it, and
+# the tests assert `len(_READS) == len(SUMMARY_FIGURES)`. The label is
 # the only user-facing string here, and since STORY-008 every one of them comes
 # from `admin_copy` — the fault message they are formatted into
 # (LOAD_FAILED_MESSAGE, imported above) lives there too, so the whole sentence an
@@ -277,6 +308,17 @@ _READS: tuple[tuple[str, str, object, dict], ...] = (
         read_top_pii_entities,
         {"limit": RANKED_LIMIT},
     ),
+    # PRD-013 STORY-006: appended after the ten, in `SUMMARY_FIGURES`' order.
+    # Read and committed here so the table and the figures stay one-to-one;
+    # STORY-015 renders them (`blocked_figures`, `token_figures`).
+    ("input_tokens", READ_LABEL_INPUT_TOKENS, sum_input_tokens, {}),
+    ("output_tokens", READ_LABEL_OUTPUT_TOKENS, sum_output_tokens, {}),
+    (
+        "blocked_usage_limits",
+        READ_LABEL_USAGE_LIMITS,
+        count_blocked_usage_limits,
+        {},
+    ),
 )
 
 
@@ -317,19 +359,30 @@ def _ranked_figure(label: str, items: list[str]) -> SummaryFigure:
     )
 
 
-def _count_figure(label: str, count: int, share: str = "") -> SummaryFigure:
+def _count_figure(
+    label: str,
+    count: int,
+    share: str = "",
+    *,
+    scope: str = SUMMARY_SCOPE_ALL_TIME,
+) -> SummaryFigure:
     """One counted figure: the number, thousands-separated, and its scope.
 
-    Every figure on the sheet carries SUMMARY_SCOPE_ALL_TIME, and it is applied
-    here rather than at each call site so a tenth figure cannot arrive without
-    one. PRD-006 Risk 4 makes that a requirement, not a nicety: an all-time
-    total sitting beside the register's hundred-row window "invites a wrong
-    reading", and the scope on the figure is the whole mitigation.
+    Every figure carries a scope, and the default is applied here rather than
+    at each call site so a new figure cannot arrive without one. PRD-006 Risk 4
+    makes that a requirement, not a nicety: an all-time total sitting beside the
+    register's hundred-row window "invites a wrong reading", and the scope on
+    the figure is the whole mitigation.
+
+    `scope` is keyword-only and defaults to SUMMARY_SCOPE_ALL_TIME, so every
+    figure that predates it is unchanged. A figure passes another scope only
+    where "every recorded row" would be false: the token totals (PRD-013),
+    which count NULL as 0 and so cover only the rows that recorded a split.
     """
     return SummaryFigure(
         label=label,
         value=format_count(count),
-        scope=SUMMARY_SCOPE_ALL_TIME,
+        scope=scope,
         share=share,
     )
 
@@ -348,6 +401,13 @@ def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
     and the register's join back to the chat is a user quoting "#127" out of the
     success footer (PRD-004 STORY-010) — so the coercion happens here, in
     Python, not in a component against a Var.
+
+    Since PRD-013 (Section 6.10) it also matches `conversation_key` and
+    `ingress`, so pasting a key copied from one row's disclosure shows every
+    loaded row of that conversation, and `v1` shows the agent traffic. Still a
+    substring match over the loaded window, never a database read: a word like
+    `chat` also matches a model or user that contains it, and the verdict
+    filter narrows from there.
     """
     if verdicts and row.verdict not in verdicts:
         return False
@@ -359,6 +419,9 @@ def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
             row.user_id.casefold(),
             row.model_used.casefold(),
             str(row.audit_id),
+            # PRD-013 (STORY-015)
+            row.conversation_key.casefold(),
+            row.ingress.casefold(),
         )
     )
 
@@ -374,8 +437,8 @@ def filter_rows(
     Section 5, story 4 — "denied plus a.torres narrows 100 rows to 2").
 
     The needle is case-folded and stripped **once** here rather than per row: the
-    comparison is case-insensitive, and a hundred rows times three fields is
-    three hundred `.casefold()` calls that would otherwise be four hundred.
+    comparison is case-insensitive, and a hundred rows times the matched fields
+    would otherwise be a hundred more `.casefold()` calls.
     """
     needle = search.strip().casefold()
     if not verdicts and not needle:
@@ -449,9 +512,22 @@ class AdminState(rx.State):
     top_models: list[str] = []
     top_users: list[str] = []
     top_pii_entities: list[str] = []
+    # PRD-013 STORY-006: committed by `load()` like the rest; rendered by
+    # STORY-015.
+    input_tokens: int = 0
+    output_tokens: int = 0
+    blocked_usage_limits: int = 0
     last_refreshed: str = ""
     loading: bool = False
     error: str = ""
+
+    # --- Usage (PRD-013 STORY-016) -----------------------------------------
+    # Today's per-user usage, read by its own statement and failing under its
+    # own label: `usage_error`, never `error`, so a failed usage read leaves
+    # the Register and the summary exactly as they are (F16). Both defaults are
+    # falsy, so `sign_out()`'s `reset()` clears them with no edit there.
+    usage_rows: list[UsageRow] = []
+    usage_error: str = ""
 
     # --- Filter and sort --------------------------------------------------
     # Plain state vars, all four. PRD-006 Section 6: "the visible rows are an
@@ -708,16 +784,22 @@ class AdminState(rx.State):
         return REFRESHED_TEMPLATE.format(time=self.last_refreshed)
 
     # --- The summary sheet (STORY-015) ------------------------------------
-    # Five vars, not one, and that is the sheet's structure rather than an
+    # Six vars, not one, and that is the sheet's structure rather than an
     # arbitrary split. PRD-006 Section 6.1 fixes it: the counts, with
     # `blocked_duplicates` and `blocked_suspicious` **indented beneath**
     # `total_queries` "because they are a subset of it and indentation is the
     # honest structural statement of that relationship"; then the who/what facts
     # "because they answer a different kind of question than the counts do"; then
-    # PII telemetry closing the sheet. The blocked pair is its own list because
-    # the component renders it through one `rx.foreach` at one indent — two
+    # PII telemetry closing the sheet. The blocked counts are their own list
+    # because the component renders them through one `rx.foreach` at one indent —
     # hand-placed rows could drift apart from each other, and the indent is the
     # claim.
+    #
+    # PRD-013 (STORY-015) adds two things, each where its structure puts it. The
+    # usage-limit count is a third blocked count: one row of the table each, so
+    # a subset of the total, indented with the other two. The token totals are
+    # not counts of rows at all, so they are a block of their own, `token_figures`,
+    # directly after the counts they measure in another unit.
     #
     # Figures are built here rather than in `components/summary.py` for the
     # reason `admin_formatting.py`'s docstring states generally: `format_count`'s
@@ -737,12 +819,13 @@ class AdminState(rx.State):
 
     @rx.var
     def blocked_figures(self) -> list[SummaryFigure]:
-        """The two blocked counts, each as a count *and* as a share of the total.
+        """The three blocked counts, each as a count *and* as a share of the total.
 
         Both halves are required (AC 2): `412` alone does not say whether that is
         most of the traffic or a rounding error, and `13.0%` alone hides how many
-        rows an investigation would have to read. Duplicates before patterns,
-        matching `_READS` and `StatsResponse`'s own field order.
+        rows an investigation would have to read. Duplicates, then patterns, then
+        usage limits (PRD-013), matching `_READS` and `StatsResponse`'s own field
+        order.
         """
         return [
             _count_figure(
@@ -754,6 +837,13 @@ class AdminState(rx.State):
                 FIGURE_BLOCKED_SUSPICIOUS_LABEL,
                 self.blocked_suspicious,
                 _share_line(self.blocked_suspicious, self.total_recorded),
+            ),
+            # PRD-013 (STORY-015): a usage-limit row is success=1 and one row
+            # of `audit_logs`, so it is a subset of the total like the two above.
+            _count_figure(
+                FIGURE_BLOCKED_USAGE_LIMITS_LABEL,
+                self.blocked_usage_limits,
+                _share_line(self.blocked_usage_limits, self.total_recorded),
             ),
         ]
 
@@ -781,6 +871,32 @@ class AdminState(rx.State):
             self.successful_queries,
             _share_line(self.successful_queries, self.total_recorded),
         )
+
+    @rx.var
+    def token_figures(self) -> list[SummaryFigure]:
+        """The input and output token totals (PRD-013): the sheet's Tokens block.
+
+        No share. A token sum taken as a share of a query count is not a ratio
+        of anything, and `_figure_value` already renders nothing for an empty
+        share. Not indented: tokens are not a subset of any figure above them.
+
+        The scope is SUMMARY_SCOPE_TOKENS rather than the all-time default,
+        because the sums read NULL as 0 (`/stats`' own rule): a row written
+        before the split, or an upstream-error row, contributes nothing, so
+        "every recorded row" would be a false claim about what was summed.
+        """
+        return [
+            _count_figure(
+                FIGURE_INPUT_TOKENS_LABEL,
+                self.input_tokens,
+                scope=SUMMARY_SCOPE_TOKENS,
+            ),
+            _count_figure(
+                FIGURE_OUTPUT_TOKENS_LABEL,
+                self.output_tokens,
+                scope=SUMMARY_SCOPE_TOKENS,
+            ),
+        ]
 
     @rx.var
     def who_figures(self) -> list[SummaryFigure]:
@@ -843,6 +959,29 @@ class AdminState(rx.State):
         if not self.total_recorded:
             return SUMMARY_STATE_EMPTY
         return SUMMARY_STATE_FIGURES
+
+    @rx.var
+    def usage_state(self) -> str:
+        """Which of the three states the Usage table is showing.
+
+        The `register_state` order, for its reason: a *first* usage read that
+        fails leaves `usage_rows == []` with `usage_error` set, and rendering
+        that as "No one has sent anything today." would present a failure as a
+        fact about the day. So the error is tested first, and the fault arm
+        renders the table -- the last good rows, under the panel that names the
+        read.
+
+        Reads `usage_error`, never `error`: a failed summary read says nothing
+        about today's usage, and the two reads fail independently.
+
+        Both dependencies are read off `self` in this body, per the
+        auto-dependency rule `visible_rows` records above.
+        """
+        if self.usage_error:
+            return USAGE_STATE_FAULT
+        if not self.usage_rows:
+            return USAGE_STATE_EMPTY
+        return USAGE_STATE_ROWS
 
     @rx.event
     def set_token_input(self, text: str):
@@ -1026,6 +1165,18 @@ class AdminState(rx.State):
         which some fields are new and others old, so a figure that fails eighth of
         ten cannot leave a register that half agrees with its summary.
 
+        **The usage read is separate** (PRD-013 STORY-016, F16). Today's
+        per-user usage is not a summary figure, so it is not in `_READS` and
+        not in `summary_snapshot()`: it is its own statement, one more round
+        trip per load, with its own label and its own `usage_error`. It runs
+        **before** the summary read so the summary's early returns cannot skip
+        it -- a failed summary read still refreshes usage -- and its failure
+        never touches `error`, so the Register and the summary stay standing
+        (and `register_state`/`summary_state` never see it). It commits on its
+        own, which is the point: it is a different surface with a different
+        window, and "nothing on screen has changed" is true of each surface's
+        own fault.
+
         The `finally` clears `loading` on **both** paths. A flag stranded True
         locks STORY-017's refresh control permanently — PRD-004 Risk 3, the same
         failure the chat's composer already guards against.
@@ -1043,11 +1194,28 @@ class AdminState(rx.State):
                 return
             self.loading = True
             self.error = ""
+            self.usage_error = ""
 
         try:
             # One clock read for the whole batch, so the rows' relative times and
             # the refresh stamp cannot disagree by a straggling second.
             now = datetime.now(timezone.utc)
+
+            # Today's usage, first and on its own (see the docstring). The
+            # formatting is inside the `try` too: `to_usage_rows` resolves
+            # limits from settings, and a failure there is still this read's.
+            try:
+                usage_rows = to_usage_rows(await asyncio.to_thread(usage_snapshot))
+            except Exception as exc:
+                async with self:
+                    self.usage_error = LOAD_FAILED_MESSAGE.format(
+                        read=READ_LABEL_USAGE, detail=exc
+                    )
+            else:
+                async with self:
+                    self.usage_rows = usage_rows
+                    self.usage_error = ""
+
             # One hop, one statement, all ten figures (STORY-010). The limits are
             # passed rather than left to the function's defaults, for the reason
             # RANKED_LIMIT's comment gives: the "top 5" on screen and the

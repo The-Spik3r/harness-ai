@@ -19,6 +19,9 @@ class ChatMessage(pydantic.BaseModel):
     # functions only ever see Vars, so datetime math cannot run at render.
     duplicate_relative_info: str = ""
     duplicate_release_info: str = ""
+    # The raw failure text on the error kinds, the counts on `context_limit`,
+    # and on `usage_limit` (PRD-013 STORY-014) the finished sentence with its
+    # reset time -- built at send time, for the reason the comment above gives.
     detail: str = ""
     # PRD-010: how many whole earlier exchanges `chat_history.fit` dropped from
     # the send this bubble answers (STORY-011/012). Carried here, rendered by

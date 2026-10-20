@@ -10,6 +10,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QueryRequest,
     QueryResponse,
     QuerySuccessResponse,
@@ -162,6 +163,16 @@ def test_audit_response_shape():
                 "pattern_action": None,
                 # PRD-012 D9 (STORY-011): additive, nullable, defaulted.
                 "profile": None,
+                # PRD-013 6.10 (STORY-006): six nullable, two flags defaulted
+                # to False.
+                "ingress": None,
+                "message_count": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "streamed": False,
+                "has_tool_calls": False,
+                "conversation_key": None,
+                "limit_exceeded": None,
             }
         ],
     }
@@ -202,6 +213,10 @@ def test_stats_response_shape():
         "top_users": ["juan@empresa.com", "maria@empresa.com"],
         "pii_detected_queries": 0,
         "top_pii_entities": [],
+        # PRD-013 6.10 (STORY-006): additive, defaulted to 0.
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
     }
 
 
@@ -340,4 +355,53 @@ def test_query_blocked_context_limit_response_accepts_redaction_characters():
         "messages",
         "characters",
         "redaction_characters",
+    )
+
+
+# --- PRD-013 STORY-011: QueryBlockedUsageLimitResponse (Sections 6.7, 10) ----
+
+
+def test_query_blocked_usage_limit_response_dumps_the_prd_body():
+    """The PRD Section 10 example, field for field."""
+    response = QueryBlockedUsageLimitResponse(
+        reason="Usage limit reached",
+        limit="tokens",
+        maximum=1000000,
+        actual=1003412,
+        resets_at="2026-10-05T00:00:00Z",
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Usage limit reached",
+        "limit": "tokens",
+        "maximum": 1000000,
+        "actual": 1003412,
+        "resets_at": "2026-10-05T00:00:00Z",
+    }
+
+
+def test_query_blocked_usage_limit_response_is_the_last_member_of_query_response():
+    """Reachable through the union `POST /query` declares, so the router passes
+    it through as 200, and appended last so no existing member moves."""
+    assert get_args(QueryResponse)[-1] is QueryBlockedUsageLimitResponse
+
+
+@pytest.mark.parametrize("value", ["messages", "REQUESTS", "", "characters"])
+def test_query_blocked_usage_limit_response_refuses_an_unknown_limit(value):
+    """Only the two limits the gate checks exist."""
+    with pytest.raises(ValidationError):
+        QueryBlockedUsageLimitResponse(
+            reason="Usage limit reached",
+            limit=value,
+            maximum=60,
+            actual=61,
+            resets_at="2026-10-05T00:00:00Z",
+        )
+
+
+def test_query_request_carries_no_limit_field():
+    """PRD-013 Section 9.2: no request schema accepts a limit; limits come only
+    from the credential-resolved identity."""
+    assert not {"limit", "limits", "token_budget_daily", "requests_per_minute"} & set(
+        QueryRequest.model_fields
     )

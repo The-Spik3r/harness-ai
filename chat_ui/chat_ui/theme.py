@@ -436,5 +436,11 @@ body {{
 
 @media (max-width: 40rem) {{
   .hx-header-meta {{ width: 100%; justify-content: space-between; }}
+  /* PRD-013 STORY-016: the admin console's three-view switch takes its own row
+     at phone width; the control after it starts the next row, where a leading
+     rule would separate it from nothing, so that one rule is dropped. */
+  .hx-view-switch {{ flex-basis: 100%; }}
+  .hx-view-switch + * {{ border-left: none !important; padding-left: 0 !important;
+    margin-left: 0 !important; }}
 }}
 """

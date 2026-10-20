@@ -2,8 +2,8 @@
 target_prd: PRD-013
 slug: audit-and-usage-limits
 title: Audit for conversations and usage limits
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-013-audit-and-usage-limits/PRD.md
 depends_on: [PRD-010]
 blocks: [PRD-014]
 estimated_stories: 16-18

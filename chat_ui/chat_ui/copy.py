@@ -61,6 +61,10 @@ TAG_FORBIDDEN = "FORBIDDEN"
 TAG_UPSTREAM = "UPSTREAM"
 TAG_INTERNAL = "FAULT"
 TAG_CONTEXT_LIMIT = "TOO LONG"
+# PRD-013 STORY-014. The state the reader is in, in their terms -- not the name
+# of the mechanism that put them there (no LIMIT, QUOTA or RATE). HELD is
+# already the duplicate's word, and it means "change it"; this one means "wait".
+TAG_USAGE_LIMIT = "PAUSED"
 TAG_UNKNOWN = "LOGGED"
 
 SUCCESS_ROLE_LABEL = "assistant"
@@ -134,6 +138,30 @@ CONTEXT_LIMIT_UNITS = {
     "messages": "messages",
     "characters": "characters",
     "redaction_characters": "characters to check for personal data",
+}
+
+# --- Usage limits --------------------------------------------------------
+# PRD-013 Section 6.10 fixes both sentences. Each says what happened and when
+# the reader can continue, and nothing else. frontend-design, verbatim: "Write
+# from the end user's side of the screen. Name things by what people control
+# and recognize, never by how the system is built", and "Treat failure and
+# emptiness as moments for direction, not mood... Errors don't apologize, and
+# they are never vague about what happened." So neither says "rate limit",
+# "quota", "tokens" or "requests" -- those are the names of settings, not of
+# the problem -- and neither apologizes: nothing failed.
+#
+# `{reset}` is the next 00:00 UTC, formatted from the refusal's `resets_at` by
+# `formatting.format_usage_limit_notice` when the bubble is built (PRD F14).
+USAGE_LIMIT_TOKENS_TEMPLATE = (
+    "You've reached today's usage limit. You can send again after {reset} UTC."
+)
+USAGE_LIMIT_REQUESTS_NOTICE = "You're sending too fast. Wait a minute, then send again."
+# Keyed by `QueryBlockedUsageLimitResponse.limit`. Indexed, never .get(), and a
+# test pins the keys to the schema's literal, so a third limit added without
+# copy fails CI -- the CONTEXT_LIMIT_UNITS rule above.
+USAGE_LIMIT_NOTICES = {
+    "tokens": USAGE_LIMIT_TOKENS_TEMPLATE,
+    "requests": USAGE_LIMIT_REQUESTS_NOTICE,
 }
 
 # --- Session fallbacks ---------------------------------------------------

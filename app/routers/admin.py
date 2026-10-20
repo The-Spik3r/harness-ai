@@ -57,6 +57,18 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             pattern_action=log.pattern_action,
             # Verbatim passthrough (PRD-012 D9); NULL on pre-PRD-012 rows.
             profile=log.profile,
+            # Verbatim passthrough (PRD-013 6.10). `_row_to_audit_log` has
+            # mapped all eight since STORY-002: NULL for the six nullable ones
+            # on pre-PRD-013 rows, and the two flags as bools. `dedup_key`
+            # stays unprojected (PRD-009 D5).
+            ingress=log.ingress,
+            message_count=log.message_count,
+            input_tokens=log.input_tokens,
+            output_tokens=log.output_tokens,
+            streamed=log.streamed,
+            has_tool_calls=log.has_tool_calls,
+            conversation_key=log.conversation_key,
+            limit_exceeded=log.limit_exceeded,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,
@@ -73,23 +85,26 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
     dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
 )
 def get_stats() -> StatsResponse:
-    # One statement, nine figures, where there were nine sequential reads
+    # One statement, twelve figures, where there were nine sequential reads
     # (PRD-007 Section 6 Pattern 3). Against a local file the fan-out cost
     # nothing; against a remote endpoint it was nine round trips per call, and
     # the latency scaled with the number of figures the response happens to
-    # report. `summary_snapshot()` (STORY-010) reads them all in one.
+    # report. `summary_snapshot()` (STORY-010) reads them all in one. PRD-013
+    # added three more (`input_tokens`, `output_tokens`,
+    # `blocked_usage_limits`) to the same row.
     #
-    # **`row_limit=0` is how this endpoint declines the tenth figure.** The
+    # **`row_limit=0` is how this endpoint declines the one figure it does not
+    # report.** The
     # batch returns `rows` -- the register's audit rows -- which `/stats` has no
     # field for. It cannot be projected away: `_SUMMARY_SQL` is a fixed
-    # ten-column SELECT and per-figure projection would reopen STORY-010's
+    # thirteen-column SELECT and per-figure projection would reopen STORY-010's
     # design. But the rows subquery ends in `LIMIT ?`, and that `?` is
     # `row_limit`, so 0 empties the column instead. Left at the default 100 this
     # would put up to 100 fully serialized audit rows -- nineteen fields each,
     # two of them preview strings -- on the wire per call with nothing reading
     # them, which is the transfer cost Section 6 Pattern 4 exists to avoid.
     # Verified against the endpoint: the column comes back `[]`, not NULL, and
-    # the other nine figures are identical to the unlimited call.
+    # the other figures are identical to the unlimited call.
     #
     # `ranked_limit` is deliberately *not* passed. The three `top_*` figures
     # were read here through the functions' own default of 5, which is also
@@ -121,4 +136,9 @@ def get_stats() -> StatsResponse:
         top_users=snapshot.top_users,
         pii_detected_queries=snapshot.pii_detected_queries,
         top_pii_entities=snapshot.top_pii_entities,
+        # PRD-013 6.10. Three more figures from the same statement, so still
+        # one round trip.
+        input_tokens=snapshot.input_tokens,
+        output_tokens=snapshot.output_tokens,
+        blocked_usage_limits=snapshot.blocked_usage_limits,
     )

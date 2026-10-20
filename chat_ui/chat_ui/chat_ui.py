@@ -16,14 +16,17 @@ from chat_ui import theme
 from chat_ui.components.admin_shell import (
     ROUTE_REGISTER,
     ROUTE_SUMMARY,
+    ROUTE_USAGE,
     VIEW_REGISTER,
     VIEW_SUMMARY,
+    VIEW_USAGE,
     admin_page,
 )
 from chat_ui.components.register import register
 from chat_ui.components.reports import reports_detail_page, reports_feed_page
 from chat_ui.components.shell import header, login_gate, shell_body
 from chat_ui.components.summary import summary
+from chat_ui.components.usage import usage
 from chat_ui import reports_copy
 from chat_ui.reports_state import ROUTE_REPORTS, ReportsState
 from chat_ui.state import ChatState
@@ -73,10 +76,11 @@ def index() -> rx.Component:
     )
 
 
-# The console's two views. `admin_page()` (STORY-009) supplies the frame around
-# both: the token gate, or the masthead over `content`. The register fills that
+# The console's views. `admin_page()` (STORY-009) supplies the frame around
+# each: the token gate, or the masthead over `content`. The register fills that
 # `content` slot with the audit table; the summary fills it with the tally sheet
-# (STORY-015), which is what the two-view switch in the masthead moves between.
+# (STORY-015); since PRD-013 STORY-016 the usage view fills it with today's
+# usage table. Those are what the view switch in the masthead moves between.
 #
 # Neither function re-emits `rx.el.style(theme.GLOBAL_CSS)` the way `index()`
 # does: `admin_page()` already carries it, and a second copy on the page is what
@@ -87,6 +91,11 @@ def admin_register_page() -> rx.Component:
 
 def admin_summary_page() -> rx.Component:
     return admin_page(summary(), VIEW_SUMMARY)
+
+
+# PRD-013 STORY-016: the third view, today's usage against each budget.
+def admin_usage_page() -> rx.Component:
+    return admin_page(usage(), VIEW_USAGE)
 
 
 # Radix resolves its own colour tokens from the theme's appearance, and this
@@ -132,11 +141,11 @@ app.add_page(index)
 # no Caddyfile change is needed (PRD-006 Section 6, routing constraint).
 #
 # The routes themselves are imported from `admin_shell`, never retyped: the same
-# constants drive the masthead's two-view switch, so a moved page cannot leave
+# constants drive the masthead's view switch, so a moved page cannot leave
 # the switch pointing at a path nothing is registered at.
 #
 # `context={"sitemap": None}` opts each page out of `SitemapPlugin` (rxconfig.py),
-# which would otherwise write all three admin routes into the `public/sitemap.xml`
+# which would otherwise write all four admin routes into the `public/sitemap.xml`
 # that Caddy serves publicly. The gate is what protects the data; not advertising
 # the console's paths is the posture PRD-006 Section 9 asks for on top of it.
 app.add_page(
@@ -147,6 +156,11 @@ app.add_page(
 app.add_page(
     admin_summary_page,
     route=ROUTE_SUMMARY,
+    context={"sitemap": None},
+)
+app.add_page(
+    admin_usage_page,
+    route=ROUTE_USAGE,
     context={"sitemap": None},
 )
 # /admin is a landing route, not a third view: it renders the same shell (so an

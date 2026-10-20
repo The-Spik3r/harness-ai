@@ -26,16 +26,26 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     dedup_key TEXT,
     pattern_role TEXT,
     pattern_action TEXT,
-    profile TEXT
+    profile TEXT,
+    ingress TEXT,
+    message_count INTEGER,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    streamed INTEGER NOT NULL DEFAULT 0,
+    has_tool_calls INTEGER NOT NULL DEFAULT 0,
+    conversation_key TEXT,
+    limit_exceeded TEXT
 )
 """
 
 # Columns added after the initial schema shipped (PRD-003 PII telemetry; PRD-005
 # RBAC adds to this in STORY-009; PRD-008 STORY-002 adds session_id; PRD-009
 # STORY-002 adds dedup_key; PRD-011 STORY-009 adds pattern_role and
-# pattern_action; PRD-012 STORY-011 adds profile). CREATE TABLE IF NOT EXISTS is a no-op against a
-# database created before they existed, so init_db() ALTERs in whichever of
-# these an old file is missing.
+# pattern_action; PRD-012 STORY-011 adds profile; PRD-013 STORY-002 adds
+# ingress, message_count, input_tokens, output_tokens, streamed,
+# has_tool_calls, conversation_key and limit_exceeded). CREATE TABLE IF NOT
+# EXISTS is a no-op against a database created before they existed, so
+# init_db() ALTERs in whichever of these an old file is missing.
 #
 # Every entry here is also declared in CREATE_AUDIT_LOGS_TABLE above. The two are
 # not redundant: this mapping brings a database that predates a column up to
@@ -79,6 +89,41 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # backfilled, and so does /query's foreign-session refusal, which writes
     # before any profile exists.
     "profile": "TEXT",
+    # PRD-013 (Section 6.2): which door the request came through -- `query`,
+    # `chat` or `v1`, named by the call site and never by a request field.
+    # Nullable with no default on purpose, like dedup_key: rows written before
+    # PRD-013 stay NULL and are never backfilled, and so does a direct call
+    # that passed none.
+    "ingress": "TEXT",
+    # PRD-013: `len(messages)` as received, before redaction. Nullable for the
+    # same reason: nothing recorded the count for an earlier row, and 0 would
+    # claim a request with no messages.
+    "message_count": "INTEGER",
+    # PRD-013: `usage.prompt_tokens` and `usage.completion_tokens`. Nullable
+    # because NULL has two true meanings that 0 would erase: no upstream call
+    # was made, or the provider omitted the split. tokens_used is unchanged
+    # and stays the reported total.
+    "input_tokens": "INTEGER",
+    "output_tokens": "INTEGER",
+    # PRD-013: the response was delivered as SSE; the request or response
+    # carried tool calls. NOT NULL DEFAULT 0, unlike the six around them,
+    # because 0 is true of every row written before them: neither was
+    # possible. Always 0 until PRD-014 and PRD-016 respectively.
+    "streamed": "INTEGER NOT NULL DEFAULT 0",
+    "has_tool_calls": "INTEGER NOT NULL DEFAULT 0",
+    # PRD-013 (Section 6.3): the grouping key over the user id and the
+    # conversation's opening turns. Nullable and never backfilled: an earlier
+    # row kept only the last turn's hash, so its key cannot be derived. Not
+    # indexed (PRD Section 4, Out of Scope).
+    "conversation_key": "TEXT",
+    # PRD-013 (D6): `requests` or `tokens` on a usage-limit refusal, NULL on
+    # every other row. It is the dedicated verdict column that lets that row
+    # be success=1. Nullable with no default: NULL is "not a usage-limit row",
+    # which is every earlier row.
+    #
+    # Nothing writes a non-default value into these eight yet: log_query gains
+    # the parameters in STORY-005.
+    "limit_exceeded": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -110,7 +155,9 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL,
     token_hash TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    token_budget_daily INTEGER,
+    requests_per_minute INTEGER
 )
 """
 
@@ -120,6 +167,63 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE_USERS_TOKEN_HASH_INDEX = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_token_hash ON users(token_hash)"
 )
+
+# The third added-columns mapping (PRD-013 STORY-008, Section 6.6): the two
+# per-user limit overrides. CREATE TABLE IF NOT EXISTS is a no-op against a
+# users table created before this PRD, so init_db() ALTERs them in through the
+# same _add_missing_columns() the audit_logs and chat_messages mappings use.
+#
+# Every entry here is also declared in CREATE_USERS_TABLE above, for the reason
+# AUDIT_LOGS_ADDED_COLUMNS gives: this brings an old database up to date, the
+# CREATE is what a fresh one is built to.
+#
+# Nullable with no default on purpose. NULL means "use the role's limit from
+# USAGE_DAILY_TOKEN_BUDGET / USAGE_REQUESTS_PER_MINUTE", which is the true
+# value for every user that existed before this column did. A default of any
+# number would silently give every existing user an override. Additive only.
+#
+# Nothing reads them yet: app/services/identity.py carries them on Identity,
+# and usage_limits.limits_for consumes them in STORY-010.
+USERS_ADDED_COLUMNS = {
+    "token_budget_daily": "INTEGER",
+    "requests_per_minute": "INTEGER",
+}
+
+# Usage counters (PRD-013 Section 6.5, D3). One row per user per UTC day, and
+# the same row also holds the fixed one-minute rate window -- that is what lets
+# the gate be one statement: app/db/database.py's _ADMIT_USAGE_SQL increments
+# both counters and reads back everything both checks need in a single
+# round trip.
+#
+# `day` and `window_start` are only ever written from the database clock
+# (`date('now')`, `strftime('%s','now') / 60`), never from Python, so instances
+# with skewed clocks cannot split a day or a window.
+#
+# user_id and day declare NOT NULL explicitly, for the reason the users table
+# gives above: outside INTEGER PRIMARY KEY, SQLite lets a PRIMARY KEY column
+# hold NULL. The composite key is the only access path -- admit and charge both
+# address one (user_id, day) -- so there is no further index.
+#
+# No foreign key to users, for the reason the chat tables give below, and for
+# one of its own: the break-glass `admin` identity has no users row and is
+# still counted (PRD Section 6.6).
+#
+# A new table, so it arrives by CREATE alone and has no added-columns mapping.
+# No cleanup: the window is overwritten in place, and day rows accumulate at
+# one per active user per day -- they are what the usage view (STORY-016) reads.
+CREATE_USAGE_DAILY_TABLE = """
+CREATE TABLE IF NOT EXISTS usage_daily (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,                       -- 'YYYY-MM-DD', UTC, from the database clock
+    requests INTEGER NOT NULL DEFAULT 0,     -- authorized attempts today
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    unsplit_tokens INTEGER NOT NULL DEFAULT 0,   -- total_tokens of calls with no split reported
+    window_start INTEGER NOT NULL,           -- unix minute of the current rate window
+    window_requests INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+)
+"""
 
 # Transcript store (PRD-008). The conversation a user reads, kept apart from the
 # evidence audit_logs holds: that table stores hashes, truncated previews and
@@ -272,6 +376,19 @@ class AuditLog:
     # PRD-012 and on /query's foreign-session refusal. Declared after
     # pattern_action to mirror the table, so id stays the trailing field.
     profile: Optional[str] = None
+    # PRD-013 STORY-002 (Section 6.2). Same pattern as profile:
+    # insert_audit_log() writes all eight and _row_to_audit_log() maps them
+    # back on both read shapes. Nothing sets a non-default value until
+    # STORY-005. The two flags are bool, like pii_detected_input. Declared
+    # after profile to mirror the table, so id stays the trailing field.
+    ingress: Optional[str] = None
+    message_count: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    streamed: bool = False
+    has_tool_calls: bool = False
+    conversation_key: Optional[str] = None
+    limit_exceeded: Optional[str] = None
     id: Optional[int] = None
 
 
@@ -282,6 +399,53 @@ class User:
     token_hash: str
     active: bool = True
     created_at: Optional[str] = None  # insert_user() stamps it when omitted
+    # PRD-013 STORY-008: per-user limit overrides. None means "use the role's".
+    # Declared after created_at so positional construction keeps working.
+    # Written only by set_user_limits(); insert_user() leaves them NULL.
+    token_budget_daily: Optional[int] = None
+    requests_per_minute: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class UsageAdmission:
+    """What one admit_usage() call counted and read back (PRD-013 Section 6.5).
+
+    Everything the rate and budget checks need, from one statement. Every field
+    comes from the database, so none has a default. `day` is the day the
+    attempt was counted against, which is the day charge_usage() must charge.
+    Nothing here compares a limit: STORY-010's usage_limits does that.
+    """
+
+    day: str
+    window_start: int
+    window_requests: int
+    tokens_today: int
+
+
+@dataclass(frozen=True)
+class UsageDay:
+    """One user's counters for the database's current UTC day, as
+    usage_snapshot() reads them (PRD-013 STORY-016, Section 6.10).
+
+    Raw facts only: the per-user overrides as stored, and no resolved limit.
+    Section 6.6 resolves limits in Python with `usage_limits.limits_for`, the
+    function the gate itself calls, so the usage view and the gate cannot
+    disagree about a budget.
+
+    `role is None` means the user has no `users` row. The break-glass `admin`
+    identity is the expected case: it is counted (Section 6.6) but never
+    inserted. `denied` counts today's audit rows with `limit_exceeded` set.
+    """
+
+    user_id: str
+    role: Optional[str]
+    token_budget_daily: Optional[int]
+    requests_per_minute: Optional[int]
+    requests: int
+    input_tokens: int
+    output_tokens: int
+    unsplit_tokens: int
+    denied: int
 
 
 @dataclass

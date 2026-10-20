@@ -24,6 +24,7 @@ from app.db.database import (
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
+    count_blocked_usage_limits,
     count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
@@ -38,7 +39,10 @@ from app.db.database import (
     list_audit_logs,
     list_chat_messages,
     list_users,
+    set_user_limits,
     set_user_token_hash,
+    sum_input_tokens,
+    sum_output_tokens,
     summary_snapshot,
     top_models,
     top_pii_entities,
@@ -60,6 +64,8 @@ from app.db.models import (
     CREATE_CHAT_MESSAGES_TABLE,
     CREATE_CHAT_SESSIONS_TABLE,
     CREATE_CHAT_SESSIONS_USER_INDEX,
+    CREATE_USERS_TABLE,
+    USERS_ADDED_COLUMNS,
     AuditLog,
     ChatSession,
     StoredMessage,
@@ -485,6 +491,50 @@ def _create_pre_history_trimmed_database(connect, url) -> None:
     legacy.close()
 
 
+def _create_pre_user_limits_database(connect, url) -> None:
+    """Builds the `users` table exactly as it shipped before PRD-013 STORY-008:
+    the five columns of PRD-005, with its unique token-hash index, and no
+    token_budget_daily or requests_per_minute.
+
+    The first of these fixtures over `users`. Every other table is created from
+    its current constant, so the two limit columns are the only ones in flight,
+    for the reason `_create_pre_dedup_key_database`'s docstring gives.
+
+    Two users are seeded -- one active, one revoked -- so a test can show the
+    migration left both NULL and preserved everything else.
+    """
+    legacy = connect(url)
+    legacy.execute(CREATE_AUDIT_LOGS_TABLE)
+    legacy.execute(CREATE_CHAT_SESSIONS_TABLE)
+    legacy.execute(CREATE_CHAT_MESSAGES_TABLE)
+    legacy.execute(
+        """
+        CREATE TABLE users (
+            user_id TEXT PRIMARY KEY NOT NULL,
+            role TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    legacy.execute(
+        "CREATE UNIQUE INDEX idx_users_token_hash ON users(token_hash)"
+    )
+    legacy.execute(
+        "INSERT INTO users (user_id, role, token_hash, active, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("dana", "user", "hash-dana", 1, "2026-10-01T09:00:00Z"),
+    )
+    legacy.execute(
+        "INSERT INTO users (user_id, role, token_hash, active, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("eli", "admin", "hash-eli", 0, "2026-10-02T09:00:00Z"),
+    )
+    legacy.commit()
+    legacy.close()
+
+
 def _create_pre_pattern_role_database(connect, url) -> None:
     """Builds the 21-column audit_logs table exactly as it shipped before
     PRD-011 -- after PRD-009's dedup_key, before pattern_role and
@@ -598,6 +648,75 @@ def _create_pre_profile_database(connect, url) -> None:
             "user",
             "block",
         ),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def _create_pre_prd013_database(connect, url) -> None:
+    """Builds the 24-column audit_logs table exactly as it shipped before
+    PRD-013 STORY-002 -- after PRD-012's profile, before the eight columns of
+    PRD-013 Section 6.2 -- with the dedup index already in place.
+
+    The seventh of these fixtures, and the only one where the eight PRD-013
+    columns are the sole columns in flight, for the reason
+    `_create_pre_chat_sessions_database` gives about `session_id`. Two rows are
+    seeded, a `chat` success and a duplicate block, so a test can show the
+    migration leaves both as they were and backfills nothing.
+    """
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT,
+            session_id TEXT,
+            dedup_key TEXT,
+            pattern_role TEXT,
+            pattern_action TEXT,
+            profile TEXT
+        )
+        """
+    )
+    legacy.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, model_used, tokens_used, session_id, "
+        "dedup_key, profile) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "2026-10-01T09:00:00Z",
+            "carla@empresa.com",
+            "pre013",
+            "gpt-4",
+            42,
+            "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34",
+            "k-pre013",
+            "chat",
+        ),
+    )
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, was_duplicate_blocked, dedup_key, profile) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("2026-10-01T09:05:00Z", "carla@empresa.com", "pre013", 1, "k-pre013", "chat"),
     )
     legacy.commit()
     legacy.close()
@@ -958,6 +1077,16 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "pattern_action",
         # PRD-012 STORY-011 (D9): the profile that ran.
         "profile",
+        # PRD-013 STORY-002 (Section 6.2): ingress, size, token split, delivery
+        # flags, conversation key and the usage-limit verdict.
+        "ingress",
+        "message_count",
+        "input_tokens",
+        "output_tokens",
+        "streamed",
+        "has_tool_calls",
+        "conversation_key",
+        "limit_exceeded",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -1555,6 +1684,10 @@ def _individually(row_limit: int = 100, ranked_limit: int = 5) -> dict:
         "top_models": top_models(limit=ranked_limit),
         "top_users": top_users(limit=ranked_limit),
         "top_pii_entities": top_pii_entities(limit=ranked_limit),
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens": sum_input_tokens(),
+        "output_tokens": sum_output_tokens(),
+        "blocked_usage_limits": count_blocked_usage_limits(),
     }
 
 
@@ -1631,6 +1764,10 @@ def test_summary_snapshot_types_match_the_standalone_functions(temp_db):
         "unique_users",
         "successful_queries",
         "pii_detected_queries",
+        # PRD-013 6.10: three additive figures (STORY-006).
+        "input_tokens",
+        "output_tokens",
+        "blocked_usage_limits",
     ):
         assert isinstance(snapshot.figures[name], int), name
     for name in ("top_models", "top_users", "top_pii_entities"):
@@ -1654,6 +1791,10 @@ def test_summary_snapshot_on_an_empty_database(temp_db):
         "top_models": [],
         "top_users": [],
         "top_pii_entities": [],
+        # PRD-013 6.10: three additive figures, 0 on an empty table (STORY-006).
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "blocked_usage_limits": 0,
     }
     assert snapshot.figures == _individually()
 
@@ -1744,7 +1885,8 @@ def test_summary_snapshot_issues_one_round_trip(temp_db, monkeypatch):
 
     statements.clear()
     _individually()
-    assert len(statements) == 10, statements
+    # PRD-013 STORY-006: ten figures became thirteen.
+    assert len(statements) == 13, statements
 
 
 def test_summary_snapshot_limits_are_parameters(temp_db):
@@ -1835,9 +1977,17 @@ def test_users_schema_matches_expected_columns(temp_db):
         "token_hash",
         "active",
         "created_at",
+        # PRD-013 STORY-008: the per-user limit overrides.
+        "token_budget_daily",
+        "requests_per_minute",
     }
-    for name, row in columns.items():
-        assert row["notnull"] == 1, f"{name} must be NOT NULL"
+    for name in ("user_id", "role", "token_hash", "active", "created_at"):
+        assert columns[name]["notnull"] == 1, f"{name} must be NOT NULL"
+    # NULL is "use the role's limit" (PRD-013 Section 6.6), so these two must
+    # stay nullable with no default.
+    for name in ("token_budget_daily", "requests_per_minute"):
+        assert columns[name]["notnull"] == 0, f"{name} must be nullable"
+        assert columns[name]["dflt_value"] is None, f"{name} must have no default"
     assert columns["active"]["dflt_value"] == "1"
     assert columns["user_id"]["pk"] == 1
     assert all(
@@ -2103,10 +2253,14 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     names = [field.name for field in dataclasses.fields(AuditLog)]
     # PRD-009 STORY-002 appended dedup_key after session_id, and PRD-011
     # STORY-009 (D6) appended pattern_role and pattern_action after that, and
-    # PRD-012 STORY-011 (D9) appended profile. The claim is unchanged: the
+    # PRD-012 STORY-011 (D9) appended profile, and PRD-013 STORY-002 (Section
+    # 6.2) appended eight more after profile. The claim is unchanged: the
     # surrogate key stays the trailing field.
-    assert names[-6:] == [
-        "session_id", "dedup_key", "pattern_role", "pattern_action", "profile", "id",
+    assert names[-14:] == [
+        "session_id", "dedup_key", "pattern_role", "pattern_action", "profile",
+        "ingress", "message_count", "input_tokens", "output_tokens",
+        "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
+        "id",
     ]
 
 
@@ -2169,6 +2323,59 @@ def test_chat_messages_added_columns_declaring_not_null_also_declare_a_default()
             assert "DEFAULT NULL" not in declaration, (
                 f"{name}: DEFAULT NULL does not satisfy NOT NULL"
             )
+
+
+def test_users_added_columns_carries_two_nullable_limits():
+    """PRD-013 STORY-008. Nullable with no default, and the NULL is the
+    feature: it means "use the role's limit" (Section 6.6), which is the true
+    value for every user that predates the columns. A default of any number
+    would silently give every existing user an override.
+
+    Declared in both places, like every migrated column on the other two tables.
+    """
+    assert USERS_ADDED_COLUMNS == {
+        "token_budget_daily": "INTEGER",
+        "requests_per_minute": "INTEGER",
+    }
+    for name, ddl in USERS_ADDED_COLUMNS.items():
+        assert f"{name} INTEGER" in CREATE_USERS_TABLE
+        assert "NOT NULL" not in ddl.upper()
+        assert "DEFAULT" not in ddl.upper()
+
+
+def test_every_users_added_column_is_also_declared_in_the_create():
+    """The third twin of test_every_added_column_is_also_declared_in_the_create,
+    for the same reason: a column only in the mapping means every fresh
+    deployment ALTERs its own brand-new table on first boot."""
+    declared = _declared_columns(CREATE_USERS_TABLE)
+    for name in USERS_ADDED_COLUMNS:
+        assert name in declared, f"{name} is migrated in but never created"
+
+
+def test_users_added_columns_declaring_not_null_also_declare_a_default():
+    """The third twin of
+    test_added_columns_declaring_not_null_also_declare_a_default. Vacuous today,
+    since both entries are nullable, and written for the next entry."""
+    for name, ddl in USERS_ADDED_COLUMNS.items():
+        declaration = ddl.upper()
+        if "NOT NULL" in declaration:
+            assert "DEFAULT" in declaration, (
+                f"{name}: NOT NULL requires a DEFAULT -- "
+                f"SQLite rejects ADD COLUMN NOT NULL without one"
+            )
+            assert "DEFAULT NULL" not in declaration, (
+                f"{name}: DEFAULT NULL does not satisfy NOT NULL"
+            )
+
+
+def test_user_carries_limit_overrides_without_breaking_construction():
+    """The two fields default to None and sit after created_at, so every
+    existing positional `User(user_id, role, token_hash)` still constructs."""
+    user = User("ana", "user", "h")
+    assert user.token_budget_daily is None
+    assert user.requests_per_minute is None
+    names = [f.name for f in dataclasses.fields(User)]
+    assert names[-2:] == ["token_budget_daily", "requests_per_minute"]
 
 
 def test_stored_message_carries_history_trimmed_without_breaking_construction():
@@ -2308,6 +2515,10 @@ _DEDUP_LOOKUP_SQL = (
     # A residual filter, like the three above -- the index assertion below
     # still holds.
     "AND (pattern_action IS NULL OR pattern_action <> 'flag') "
+    # PRD-013 STORY-011 (D6): a usage-limit refusal is not a prior query. A
+    # residual filter, like the four above -- the index assertion below still
+    # holds.
+    "AND limit_exceeded IS NULL "
     "ORDER BY timestamp ASC LIMIT 1"
 )
 
@@ -2535,6 +2746,31 @@ def test_duplicate_lookup_ignores_a_flag_row(temp_db, pattern_action, is_prior_q
     assert (found is not None) is is_prior_query
 
 
+@pytest.mark.parametrize(
+    "limit_exceeded, is_prior_query",
+    [(None, True), ("requests", False), ("tokens", False)],
+)
+def test_duplicate_lookup_ignores_a_usage_limit_row(temp_db, limit_exceeded, is_prior_query):
+    """PRD-013 STORY-011 (D6): a usage-limit refusal is success=1 but is not a
+    verdict about the prompt, which never reached the model, so it is not a
+    prior query. NULL (every row written before PRD-013, and every other
+    verdict) still counts (Risk 5)."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-19T09:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h",
+            success=True,
+            dedup_key="k",
+            limit_exceeded=limit_exceeded,
+        )
+    )
+
+    found = database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-10-18T09:00:00Z")
+
+    assert (found is not None) is is_prior_query
+
+
 # ---------------------------------------------------------------------------
 # PRD-012 STORY-011: profile (D9).
 # ---------------------------------------------------------------------------
@@ -2658,6 +2894,259 @@ def test_audit_log_carries_profile_without_breaking_construction():
         profile="chat",
     )
     assert carried.profile == "chat"
+
+
+# ---------------------------------------------------------------------------
+# PRD-013 STORY-002: eight audit columns (Section 6.2).
+# ---------------------------------------------------------------------------
+
+#: The eight columns, name -> DDL, in PRD Section 6.2's order. A literal, not
+#: read from AUDIT_LOGS_ADDED_COLUMNS: it is what that mapping is checked
+#: against.
+_PRD013_COLUMNS = {
+    "ingress": "TEXT",
+    "message_count": "INTEGER",
+    "input_tokens": "INTEGER",
+    "output_tokens": "INTEGER",
+    "streamed": "INTEGER NOT NULL DEFAULT 0",
+    "has_tool_calls": "INTEGER NOT NULL DEFAULT 0",
+    "conversation_key": "TEXT",
+    "limit_exceeded": "TEXT",
+}
+_PRD013_FLAGS = tuple(n for n, ddl in _PRD013_COLUMNS.items() if "NOT NULL" in ddl)
+_PRD013_NULLABLE = tuple(n for n in _PRD013_COLUMNS if n not in _PRD013_FLAGS)
+
+#: Two rows with a different value in every field and opposite flags, so a
+#: transposition in insert_audit_log's hand-counted lists cannot hide behind
+#: two equal values.
+_PRD013_ROW_A = {
+    "ingress": "v1",
+    "message_count": 7,
+    "input_tokens": 2140,
+    "output_tokens": 312,
+    "streamed": True,
+    "has_tool_calls": False,
+    "conversation_key": "ck-a",
+    "limit_exceeded": "tokens",
+}
+_PRD013_ROW_B = {
+    "ingress": "chat",
+    "message_count": 3,
+    "input_tokens": 55,
+    "output_tokens": 8,
+    "streamed": False,
+    "has_tool_calls": True,
+    "conversation_key": "ck-b",
+    "limit_exceeded": "requests",
+}
+_PRD013_DEFAULTS = {
+    **{name: None for name in _PRD013_NULLABLE},
+    **{name: False for name in _PRD013_FLAGS},
+}
+
+
+def _prd013_fields(entry: AuditLog) -> dict:
+    return {name: getattr(entry, name) for name in _PRD013_COLUMNS}
+
+
+@pytest.mark.parametrize(("name", "ddl"), list(_PRD013_COLUMNS.items()), ids=list(_PRD013_COLUMNS))
+def test_audit_logs_declares_each_prd013_column_in_both_places(name, ddl):
+    """AC 1: the mapping converges an old database, the CREATE builds a fresh
+    one, and each column is in both with the same declaration."""
+    assert AUDIT_LOGS_ADDED_COLUMNS[name] == ddl
+    assert f"{name} {ddl}" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_the_prd013_columns_are_declared_last_and_in_order():
+    """The mapping's order is the order init_db() ALTERs in, and the CREATE's
+    is the order AuditLog mirrors."""
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-8:] == list(_PRD013_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-8:] == list(_PRD013_COLUMNS)
+
+
+@pytest.mark.parametrize("name", list(_PRD013_COLUMNS))
+def test_init_db_creates_each_prd013_column_with_its_shape(temp_db, name):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info[name]["type"] == _PRD013_COLUMNS[name].split()[0]
+    if name in _PRD013_FLAGS:
+        assert info[name]["notnull"] == 1
+        assert str(info[name]["dflt_value"]) == "0"
+    else:
+        assert info[name]["notnull"] == 0
+        assert info[name]["dflt_value"] is None
+
+
+def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, monkeypatch):
+    """AC 2: a database created before this story gains all eight columns,
+    once each, and no existing row is touched -- the six nullable columns read
+    NULL and the two flags read the column default, with no UPDATE issued."""
+    _create_pre_prd013_database(db_connect, uninitialized_db)
+    statements = _count_statements(monkeypatch)
+
+    init_db()
+
+    assert [sql for sql in statements if "ADD COLUMN" in sql.upper()] == [
+        f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
+        for name, ddl in _PRD013_COLUMNS.items()
+    ]
+    assert not any(
+        sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
+    ), statements
+
+    statements.clear()
+    init_db()  # the second boot converges without a second ALTER
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER" in sql.upper() for sql in statements), statements
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "audit_logs")
+        raw = conn.execute(
+            f"SELECT {', '.join(_PRD013_COLUMNS)} FROM audit_logs ORDER BY id"
+        ).fetchall()
+    assert len(columns) == 32
+    for name in _PRD013_COLUMNS:
+        assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
+
+    # As stored, before the mapper's bool() sees them: NULL and the integer 0.
+    assert len(raw) == 2
+    for row in raw:
+        assert [row[name] for name in _PRD013_NULLABLE] == [None] * 6
+        assert [row[name] for name in _PRD013_FLAGS] == [0, 0]
+
+    assert count_audit_logs() == 2
+    success, blocked = get_audit_log(1), get_audit_log(2)
+    for preserved in (success, blocked):
+        assert _prd013_fields(preserved) == _PRD013_DEFAULTS
+        assert preserved.streamed is False and preserved.has_tool_calls is False
+        assert preserved.dedup_key == "k-pre013"
+        assert preserved.profile == "chat"
+    assert success.tokens_used == 42
+    assert success.session_id == "0f6c2e5a-9b3d-4c81-a7f2-1d5e8c9b0a34"
+    assert (success.was_duplicate_blocked, blocked.was_duplicate_blocked) == (False, True)
+
+    new_id = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-12T09:30:00Z",
+            user_id="bob@empresa.com",
+            prompt_hash="post013",
+            **_PRD013_ROW_A,
+        )
+    )
+    assert _prd013_fields(get_audit_log(new_id)) == _PRD013_ROW_A
+
+
+def test_prd013_fields_default_when_not_supplied(temp_db):
+    new_id = insert_audit_log(
+        AuditLog(timestamp="2026-10-12T09:00:00Z", user_id="ana@empresa.com", prompt_hash="h40")
+    )
+
+    assert _prd013_fields(get_audit_log(new_id)) == _PRD013_DEFAULTS
+
+    with get_connection() as conn:
+        raw = conn.execute(
+            "SELECT streamed, has_tool_calls FROM audit_logs WHERE id = ?", (new_id,)
+        ).fetchone()
+    assert (raw["streamed"], raw["has_tool_calls"]) == (0, 0)
+
+
+def test_prd013_fields_round_trip(temp_db):
+    """AC 4, the `SELECT *` read shape."""
+    id_a = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-12T09:05:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h41",
+            dedup_key="k",
+            profile="code",
+            **_PRD013_ROW_A,
+        )
+    )
+    id_b = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-12T09:10:00Z",
+            user_id="juan@empresa.com",
+            prompt_hash="h42",
+            **_PRD013_ROW_B,
+        )
+    )
+
+    row_a, row_b = get_audit_log(id_a), get_audit_log(id_b)
+
+    assert _prd013_fields(row_a) == _PRD013_ROW_A
+    assert _prd013_fields(row_b) == _PRD013_ROW_B
+    assert row_a.streamed is True and row_a.has_tool_calls is False
+    assert row_b.streamed is False and row_b.has_tool_calls is True
+    # The neighbours too: a miscount in insert_audit_log's column list shifts
+    # every later value.
+    assert row_a.profile == "code"
+    assert row_a.dedup_key == "k"
+    assert row_a.prompt_hash == "h41"
+
+    assert list_audit_logs() == [row_b, row_a]
+
+
+def test_prd013_fields_survive_the_batched_read(temp_db):
+    """AC 4, the other read shape: `_SUMMARY_SQL`'s hand-written
+    `json_object(...)`. A key the mapper reads but that list lacks fails the
+    batched `rows` figure on every call, and on that path only."""
+    ids = [
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-10-12T09:{minute}:00Z",
+                user_id="ana@empresa.com",
+                prompt_hash=f"h{minute}",
+                **fields,
+            )
+        )
+        for minute, fields in (("15", _PRD013_ROW_A), ("20", _PRD013_ROW_B), ("25", {}))
+    ]
+
+    with get_connection() as conn:
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+    entries = {entry["id"]: entry for entry in json.loads(raw["rows"])}
+    assert all(set(_PRD013_COLUMNS) <= set(entry) for entry in entries.values())
+    # json_object hands the flags back as integers, which is what makes the
+    # mapper's bool() load-bearing on this path.
+    assert [(entries[i]["streamed"], entries[i]["has_tool_calls"]) for i in ids] == [
+        (1, 0),
+        (0, 1),
+        (0, 0),
+    ]
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    by_id = {row.id: row for row in snapshot.rows}
+    assert [_prd013_fields(by_id[i]) for i in ids] == [
+        _PRD013_ROW_A,
+        _PRD013_ROW_B,
+        _PRD013_DEFAULTS,
+    ]
+    for i in ids:
+        assert by_id[i] == get_audit_log(i)
+        assert type(by_id[i].streamed) is bool
+        assert type(by_id[i].has_tool_calls) is bool
+
+
+def test_audit_log_carries_the_prd013_fields_without_breaking_construction():
+    """Optional and defaulted, so every existing keyword construction of
+    AuditLog -- log_query, the migration script -- is untouched."""
+    bare = AuditLog(timestamp="2026-10-12T10:00:00Z", user_id="ana@empresa.com", prompt_hash="abc")
+    assert _prd013_fields(bare) == _PRD013_DEFAULTS
+
+    carried = AuditLog(
+        timestamp="2026-10-12T10:00:00Z",
+        user_id="ana@empresa.com",
+        prompt_hash="abc",
+        **_PRD013_ROW_A,
+    )
+    assert _prd013_fields(carried) == _PRD013_ROW_A
+
+    names = [field.name for field in dataclasses.fields(AuditLog)]
+    assert names[-9:] == [*_PRD013_COLUMNS, "id"]
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):
@@ -2986,6 +3475,162 @@ def test_init_db_adds_no_history_trimmed_alter_to_a_fresh_database(
     monkeypatch.undo()
     with get_connection() as conn:
         assert "history_trimmed" in _column_names(conn, "chat_messages")
+
+
+# --- PRD-013 STORY-008: users limit overrides --------------------------------
+
+
+def test_init_db_migrates_a_pre_user_limits_database(uninitialized_db, db_connect):
+    """STORY-008 AC1: a `users` table that predates the overrides gains both
+    columns through USERS_ADDED_COLUMNS, every existing row reads NULL on both,
+    and nothing else about the rows changes."""
+    _create_pre_user_limits_database(db_connect, uninitialized_db)
+
+    init_db()
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "users")
+    assert "token_budget_daily" in columns
+    assert "requests_per_minute" in columns
+
+    dana = get_user("dana")
+    assert dana.token_budget_daily is None
+    assert dana.requests_per_minute is None
+    assert (dana.role, dana.token_hash, dana.active, dana.created_at) == (
+        "user", "hash-dana", True, "2026-10-01T09:00:00Z",
+    )
+    eli = get_user("eli")
+    assert eli.token_budget_daily is None
+    assert eli.requests_per_minute is None
+    assert eli.active is False  # the revoked row is migrated, not reactivated
+    # The lookup path that resolve() uses reads the migrated row too.
+    assert find_user_by_token_hash("hash-dana").token_budget_daily is None
+
+
+def test_init_db_adds_the_user_limit_columns_after_creating_the_table(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """The ordering rule for the third pass, pinned directly:
+    CREATE_USERS_TABLE precedes both ALTERs, on the one bootstrap connection.
+    The same rule, for the same reason, as the chat_messages pass."""
+    _create_pre_user_limits_database(db_connect, uninitialized_db)
+    statements: list[str] = []
+    connections: list[object] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    def _record(conn):
+        proxy = _RecordingConnection(conn)
+        connections.append(proxy)
+        return proxy
+
+    _install(monkeypatch, _record)
+
+    init_db()
+
+    normalized = [" ".join(sql.upper().split()) for sql in statements]
+    alters = [
+        i
+        for i, sql in enumerate(normalized)
+        if sql.startswith("ALTER TABLE USERS ADD COLUMN")
+    ]
+    assert len(alters) == 2, statements
+    assert CREATE_USERS_TABLE in statements, statements
+    assert statements.index(CREATE_USERS_TABLE) < alters[0], statements
+    # check_database_reachable()'s probe plus the one bootstrap `_session()`.
+    assert len(connections) == 2
+
+
+def test_init_db_adds_no_user_limit_alter_to_a_fresh_database(
+    uninitialized_db, monkeypatch
+):
+    """On a database with no tables, CREATE_USERS_TABLE declares both columns
+    itself, so the pass that follows must find them and issue nothing."""
+    statements: list[str] = []
+
+    class _RecordingConnection(_DelegatingConnection):
+        def execute(self, sql, *parameters):
+            statements.append(sql)
+            return self._conn.execute(sql, *parameters)
+
+    _install(monkeypatch, _RecordingConnection)
+
+    init_db()
+
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER TABLE USERS" in sql.upper() for sql in statements), statements
+
+    monkeypatch.undo()
+    with get_connection() as conn:
+        columns = _column_names(conn, "users")
+    assert "token_budget_daily" in columns
+    assert "requests_per_minute" in columns
+
+
+_DANA_HASH = "hash-dana"
+
+
+def _insert_dana() -> None:
+    insert_user(User(user_id="dana", role="user", token_hash=_DANA_HASH))
+
+
+def test_set_user_limits_sets_one_column_and_leaves_the_other(temp_db):
+    _insert_dana()
+    set_user_limits("dana", requests_per_minute=30)
+
+    assert set_user_limits("dana", token_budget_daily=5_000_000) is True
+
+    dana = get_user("dana")
+    assert dana.token_budget_daily == 5_000_000
+    assert dana.requests_per_minute == 30  # untouched by the second call
+
+
+def test_set_user_limits_none_clears_to_null(temp_db):
+    _insert_dana()
+    set_user_limits("dana", token_budget_daily=100, requests_per_minute=10)
+
+    assert set_user_limits("dana", token_budget_daily=None) is True
+
+    dana = get_user("dana")
+    assert dana.token_budget_daily is None
+    assert dana.requests_per_minute == 10
+
+
+def test_set_user_limits_sets_both_in_one_call(temp_db):
+    _insert_dana()
+
+    assert set_user_limits("dana", token_budget_daily=7, requests_per_minute=8)
+
+    dana = get_user("dana")
+    assert (dana.token_budget_daily, dana.requests_per_minute) == (7, 8)
+
+
+def test_set_user_limits_unknown_user_returns_false_and_writes_nothing(temp_db):
+    assert set_user_limits("ghost", token_budget_daily=5) is False
+    assert get_user("ghost") is None
+    assert list_users() == []
+
+
+def test_set_user_limits_with_nothing_to_set_raises(temp_db):
+    _insert_dana()
+
+    with pytest.raises(ValueError):
+        set_user_limits("dana")
+
+
+def test_find_user_by_token_hash_carries_the_overrides(temp_db):
+    """The row resolve() reads on every request carries the overrides, so
+    Identity gets them with no extra round trip (PRD-013 Section 6.6)."""
+    _insert_dana()
+    set_user_limits("dana", token_budget_daily=5_000_000)
+
+    user = find_user_by_token_hash(_DANA_HASH)
+
+    assert user.token_budget_daily == 5_000_000
+    assert user.requests_per_minute is None
 
 
 def test_init_db_creates_the_dedup_index_after_adding_the_column(
@@ -3962,9 +4607,10 @@ def test_two_init_db_calls_racing_on_history_trimmed_both_converge(
     `ADD COLUMN history_trimmed`, and `_is_duplicate_column()` turns the loser's
     failure into convergence rather than a container that will not boot.
 
-    Each thread now crosses the reusable barrier twice, once per table, because
-    `_GatedConnection` gates on every `PRAGMA table_info` and `init_db()` reads
-    two. Both threads run the identical path, so the cycles match; an asymmetric
+    Each thread now crosses the reusable barrier three times, once per table,
+    because `_GatedConnection` gates on every `PRAGMA table_info` and
+    `init_db()` reads three (`users` joined in PRD-013 STORY-008). Both threads
+    run the identical path, so the cycles match; an asymmetric
     one would raise `BrokenBarrierError` inside the 30 s timeout and fail this
     test rather than hang the suite.
     """

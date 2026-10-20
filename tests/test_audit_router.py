@@ -92,6 +92,16 @@ def test_valid_token_returns_expected_shape(temp_db):
             "pattern_action",
             # PRD-012 D9: additive, nullable (STORY-011).
             "profile",
+            # PRD-013 6.10: eight additive fields, six nullable and two
+            # defaulted flags (STORY-006).
+            "ingress",
+            "message_count",
+            "input_tokens",
+            "output_tokens",
+            "streamed",
+            "has_tool_calls",
+            "conversation_key",
+            "limit_exceeded",
         }
 
     newest, oldest = body["queries"]

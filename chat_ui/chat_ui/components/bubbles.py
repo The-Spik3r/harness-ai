@@ -402,6 +402,37 @@ def render_context_limit(message) -> rx.Component:
     )
 
 
+def render_usage_limit(message) -> rx.Component:
+    """Paused until a stated time (PRD-013 STORY-014): the send did not happen
+    because the reader is over a usage limit, and the bubble says when they
+    can send again.
+
+    `INK_HELD`, the pair `render_context_limit` draws and for its measured
+    reason: `INK_FORBIDDEN` is below AA on the light ground, and `INK_HELD`
+    clears it in both palettes. It means the right thing here too -- nothing
+    is wrong with the prompt; the reader waits. The tag tells the two kinds
+    apart.
+
+    It renders `message.detail` where `render_context_limit` renders a
+    constant, because this sentence depends on which limit was reached and
+    when it resets. `_do_send` builds it from `copy.USAGE_LIMIT_NOTICES` via
+    `formatting.format_usage_limit_notice`, so every word still comes from
+    `copy.py`; `content` holds the pipeline's reason and stays off screen.
+
+    No recovery action. A Retry here is the "keep retrying" invitation this
+    bubble exists to remove: on the budget it cannot succeed before the stated
+    time, and on the rate the sentence already says what to do. The composer
+    is always on screen.
+    """
+    ink, tint = theme.INK_HELD, theme.TINT_HELD
+    return _entry(
+        message,
+        _rail(ink),
+        _tag(copy.TAG_USAGE_LIMIT, ink),
+        _panel(ink, tint, _prose(message.detail)),
+    )
+
+
 def _failure(message, ink: str, tint: str, tag: str, headline: str) -> rx.Component:
     """Shared shape for the two failure kinds: what failed, the raw detail, and
     a way to send the same prompt again."""

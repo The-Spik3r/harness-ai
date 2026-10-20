@@ -1,4 +1,4 @@
-"""The summary: nine figures set as a ruled tally sheet, each stating its scope.
+"""The summary: twelve figures set as a ruled tally sheet, each stating its scope.
 
 The register's counterpart, and deliberately the quieter of the two surfaces.
 PRD-006 Section 6.1 spends the console's boldness on the register's stamp
@@ -20,7 +20,9 @@ subset of it. PRD-006 Section 6.1, verbatim: "indentation is the honest
 structural statement of that relationship — a card grid asserts that all four
 numbers are peers, which is false." The indent is therefore spacing and nothing
 else: no bracket, no leading mark, no lighter rule, no smaller type. One
-accessory removed, per the skill's last instruction.
+accessory removed, per the skill's last instruction. PRD-013's
+`blocked_usage_limits` joins them: a usage-limit row is one row of the table,
+so it is the same kind of subset.
 
 **Every figure states its scope, and that is not a nicety.** PRD-006 Risk 4: an
 all-time `3,180` beside a register showing 100 rows "reads as a contradiction, or
@@ -30,7 +32,8 @@ between the two windows outright.
 
 **This module reads fields; it does not compute.** Every figure is a
 `SummaryFigure` built in `AdminState` (`total_figure`, `blocked_figures`,
-`completion_figure`, `who_figures`, `pii_figures`) out of `format_count` and
+`completion_figure`, `token_figures`, `who_figures`, `pii_figures`) out of
+`format_count` and
 `format_share`. Both are Python — a thousands separator and a zero-total branch —
 and component functions receive Reflex Vars, which is also why a total of 0
 renders `SHARE_UNDEFINED` here rather than raising: the division never reaches
@@ -339,7 +342,7 @@ def _empty_summary() -> rx.Component:
     reach into each other, and a shared private helper is the first thread of
     that coupling.
 
-    It says why rather than showing nine dashes, and it ends in the action
+    It says why rather than showing twelve dashes, and it ends in the action
     available from it — the skill's "an empty screen is an invitation to act".
     The action named is **Refresh**, which is the masthead's control (STORY-017),
     so no second button is declared here to compete with it.
@@ -372,12 +375,18 @@ def _empty_summary() -> rx.Component:
 
 
 def _sheet() -> rx.Component:
-    """The nine figures, in PRD-006 Section 6.1's three blocks.
+    """The twelve figures, in four blocks: PRD-006 Section 6.1's three and
+    PRD-013's Tokens.
 
-    The order is the section's, not a preference: the counts first, with the two
-    blocked figures indented beneath the total they are a subset of; then the
-    who/what facts, "because they answer a different kind of question than the
-    counts do"; then "PII telemetry closes the sheet".
+    The order is the section's, not a preference: the counts first, with the
+    three blocked figures indented beneath the total they are a subset of; then
+    the who/what facts, "because they answer a different kind of question than
+    the counts do"; then "PII telemetry closes the sheet".
+
+    Tokens (PRD-013 STORY-015) follow the counts directly: they measure the same
+    traffic in another unit, so they belong next to it rather than among the
+    who/what facts. Not indented, because a token sum is a subset of nothing on
+    the sheet — the indent claims exactly that and is not spent here.
 
     The completion figure sits with the counts rather than in a block of its own:
     it is a count of the same rows, and separating it would suggest it measures
@@ -390,6 +399,10 @@ def _sheet() -> rx.Component:
             rx.foreach(AdminState.blocked_figures, _indented_figure),
             _figure(AdminState.completion_figure),
             _figure_note(admin_copy.FIGURE_COMPLETION_NOTE),
+        ),
+        _block(
+            admin_copy.SUMMARY_TOKENS_HEADING,
+            rx.foreach(AdminState.token_figures, _figure),
         ),
         _block(
             admin_copy.SUMMARY_WHO_HEADING,

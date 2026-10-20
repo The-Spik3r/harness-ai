@@ -56,6 +56,9 @@ UNANSWERED_KINDS = (
     ("upstream_error", {"detail": "502 from openrouter"}),
     ("internal_error", {"detail": "unhandled in run_query"}),
     ("context_limit", {"detail": "context limit: characters 250000 > 200000"}),
+    # PRD-013 STORY-014: the usage-limit bubble, excluded by the same filter
+    # with no change to `assemble`.
+    ("usage_limit", {"detail": "You're sending too fast. Wait a minute, then send again."}),
 )
 
 

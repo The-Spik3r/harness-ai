@@ -115,6 +115,10 @@ from chat_ui.chat_ui.admin_copy import (
     READ_LABEL_TOP_MODELS,
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOP_PII,
+    # PRD-013 STORY-006.
+    READ_LABEL_INPUT_TOKENS,
+    READ_LABEL_OUTPUT_TOKENS,
+    READ_LABEL_USAGE_LIMITS,
     EMPTY_REGISTER_TITLE,
     EMPTY_REGISTER_BODY,
     EMPTY_MATCHES_TITLE,
@@ -319,6 +323,10 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert READ_LABEL_TOP_MODELS
     assert READ_LABEL_TOP_USERS
     assert READ_LABEL_TOP_PII
+    # PRD-013 STORY-006.
+    assert READ_LABEL_INPUT_TOKENS
+    assert READ_LABEL_OUTPUT_TOKENS
+    assert READ_LABEL_USAGE_LIMITS
     assert EMPTY_REGISTER_TITLE
     assert EMPTY_REGISTER_BODY
     assert EMPTY_MATCHES_TITLE
@@ -374,6 +382,23 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert RANKED_CUT_TEMPLATE
     assert SHARE_TEMPLATE
     assert RANKED_EMPTY_LABEL
+    # PRD-013 (STORY-016): the Usage view's copy, read off the module.
+    assert admin_copy.VIEW_USAGE_LABEL
+    assert admin_copy.READ_LABEL_USAGE
+    assert admin_copy.USAGE_CAPTION
+    assert admin_copy.COLUMN_ROLE
+    assert admin_copy.COLUMN_REQUESTS
+    assert admin_copy.COLUMN_INPUT
+    assert admin_copy.COLUMN_OUTPUT
+    assert admin_copy.COLUMN_BUDGET
+    assert admin_copy.COLUMN_USED
+    assert admin_copy.COLUMN_DENIED
+    assert admin_copy.COLUMN_BUDGET_TITLE
+    assert admin_copy.COLUMN_USED_TITLE
+    assert admin_copy.COLUMN_DENIED_TITLE
+    assert admin_copy.USAGE_BUDGET_UNLIMITED
+    assert admin_copy.EMPTY_USAGE_TITLE
+    assert admin_copy.EMPTY_USAGE_BODY
     # And nothing is missing from the list: a constant added to admin_copy.py
     # without an assertion here would otherwise ship untested, which is the
     # failure mode "each constant is asserted non-empty" exists to prevent.
@@ -398,6 +423,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "COLUMN_VERDICT",
         "COLUMN_MODEL",
         "COLUMN_TOKENS",
+        # PRD-013 (STORY-015)
+        "COLUMN_TOKENS_TITLE",
         "COLUMN_PII",
         "COLUMN_DEVICE",
         "COLUMN_ID",
@@ -410,6 +437,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "REGISTER_SCOPE_TEMPLATE",
         "REGISTER_FILTERED_TEMPLATE",
         "SUMMARY_SCOPE_ALL_TIME",
+        # PRD-013 (STORY-015)
+        "SUMMARY_SCOPE_TOKENS",
         "SUMMARY_SCOPE_NOTE",
         "REFRESH_LABEL",
         "REFRESH_IN_FLIGHT_LABEL",
@@ -427,6 +456,27 @@ def test_admin_copy_constants_exist_and_not_empty():
         "READ_LABEL_TOP_MODELS",
         "READ_LABEL_TOP_USERS",
         "READ_LABEL_TOP_PII",
+        # PRD-013 STORY-006.
+        "READ_LABEL_INPUT_TOKENS",
+        "READ_LABEL_OUTPUT_TOKENS",
+        "READ_LABEL_USAGE_LIMITS",
+        # PRD-013 (STORY-016): the Usage view.
+        "VIEW_USAGE_LABEL",
+        "READ_LABEL_USAGE",
+        "USAGE_CAPTION",
+        "COLUMN_ROLE",
+        "COLUMN_REQUESTS",
+        "COLUMN_INPUT",
+        "COLUMN_OUTPUT",
+        "COLUMN_BUDGET",
+        "COLUMN_USED",
+        "COLUMN_DENIED",
+        "COLUMN_BUDGET_TITLE",
+        "COLUMN_USED_TITLE",
+        "COLUMN_DENIED_TITLE",
+        "USAGE_BUDGET_UNLIMITED",
+        "EMPTY_USAGE_TITLE",
+        "EMPTY_USAGE_BODY",
         "EMPTY_REGISTER_TITLE",
         "EMPTY_REGISTER_BODY",
         "EMPTY_MATCHES_TITLE",
@@ -466,12 +516,25 @@ def test_admin_copy_constants_exist_and_not_empty():
         "DETAIL_PII_ENTITIES_LABEL",
         "DETAIL_PII_INPUT_LABEL",
         "DETAIL_PII_OUTPUT_LABEL",
+        # PRD-013 (STORY-015)
+        "DETAIL_LIMIT_LABEL",
+        "DETAIL_CONVERSATION_LABEL",
+        "DETAIL_INGRESS_LABEL",
+        "DETAIL_MESSAGE_COUNT_LABEL",
+        "DETAIL_STREAMED_LABEL",
+        "DETAIL_TOOL_CALLS_LABEL",
+        "DETAIL_FLAG_YES_LABEL",
+        "DETAIL_FLAG_NO_LABEL",
         "SUMMARY_COUNTS_HEADING",
+        # PRD-013 (STORY-015)
+        "SUMMARY_TOKENS_HEADING",
         "SUMMARY_WHO_HEADING",
         "SUMMARY_PII_HEADING",
         "FIGURE_TOTAL_LABEL",
         "FIGURE_BLOCKED_DUPLICATES_LABEL",
         "FIGURE_BLOCKED_SUSPICIOUS_LABEL",
+        # PRD-013 (STORY-015)
+        "FIGURE_BLOCKED_USAGE_LIMITS_LABEL",
         "FIGURE_COMPLETION_LABEL",
         "FIGURE_COMPLETION_NOTE",
         "FIGURE_UNIQUE_USERS_LABEL",
@@ -479,6 +542,9 @@ def test_admin_copy_constants_exist_and_not_empty():
         "FIGURE_TOP_USERS_LABEL",
         "FIGURE_PII_QUERIES_LABEL",
         "FIGURE_TOP_PII_LABEL",
+        # PRD-013 (STORY-015)
+        "FIGURE_INPUT_TOKENS_LABEL",
+        "FIGURE_OUTPUT_TOKENS_LABEL",
         "RANKED_CUT_TEMPLATE",
         "SHARE_TEMPLATE",
         "RANKED_EMPTY_LABEL",
@@ -1109,4 +1175,111 @@ def test_the_redaction_unit_names_what_is_counted():
     assert unit == "characters to check for personal data"
     assert CONTEXT_LIMIT_DETAIL_TEMPLATE.format(unit=unit, actual=231554, maximum=200000) == (
         "characters to check for personal data 231554 of 200000"
+    )
+
+
+# --- PRD-013 STORY-014: the usage-limit bubble ----------------------------
+# Appended, never edited above: this suite is asserted by census
+# (`tests/test_untouched_app.py`), the rule the STORY-013 banner states. The
+# imports are local to each test so the module's import block stays as it was.
+
+# Mechanism words the reader never sees on this bubble. The first two are the
+# story's AC 5 verbatim; "quota" catches the paraphrase; "token" and "request"
+# are the names of the two settings, which the copy names by what the reader
+# recognizes instead ("today's usage", "sending too fast").
+_USAGE_LIMIT_MECHANISMS = ("rate limit", "quota exceeded", "quota", "token", "request")
+_APOLOGIES = ("sorry", "oops", "apolog", "unfortunately")
+
+
+def _usage_limit_vocabulary():
+    from chat_ui.chat_ui.copy import (
+        TAG_USAGE_LIMIT,
+        USAGE_LIMIT_REQUESTS_NOTICE,
+        USAGE_LIMIT_TOKENS_TEMPLATE,
+    )
+
+    return (TAG_USAGE_LIMIT, USAGE_LIMIT_TOKENS_TEMPLATE, USAGE_LIMIT_REQUESTS_NOTICE)
+
+
+def test_every_usage_limit_string_exists_and_is_not_empty():
+    """The new constants are covered, and none is a blank placeholder."""
+    for text in _usage_limit_vocabulary():
+        assert isinstance(text, str)
+        assert text.strip(), f"{text!r} is blank"
+
+
+def test_the_usage_limit_copy_is_the_wording_the_prd_fixed():
+    """PRD-013 Section 6.10 and STORY-014 AC 1 quote both sentences verbatim.
+
+    The tag is this story's own word, not the PRD's (plan D-D), and is pinned
+    here so a change to it is a visible decision rather than a drift.
+    """
+    from chat_ui.chat_ui.copy import (
+        TAG_USAGE_LIMIT,
+        USAGE_LIMIT_REQUESTS_NOTICE,
+        USAGE_LIMIT_TOKENS_TEMPLATE,
+    )
+
+    assert USAGE_LIMIT_TOKENS_TEMPLATE.format(reset="00:00") == (
+        "You've reached today's usage limit. You can send again after 00:00 UTC."
+    )
+    assert USAGE_LIMIT_REQUESTS_NOTICE == "You're sending too fast. Wait a minute, then send again."
+    assert TAG_USAGE_LIMIT == "PAUSED"
+
+
+def test_the_usage_limit_copy_names_no_mechanism_and_does_not_apologize():
+    """STORY-014 AC 5, and frontend-design's two writing rules the story quotes.
+
+    Non-emptiness first, so a constant renamed to "" cannot pass every `not in`
+    below vacuously.
+    """
+    vocabulary = _usage_limit_vocabulary()
+    for text in vocabulary:
+        assert text.strip(), f"{text!r} is blank; the absence checks below would pass vacuously"
+
+    for text in vocabulary:
+        lowered = text.lower()
+        for mechanism in _USAGE_LIMIT_MECHANISMS:
+            assert mechanism not in lowered, f"{text!r} names the mechanism: {mechanism!r}"
+        for apology in _APOLOGIES:
+            assert apology not in lowered, f"{text!r} apologizes"
+        for vague in ("something went wrong", "an error", "try again later"):
+            assert vague not in lowered, f"{text!r} is vague: {vague!r}"
+
+    tag, *prose = vocabulary
+    for text in prose:
+        assert text == text[0].upper() + text[1:], f"{text!r} is not sentence case"
+        assert not text.isupper(), f"{text!r} shouts"
+    assert tag.isupper(), "the rail tags are the one place this interface shouts"
+
+
+def test_every_usage_limit_value_has_a_notice_and_nothing_else_does():
+    """`format_usage_limit_notice` indexes the map after `_do_send`'s `try`, so
+    a `limit` value without copy would fail a send; this fails here first, in
+    both directions (plan D-E, the CONTEXT_LIMIT_UNITS rule)."""
+    from typing import get_args
+
+    from app.models.schemas import QueryBlockedUsageLimitResponse
+    from chat_ui.chat_ui.copy import USAGE_LIMIT_NOTICES
+
+    limits = get_args(QueryBlockedUsageLimitResponse.model_fields["limit"].annotation)
+    assert set(USAGE_LIMIT_NOTICES) == set(limits)
+
+
+def test_the_usage_limit_tokens_notice_formats_the_reset_in_utc():
+    """PRD F14: `resets_at` formatted in UTC when the bubble is built. The gate
+    only ever produces the next 00:00 UTC for the budget, so an unparseable or
+    empty value falls back to that same time rather than to a vaguer line."""
+    from chat_ui.chat_ui.copy import USAGE_LIMIT_REQUESTS_NOTICE
+    from chat_ui.chat_ui.formatting import format_usage_limit_notice
+
+    expected = "You've reached today's usage limit. You can send again after 00:00 UTC."
+    assert format_usage_limit_notice("tokens", "2026-10-20T00:00:00Z") == expected
+    # The audit format without its "Z" is still UTC, never the server's local time.
+    assert format_usage_limit_notice("tokens", "2026-10-20T00:00:00") == expected
+    assert format_usage_limit_notice("tokens", "garbage") == expected
+    assert format_usage_limit_notice("tokens", "") == expected
+    # The rate notice carries no time: "a minute" is the whole instruction.
+    assert format_usage_limit_notice("requests", "2026-10-19T14:23:00Z") == (
+        USAGE_LIMIT_REQUESTS_NOTICE
     )

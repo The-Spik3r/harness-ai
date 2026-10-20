@@ -28,11 +28,15 @@ from app.db.models import (
     CREATE_CHAT_MESSAGES_TABLE,
     CREATE_CHAT_SESSIONS_TABLE,
     CREATE_CHAT_SESSIONS_USER_INDEX,
+    CREATE_USAGE_DAILY_TABLE,
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
+    USERS_ADDED_COLUMNS,
     AuditLog,
     ChatSession,
     StoredMessage,
+    UsageAdmission,
+    UsageDay,
     User,
 )
 
@@ -688,6 +692,23 @@ def init_db() -> None:
 
     PRD-012 STORY-011 adds `audit_logs.profile` on the same path, again with
     no new code here: nullable, no default, no backfill, not indexed.
+
+    PRD-013 STORY-002 adds eight `audit_logs` columns on the same path, again
+    with no new code here. Six are nullable with no default and no backfill.
+    `streamed` and `has_tool_calls` are `NOT NULL DEFAULT 0`, which `ADD
+    COLUMN` accepts because the default is non-NULL. None is indexed.
+
+    PRD-013 STORY-008 makes `users` the third table on this path, for the
+    per-user limit overrides `token_budget_daily` and `requests_per_minute`.
+    The pass sits **after** `CREATE_USERS_TABLE` for the reason the
+    `chat_messages` pass gives: on a fresh database there is no table to
+    interrogate until that CREATE. Both columns are nullable with no default,
+    so every existing user reads NULL -- "use the role's limit".
+
+    PRD-013 STORY-009 adds `usage_daily`, a new table, so it arrives by CREATE
+    alone with no added-columns mapping. In steady state it is one more
+    `CREATE ... IF NOT EXISTS` no-op in the same transaction. Its position is
+    not load-bearing: no other statement in this block reads it.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -698,12 +719,14 @@ def init_db() -> None:
         _add_missing_columns(conn, "audit_logs", AUDIT_LOGS_ADDED_COLUMNS)
         conn.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
         conn.execute(CREATE_USERS_TABLE)
+        _add_missing_columns(conn, "users", USERS_ADDED_COLUMNS)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
         conn.execute(CREATE_CHAT_SESSIONS_TABLE)
         conn.execute(CREATE_CHAT_SESSIONS_USER_INDEX)
         conn.execute(CREATE_CHAT_MESSAGES_TABLE)
         _add_missing_columns(conn, "chat_messages", CHAT_MESSAGES_ADDED_COLUMNS)
         conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
+        conn.execute(CREATE_USAGE_DAILY_TABLE)
 
 
 def _add_missing_columns(
@@ -772,8 +795,11 @@ def insert_audit_log(entry: AuditLog) -> int:
                 was_duplicate_blocked, suspicious_pattern, success, error_message,
                 pii_detected_input, pii_detected_output, pii_entities,
                 role, denied_permission, session_id, dedup_key,
-                pattern_role, pattern_action, profile
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pattern_role, pattern_action, profile,
+                ingress, message_count, input_tokens, output_tokens,
+                streamed, has_tool_calls, conversation_key, limit_exceeded
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -799,6 +825,14 @@ def insert_audit_log(entry: AuditLog) -> int:
                 entry.pattern_role,
                 entry.pattern_action,
                 entry.profile,
+                entry.ingress,
+                entry.message_count,
+                entry.input_tokens,
+                entry.output_tokens,
+                int(entry.streamed),
+                int(entry.has_tool_calls),
+                entry.conversation_key,
+                entry.limit_exceeded,
             ),
         )
         return cursor.lastrowid
@@ -826,6 +860,12 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
         # request that then failed upstream a "duplicate" of an attempt nobody
         # answered. NULL passes -- every row written before PRD-011 -- and a
         # block row passes, as a content verdict (PRD-009 F4).
+        # A usage-limit refusal (PRD-013 D6) is excluded too. It is success = 1
+        # because a verdict was reached, but the verdict is about the caller's
+        # spend, not the prompt, and the prompt never reached the model.
+        # Counting it would hold a prompt refused for budget today as a
+        # duplicate when it is sent again tomorrow. NULL passes, so every row
+        # written before PRD-013 behaves as before (PRD-013 Risk 5).
         row = conn.execute(
             """
             SELECT timestamp FROM audit_logs
@@ -834,6 +874,7 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
               AND was_duplicate_blocked = 0
               AND denied_permission IS NULL
               AND (pattern_action IS NULL OR pattern_action <> 'flag')
+              AND limit_exceeded IS NULL
             ORDER BY timestamp ASC
             LIMIT 1
             """,
@@ -880,6 +921,14 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         pattern_role=row["pattern_role"],
         pattern_action=row["pattern_action"],
         profile=row["profile"],
+        ingress=row["ingress"],
+        message_count=row["message_count"],
+        input_tokens=row["input_tokens"],
+        output_tokens=row["output_tokens"],
+        streamed=bool(row["streamed"]),
+        has_tool_calls=bool(row["has_tool_calls"]),
+        conversation_key=row["conversation_key"],
+        limit_exceeded=row["limit_exceeded"],
     )
 
 
@@ -1055,15 +1104,56 @@ def top_pii_entities(limit: int = 5) -> list[str]:
         return [row["entity"] for row in rows]
 
 
+# PRD-013 Section 6.10: the two token totals are sums over every row with NULL
+# as 0. `SUM` alone returns NULL over an empty table or a column that is NULL
+# on every row, so the COALESCE is what makes an empty table read 0 rather
+# than None. Written once and shared by the standalone functions and
+# `_SUMMARY_SQL`, as `_BLOCKED_SUSPICIOUS_WHERE` is, so the batched and
+# figure-by-figure reads cannot drift apart.
+_SUM_INPUT_TOKENS = "COALESCE(SUM(input_tokens), 0)"
+_SUM_OUTPUT_TOKENS = "COALESCE(SUM(output_tokens), 0)"
+
+# PRD-013 Section 6.2: a usage-limit refusal is the only row that names a
+# limit, so a non-NULL `limit_exceeded` is the whole definition. 0 until
+# STORY-011 writes such rows.
+_BLOCKED_USAGE_LIMITS_WHERE = "limit_exceeded IS NOT NULL"
+
+
+def sum_input_tokens() -> int:
+    with _session() as conn:
+        row = conn.execute(
+            f"SELECT {_SUM_INPUT_TOKENS} AS n FROM audit_logs"
+        ).fetchone()
+        return row["n"]
+
+
+def sum_output_tokens() -> int:
+    with _session() as conn:
+        row = conn.execute(
+            f"SELECT {_SUM_OUTPUT_TOKENS} AS n FROM audit_logs"
+        ).fetchone()
+        return row["n"]
+
+
+def count_blocked_usage_limits() -> int:
+    with _session() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_BLOCKED_USAGE_LIMITS_WHERE}"
+        ).fetchone()
+        return row["n"]
+
+
 # --------------------------------------------------------------------------
 # The batched summary read (STORY-010)
 # --------------------------------------------------------------------------
 
-#: The ten figures the admin summary is made of, in `_READS`' order.
+#: The thirteen figures the admin summary is made of, in `_READS`' order.
 #:
 #: The names are `chat_ui/chat_ui/admin_state.py`'s `_READS` field names on
-#: purpose, so its ten `READ_LABEL_*` entries map one-to-one onto them and
-#: `len(_READS) == 10` survives the batching (PRD-007 Risk 6).
+#: purpose, so its `READ_LABEL_*` entries map one-to-one onto them and
+#: `len(_READS) == len(SUMMARY_FIGURES)` survives the batching (PRD-007 Risk 6).
+#: The first ten are STORY-010's; PRD-013 appended the last three, after every
+#: existing figure, so no column and no positional parameter moved.
 SUMMARY_FIGURES = (
     "rows",
     "total_recorded",
@@ -1075,12 +1165,15 @@ SUMMARY_FIGURES = (
     "top_models",
     "top_users",
     "top_pii_entities",
+    "input_tokens",
+    "output_tokens",
+    "blocked_usage_limits",
 )
 
 
 @dataclass(frozen=True)
 class SummarySnapshot:
-    """All ten summary figures, with per-figure failure attribution.
+    """All thirteen summary figures, with per-figure failure attribution.
 
     **This type exists because one statement is all-or-nothing and the admin
     console is not.** `_READS` gives each figure its own `READ_LABEL_*` so a
@@ -1095,7 +1188,7 @@ class SummarySnapshot:
     exactly one of the two -- asserted below, because a figure silently in
     neither is the blank page arriving by another route.
 
-    The ten named properties are for callers that want the value or nothing;
+    The named properties are for callers that want the value or nothing;
     they raise the recorded failure. Callers that want attribution -- STORY-012
     is the one -- read `errors` and never trigger them.
     """
@@ -1156,8 +1249,20 @@ class SummarySnapshot:
     def top_pii_entities(self) -> list:
         return self._figure("top_pii_entities")
 
+    @property
+    def input_tokens(self) -> int:
+        return self._figure("input_tokens")
 
-# One statement, ten named columns -- **not** a client batch, because there is
+    @property
+    def output_tokens(self) -> int:
+        return self._figure("output_tokens")
+
+    @property
+    def blocked_usage_limits(self) -> int:
+        return self._figure("blocked_usage_limits")
+
+
+# One statement, thirteen named columns -- **not** a client batch, because there is
 # no client batch to use. STORY-001 §2.6 pasted the driver's whole surface:
 #
 #   dir(connection) = ['close','commit','cursor','execute','executemany',
@@ -1177,12 +1282,16 @@ class SummarySnapshot:
 # Every subquery is its standalone function's predicates copied verbatim, and
 # `split` is STORY-009's recursive CTE hoisted to the top so `top_pii_entities`
 # can be read from a scalar subquery beside the rest. Copied, not paraphrased:
-# AC 5 is that all ten agree with the individual functions figure for figure.
+# AC 5 is that every figure agrees with the individual functions figure for figure.
 #
 # **The four parameters bind positionally, in column order**:
 #     (row_limit, ranked_limit, ranked_limit, ranked_limit)
 # Reordering or inserting a column silently reorders them. Named placeholders
 # were not among STORY-001's six verified behaviors, so this does not use them.
+# PRD-013's three columns (`input_tokens`, `output_tokens`,
+# `blocked_usage_limits`) take no parameter and come after every existing one,
+# so the tuple did not change (PRD-013 Risk 8). A future column with a `?`
+# must also go last, and its value goes at the end of the tuple.
 #
 # `"rows"` is quoted: ROWS is a keyword (window frames) and an unquoted alias
 # is a syntax error.
@@ -1222,7 +1331,15 @@ SELECT
               'dedup_key', dedup_key,
               'pattern_role', pattern_role,
               'pattern_action', pattern_action,
-              'profile', profile))
+              'profile', profile,
+              'ingress', ingress,
+              'message_count', message_count,
+              'input_tokens', input_tokens,
+              'output_tokens', output_tokens,
+              'streamed', streamed,
+              'has_tool_calls', has_tool_calls,
+              'conversation_key', conversation_key,
+              'limit_exceeded', limit_exceeded))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
@@ -1251,7 +1368,11 @@ SELECT
        WHERE entity IS NOT NULL
        GROUP BY entity
        ORDER BY COUNT(*) DESC, entity ASC
-       LIMIT ?)) AS top_pii_entities
+       LIMIT ?)) AS top_pii_entities,
+  (SELECT {_SUM_INPUT_TOKENS} FROM audit_logs) AS input_tokens,
+  (SELECT {_SUM_OUTPUT_TOKENS} FROM audit_logs) AS output_tokens,
+  (SELECT COUNT(*) FROM audit_logs WHERE {_BLOCKED_USAGE_LIMITS_WHERE})
+      AS blocked_usage_limits
 """
 
 
@@ -1281,26 +1402,29 @@ _SUMMARY_DECODERS = {
     "top_models": _decode_ranked,
     "top_users": _decode_ranked,
     "top_pii_entities": _decode_ranked,
+    "input_tokens": _decode_count,
+    "output_tokens": _decode_count,
+    "blocked_usage_limits": _decode_count,
 }
 
 
 def _summary_figure_by_figure(
     row_limit: int, ranked_limit: int, cause: Exception
 ) -> SummarySnapshot:
-    """The ten standalone reads, each guarded, when the one statement failed.
+    """The thirteen standalone reads, each guarded, when the one statement failed.
 
-    A dead statement carries no attribution: ten figures fail anonymously and
+    A dead statement carries no attribution: every figure fails anonymously and
     the console has nothing to name. That is the blank page Risk 6 describes,
     so the failure path buys the attribution back the only way left -- by
     reading the figures individually and letting each one succeed or fail on
-    its own. It costs up to ten round trips, and it is paid **only** when the
+    its own. It costs up to thirteen round trips, and it is paid **only** when the
     batch is already broken; the success path stays at one.
 
     `cause` is the statement's own failure. A figure that then reads fine is a
     figure that arrived, so `cause` is not recorded against it. It is used only
     when nothing at all came back -- the database is unreachable, or the table
     is gone -- where every figure carries it, so an outage still reads as an
-    outage rather than as ten unrelated coincidences.
+    outage rather than as thirteen unrelated coincidences.
     """
     reads = (
         ("rows", lambda: list_audit_logs(limit=row_limit)),
@@ -1313,6 +1437,9 @@ def _summary_figure_by_figure(
         ("top_models", lambda: top_models(limit=ranked_limit)),
         ("top_users", lambda: top_users(limit=ranked_limit)),
         ("top_pii_entities", lambda: top_pii_entities(limit=ranked_limit)),
+        ("input_tokens", sum_input_tokens),
+        ("output_tokens", sum_output_tokens),
+        ("blocked_usage_limits", count_blocked_usage_limits),
     )
     figures: dict = {}
     errors: dict = {}
@@ -1323,14 +1450,14 @@ def _summary_figure_by_figure(
             errors[name] = exc
     if not figures:
         # Nothing came back individually either: the database is unreachable or
-        # the table is gone. Report the statement's own failure rather than ten
+        # the table is gone. Report the statement's own failure rather than thirteen
         # copies of a downstream symptom.
         errors = {name: cause for name in SUMMARY_FIGURES}
     return SummarySnapshot(figures=figures, errors=errors)
 
 
 def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnapshot:
-    """All ten admin summary figures, in one round trip.
+    """All thirteen admin summary figures, in one round trip.
 
     Two callers ran the same fan-out sequentially: `_READS` in
     `chat_ui/chat_ui/admin_state.py` with ten reads, and `GET /stats` with
@@ -1343,10 +1470,10 @@ def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnap
     SELECT measured 1.7 ms against 16.3 ms for the ten it replaces.
 
     **Attribution rides on column names, not on statements.** Each figure is a
-    named column, so the ten `READ_LABEL_*` entries map one-to-one onto them
+    named column, so the `READ_LABEL_*` entries map one-to-one onto them
     and a figure that fails to decode fails alone. If the statement itself
     fails there are no columns to attribute anything to, and the read falls
-    back to the ten standalone functions to buy the attribution back.
+    back to the thirteen standalone functions to buy the attribution back.
 
     `row_limit` and `ranked_limit` are parameters, not constants baked into the
     statement: the callers pass `REGISTER_ROW_LIMIT` and `RANKED_LIMIT`. They
@@ -1378,6 +1505,8 @@ def _row_to_user(row: _Row) -> User:
         token_hash=row["token_hash"],
         active=bool(row["active"]),
         created_at=row["created_at"],
+        token_budget_daily=row["token_budget_daily"],
+        requests_per_minute=row["requests_per_minute"],
     )
 
 
@@ -1481,6 +1610,202 @@ def set_user_token_hash(user_id: str, token_hash: str) -> bool:
             (token_hash, user_id),
         )
         return cursor.rowcount == 1
+
+
+# "Leave this column alone" for set_user_limits(). None cannot mean that,
+# because None is a real value there: it writes NULL, "use the role's limit".
+_UNCHANGED: Any = object()
+
+
+def set_user_limits(
+    user_id: str,
+    *,
+    token_budget_daily: Optional[int] = _UNCHANGED,
+    requests_per_minute: Optional[int] = _UNCHANGED,
+) -> bool:
+    """Per-user limit overrides (PRD-013 STORY-008, `manage_users.py
+    set-limits`). Only the columns passed are written: an omitted argument
+    leaves its column as it is, and `None` clears it to NULL.
+
+    Values are not validated here -- the CLI owns parsing (`default`, `>= 1`).
+    Column names come from the fixed pairs below, never from the caller.
+
+    Returns False when no such user exists, so the CLI can report a typo. The
+    next resolve() of that user's token sees the change: it already reads the
+    row on every request (PRD Section 6.6)."""
+    assignments = [
+        (column, value)
+        for column, value in (
+            ("token_budget_daily", token_budget_daily),
+            ("requests_per_minute", requests_per_minute),
+        )
+        if value is not _UNCHANGED
+    ]
+    if not assignments:
+        raise ValueError("set_user_limits() needs at least one limit to set")
+
+    set_clause = ", ".join(f"{column} = ?" for column, _ in assignments)
+    with _session() as conn:
+        cursor = conn.execute(
+            f"UPDATE users SET {set_clause} WHERE user_id = ?",
+            (*(value for _, value in assignments), user_id),
+        )
+        return cursor.rowcount == 1
+
+
+# Usage counters (PRD-013 Section 6.5). One statement each, both on the
+# (user_id, day) primary key.
+#
+# **`RETURNING` works on the pinned driver** -- verified by STORY-009, because
+# it was not among STORY-001's six behaviors. The admit statement below, run
+# verbatim through raw `libsql==0.1.11` against the dev server, twice (the
+# second after a server restart):
+#
+#   insert path:   fetchall() = [('2026-10-18', 29872699, 1, 0)]
+#   conflict path: fetchall() = [('2026-10-18', 29872699, 2, 0)]
+#   description   = day, window_start, window_requests, tokens_today
+#   a fresh client reads the row back after commit(); window_start is an int
+#
+# So the gate is the one statement, one round trip, and `_Row` reads the four
+# columns by name. One thing to know: **`rowcount` is 0 on a RETURNING
+# statement**, insert and update alike, so nothing here may branch on it. The
+# returned row is the evidence the attempt was counted. (The plain UPDATE in
+# _CHARGE_USAGE_SQL reports `rowcount` 1 as STORY-001 found.)
+#
+# `day` and the window are the database's clock, never Python's: instances
+# with skewed clocks share one day and one minute. `strftime` returns TEXT,
+# which SQLite coerces for the integer division, so `window_start` is the
+# integer unix minute. Both statements bind positionally -- named
+# placeholders are not a verified behavior (see the _SUMMARY_SQL comment).
+_ADMIT_USAGE_SQL = """
+INSERT INTO usage_daily (user_id, day, requests, window_start, window_requests)
+VALUES (?, date('now'), 1, strftime('%s','now') / 60, 1)
+ON CONFLICT(user_id, day) DO UPDATE SET
+    requests = requests + 1,
+    window_requests = CASE WHEN window_start = excluded.window_start
+                           THEN window_requests + 1 ELSE 1 END,
+    window_start = excluded.window_start
+RETURNING day, window_start, window_requests,
+          input_tokens + output_tokens + unsplit_tokens AS tokens_today
+"""
+
+# Binds (input_tokens, output_tokens, unsplit_tokens, user_id, day).
+_CHARGE_USAGE_SQL = """
+UPDATE usage_daily
+   SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?,
+       unsplit_tokens = unsplit_tokens + ?
+ WHERE user_id = ? AND day = ?
+"""
+
+
+def admit_usage(user_id: str) -> UsageAdmission:
+    """Counts one authorized attempt and returns what both limit checks need.
+
+    Atomic: the increment and the read are one statement on the server, so two
+    instances admitting the same user at the same moment get two different
+    `window_requests` values. One round trip. A new minute resets
+    `window_requests` to 1 while `requests` keeps counting the day.
+
+    Compares no limit -- STORY-010's usage_limits does that -- and decides
+    nothing on failure: a storage error propagates as `StorageError`, and
+    failing closed is the caller's rule (D9)."""
+    with _session() as conn:
+        row = conn.execute(_ADMIT_USAGE_SQL, (user_id,)).fetchone()
+        return UsageAdmission(
+            day=row["day"],
+            window_start=row["window_start"],
+            window_requests=row["window_requests"],
+            tokens_today=row["tokens_today"],
+        )
+
+
+def charge_usage(
+    user_id: str,
+    day: str,
+    input_tokens: int,
+    output_tokens: int,
+    unsplit_tokens: int,
+) -> bool:
+    """Adds one call's reported tokens to the day admit_usage() returned.
+
+    Charging the admitted `day` rather than today means a request that
+    straddles midnight is charged to the day it was admitted (PRD Section 6.5).
+    `unsplit_tokens` is total_tokens for a call that reported no split.
+
+    Returns False when there is no row for (user_id, day), which a successful
+    admit rules out. What to do with it is STORY-012's call (D9: the charge
+    fails open)."""
+    with _session() as conn:
+        cursor = conn.execute(
+            _CHARGE_USAGE_SQL,
+            (input_tokens, output_tokens, unsplit_tokens, user_id, day),
+        )
+        return cursor.rowcount == 1
+
+
+# The admin console's usage table (PRD-013 STORY-016, Section 6.10): one
+# statement, and no parameters at all, so the positional-binding caveat on
+# _SUMMARY_SQL does not arise.
+#
+# `usage_daily` drives the query. A user denied today necessarily has a counted
+# attempt today, because admit_usage() increments before the limit is compared
+# (Section 6.5), so the LEFT JOIN of denials loses nothing -- except a request
+# admitted just before 00:00 UTC whose audit row lands just after, which is the
+# same midnight straddle Section 6.5 accepts for the charge.
+#
+# `users` is LEFT JOINed so the break-glass `admin`, which has no users row, is
+# kept; its role is resolved in Python (admin_formatting.to_usage_rows), never
+# as a SQL COALESCE that would also label any orphan row "admin".
+#
+# Every "today" is the database's clock, as usage_daily.day is: SQLite
+# evaluates 'now' once per statement, so the three uses agree. audit_logs
+# stores `timestamp` as _TIMESTAMP_FORMAT ('YYYY-MM-DDTHH:MM:SSZ'), so the
+# lexical range [date('now'), date('now','+1 day')) is exactly that UTC day.
+# The audit timestamp is the writing instance's clock, so skew can move a
+# denial written within seconds of midnight across the boundary.
+#
+# The denial predicate is _BLOCKED_USAGE_LIMITS_WHERE interpolated, not
+# retyped: /stats, the Register's verdict and this table count the same rows.
+_USAGE_SNAPSHOT_SQL = f"""
+SELECT d.user_id, u.role, u.token_budget_daily, u.requests_per_minute,
+       d.requests, d.input_tokens, d.output_tokens, d.unsplit_tokens,
+       COALESCE(r.denied, 0) AS denied
+  FROM usage_daily AS d
+  LEFT JOIN users AS u ON u.user_id = d.user_id
+  LEFT JOIN (SELECT user_id, COUNT(*) AS denied
+               FROM audit_logs
+              WHERE {_BLOCKED_USAGE_LIMITS_WHERE}
+                AND timestamp >= date('now')
+                AND timestamp < date('now', '+1 day')
+              GROUP BY user_id) AS r ON r.user_id = d.user_id
+ WHERE d.day = date('now')
+ ORDER BY d.user_id
+"""
+
+
+def usage_snapshot() -> list[UsageDay]:
+    """Every user's counters for the database's current UTC day, in one statement.
+
+    Read-only, and resolves no limit: the caller does that with
+    `usage_limits.limits_for`, so the table and the gate share one rule. Ordered
+    by user_id so the caller's sort has a deterministic tie order. A storage
+    failure propagates as StorageError; naming it is the caller's job (the
+    console's READ_LABEL_USAGE)."""
+    with _session() as conn:
+        return [
+            UsageDay(
+                user_id=row["user_id"],
+                role=row["role"],
+                token_budget_daily=row["token_budget_daily"],
+                requests_per_minute=row["requests_per_minute"],
+                requests=row["requests"],
+                input_tokens=row["input_tokens"],
+                output_tokens=row["output_tokens"],
+                unsplit_tokens=row["unsplit_tokens"],
+                denied=row["denied"],
+            )
+            for row in conn.execute(_USAGE_SNAPSHOT_SQL).fetchall()
+        ]
 
 
 def _row_to_chat_session(row: _Row) -> ChatSession:

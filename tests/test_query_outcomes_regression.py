@@ -13,9 +13,13 @@ cannot change. In particular outcome 2's prior query is a live, same-user,
 (success=1, no flags, same user, and, from STORY-006 on, written by the
 pipeline with its `dedup_key`). The inputs whose outcome PRD-009 changes on
 purpose are pinned instead in `tests/test_duplicate_characterization.py`.
+
+PRD-013 STORY-011 appends outcome 8, the usage limit (PRD-013 Section 11).
+Outcomes 1-7 are unchanged.
 """
 
 import os
+from datetime import datetime, timedelta
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
@@ -246,6 +250,58 @@ def test_outcome_7_context_limit(temp_db, monkeypatch):
     row = _latest_entry()
     assert row.success is False
     assert row.error_message == "context limit: characters 51 > 50"
+    assert row.dedup_key is not None
+
+
+def test_outcome_8_usage_limit(temp_db, monkeypatch):
+    """PRD-013 STORY-011: the eighth outcome (PRD-013 Section 11, "Eight
+    `/query` outcomes"). Rows 1-7 above are unchanged.
+
+    200 with a `BLOCKED` body, never 429 (D5). The body is an exact dict for
+    outcome 7's reason: `QueryResponse` is a plain union whose blocked members
+    all carry `status: "BLOCKED"`, so this is what proves the sixth member is
+    serialized as itself, `resets_at` and all.
+
+    Through real storage: today's counter row is seeded at the budget, so the
+    real admit statement counts the attempt and reads it back. A budget
+    refusal, not a rate one, so no minute boundary can flip it; `resets_at` is
+    computed from the `day` the database stored, so a run straddling midnight
+    cannot make the expectation wrong either.
+    """
+    monkeypatch.setattr(settings, "USAGE_DAILY_TOKEN_BUDGET", "*=100")
+    monkeypatch.setattr("app.routers.query.call_openrouter", _fail_if_called)
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO usage_daily "
+            "(user_id, day, requests, window_start, window_requests, input_tokens) "
+            "VALUES (?, date('now'), 0, strftime('%s','now') / 60, 0, 100)",
+            (_AUTH_USER_ID,),
+        )
+
+    before = _count_audit_rows()
+    response = client.post("/query", json={"prompt": "outcome eight: over budget"})
+
+    with get_connection() as conn:
+        (day,) = conn.execute(
+            "SELECT day FROM usage_daily WHERE user_id = ?", (_AUTH_USER_ID,)
+        ).fetchone()
+    resets_at = (
+        datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "BLOCKED",
+        "reason": "Usage limit reached",
+        "limit": "tokens",
+        "maximum": 100,
+        "actual": 100,
+        "resets_at": resets_at,
+    }
+    assert _count_audit_rows() == before + 1
+    row = _latest_entry()
+    assert row.success is True
+    assert row.limit_exceeded == "tokens"
     assert row.dedup_key is not None
 
 

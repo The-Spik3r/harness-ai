@@ -71,12 +71,18 @@ def test_run_conversation_signature_matches_the_prd():
 
     # PRD-011 STORY-008: a trailing keyword-only `profile` (PRD-011 Section
     # 6.6, D2). Keyword-only so no positional caller can pass it by accident.
+    # PRD-013 STORY-005: trailing keyword-only `ingress` and `streamed`
+    # (PRD-013 Section 6.9), chosen by the call site like `profile`.
     assert list(signature.parameters) == [
         "identity", "messages", "device", "model", "openrouter_api_key",
-        "params", "call_openrouter", "session_id", "profile",
+        "params", "call_openrouter", "session_id", "profile", "ingress", "streamed",
     ]
     assert signature.parameters["profile"].default is None
     assert signature.parameters["profile"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["ingress"].default is None
+    assert signature.parameters["ingress"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["streamed"].default is False
+    assert signature.parameters["streamed"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["params"].default is None
     assert signature.parameters["session_id"].default is None
     assert signature.parameters["call_openrouter"].default is query_pipeline.call_openrouter
@@ -85,11 +91,15 @@ def test_run_conversation_signature_matches_the_prd():
 def test_run_query_signature_is_unchanged():
     signature = inspect.signature(query_pipeline.run_query)
 
+    # PRD-013 STORY-005 adds one keyword-only `ingress`, defaulted to the
+    # adapter's own caller (Section 6.9). Everything before it is unchanged.
     assert list(signature.parameters) == [
         "identity", "prompt", "device", "model", "openrouter_api_key",
-        "call_openrouter", "session_id",
+        "call_openrouter", "session_id", "ingress",
     ]
     assert signature.parameters["session_id"].default is None
+    assert signature.parameters["ingress"].default == "query"
+    assert signature.parameters["ingress"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["call_openrouter"].default is query_pipeline.call_openrouter
 
 
@@ -111,7 +121,10 @@ def test_run_query_delegates_to_run_conversation_with_one_user_message(monkeypat
     assert len(calls) == 1
     args, kwargs = calls[0]
     assert args == (_JUAN, [Message("user", "hi")], None, "gpt-4", None)
-    assert kwargs == {"call_openrouter": _fail_if_called, "session_id": "sid"}
+    # PRD-013 STORY-005: the default door is forwarded.
+    assert kwargs == {
+        "call_openrouter": _fail_if_called, "session_id": "sid", "ingress": "query",
+    }
 
 
 # ---------------------------------------------------------------------------

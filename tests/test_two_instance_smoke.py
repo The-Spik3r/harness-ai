@@ -52,6 +52,15 @@ The first of those is the one claim in this file that process memory cannot
 fake: B never executed exchange 1, so the history it sent upstream can only have
 come from the shared database.
 
+**Four epics.** PRD-013 STORY-017 added the limits half: a rate limit of 5
+holds across ten requests alternated between the instances, a token budget
+spent through A is refused on B, and another user is admitted throughout. That
+is PRD-013 T5, "a second instance doubles the limit", answered by one counter
+row in the shared database. Limits are set by the parent with
+`set_user_limits` rather than through the children's environment: the children
+are module-scoped, and `resolve()` reads the `users` row on every request, so an
+override reaches both without a restart.
+
 Running it needs the same local libSQL dev server the rest of the suite uses
 (`tests/conftest.py`), and no Turso account.
 """
@@ -60,6 +69,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -73,7 +83,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tests.conftest import child_db_env  # noqa: E402
 
-from app.db.database import insert_user  # noqa: E402
+from app.db.database import get_connection, insert_user, set_user_limits  # noqa: E402
 from app.db.models import (  # noqa: E402
     AUDIT_LOGS_ADDED_COLUMNS,
     CHAT_MESSAGES_ADDED_COLUMNS,
@@ -844,11 +854,13 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
 
     for instance, schema in zip(instances, schemas):
         # Four tables since PRD-008 STORY-003 taught init_db() to create the
-        # transcript pair; it was ["audit_logs", "users"] before.
+        # transcript pair; it was ["audit_logs", "users"] before. Five since
+        # PRD-013 STORY-009 added the usage counters.
         assert schema["tables"] == [
             "audit_logs",
             "chat_messages",
             "chat_sessions",
+            "usage_daily",
             "users",
         ], instance.name
         # Imported, not spelled out: a column added to the schema later must
@@ -857,10 +869,14 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
             instance.name,
             schema["columns"]["audit_logs"],
         )
+        # token_budget_daily, requests_per_minute: PRD-013 STORY-008, converged
+        # through USERS_ADDED_COLUMNS by both instances booting at once.
         assert schema["columns"]["users"] == [
             "active",
             "created_at",
+            "requests_per_minute",
             "role",
+            "token_budget_daily",
             "token_hash",
             "user_id",
         ], instance.name
@@ -1415,14 +1431,28 @@ def test_round_trip_cost_is_measured_and_reported(instances, smoke_user, capsys)
     # is what makes revocation take effect on both instances at once. Asserted
     # by name rather than by count so that a fourth statement -- or the identity
     # read quietly disappearing into a cache -- fails here loudly.
+    #
+    # PRD-013 STORY-011: four now. The usage gate (step 2c) is one statement,
+    # the `admit_usage` upsert with RETURNING, between the identity read and
+    # the duplicate check -- the added round trip PRD-013 Risk 1 accepts and
+    # STORY-017 measures. USAGE_LIMITS_ENABLED=false restores the three above.
+    #
+    # PRD-013 STORY-012: five. The charge (step 7b) is one `UPDATE
+    # usage_daily` between the duplicate read and the audit insert, the second
+    # round trip Risk 1 accepts. USAGE_LIMITS_ENABLED=false still restores the
+    # three above.
     assert [statement.split()[0].upper() for statement in query_statements] == [
         "SELECT",
+        "INSERT",
         "SELECT",
+        "UPDATE",
         "INSERT",
     ], query_statements
     assert "FROM users" in query_statements[0], query_statements[0]
-    assert "FROM audit_logs" in query_statements[1], query_statements[1]
-    assert "INTO audit_logs" in query_statements[2], query_statements[2]
+    assert "INTO usage_daily" in query_statements[1], query_statements[1]
+    assert "FROM audit_logs" in query_statements[2], query_statements[2]
+    assert "usage_daily" in query_statements[3], query_statements[3]
+    assert "INTO audit_logs" in query_statements[4], query_statements[4]
 
     assert len(console_statements) == 1, (
         "an admin console load is one batched read since STORY-010; issued "
@@ -1435,7 +1465,7 @@ def test_round_trip_cost_is_measured_and_reported(instances, smoke_user, capsys)
             "\n--- STORY-016 measured round-trip cost "
             "(local libSQL dev server, same host) ---\n"
             f"  POST /query        : {len(query_statements)} statements "
-            "(identity read, duplicate check, audit write), "
+            "(identity read, usage gate, duplicate check, usage charge, audit write), "
             f"{measured['elapsed_ms']:.1f} ms\n"
             f"  admin console load : {len(console_statements)} statement, "
             f"{console['elapsed_ms']:.1f} ms\n"
@@ -1878,6 +1908,260 @@ def test_two_instances_booting_on_a_pre_history_trimmed_database_converge(
 
 
 # --------------------------------------------------------------------------
+# PRD-013 STORY-017 -- usage limits, two instances, one counter
+# --------------------------------------------------------------------------
+
+#: PRD-013 F17's numbers: a rate limit of 5, and 10 attempts alternated across
+#: the two instances. The rate check is strict `>` (app/services/usage_limits.py
+#: admit()), so attempts 1-5 are admitted and 6-10 refused.
+_RATE_LIMIT = 5
+_RATE_ATTEMPTS = 10
+
+#: One answered query's worth of tokens at the child stub's `tokens_used=7`
+#: (`fake_call_openrouter` in _INSTANCE_SCRIPT). The budget check is `>=`, so
+#: after one answer the user is out. The stub is not changed to suit this:
+#: `do_query` and test_round_trip_cost_is_measured_and_reported assert on it.
+_BUDGET = 7
+
+#: How close to the end of the database's minute the rate batch may start.
+#: Twelve requests on two warm children take a few seconds; fifteen leaves room
+#: for a loaded machine.
+_FRESH_WINDOW_MARGIN_S = 15
+
+_USAGE_LIMIT_REASON = "Usage limit reached"
+
+
+def _insert_other_user() -> None:
+    """The second identity, as test_a_session_owned_by_another_user_... writes it.
+
+    Pulled out because both usage tests need it as well. That test keeps its
+    own two lines: STORY-017 AC 5 leaves the existing scenarios as they are.
+    """
+    insert_user(
+        User(
+            user_id=_OTHER_USER_ID,
+            role="user",
+            token_hash=hash_token(_OTHER_TOKEN),
+        )
+    )
+
+
+def _db_second() -> int:
+    """The second within the current minute, by the **database's** clock.
+
+    `admit_usage` derives `window_start` from `strftime('%s','now')` on the
+    server, never from an instance's clock, so the boundary that matters is the
+    server's. Reading Python's clock here would guard the wrong minute.
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT CAST(strftime('%s','now') AS INTEGER) % 60 AS s"
+        ).fetchone()["s"]
+
+
+def _fresh_rate_window() -> None:
+    """Steps off a minute boundary before the rate batch. The one wait in this file.
+
+    The rate window is the database's unix minute, and it cannot be frozen or
+    planted: `_ADMIT_USAGE_SQL` resets `window_requests` to 1 whenever the
+    minute changes, whatever row is already there. A batch that straddled two
+    minutes would admit more than five and fail for a reason that has nothing to
+    do with the second instance. So if fewer than `_FRESH_WINDOW_MARGIN_S`
+    seconds remain, this waits once, at most about sixteen seconds, for the next
+    minute to open (the STORY-017 Technical Notes' remedy).
+
+    It waits for the *clock*, never for work to complete, which is what
+    invariant 1 forbids. Every ordering in the test that follows still comes
+    from the pipe.
+    """
+    second = _db_second()
+    if 60 - second < _FRESH_WINDOW_MARGIN_S:
+        time.sleep(60 - second + 1)
+        assert _db_second() < second, "the database's minute did not roll over"
+
+
+def _usage_row(user_id: str) -> dict:
+    """`user_id`'s counter row for today, read raw by the parent.
+
+    Raw, because what is asserted is the row itself: how many attempts it
+    counted and whether they all landed in one window.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT requests, window_start, window_requests,"
+            " input_tokens + output_tokens + unsplit_tokens AS tokens"
+            " FROM usage_daily WHERE user_id = ? AND day = date('now')",
+            (user_id,),
+        ).fetchone()
+    assert row is not None, f"no usage_daily row today for {user_id}"
+    return {
+        "requests": row["requests"],
+        "window_start": row["window_start"],
+        "window_requests": row["window_requests"],
+        "tokens": row["tokens"],
+    }
+
+
+def _is_usage_refusal(body: dict, limit: str) -> bool:
+    return (
+        body.get("status") == "BLOCKED"
+        and body.get("reason") == _USAGE_LIMIT_REASON
+        and body.get("limit") == limit
+    )
+
+
+def test_a_rate_limit_of_five_admits_five_of_ten_alternating_requests(
+    instances, smoke_user
+):
+    """PRD-013 STORY-017 AC 1 and AC 3: T5, "a second instance doubles the limit".
+
+    If each process kept its own count, ten requests split five and five would
+    all be admitted. One row in the shared `usage_daily`, changed by one atomic
+    statement, is what holds the total to five.
+
+    **The batch goes out before any reply is read**, alternating A, B, A, B, so
+    both processes are admitting at once (this file's way of expressing
+    concurrency, see `test_concurrent_queries_from_both_instances_lose_no_rows`).
+    Which instance admitted which attempt is not asserted (invariant 3). What
+    is asserted is the total, and that the five refusals saw the counts 6
+    through 10 exactly once each. Two processes that read and then wrote
+    separately could both see the same count; one statement cannot.
+
+    **The other user warms both children**, not the smoke user. The first query
+    in a cold child pays for the PII model load, several seconds that could
+    carry the batch across a minute, and a warm-up by the smoke user would spend
+    part of the window being measured.
+
+    The limit is set by the parent while both children are running:
+    `resolve()` reads the `users` row on every request, so the override reaches
+    both without a restart. The environment could not do that, because these
+    children are module-scoped.
+    """
+    instance_a, instance_b = instances
+    _insert_other_user()
+
+    for instance in instances:
+        warm = instance.call(
+            cmd="query",
+            prompt=f"rate warm-up on {instance.name}",
+            token=_OTHER_TOKEN,
+        )
+        assert warm["body"]["status"] == "SUCCESS", (instance.name, warm)
+
+    assert set_user_limits(_USER_ID, requests_per_minute=_RATE_LIMIT)
+    _fresh_rate_window()
+
+    # (instance, who) in send order. The other user's two sends sit in the
+    # middle of the batch: AC 3 says "during", not "after".
+    sent = []
+    for index in range(_RATE_ATTEMPTS):
+        instance = instances[index % 2]
+        instance.send(
+            cmd="query",
+            prompt=f"rate probe {index} via {instance.name}",
+            token=smoke_user,
+        )
+        sent.append((instance, "smoke"))
+        if index == _RATE_ATTEMPTS // 2 - 1:
+            for other_on in instances:
+                other_on.send(
+                    cmd="query",
+                    prompt=f"other user mid-batch via {other_on.name}",
+                    token=_OTHER_TOKEN,
+                )
+                sent.append((other_on, "other"))
+
+    # Each child answers in the order it was written to, so one pass over the
+    # send order reads every reply against the right command.
+    replies = [(instance.name, who, instance.recv()) for instance, who in sent]
+
+    smoke = [(name, reply) for name, who, reply in replies if who == "smoke"]
+    assert all(reply["status_code"] == 200 for _, reply in smoke), smoke
+    admitted = [r for _, r in smoke if r["body"]["status"] == "SUCCESS"]
+    refused = [r for _, r in smoke if r["body"]["status"] != "SUCCESS"]
+
+    assert len(admitted) == _RATE_LIMIT, smoke
+    assert len(refused) == _RATE_ATTEMPTS - _RATE_LIMIT, smoke
+    for reply in refused:
+        assert _is_usage_refusal(reply["body"], "requests"), reply["body"]
+        assert reply["body"]["maximum"] == _RATE_LIMIT, reply["body"]
+    assert sorted(r["body"]["actual"] for r in refused) == list(
+        range(_RATE_LIMIT + 1, _RATE_ATTEMPTS + 1)
+    ), refused
+    # One window: every refusal names the same end of minute.
+    assert len({r["body"]["resets_at"] for r in refused}) == 1, refused
+
+    others = [(name, reply) for name, who, reply in replies if who == "other"]
+    assert {name for name, _ in others} == {i.name for i in instances}, others
+    for name, reply in others:
+        assert reply["body"]["status"] == "SUCCESS", (name, reply)
+
+    # Every attempt counted, all in one minute. Should the guard ever fail,
+    # this is the line that says the batch straddled, not a misleading count.
+    row = _usage_row(_USER_ID)
+    assert row["requests"] == _RATE_ATTEMPTS, row
+    assert row["window_requests"] == _RATE_ATTEMPTS, row
+
+    # And after the batch: the other user, through either instance.
+    for instance in instances:
+        after = instance.call(
+            cmd="query",
+            prompt=f"other user after the batch via {instance.name}",
+            token=_OTHER_TOKEN,
+        )
+        assert after["body"]["status"] == "SUCCESS", (instance.name, after)
+
+
+def test_a_budget_exhausted_through_instance_a_is_refused_on_instance_b(
+    instances, smoke_user
+):
+    """PRD-013 STORY-017 AC 2 and AC 3: the spend half of T5.
+
+    Instance B has answered nothing for this user. The tokens its refusal
+    reports were charged by instance A, so they can only have come from the
+    shared row. The final refusal on A is the control: it shows the budget is
+    the user's, not something B refuses on its own.
+
+    No minute guard: the budget is per UTC day and the rate stays at its
+    default. A run that straddles 00:00 UTC would start a fresh day's row, a
+    boundary accepted for the same reason the PRD accepts it for `day`.
+    """
+    instance_a, instance_b = instances
+    _insert_other_user()
+    assert set_user_limits(_USER_ID, token_budget_daily=_BUDGET)
+
+    answered = instance_a.call(
+        cmd="query", prompt="spend the budget on instance a", token=smoke_user
+    )
+    assert answered["body"]["status"] == "SUCCESS", answered
+    # The precondition, checked before the claim: A's answer was charged. A
+    # stub that stopped reporting 7 tokens fails here, legibly.
+    assert _usage_row(_USER_ID)["tokens"] == _BUDGET
+
+    refused = instance_b.call(
+        cmd="query", prompt="ask instance b after the budget is gone", token=smoke_user
+    )
+    assert refused["status_code"] == 200, refused
+    body = refused["body"]
+    assert _is_usage_refusal(body, "tokens"), body
+    assert (body["maximum"], body["actual"]) == (_BUDGET, _BUDGET), body
+    assert body["resets_at"].endswith("T00:00:00Z"), body
+
+    for instance in instances:
+        other = instance.call(
+            cmd="query",
+            prompt=f"other user while the budget is gone via {instance.name}",
+            token=_OTHER_TOKEN,
+        )
+        assert other["body"]["status"] == "SUCCESS", (instance.name, other)
+
+    again = instance_a.call(
+        cmd="query", prompt="and instance a refuses too", token=smoke_user
+    )
+    assert _is_usage_refusal(again["body"], "tokens"), again["body"]
+
+
+# --------------------------------------------------------------------------
 # AC 7 -- what keeps this deterministic
 # --------------------------------------------------------------------------
 
@@ -1886,7 +2170,10 @@ def test_two_instances_booting_on_a_pre_history_trimmed_database_converge(
 #:
 #:  1. No `time.sleep`, and no polling loop. Ordering comes from blocking
 #:     `readline()` on a pipe; concurrency comes from sending to both children
-#:     before reading from either.
+#:     before reading from either. One declared exception, PRD-013 STORY-017's
+#:     `_fresh_rate_window()`: a single bounded wait, on the database's clock,
+#:     that steps off a minute boundary before the rate batch. It waits for the
+#:     clock, never for work, so no ordering depends on it.
 #:  2. No wall-clock value is asserted as a pass/fail bound. Durations are
 #:     recorded and printed; only statement *counts* are asserted.
 #:  3. No test depends on which instance wins a race. Where both write, the

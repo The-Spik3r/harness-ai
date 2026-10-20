@@ -58,10 +58,12 @@ MASTHEAD_SEPARATOR = " · "
 CONSOLE_VIEW_REGISTER = "REGISTER"
 CONSOLE_VIEW_SUMMARY = "SUMMARY"
 
-# The two-view switch. Exactly two destinations, so they are peers in the
-# masthead rather than a sidebar (PRD-006 Section 6.1).
+# The view switch. Two destinations under PRD-006, three since PRD-013 added the
+# Usage table (STORY-016): still few enough to be peers in the masthead rather
+# than a sidebar (PRD-006 Section 6.1).
 VIEW_REGISTER_LABEL = "Register"
 VIEW_SUMMARY_LABEL = "Summary"
+VIEW_USAGE_LABEL = "Usage"
 
 SIGN_OUT_LABEL = "Sign out"
 
@@ -91,6 +93,10 @@ COLUMN_USER = "User"
 COLUMN_VERDICT = "Verdict"
 COLUMN_MODEL = "Model"
 COLUMN_TOKENS = "Tokens"
+# PRD-013 (STORY-015): the head keeps its one word, and this states the order
+# of the "2,140 / 312" cell once, on hover, rather than on every row. A head
+# reading "Tokens in / out" would also sit over rows that show a single total.
+COLUMN_TOKENS_TITLE = "Input / output tokens, or the total where no split was recorded"
 COLUMN_PII = "PII"
 COLUMN_DEVICE = "Device"
 # Heads a column of "#3180" values — the row's real audit_id, and the string a
@@ -126,6 +132,11 @@ REGISTER_SCOPE_TEMPLATE = "{shown} most recent of {total}"
 REGISTER_FILTERED_TEMPLATE = "{shown} of {loaded} shown"
 
 SUMMARY_SCOPE_ALL_TIME = "All time, every recorded row"
+# PRD-013 (STORY-015): the token totals' scope. Not SUMMARY_SCOPE_ALL_TIME,
+# because that would be false: the sums read NULL as 0 (PRD-013 Section 6.10),
+# so a row from before the split and an upstream-error row contribute nothing.
+# What the figure does cover is every row that recorded a split.
+SUMMARY_SCOPE_TOKENS = "All time, rows that recorded an input and output split"
 # The one prose line on the summary, and the direct mitigation for Risk 4: it
 # names the difference between the two windows so 3,180 beside 100 rows reads as
 # two scopes rather than as a contradiction.
@@ -157,7 +168,7 @@ FAULT_MESSAGE_TEMPLATE = (
     "again. ({detail})"
 )
 
-# What to call each of the ten reads inside FAULT_MESSAGE_TEMPLATE. These are the
+# What to call each of the thirteen reads inside FAULT_MESSAGE_TEMPLATE. These are the
 # labels `admin_state._READS` carries and are worded as the object of "Could not
 # read ___", which is why each begins with an article. Their values are pinned by
 # `tests/test_admin_state.py` — three are asserted as literals — so a rewording
@@ -172,6 +183,18 @@ READ_LABEL_PII_QUERIES = "the PII detection count"
 READ_LABEL_TOP_MODELS = "the model ranking"
 READ_LABEL_TOP_USERS = "the user ranking"
 READ_LABEL_TOP_PII = "the PII entity ranking"
+# PRD-013 STORY-006: the three figures the batched read gained, named so that
+# a failed read is named. STORY-015 renders them on the summary.
+# "blocks", not "refusals": GATE_REFUSED_MESSAGE must stay the only string here
+# that mentions a refusal (PRD-006 Section 9, `tests/test_admin_copy.py`), and
+# "blocked" is already how the two other blocked counts are named.
+READ_LABEL_INPUT_TOKENS = "the input token total"
+READ_LABEL_OUTPUT_TOKENS = "the output token total"
+READ_LABEL_USAGE_LIMITS = "the usage-limit blocks"
+# PRD-013 STORY-016: the Usage table's read. Not one of the thirteen above and
+# not in `admin_state._READS`: it is a separate read with its own fault (F16), so
+# a failure here names itself and never blanks the summary or the Register.
+READ_LABEL_USAGE = "the usage for today"
 
 # --- The three empty states ----------------------------------------------
 # PRD-006 Section 4 names three register states — no rows recorded, rows recorded
@@ -205,17 +228,67 @@ FILTER_DESCRIPTION_JOIN = " and "
 FILTER_DESCRIPTION_VERDICT_JOIN = ", "
 
 # 3. The summary with nothing to total. Every share renders its placeholder here
-# (STORY-015), so the sheet says why rather than showing nine dashes.
+# (STORY-015), so the sheet says why rather than showing twelve dashes.
 EMPTY_SUMMARY_TITLE = "Nothing to summarize."
 EMPTY_SUMMARY_BODY = (
     "No query has been recorded, so every figure would be zero. Refresh once "
     "traffic starts."
 )
 
+# --- Usage (PRD-013 STORY-016) -------------------------------------------
+# The Usage table: what each user has used today against their token budget.
+# Plain words for what an operator controls and recognises (frontend-design):
+# "Budget" and "Used", not token_budget_daily or tokens_today.
+#
+# The window, stated on the table rather than implied: every figure states its
+# window (PRD-006 Risk 4), and this view's window is not the summary's.
+USAGE_CAPTION = "Today, UTC"
+
+# Column heads. "User" is COLUMN_USER, shared with the register.
+COLUMN_ROLE = "Role"
+COLUMN_REQUESTS = "Requests"
+COLUMN_INPUT = "Input"
+COLUMN_OUTPUT = "Output"
+COLUMN_BUDGET = "Budget"
+COLUMN_USED = "Used"
+# "Denied", never "Refused": GATE_REFUSED_MESSAGE must stay the only string here
+# that mentions a refusal (`tests/test_admin_copy.py`), and "denied" is the
+# verdict the Register shows for these same rows.
+COLUMN_DENIED = "Denied"
+
+# Each head keeps one word; what its values mean is stated once, on hover.
+COLUMN_BUDGET_TITLE = (
+    "Tokens a day: this user's own limit where one is set, otherwise their role's"
+)
+# Used is the number the gate compares against the budget, which includes tokens
+# a provider reported with no input/output split -- so Input + Output can sum to
+# less than it. The title says so, and names the order the rows are in.
+COLUMN_USED_TITLE = (
+    "Share of the budget used today, counting tokens with no input/output "
+    "split. Highest first."
+)
+COLUMN_DENIED_TITLE = "Requests denied at a usage limit today"
+
+# The budget cell for a user with no budget. A word, not a symbol.
+USAGE_BUDGET_UNLIMITED = "unlimited"
+
+# The empty day. The title is the PRD's own sentence (Section 6.10); the body
+# says when a row appears and gives the action.
+EMPTY_USAGE_TITLE = "No one has sent anything today."
+EMPTY_USAGE_BODY = (
+    "A user appears here after their first request of the day. Counts reset at "
+    "00:00 UTC; Refresh to read them again."
+)
+
 # --- Filter and sort controls --------------------------------------------
 FILTER_VERDICT_LABEL = "Verdict"
 FILTER_SEARCH_LABEL = "Find"
-FILTER_SEARCH_PLACEHOLDER = "user, model or id"
+# PRD-013 (STORY-015): the field also matches the conversation key, so it says
+# so — pasting a key from one row's disclosure shows that conversation. It also
+# matches the ingress (`v1`, `chat`, `query`), which the placeholder leaves out:
+# naming both clipped inside a field narrow enough to sit beside its label at
+# phone width.
+FILTER_SEARCH_PLACEHOLDER = "user, model, id or conversation"
 CLEAR_FILTERS_LABEL = "Clear filters"
 
 # One label per key in `admin_state.SORT_KEYS`, aligned one-to-one so a missing
@@ -284,11 +357,30 @@ DETAIL_PROFILE_LABEL = "Profile"
 DETAIL_PII_ENTITIES_LABEL = "PII types"
 DETAIL_PII_INPUT_LABEL = "PII in prompt"
 DETAIL_PII_OUTPUT_LABEL = "PII in response"
+# PRD-013 (STORY-015): the audit fields, named for what an admin recognises
+# rather than for their columns (`limit_exceeded`, `conversation_key`,
+# `message_count`, `has_tool_calls`). Values are shown as recorded --
+# `requests`/`tokens`, `query`/`chat`/`v1` -- like DETAIL_PATTERN_ACTION_LABEL.
+# None of them says "refused": GATE_REFUSED_MESSAGE stays the only one.
+DETAIL_LIMIT_LABEL = "Usage limit"
+DETAIL_CONVERSATION_LABEL = "Conversation"
+DETAIL_INGRESS_LABEL = "Ingress"
+DETAIL_MESSAGE_COUNT_LABEL = "Messages"
+DETAIL_STREAMED_LABEL = "Streamed"
+DETAIL_TOOL_CALLS_LABEL = "Tool calls"
+# The two flags, as words. "no" is a recorded fact, not a missing value -- the
+# distinction DETAIL_PII_ABSENT_LABEL makes -- so a NULL flag (which the schema
+# does not allow) would read as the absent mark, never as "no".
+DETAIL_FLAG_YES_LABEL = "yes"
+DETAIL_FLAG_NO_LABEL = "no"
 
 # --- Summary figures -----------------------------------------------------
-# Three ruled blocks, per PRD-006 Section 6.1: the counts, then the who/what
-# facts, then PII telemetry. Headings, not card titles — the sheet has no cards.
+# Four ruled blocks: PRD-006 Section 6.1's three (the counts, the who/what
+# facts, PII telemetry) and, since PRD-013, the token totals directly after the
+# counts they measure in another unit. Headings, not card titles — the sheet has
+# no cards.
 SUMMARY_COUNTS_HEADING = "Traffic"
+SUMMARY_TOKENS_HEADING = "Tokens"
 SUMMARY_WHO_HEADING = "Who and what"
 SUMMARY_PII_HEADING = "Personal data"
 
@@ -296,6 +388,10 @@ FIGURE_TOTAL_LABEL = "Queries recorded"
 # Indented beneath the total on the sheet, because they are a subset of it.
 FIGURE_BLOCKED_DUPLICATES_LABEL = "Held as duplicates"
 FIGURE_BLOCKED_SUSPICIOUS_LABEL = "Denied on a pattern"
+# PRD-013 (STORY-015): the verdict word the register stamps on these rows,
+# beside "Denied on a pattern". A usage-limit row is one row of the table, so it
+# is a subset of the total and indents with the other two.
+FIGURE_BLOCKED_USAGE_LIMITS_LABEL = "Denied at a usage limit"
 
 # The one label on this console with a correctness requirement.
 #
@@ -323,6 +419,9 @@ FIGURE_TOP_MODELS_LABEL = "Most used models"
 FIGURE_TOP_USERS_LABEL = "Most active users"
 FIGURE_PII_QUERIES_LABEL = "Queries containing PII"
 FIGURE_TOP_PII_LABEL = "Most frequent PII types"
+# PRD-013 (STORY-015): the Tokens block.
+FIGURE_INPUT_TOKENS_LABEL = "Input tokens"
+FIGURE_OUTPUT_TOKENS_LABEL = "Output tokens"
 
 # The cut on every ranked list, stated on the surface (PRD-006 Section 4). {n}
 # comes from the read's own limit (`top_models(limit=5)`), so the copy does not

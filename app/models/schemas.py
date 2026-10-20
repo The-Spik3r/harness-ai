@@ -131,12 +131,40 @@ class QueryBlockedContextLimitResponse(BaseModel):
     actual: int
 
 
+class QueryBlockedUsageLimitResponse(BaseModel):
+    """An authorized attempt refused for being over a usage limit (PRD-013 Section 6.7).
+
+    `200` with a `BLOCKED` body on `/query`, like every other block there, and
+    never `429` (D5): the `403` the brief mentions is the `/v1` mapping, and
+    PRD-014 owns it. The body distinguishes the two limits and carries
+    `resets_at` so that mapping can choose per limit.
+
+    Only one limit is reported: the rate is checked first and the budget only
+    if the rate passed, the rule `QueryBlockedContextLimitResponse` follows.
+    `maximum` is the limit the identity was held to for that call (its
+    override, else its role's entry, else `*`). `actual` is the count in the
+    current minute's window for `requests` and the tokens used today for
+    `tokens`. `resets_at` is UTC in the audit timestamp format: the end of the
+    minute for `requests`, the next 00:00 UTC for `tokens`, both derived from
+    the database's clock, never the instance's.
+    """
+
+    status: Literal["BLOCKED"] = "BLOCKED"
+    reason: str
+    limit: Literal["requests", "tokens"]
+    maximum: int
+    actual: int
+    resets_at: str
+
+
 QueryResponse = Union[
     QuerySuccessResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedContextLimitResponse,
+    # Last, so every existing member keeps its position in this plain union.
+    QueryBlockedUsageLimitResponse,
 ]
 
 
@@ -188,6 +216,28 @@ class AuditQueryEntry(BaseModel):
     # defaulted and unvalidated for `session_id`'s reasons: NULL on every row
     # written before PRD-012 and on /query's foreign-session refusal.
     profile: Optional[str] = None
+    # PRD-013 Sections 6.2 and 6.10: which door the request came through, how
+    # big it was, what it cost, whether it was streamed or carried tool calls,
+    # which conversation it belongs to, and which usage limit refused it.
+    #
+    # Optional, defaulted and unvalidated for `session_id`'s reasons. The six
+    # nullable ones are NULL on every row written before PRD-013, and the two
+    # token fields are also NULL when no upstream call was made or the
+    # provider omitted the split. The two flags default to `False` rather than
+    # `None` because the columns are `NOT NULL DEFAULT 0`: 0 is true of every
+    # older row, since neither was possible then.
+    #
+    # `conversation_key` is a grouping aid; `session_id` stays authoritative
+    # for chat rows. `dedup_key` is still not exposed (PRD-009 D5). A row with
+    # `limit_exceeded` set is `success=true`, as a duplicate block is.
+    ingress: Optional[str] = None
+    message_count: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    streamed: bool = False
+    has_tool_calls: bool = False
+    conversation_key: Optional[str] = None
+    limit_exceeded: Optional[str] = None
 
 
 class AuditResponse(BaseModel):
@@ -205,3 +255,8 @@ class StatsResponse(BaseModel):
     top_users: List[str]
     pii_detected_queries: int = 0
     top_pii_entities: List[str] = []
+    # PRD-013 Section 6.10: sums over every row with NULL as 0, and the count
+    # of usage-limit refusals (0 until STORY-011 writes any).
+    input_tokens: int = 0
+    output_tokens: int = 0
+    blocked_usage_limits: int = 0

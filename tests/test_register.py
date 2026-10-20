@@ -127,7 +127,15 @@ DETAIL_LABELS = (
     # PRD-011 D6 (STORY-010)
     admin_copy.DETAIL_PATTERN_ROLE_LABEL,
     admin_copy.DETAIL_PATTERN_ACTION_LABEL,
+    # PRD-013 (STORY-015)
+    admin_copy.DETAIL_LIMIT_LABEL,
     admin_copy.DETAIL_PROMPT_HASH_LABEL,
+    # PRD-013 (STORY-015)
+    admin_copy.DETAIL_CONVERSATION_LABEL,
+    admin_copy.DETAIL_INGRESS_LABEL,
+    admin_copy.DETAIL_MESSAGE_COUNT_LABEL,
+    admin_copy.DETAIL_STREAMED_LABEL,
+    admin_copy.DETAIL_TOOL_CALLS_LABEL,
     admin_copy.DETAIL_DEVICE_LABEL,
     # PRD-012 D9 (STORY-011)
     admin_copy.DETAIL_PROFILE_LABEL,
@@ -145,7 +153,15 @@ DETAIL_ROW_FIELDS = (
     # PRD-011 D6 (STORY-010)
     "pattern_role",
     "pattern_action",
+    # PRD-013 (STORY-015)
+    "limit_exceeded",
     "prompt_hash",
+    # PRD-013 (STORY-015)
+    "conversation_key",
+    "ingress",
+    "message_count",
+    "streamed",
+    "has_tool_calls",
     "device_full",
     # PRD-012 D9 (STORY-011)
     "profile",
@@ -617,6 +633,15 @@ def test_neither_preview_survives_the_projection():
         pattern_action = None
         # PRD-012 D9 (STORY-011): `to_audit_row` reads it too.
         profile = None
+        # PRD-013 (STORY-015): and the audit fields.
+        input_tokens = None
+        output_tokens = None
+        ingress = None
+        message_count = None
+        conversation_key = None
+        streamed = False
+        has_tool_calls = False
+        limit_exceeded = None
         success = True
         model_used = "gpt-4"
         tokens_used = 412
@@ -712,6 +737,58 @@ def test_the_profile_precedes_the_pii_lines(probe):
     input_at = detail.index(admin_copy.DETAIL_PII_INPUT_LABEL)
     output_at = detail.index(admin_copy.DETAIL_PII_OUTPUT_LABEL)
     assert device_at < profile_at < entities_at < input_at < output_at
+
+
+def test_the_usage_limit_and_the_conversation_keep_evidence_first(probe):
+    """PRD-013 (STORY-015): a usage-limit row is opened to read its limit, so
+    the limit sits with the pattern lines, before the hash; the conversation key
+    is the second hash, directly under the first; then how the request arrived,
+    all before the user agent and the profile/PII lines."""
+    assert not probe["errors"], probe["errors"]
+    detail = probe["detail"]
+    order = [
+        admin_copy.DETAIL_PATTERN_ACTION_LABEL,
+        admin_copy.DETAIL_LIMIT_LABEL,
+        admin_copy.DETAIL_PROMPT_HASH_LABEL,
+        admin_copy.DETAIL_CONVERSATION_LABEL,
+        admin_copy.DETAIL_INGRESS_LABEL,
+        admin_copy.DETAIL_MESSAGE_COUNT_LABEL,
+        admin_copy.DETAIL_STREAMED_LABEL,
+        admin_copy.DETAIL_TOOL_CALLS_LABEL,
+        admin_copy.DETAIL_DEVICE_LABEL,
+    ]
+    positions = [detail.index(label) for label in order]
+    assert positions == sorted(positions), list(zip(order, positions))
+
+
+def test_the_row_gains_no_column(source):
+    """PRD-013 Risk 6 / F15: the Register's column set does not grow. The six
+    audit fields are read by the disclosure, never by the row line, and the
+    grid still has its ten tracks."""
+    row_line = source.split("def _row_line(")[1].split("\ndef ")[0]
+    body = row_line.split('"""', 2)[2]
+    for field in (
+        "ingress",
+        "message_count",
+        "conversation_key",
+        "streamed",
+        "has_tool_calls",
+        "limit_exceeded",
+    ):
+        assert f"row.{field}" not in body, field
+    grid = source.split("_GRID = (")[1].split("\n)")[0]
+    tracks = "".join(part.strip().lstrip("f").strip('"') for part in grid.splitlines())
+    tracks = tracks.replace("minmax(9rem, 1fr)", "minmax")
+    assert len(tracks.split()) == 10, tracks
+
+
+def test_the_tokens_head_states_the_split_order(probe, source):
+    """PRD-013 (STORY-015): the head keeps its one word and states "input /
+    output" once, as its title, rather than on every row."""
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.COLUMN_TOKENS_TITLE in probe["rendered"]
+    head = source.split("def _column_head()")[1].split("\ndef ")[0]
+    assert "title=admin_copy.COLUMN_TOKENS_TITLE" in head
 
 
 def test_the_pii_indicator_is_split_on_the_disclosure(probe):

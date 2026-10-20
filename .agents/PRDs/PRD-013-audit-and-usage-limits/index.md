@@ -1,0 +1,56 @@
+# PRD-013-audit-and-usage-limits: Audit for Conversations and Usage Limits — What Was Attempted, Through Which Door, at What Cost, Within a Bound — Story Board
+
+**PRD**: [PRD.md](./PRD.md)
+**Epic Branch**: `epic/PRD-013-audit-and-usage-limits` (base: `main`)
+**Status**: done
+
+## Progress
+
+18/18 stories done — 100%
+
+## Stories
+
+All stories commit on the epic branch `epic/PRD-013-audit-and-usage-limits`. No per-story branches.
+
+| ID | Title | Type | Status | Complexity | Plan | Commit |
+|----|-------|------|--------|------------|------|--------|
+| STORY-001 | Characterize today's audit row per arm and the client's usage parsing | technical | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-001-audit-characterization.plan.md) | `126f0da` |
+| STORY-002 | Eight additive audit columns: convergence, AuditLog, writer and both read shapes | technical | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-002-audit-columns.plan.md) | `3c61b53` |
+| STORY-003 | OpenRouter client returns input and output tokens separately | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-003-split-token-counts.plan.md) | `9ede5a1` |
+| STORY-004 | conversation_key derivation | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-004-conversation-key.plan.md) | `99845b5` |
+| STORY-005 | log_query and every pipeline arm write the new fields; ingress at every call site | feature | ✅ done | large | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-005-audit-fields-on-every-arm.plan.md) | `1ab83f2` |
+| STORY-006 | /audit entry fields and /stats token aggregates | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-006-audit-and-stats-fields.plan.md) | `eb77e8a` |
+| STORY-007 | Limit and break-glass settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-007-usage-settings.plan.md) | `2a26cfd` |
+| STORY-008 | Per-user limit overrides: users columns, Identity fields and manage_users set-limits | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-008-per-user-overrides.plan.md) | `162820c` |
+| STORY-009 | usage_daily table with atomic admit and charge statements; RETURNING verified | spike | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-009-usage-counter-storage.plan.md) | `13f01f6` |
+| STORY-010 | usage_limits: limit resolution and the rate and budget checks | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-010-usage-limits-service.plan.md) | `3570281` |
+| STORY-011 | Usage gate in the pipeline: response, audited arm and duplicate-lookup exclusion | feature | ✅ done | large | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-011-usage-gate-in-pipeline.plan.md) | `8dc6b4d` |
+| STORY-012 | Charge tokens after the upstream call; BYOK and counter-failure rules | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-012-charge-after-upstream.plan.md) | `01c415d` |
+| STORY-013 | Break-glass ingress policy | feature | ✅ done | small | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-013-break-glass-ingress-policy.plan.md) | `180ca6c` |
+| STORY-014 | Chat UI usage-limit bubble | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-014-chat-usage-limit-bubble.plan.md) | `59e9fdc` |
+| STORY-015 | Admin console: Register fields, verdict, search and summary figures | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-015-console-register-and-summary.plan.md) | `b6085a4` |
+| STORY-016 | Admin console: Usage table | feature | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-016-console-usage-table.plan.md) | `6308359` |
+| STORY-017 | Two-instance limit test and latency measurement | technical | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-017-two-instance-limits-and-latency.plan.md) | `5df7c69` |
+| STORY-018 | Regression sweep, README and .env docs | technical | ✅ done | medium | [plan](../../plans/PRD-013-audit-and-usage-limits/completed/STORY-018-regression-and-docs.plan.md) | `af85840` |
+
+## Status Icons
+- ⬜ todo
+- 🟡 in-progress
+- ✅ done
+- 🔴 blocked
+
+## Dependencies
+
+- STORY-002 blocked by STORY-001
+- STORY-003 blocked by STORY-001
+- STORY-005 blocked by STORY-001, STORY-002, STORY-003, STORY-004
+- STORY-006 blocked by STORY-005
+- STORY-010 blocked by STORY-007, STORY-008, STORY-009
+- STORY-011 blocked by STORY-002, STORY-005, STORY-010
+- STORY-012 blocked by STORY-003, STORY-011
+- STORY-013 blocked by STORY-005, STORY-007, STORY-008
+- STORY-014 blocked by STORY-011
+- STORY-015 blocked by STORY-006, STORY-011
+- STORY-016 blocked by STORY-008, STORY-009, STORY-011, STORY-015
+- STORY-017 blocked by STORY-012
+- STORY-018 blocked by STORY-013, STORY-014, STORY-015, STORY-016, STORY-017

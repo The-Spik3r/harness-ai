@@ -12,6 +12,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
 from app.services import chat_history, chat_sessions
@@ -22,6 +23,7 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation, run_query
+from app.services.usage_limits import UsageLimitError
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
     CONTEXT_LIMIT_DETAIL_TEMPLATE,
@@ -34,7 +36,12 @@ from .copy import (
     TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
 )
-from .formatting import derive_title, format_activity, format_duplicate_info
+from .formatting import (
+    derive_title,
+    format_activity,
+    format_duplicate_info,
+    format_usage_limit_notice,
+)
 from .config import DEFAULT_MODEL
 
 def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
@@ -1119,6 +1126,10 @@ class ChatState(rx.State):
                         openrouter_api_key=None,
                         call_openrouter=call_openrouter,
                         session_id=session_id or None,
+                        # PRD-013 Section 6.9: the chat UI names its own door.
+                        # The run_query branch below passes the same value, so
+                        # the two branches still differ only in their input.
+                        ingress="chat",
                     )
                 else:
                     trimmed = 0
@@ -1143,6 +1154,7 @@ class ChatState(rx.State):
                         # empty-string conversation id onto audit rows instead of
                         # NULL -- a value that reads as a session but joins to none.
                         session_id=session_id or None,
+                        ingress="chat",
                     )
             except OpenRouterError as exc:
                 await self._append_and_persist(
@@ -1156,7 +1168,11 @@ class ChatState(rx.State):
                     session_id,
                 )
                 return
-            except (DuplicateCheckError, PiiRedactorError) as exc:
+            # UsageLimitError (PRD-013 F10): the usage counter could not be
+            # read, so the gate failed closed before anything left the
+            # process. Named here rather than left to the bare `except`
+            # below, so the routing reads as a decision.
+            except (DuplicateCheckError, PiiRedactorError, UsageLimitError) as exc:
                 await self._append_and_persist(
                     ChatMessage(
                         kind="internal_error",
@@ -1259,9 +1275,28 @@ class ChatState(rx.State):
                     # leave it there: no exchange was dropped from an answer,
                     # because there was no answer.
                 )
+            elif isinstance(result, QueryBlockedUsageLimitResponse):
+                bubble = ChatMessage(
+                    kind="usage_limit",
+                    # The pipeline's reason, stored but not shown -- the split
+                    # the context_limit arm above makes, for the same reason:
+                    # the restored transcript and the audit row agree about why
+                    # this send did not happen.
+                    content=result.reason,
+                    prompt=text,
+                    # The finished sentence, reset time included. Built here
+                    # because components receive Vars (the note atop
+                    # admin_models.py), and stored whole in the existing
+                    # `detail` column so a restored bubble reads exactly as the
+                    # live one did (PRD-013 Section 6.10). `history_trimmed`
+                    # stays 0: there was no answer.
+                    detail=format_usage_limit_notice(result.limit, result.resets_at),
+                )
             else:
-                # Unreachable: this chain now covers all five members of
-                # QueryResponse (STORY-013 added the fifth). Kept so a sixth
+                # Unreachable: this chain now covers all six members of
+                # QueryResponse (PRD-010 STORY-013 added the fifth, PRD-013
+                # STORY-011 the sixth, which STORY-014 gave its own
+                # `usage_limit` bubble). Kept so a seventh
                 # member added later without updating the chain surfaces as a
                 # visible bubble instead of an unhandled exception -- the same
                 # "no silent drops" guarantee `render_fallback` makes at the

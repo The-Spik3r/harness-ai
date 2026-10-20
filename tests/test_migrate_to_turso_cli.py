@@ -169,12 +169,17 @@ def test_dest_columns_match_the_ddl():
         "pii_detected_input", "pii_detected_output", "pii_entities", "role",
         "denied_permission", "session_id", "dedup_key",
         "pattern_role", "pattern_action", "profile",
+        "ingress", "message_count", "input_tokens", "output_tokens",
+        "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
         # session_id: PRD-008 STORY-002; dedup_key: PRD-009 STORY-002;
         # pattern_role, pattern_action: PRD-011 STORY-009 (D6);
         # profile: PRD-012 STORY-011 (D9)
+        # ingress ... limit_exceeded: PRD-013 STORY-002 (Section 6.2)
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",
+        "token_budget_daily", "requests_per_minute",
+        # token_budget_daily, requests_per_minute: PRD-013 STORY-008 (Section 6.6)
     ]
     defaults = migrate._ddl_defaults(CREATE_AUDIT_LOGS_TABLE)
     assert defaults["was_duplicate_blocked"] == 0

@@ -345,3 +345,43 @@ def test_profile_defaults_to_none_when_omitted(temp_db):
     audit_id = log_query(user_id="juan@empresa.com", prompt="hello")
 
     assert get_audit_log(audit_id).profile is None
+
+
+# PRD-013 STORY-005: the eight fields log_query now writes.
+_PRD013_SUPPLIED = {
+    "ingress": "v1",
+    "message_count": 7,
+    "input_tokens": 2140,
+    "output_tokens": 312,
+    "streamed": True,
+    "has_tool_calls": True,
+    "conversation_key": "c" * 64,
+    "limit_exceeded": "tokens",
+}
+
+
+def test_prd013_fields_persisted_when_supplied(temp_db):
+    """Every value read back through get_audit_log, so the writer and the
+    mapper are both covered. Non-default on all eight, the two flags included."""
+    audit_id = log_query(user_id="ana@empresa.com", prompt="hello", **_PRD013_SUPPLIED)
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD013_SUPPLIED} == _PRD013_SUPPLIED
+
+
+def test_prd013_fields_default_when_omitted(temp_db):
+    """Direct callers that pass none of them -- the test suite, scripts/ --
+    record NULL for the six and false for the two flags (PRD-013 Section 6.9)."""
+    audit_id = log_query(user_id="juan@empresa.com", prompt="hello")
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD013_SUPPLIED} == {
+        "ingress": None,
+        "message_count": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "streamed": False,
+        "has_tool_calls": False,
+        "conversation_key": None,
+        "limit_exceeded": None,
+    }

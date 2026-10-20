@@ -8,6 +8,7 @@ from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
 from app.services.audit_logger import log_query
@@ -18,6 +19,7 @@ from app.services.authz import (
     authorize,
     authorize_model,
 )
+from app.services.conversation_key import conversation_key
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
 from app.services.openrouter_client import (
@@ -30,6 +32,10 @@ from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect, strip_fenced_blocks
 from app.services.pii_policy import PiiPolicy, get_pii_policy
 from app.services.pii_redactor import PiiRedactorError, redact, redact_for_policy
+# By name into this module, not `usage_limits.admit`: the suite replaces
+# `query_pipeline.admit` and `query_pipeline.charge` to spy on the gate and
+# the charge or fail them, the binding rule `_redact` documents for `redact`.
+from app.services.usage_limits import admit, charge
 
 QueryPipelineResult = Union[
     QuerySuccessResponse,
@@ -37,9 +43,14 @@ QueryPipelineResult = Union[
     QueryBlockedSuspiciousResponse,
     QueryBlockedForbiddenResponse,
     QueryBlockedContextLimitResponse,
+    QueryBlockedUsageLimitResponse,
 ]
 
 ContextLimit = Literal["messages", "characters"]
+
+# The doors a call site may name (PRD-013 Sections 6.8, 6.9): `/query`, the
+# chat UI, and `/v1`, which PRD-014 adds. None is a direct caller.
+Ingress = Literal["query", "chat", "v1"]
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +103,26 @@ def _context_limit_exceeded(
         return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
 
     return None
+
+
+def _break_glass_refused(identity: Identity, ingress: Optional[Ingress]) -> bool:
+    """Whether step 2b refuses this identity on this door (PRD-013 Section 6.8, D4).
+
+    The marker is the credential, not the role: only `resolve(ADMIN_TOKEN)`
+    sets `break_glass`. A user token with the `admin` role, and an
+    `Identity("admin", "admin")` built directly, both carry False and are never
+    refused here.
+
+    Fails closed: `None` -- a direct call that named no door -- is in no
+    allowed set, so the break-glass identity is refused there too (T9).
+
+    The allowed set is read off `settings` **here, per call**, for the reason
+    `_context_limit_exceeded` gives. It can only tighten: the setting's
+    validator rejects `v1`, so no configuration admits the token there.
+
+    Module-level, so the check-order tests can spy on it by name.
+    """
+    return identity.break_glass and ingress not in settings.break_glass_ingresses
 
 
 def _analyzable_characters(messages: Sequence[Message], policy: PiiPolicy) -> int:
@@ -164,7 +195,7 @@ def _deny(
     prompt: str,
     device: Optional[str],
     # Required, and deliberately not defaulted or closed over: this helper is
-    # the single log_query call site serving all three authorization arms, and
+    # the single log_query call site serving every authorization arm, and
     # a captured variable is how one of them silently stops passing the session
     # on. Required means a forgotten arm is a TypeError, not a NULL nobody
     # notices for a release. (PRD-008 STORY-009)
@@ -180,6 +211,17 @@ def _deny(
     # pii_detected_output = 0 read as clean (PRD-012 D9). `str`, not Optional:
     # after run_conversation's resolution it is never None.
     profile: str,
+    # Required for the same reason as the three above (PRD-013 Section 6.9):
+    # a forgotten arm is a TypeError, not a row that cannot say which door it
+    # came through, how big it was, which conversation it belongs to or how it
+    # was delivered. `streamed` is required too, although the story names
+    # three: a defaulted False would quietly mislabel a PRD-014 SSE refusal.
+    # The parameter name shadows the imported conversation_key() inside this
+    # helper, harmlessly, like dedup_key above.
+    ingress: Optional[Ingress],
+    message_count: int,
+    conversation_key: Optional[str],
+    streamed: bool,
     exc: PermissionDenied,
     reason: str,
 ) -> QueryBlockedForbiddenResponse:
@@ -193,6 +235,10 @@ def _deny(
         session_id=session_id,
         dedup_key=dedup_key,
         profile=profile,
+        ingress=ingress,
+        message_count=message_count,
+        conversation_key=conversation_key,
+        streamed=streamed,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -212,6 +258,14 @@ def run_conversation(
     # Section 6.6, D2, T1). None means PATTERN_PROFILE_DEFAULT. Keyword-only so
     # no positional caller can pass it by accident; run_query passes nothing.
     profile: Optional[str] = None,
+    # PRD-013 Section 6.9: the door this request came through, chosen by the
+    # call site like `profile` -- "query" (run_query's default), "chat"
+    # (ChatState), "v1" (PRD-014). None for direct callers, the test suite and
+    # scripts/, where NULL is the honest record; tests/test_query_pipeline_
+    # audit_fields.py fails if a production call site omits it.
+    ingress: Optional[Ingress] = None,
+    # Whether the response is delivered as SSE. Always False until PRD-014.
+    streamed: bool = False,
 ) -> QueryPipelineResult:
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
@@ -231,7 +285,13 @@ def run_conversation(
     # Section 6.1): it is pure, so it cannot change the check order, and
     # every row this function writes -- denials included -- carries it.
     # dedup_key runs over the raw conversation as received (STORY-007).
+    # Step 1b (PRD-013 Sections 6.1-6.3) follows the same argument: the
+    # message count as received, before redaction, and the conversation key
+    # over the raw text are both pure, so computing them here cannot change
+    # the check order, and every row below carries them.
     key = dedup_key(identity.user_id, messages)
+    message_count = len(messages)
+    conv_key = conversation_key(identity.user_id, messages)
 
     # Step 2: authorize / model / BYOK.
     try:
@@ -239,7 +299,8 @@ def run_conversation(
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
-            profile=profile_name, exc=exc,
+            profile=profile_name, ingress=ingress, message_count=message_count,
+            conversation_key=conv_key, streamed=streamed, exc=exc,
             reason="Missing required permission",
         )
 
@@ -248,7 +309,8 @@ def run_conversation(
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
-            profile=profile_name, exc=exc,
+            profile=profile_name, ingress=ingress, message_count=message_count,
+            conversation_key=conv_key, streamed=streamed, exc=exc,
             reason="Model not permitted for this role",
         )
 
@@ -258,8 +320,91 @@ def run_conversation(
         except PermissionDenied as exc:
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
-                profile=profile_name, exc=exc,
+                profile=profile_name, ingress=ingress, message_count=message_count,
+                conversation_key=conv_key, streamed=streamed, exc=exc,
                 reason="Missing required permission",
+            )
+
+    # Step 2b: break-glass ingress policy (PRD-013 Sections 6.1, 6.8; D4, F12, T9).
+    #
+    # After every authorization arm, so the three arms above run first and
+    # unchanged (Section 9.1). Before the usage gate, so a refused break-glass
+    # attempt consumes no one's window and is never charged.
+    #
+    # It reuses the forbidden arm: one row, `success=True`, and the existing
+    # QueryBlockedForbiddenResponse, which the chat UI's forbidden bubble
+    # already renders. "ingress:break_glass" is a label on the row, as
+    # `query:model:{model}` is -- never an RBAC permission, so it is not in
+    # authz's _KNOWN_PERMISSIONS and no role can be granted it. The admin
+    # role's model-allowlist bypass is untouched (Section 6.8, last bullet).
+    if _break_glass_refused(identity, ingress):
+        return _deny(
+            identity, prompt, device, session_id=session_id, dedup_key=key,
+            profile=profile_name, ingress=ingress, message_count=message_count,
+            conversation_key=conv_key, streamed=streamed,
+            exc=PermissionDenied("ingress:break_glass"),
+            reason="Break-glass credential not permitted on this ingress",
+        )
+
+    # Step 2c: the usage gate (PRD-013 Sections 6.1, 6.5-6.7; D7, D8, F10).
+    #
+    # Lettered, not renumbered: three PRDs and the comments below cite steps
+    # 3-8 by number. The break-glass arm (2b) sits directly above.
+    #
+    # The position is the decision (D7). After every authorization arm, so a
+    # caller without `query:submit` learns nothing about limits and consumes
+    # no one's window (T11) -- it has no usage_daily row at all. Before the
+    # context limit, the duplicate check and patterns, so every authorized
+    # attempt counts toward the rate, including the ones those steps refuse:
+    # a looping agent's retries are mostly duplicates (T2), and a resend after
+    # a forced failure is an attempt too (PRD-009 T3).
+    #
+    # The switch is read here, per call, for the reason _context_limit_exceeded
+    # gives. Off means admit() is not called and no statement touches
+    # usage_daily: the pipeline's round trips are exactly the pre-PRD-013 ones.
+    #
+    # BYOK spends the caller's own key, so it is rate-limited but not held to
+    # the budget (D8). `admission` is kept in a local: step 7b charges the
+    # `day` it was counted against, so a request straddling midnight is
+    # charged to the day it was admitted.
+    #
+    # admit() fails closed (T7): a counter outage raises UsageLimitError,
+    # which propagates with no row written and nothing sent upstream -- the
+    # router maps it to 500 beside DuplicateCheckError, ChatState to the
+    # internal-error bubble.
+    #
+    # A refusal is `success=True`, unlike step 3: a verdict was reached and
+    # the row names it in a dedicated column, `limit_exceeded` (PRD-013
+    # Section 6.2) -- the rule step 3's comment states. It carries the key like
+    # every row, and find_duplicate_timestamp excludes it, so a prompt refused
+    # today is not held as a duplicate when sent again after the reset (D6).
+    # None when the switch is off, which step 7b reads as "charge nothing".
+    admission = None
+    if settings.USAGE_LIMITS_ENABLED:
+        admission = admit(identity, charges_budget=openrouter_api_key is None)
+        if not admission.admitted:
+            refusal = admission.refusal
+            log_query(
+                user_id=identity.user_id,
+                prompt=prompt,
+                device=device,
+                success=True,
+                role=identity.role,
+                limit_exceeded=refusal.limit,
+                session_id=session_id,
+                dedup_key=key,
+                profile=profile_name,
+                ingress=ingress,
+                message_count=message_count,
+                conversation_key=conv_key,
+                streamed=streamed,
+            )
+            return QueryBlockedUsageLimitResponse(
+                reason="Usage limit reached",
+                limit=refusal.limit,
+                maximum=refusal.maximum,
+                actual=refusal.actual,
+                resets_at=refusal.resets_at,
             )
 
     # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).
@@ -292,6 +437,10 @@ def run_conversation(
             session_id=session_id,
             dedup_key=key,
             profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds context limit",
@@ -318,6 +467,10 @@ def run_conversation(
             session_id=session_id,
             dedup_key=key,
             profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -364,6 +517,10 @@ def run_conversation(
             pattern_role=block.role,
             pattern_action=block.action,
             profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -392,6 +549,10 @@ def run_conversation(
             pattern_role=first_flag.role,
             pattern_action=first_flag.action,
             profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
         )
 
     # Step 6: redact input per the profile's PII policy (PRD-012 Sections
@@ -426,6 +587,10 @@ def run_conversation(
             session_id=session_id,
             dedup_key=key,
             profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds redaction limit",
@@ -465,6 +630,10 @@ def run_conversation(
                 session_id=session_id,
                 dedup_key=key,
                 profile=profile_name,
+                ingress=ingress,
+                message_count=message_count,
+                conversation_key=conv_key,
+                streamed=streamed,
             )
             raise
         redacted_messages.append(Message(message.role, redacted_content))
@@ -490,13 +659,46 @@ def run_conversation(
             prompt=prompt,
             device=device,
             model_used=model,
+            # No input_tokens/output_tokens: there is no result to read them
+            # from, and NULL says no upstream usage was reported (PRD-013 6.2).
             success=False,
             error_message=str(exc),
             session_id=session_id,
             dedup_key=key,
             profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
         )
         raise
+
+    # Step 7b: charge (PRD-013 Sections 6.1, 6.5; D8; F11; T3, T8).
+    #
+    # Here, as soon as the provider has reported usage and before step 8, so
+    # the output-redaction error arm below cannot skip it: tokens spent on a
+    # response the user never receives are still spent (PRD-009 Risk 4, T3).
+    # The upstream-error arm above re-raises before reaching this line, so a
+    # call that reported nothing charges nothing.
+    #
+    # `admission` is None exactly when the switch was off at step 2c; reading
+    # it rather than the setting means a request is charged by the rule it was
+    # admitted under, and always has a row to charge. BYOK spends the caller's
+    # own key, so it is rate-limited at 2c but charges nothing here (D8, T14);
+    # its audit row still records the tokens.
+    #
+    # The admitted `day`, not today: a request straddling midnight is charged
+    # to the day it was admitted. charge() fails open (T8) -- a storage error
+    # is logged at ERROR with the user, day and counts and the caller still
+    # gets the answer; the audit row's token columns are the record.
+    if admission is not None and openrouter_api_key is None:
+        charge(
+            identity.user_id,
+            admission.day,
+            openrouter_result.input_tokens,
+            openrouter_result.output_tokens,
+            openrouter_result.tokens_used,
+        )
 
     # Step 8: redact the response only when the policy's output switch is on,
     # then audit and return. `chat` always redacts it. `code` does not by
@@ -516,6 +718,8 @@ def run_conversation(
                 response=openrouter_result.response,
                 model_used=openrouter_result.model_used,
                 tokens_used=openrouter_result.tokens_used,
+                input_tokens=openrouter_result.input_tokens,
+                output_tokens=openrouter_result.output_tokens,
                 success=False,
                 error_message=str(exc),
                 pii_detected_input=bool(input_entities),
@@ -523,6 +727,10 @@ def run_conversation(
                 session_id=session_id,
                 dedup_key=key,
                 profile=profile_name,
+                ingress=ingress,
+                message_count=message_count,
+                conversation_key=conv_key,
+                streamed=streamed,
             )
             raise
     else:
@@ -538,6 +746,13 @@ def run_conversation(
         response=openrouter_result.response,
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
+        input_tokens=openrouter_result.input_tokens,
+        output_tokens=openrouter_result.output_tokens,
+        # PRD-016 sets this from the request and the response. Until then no
+        # row can carry tool calls -- step 0 refuses `tool` turns -- and this
+        # is the one place it is passed (PRD-013 F5); every other row takes the
+        # column's default, which is equally true.
+        has_tool_calls=False,
         success=True,
         pii_detected_input=bool(input_entities),
         pii_detected_output=bool(output_entities),
@@ -545,6 +760,10 @@ def run_conversation(
         session_id=session_id,
         dedup_key=key,
         profile=profile_name,
+        ingress=ingress,
+        message_count=message_count,
+        conversation_key=conv_key,
+        streamed=streamed,
     )
 
     return QuerySuccessResponse(
@@ -565,6 +784,10 @@ def run_query(
     openrouter_api_key: Optional[str],
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
     session_id: Optional[str] = None,
+    *,
+    # PRD-013 Section 6.9: `/query` is this adapter's caller, so the default
+    # names it. ChatState's history-off branch passes "chat".
+    ingress: Optional[Ingress] = "query",
 ) -> QueryPipelineResult:
     return run_conversation(
         identity,
@@ -574,4 +797,5 @@ def run_query(
         openrouter_api_key,
         call_openrouter=call_openrouter,
         session_id=session_id,
+        ingress=ingress,
     )

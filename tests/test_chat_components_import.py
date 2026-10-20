@@ -27,7 +27,7 @@ _PYTHONPATH = [str(REPO_ROOT / "chat_ui"), str(REPO_ROOT)]
 # Every renderer message_bubble() dispatches to, plus the pending indicator.
 # `render_context_limit` since PRD-010 STORY-013 (PRD Section 6.5): the fifth
 # QueryResponse member gets its own renderer rather than falling through to the
-# default arm.
+# default arm. `render_usage_limit` since PRD-013 STORY-014, for the sixth.
 _EXPECTED_RENDERERS = [
     "render_user",
     "render_assistant",
@@ -35,6 +35,7 @@ _EXPECTED_RENDERERS = [
     "render_injection",
     "render_forbidden",
     "render_context_limit",
+    "render_usage_limit",
     "render_upstream_error",
     "render_internal_error",
     "render_fallback",
@@ -43,7 +44,8 @@ _EXPECTED_RENDERERS = [
 
 # Every kind send() can append, plus one it never emits: the rx.match default
 # arm has to keep "no silent drops" true at the render layer too.
-# `context_limit` since PRD-010 STORY-013, the kind that renderer draws.
+# `context_limit` since PRD-010 STORY-013, the kind that renderer draws;
+# `usage_limit` since PRD-013 STORY-014.
 _KINDS = [
     "user",
     "assistant",
@@ -51,6 +53,7 @@ _KINDS = [
     "injection",
     "forbidden",
     "context_limit",
+    "usage_limit",
     "upstream_error",
     "internal_error",
     "something_new",

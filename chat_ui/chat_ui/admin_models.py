@@ -13,7 +13,10 @@ Every displayed value is a plain, already-formatted field. Like `formatting.py`
 does for the chat, `admin_formatting.py` computes these once when the row is
 built: component functions receive Reflex Vars (JS references), not concrete
 values, so Python control flow and datetime math cannot run at render time.
-Components read fields; they do not compute.
+Components read fields; they do not compute. Since PRD-013 `tokens_used` is
+the register's tokens cell rather than the raw total: "input / output" when the
+row recorded a split, the total otherwise. `UsageRow` (PRD-013 STORY-016) is
+the Usage table's row, and follows the same rule.
 
 `pydantic.BaseModel`, not `rx.Base`: `rx.Base` does not exist in the pinned
 `reflex==0.9.6.post1` (it was the pydantic-v1 shim, and Reflex 0.9.x is
@@ -59,6 +62,15 @@ class AuditRow(pydantic.BaseModel):
     # PRD-012 D9: the profile that ran, as recorded. Disclosure-only, beside
     # the PII lines it qualifies; the absent mark on every pre-PRD-012 row.
     profile: str = ""
+    # PRD-013 (STORY-015): disclosure-only, pre-formatted; the absent mark on
+    # every pre-PRD-013 row. The two flags are words too ("yes" / "no"), so
+    # no component branches on a boolean to say them.
+    ingress: str = ""
+    message_count: str = ""
+    conversation_key: str = ""
+    streamed: str = ""
+    has_tool_calls: str = ""
+    limit_exceeded: str = ""
 
 
 class SummaryFigure(pydantic.BaseModel):
@@ -76,3 +88,23 @@ class SummaryFigure(pydantic.BaseModel):
     # top_users, top_pii_entities), so those render as figures rather than as
     # ad-hoc tuples. Empty for scalar figures.
     items: list[str] = []
+
+
+class UsageRow(pydantic.BaseModel):
+    """One row of the Usage table: one user's use today against their budget.
+
+    A projection of `app/db/models.py:UsageDay` plus the budget
+    `usage_limits.limits_for` resolved for that user (PRD-013 STORY-016). Every
+    value is a pre-formatted string, the `AuditRow` rule: the component reads
+    fields and computes nothing. `used` is the absent mark, never a share, when
+    the budget is unlimited.
+    """
+
+    user_id: str = ""
+    role: str = ""
+    requests: str = ""
+    input_tokens: str = ""
+    output_tokens: str = ""
+    budget: str = ""
+    used: str = ""
+    denied: str = ""

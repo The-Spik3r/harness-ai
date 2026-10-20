@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 
@@ -12,6 +13,7 @@ from app.models.messages import Message
 from app.services.openrouter_client import (
     GenerationParams,
     OpenRouterError,
+    OpenRouterResult,
     UnsupportedParameterError,
     call_openrouter,
 )
@@ -341,3 +343,94 @@ def test_null_content_error_never_contains_api_key():
         call_openrouter([Message("user", "hi")], api_key="super-secret-key", client=client)
 
     assert "super-secret-key" not in str(exc_info.value)
+
+
+# --- PRD-013 STORY-003: the token split ---
+
+
+def _usage_call(usage):
+    body = {"choices": [{"message": {"content": "Hello!"}}], "usage": usage}
+    client = _FakeClient(response=_response(body=body))
+    return call_openrouter([Message("user", "hello")], api_key="k", client=client)
+
+
+_UNUSABLE_COUNTS = [
+    pytest.param("120", id="string"),
+    pytest.param(-1, id="negative"),
+    pytest.param(True, id="true"),
+    pytest.param(False, id="false"),
+    pytest.param(120.0, id="float"),
+    pytest.param(None, id="null"),
+    pytest.param([120], id="list"),
+    pytest.param({}, id="object"),
+]
+
+
+def test_split_is_returned_beside_the_total():
+    result = _usage_call({"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150})
+
+    assert (result.input_tokens, result.output_tokens, result.tokens_used) == (120, 30, 150)
+
+
+def test_total_only_succeeds_with_no_split():
+    result = _usage_call({"total_tokens": 45})
+
+    assert result.input_tokens is None
+    assert result.output_tokens is None
+    assert result.tokens_used == 45
+    assert result.response == "Hello!"
+
+
+@pytest.mark.parametrize("value", _UNUSABLE_COUNTS)
+def test_an_unusable_prompt_count_is_none_and_the_call_succeeds(value):
+    result = _usage_call({"prompt_tokens": value, "completion_tokens": 30, "total_tokens": 150})
+
+    assert result.input_tokens is None
+    assert result.output_tokens == 30
+    assert result.tokens_used == 150
+
+
+@pytest.mark.parametrize("value", _UNUSABLE_COUNTS)
+def test_an_unusable_completion_count_is_none_and_the_call_succeeds(value):
+    result = _usage_call({"prompt_tokens": 120, "completion_tokens": value, "total_tokens": 150})
+
+    assert result.input_tokens == 120
+    assert result.output_tokens is None
+    assert result.tokens_used == 150
+
+
+def test_a_zero_count_is_kept_as_zero():
+    result = _usage_call({"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+
+    # Zero is a count; None means "not reported". One must not become the other.
+    assert result.input_tokens == 0 and result.input_tokens is not None
+    assert result.output_tokens == 0 and result.output_tokens is not None
+
+
+def test_the_split_is_reported_as_given_when_it_disagrees_with_the_total():
+    result = _usage_call({"prompt_tokens": 100, "completion_tokens": 100, "total_tokens": 45})
+
+    assert (result.input_tokens, result.output_tokens, result.tokens_used) == (100, 100, 45)
+
+
+def test_a_split_without_a_total_still_raises():
+    with pytest.raises(OpenRouterError, match=r"^OpenRouter returned an unexpected response shape: "):
+        _usage_call({"prompt_tokens": 120, "completion_tokens": 30})
+
+
+def test_three_positional_arguments_still_construct_a_result():
+    positional = OpenRouterResult("r", "m", 3)
+
+    assert positional.response == "r"
+    assert positional.model_used == "m"
+    assert positional.tokens_used == 3
+    assert positional.input_tokens is None
+    assert positional.output_tokens is None
+    # The suite's stubs build it with these three keywords.
+    assert OpenRouterResult(response="r", model_used="m", tokens_used=3) == positional
+
+
+def test_the_split_fields_are_declared_last_and_in_order():
+    assert [f.name for f in dataclasses.fields(OpenRouterResult)] == [
+        "response", "model_used", "tokens_used", "input_tokens", "output_tokens",
+    ]
