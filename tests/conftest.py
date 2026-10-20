@@ -68,6 +68,48 @@ from app.services import pii_policy  # noqa: E402
 #: The marker on latency-budget assertions (PRD-012 STORY-013).
 _BENCHMARK_MARKER = "benchmark"
 
+#: The marker on tests that reach storage (PRD-014 STORY-002), applied at collection.
+_DB_MARKER = "db"
+
+#: Requesting any of these, directly or through another fixture, makes a test a `db` test.
+#: `item.fixturenames` is the transitive closure, so a module-local fixture built on
+#: `temp_db` marks its tests too. `db_connect` opens a raw connection, so it counts.
+_STORAGE_FIXTURES = frozenset(
+    {"temp_db", "database_url", "uninitialized_db", "database_url_factory", "db_connect"}
+)
+
+#: Tests that reach storage without one of the fixtures above, and whose files must not be
+#: edited (PRD-006's six suites) or reach it through a path no fixture names (app lifespan,
+#: an in-process script, `request.getfixturevalue`). Seeded from STORY-001's measured list
+#: of tests with driver calls and no storage fixture.
+#:
+#: An entry without `::` is a module path and matches every test in that module. Any
+#: other entry is a nodeid and matches itself, its parametrized ids (`entry[...]`) and,
+#: for a class, its methods (`entry::...`) -- never a longer name it merely prefixes.
+_DB_NODEIDS: tuple[str, ...] = (
+    # PRD-006: `require_admin_token` -> `identity.resolve()` -> `find_user_by_token_hash()`.
+    "tests/test_admin_auth.py::test_incorrect_bearer_token_rejected",
+    # PRD-006: `init_db()` against a dead port; the driver call is the test's subject.
+    "tests/test_db.py::test_init_db_fails_fast_against_an_unreachable_endpoint",
+    # The same, through `TestClient(app)`'s lifespan.
+    "tests/test_main.py::test_lifespan_fails_when_the_database_is_unreachable",
+    # In-process `bench.main()`: `init_db()`, `admit`/`charge` and a cleanup.
+    "tests/test_measure_usage_latency.py::test_a_short_run_reports_both_calls_and_cleans_up",
+    "tests/test_measure_usage_latency.py::test_a_refused_admit_ends_the_run_without_a_report",
+    "tests/test_measure_usage_latency.py::test_a_changed_statement_count_ends_the_run_without_a_report",
+)
+
+
+def _in_db_nodeids(nodeid: str, entries: tuple[str, ...] = _DB_NODEIDS) -> bool:
+    """Whether `nodeid` is declared by `entries`, under the rule `_DB_NODEIDS` states."""
+    for entry in entries:
+        if "::" not in entry:
+            if nodeid.split("::", 1)[0] == entry:
+                return True
+        elif nodeid == entry or nodeid.startswith((entry + "[", entry + "::")):
+            return True
+    return False
+
 
 def pytest_addoption(parser) -> None:
     parser.addoption(
@@ -80,10 +122,21 @@ def pytest_addoption(parser) -> None:
 
 def pytest_configure(config) -> None:
     config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
+    config.addinivalue_line("markers", f"{_DB_MARKER}: reaches storage (a storage fixture, or listed in _DB_NODEIDS); applied at collection")
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items) -> None:
-    """Skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+    """Mark `db` tests, then skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+
+    A test is `db` when its fixture closure meets `_STORAGE_FIXTURES` or its
+    nodeid is in `_DB_NODEIDS` (PRD-014 STORY-002), so `-m db` / `-m "not db"`
+    select by what a test reaches rather than by what its file says. No test
+    file names the marker, though `@pytest.mark.db` written in one works too.
+    Marking comes before the benchmark check so `--run-benchmark` cannot change
+    which tests are `db`, and `tryfirst` because `-m` is applied by pytest's own
+    `pytest_collection_modifyitems`: this one has to have marked before that one
+    deselects. Without it the order rests on plugin registration alone.
 
     A marker alone skips nothing, and `-m` only narrows a run someone already
     chose to make. STORY-013's note is that the budget assertion must not run
@@ -92,6 +145,10 @@ def pytest_collection_modifyitems(config, items) -> None:
 
         pytest tests/test_pii_code_corpus.py -m benchmark --run-benchmark -s
     """
+    db = getattr(pytest.mark, _DB_MARKER)
+    for item in items:
+        if _STORAGE_FIXTURES.intersection(getattr(item, "fixturenames", ())) or _in_db_nodeids(item.nodeid):
+            item.add_marker(db)
     if config.getoption("--run-benchmark"):
         return
     skip = pytest.mark.skip(reason=f"{_BENCHMARK_MARKER}: pass --run-benchmark")
