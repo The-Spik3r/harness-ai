@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - See it and prove it"
-status: todo
+status: done
 labels: [backend, tests, limits, performance]
 epic_branch: epic/PRD-013-audit-and-usage-limits
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-013-audit-and-usage-limits/completed/STORY-017-two-instance-limits-and-latency.plan.md
+report: .agents/reports/PRD-013-audit-and-usage-limits/STORY-017-two-instance-limits-and-latency.report.md
+commit: 5df7c69
 depends_on: [STORY-012]
 blocks: [STORY-018]
 skills: []
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-20
 ---
 
 # STORY-017: Two-instance limit test and latency measurement
