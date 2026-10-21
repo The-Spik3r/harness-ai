@@ -3,7 +3,7 @@
 The source is the one genuine file in this epic, so `tmp_path` is used for it and
 for nothing else: `tests/conftest.py` is explicit that a `Path` must never stand in
 for the database URL. The destination is the shared libSQL endpoint, emptied before
-every test by the autouse `_never_the_configured_database` fixture.
+every test by the autouse `_storage_policy` fixture.
 
 Sources are built to look like a **real** legacy file, not like `CREATE_AUDIT_LOGS_TABLE`:
 the base table is the pre-PII schema and the five `AUDIT_LOGS_ADDED_COLUMNS` are

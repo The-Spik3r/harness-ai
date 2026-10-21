@@ -1,0 +1,2 @@
+# Shell scripts run under bash, which fails on CRLF; keep them LF on every checkout.
+*.sh text eol=lf

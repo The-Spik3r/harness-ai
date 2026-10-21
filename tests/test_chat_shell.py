@@ -216,6 +216,9 @@ def probe() -> dict:
         DATABASE_URL=os.environ.get("DATABASE_URL", "http://127.0.0.1:8080"),
         OPENROUTER_API_KEY=os.environ.get("OPENROUTER_API_KEY", "test-key"),
         ADMIN_TOKEN=os.environ.get("ADMIN_TOKEN", "test-token"),
+        # Importing the app calls init_db(); this probe is about layout, and
+        # must not need (or write to) a database.
+        DB_BOOTSTRAP_ENABLED="false",
     )
     proc = subprocess.run(
         [sys.executable, "-c", _CHECK_SCRIPT],

@@ -148,9 +148,10 @@ def test_factory_yields_a_distinct_url_on_every_call(database_url_factory, temp_
     this one.
 
     What carries the isolation instead: a probe is always created inside a test,
-    and `_never_the_configured_database` has emptied the database before that
-    test began. So the surviving claim is "a probe starts from nothing", and that
-    is what is asserted -- against the storage layer, not against a URL string.
+    and `_storage_policy` has emptied the database before that test began (the
+    fixture makes it a `db` test). So the surviving claim is "a probe starts
+    from nothing", and that is what is asserted -- against the storage layer,
+    not against a URL string.
     """
     first = database_url_factory("probe")
     second = database_url_factory("probe")

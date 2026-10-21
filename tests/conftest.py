@@ -17,14 +17,31 @@ also stays here rather than spreading.
 
 **Where isolation comes from now.** It used to come from `tmp_path`: a distinct
 file per test. One libSQL server serves one database, so isolation is now a
-**reset** rather than a fresh name -- `_reset_database()` drops every table and
-index before each test, from an autouse fixture, so every test starts empty
-whether it asked for a database or not. The promise the old docstring made is
-unchanged; only the mechanism behind it moved. What did not survive is distinct
-URLs per test: see `database_url_factory`.
+**reset** rather than a fresh name, and since PRD-014 only the tests that need
+storage get one:
 
-Running these tests needs the local libSQL dev server from STORY-001's decision
-record. It is offline, takes no token, and cannot reach production:
+- **The `db` marker.** `pytest_collection_modifyitems` marks a test `db` when its
+  fixture closure meets `_STORAGE_FIXTURES` or its nodeid is in `_DB_NODEIDS`,
+  so no test file has to declare it (`@pytest.mark.db` also works).
+- **The reset.** The autouse `_storage_policy` runs `_reset_database()`, which
+  drops every table and index, before each `db` test, so each one starts empty.
+- **The guard.** Every other test has `database._shared_client` and
+  `libsql.connect` replaced by `_refuse()`. Reaching storage fails the test with
+  a message that names the fix, and an access something swallowed fails it at
+  teardown. A test that cannot reach storage can neither see rows nor leave
+  them.
+- **The lazy endpoint.** `_libsql_endpoint` is probed only when a `db` test or a
+  storage fixture asks for it, so `pytest -m "not db"` runs without the server.
+
+A failing `db` test also gets a `libsql diagnostics` section ending in
+`libsql verdict: ...` (see `pytest_runtest_makereport`). The promise the old
+docstring made -- no test reaches another test's rows, or anyone's real
+database -- is unchanged; only the mechanism behind it moved. What did not
+survive is distinct URLs per test: see `database_url_factory`.
+
+Running the `db` tests needs the local libSQL dev server from STORY-001's
+decision record (`-m "not db"` needs nothing). It is offline, takes no token,
+and cannot reach production:
 
     docker run -d --name harness-libsql-dev -p 8080:8080 -e SQLD_NODE=primary \\
       ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
@@ -32,8 +49,13 @@ record. It is offline, takes no token, and cannot reach production:
 Point the suite somewhere else with `HARNESS_TEST_LIBSQL_URL`.
 """
 
+import itertools
 import os
-from typing import Callable
+import time
+import traceback
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, NoReturn, Optional
 
 import pytest
 
@@ -68,6 +90,48 @@ from app.services import pii_policy  # noqa: E402
 #: The marker on latency-budget assertions (PRD-012 STORY-013).
 _BENCHMARK_MARKER = "benchmark"
 
+#: The marker on tests that reach storage (PRD-014 STORY-002), applied at collection.
+_DB_MARKER = "db"
+
+#: Requesting any of these, directly or through another fixture, makes a test a `db` test.
+#: `item.fixturenames` is the transitive closure, so a module-local fixture built on
+#: `temp_db` marks its tests too. `db_connect` opens a raw connection, so it counts.
+_STORAGE_FIXTURES = frozenset(
+    {"temp_db", "database_url", "uninitialized_db", "database_url_factory", "db_connect"}
+)
+
+#: Tests that reach storage without one of the fixtures above, and whose files must not be
+#: edited (PRD-006's six suites) or reach it through a path no fixture names (app lifespan,
+#: an in-process script, `request.getfixturevalue`). Seeded from STORY-001's measured list
+#: of tests with driver calls and no storage fixture.
+#:
+#: An entry without `::` is a module path and matches every test in that module. Any
+#: other entry is a nodeid and matches itself, its parametrized ids (`entry[...]`) and,
+#: for a class, its methods (`entry::...`) -- never a longer name it merely prefixes.
+_DB_NODEIDS: tuple[str, ...] = (
+    # PRD-006: `require_admin_token` -> `identity.resolve()` -> `find_user_by_token_hash()`.
+    "tests/test_admin_auth.py::test_incorrect_bearer_token_rejected",
+    # PRD-006: `init_db()` against a dead port; the driver call is the test's subject.
+    "tests/test_db.py::test_init_db_fails_fast_against_an_unreachable_endpoint",
+    # The same, through `TestClient(app)`'s lifespan.
+    "tests/test_main.py::test_lifespan_fails_when_the_database_is_unreachable",
+    # In-process `bench.main()`: `init_db()`, `admit`/`charge` and a cleanup.
+    "tests/test_measure_usage_latency.py::test_a_short_run_reports_both_calls_and_cleans_up",
+    "tests/test_measure_usage_latency.py::test_a_refused_admit_ends_the_run_without_a_report",
+    "tests/test_measure_usage_latency.py::test_a_changed_statement_count_ends_the_run_without_a_report",
+)
+
+
+def _in_db_nodeids(nodeid: str, entries: tuple[str, ...] = _DB_NODEIDS) -> bool:
+    """Whether `nodeid` is declared by `entries`, under the rule `_DB_NODEIDS` states."""
+    for entry in entries:
+        if "::" not in entry:
+            if nodeid.split("::", 1)[0] == entry:
+                return True
+        elif nodeid == entry or nodeid.startswith((entry + "[", entry + "::")):
+            return True
+    return False
+
 
 def pytest_addoption(parser) -> None:
     parser.addoption(
@@ -80,10 +144,21 @@ def pytest_addoption(parser) -> None:
 
 def pytest_configure(config) -> None:
     config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
+    config.addinivalue_line("markers", f"{_DB_MARKER}: reaches storage (a storage fixture, or listed in _DB_NODEIDS); applied at collection")
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items) -> None:
-    """Skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+    """Mark `db` tests, then skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+
+    A test is `db` when its fixture closure meets `_STORAGE_FIXTURES` or its
+    nodeid is in `_DB_NODEIDS` (PRD-014 STORY-002), so `-m db` / `-m "not db"`
+    select by what a test reaches rather than by what its file says. No test
+    file names the marker, though `@pytest.mark.db` written in one works too.
+    Marking comes before the benchmark check so `--run-benchmark` cannot change
+    which tests are `db`, and `tryfirst` because `-m` is applied by pytest's own
+    `pytest_collection_modifyitems`: this one has to have marked before that one
+    deselects. Without it the order rests on plugin registration alone.
 
     A marker alone skips nothing, and `-m` only narrows a run someone already
     chose to make. STORY-013's note is that the budget assertion must not run
@@ -92,12 +167,49 @@ def pytest_collection_modifyitems(config, items) -> None:
 
         pytest tests/test_pii_code_corpus.py -m benchmark --run-benchmark -s
     """
+    db = getattr(pytest.mark, _DB_MARKER)
+    for item in items:
+        if _STORAGE_FIXTURES.intersection(getattr(item, "fixturenames", ())) or _in_db_nodeids(item.nodeid):
+            item.add_marker(db)
     if config.getoption("--run-benchmark"):
         return
     skip = pytest.mark.skip(reason=f"{_BENCHMARK_MARKER}: pass --run-benchmark")
     for item in items:
         if _BENCHMARK_MARKER in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Notes guard failures, and adds `libsql diagnostics` to failing `db` tests.
+
+    `_storage_policy` fails a test at teardown when its guard recorded an
+    access, which catches an access something swallowed. When nothing did, the
+    raised exception has already failed the test, and a second report from
+    teardown would turn one undeclared test into "1 failed, 1 error".
+
+    **The diagnostics section (PRD-014 STORY-005).** A `db` test whose setup,
+    call or teardown failed gets a `libsql diagnostics` section built from the
+    driver calls recorded so far. It ends in a line starting `libsql verdict: `,
+    so `grep "libsql verdict"` over a run's output classifies every failure. A
+    passing test gets no section. The section **may be partial**:
+    `monkeypatch.undo()` (seven sites in `tests/test_db.py`) removes the wrapper
+    for the rest of that test, and a client built while it is gone is never
+    recorded. The session probe in `_libsql_endpoint` runs before the wrapper
+    exists, and its failure exits the run with its own message.
+    """
+    report = yield
+    if (
+        report.when in ("setup", "call")
+        and report.failed
+        and call.excinfo is not None
+        and call.excinfo.errisinstance(pytest.fail.Exception)
+        and str(call.excinfo.value).startswith(f"{item.nodeid} reached storage")
+    ):
+        item.stash[_REFUSED] = True
+    if report.failed and item.get_closest_marker(_DB_MARKER) is not None:
+        report.sections.append(("libsql diagnostics", _diagnostics(item.stash.get(_RECORDS, []))))
+    return report
 
 
 def child_db_env(url: str) -> dict:
@@ -166,12 +278,276 @@ def _drop_every_table_and_index() -> None:
             conn.execute(f'DROP {kind.upper()} IF EXISTS "{name}"')
 
 
-@pytest.fixture(scope="session", autouse=True)
+# --- The driver recorder (PRD-014 STORY-005, Section 6.6) ---------------------
+
+#: A call this slow is a stall whether or not it raised. The brief's stalls took
+#: 15-21 s, and no healthy call against the local server measured near 10 s.
+_STALL_SECONDS = 10.0
+
+#: Driver text that means "the infrastructure failed", not "the statement did".
+#: `stream_expired` comes first so the live expiry message, which carries both
+#: the prose and the code, is labelled by its code.
+_INFRA_MARKERS = (
+    "stream_expired",
+    *(marker for marker in database._DEAD_STREAM if marker != "stream_expired"),
+    "tcp connect error",
+    "os error 10060",
+)
+
+
+@dataclass(frozen=True)
+class _Call:
+    """One driver call: `connect`, or a method on a recorded client."""
+
+    op: str
+    seconds: float
+    client: Optional[int]  # None for a `connect` that failed
+    idle: Optional[float]  # seconds the client sat unused before it; None for `connect`
+    error: Optional[str]  # the matched `_INFRA_MARKERS` label, if the call raised one
+
+
+#: What the driver did during one test, across setup, call and teardown.
+_RECORDS = pytest.StashKey[list[_Call]]()
+
+#: The test that calls record into. Not the test that built the client:
+#: `_shared_client()` caches one across tests.
+_current: Optional[pytest.Item] = None
+
+_client_numbers = itertools.count(1)
+
+
+def _begin(item) -> None:
+    global _current
+    _current = item
+
+
+def _end(item) -> None:
+    global _current
+    if _current is item:
+        _current = None
+
+
+def _record(call: _Call) -> None:
+    """Into the running test. Outside any `db` test there is nowhere to put it."""
+    if _current is not None:
+        _current.stash.setdefault(_RECORDS, []).append(call)
+
+
+def _infra_error(message: str) -> Optional[str]:
+    """The infrastructure marker in `message`, as it is spelled there, or None.
+
+    Only the marker, cut from `database._redacted()` output, ever reaches a
+    report: a whole driver message can quote SQL (`near "...": syntax error`),
+    and PRD Section 9.2 allows neither SQL nor a credential in the section.
+    """
+    text = database._redacted(message)
+    haystack = text.lower()
+    for marker in _INFRA_MARKERS:
+        at = haystack.find(marker)
+        if at >= 0:
+            return text[at : at + len(marker)]
+    return None
+
+
+class _RecordedClient:
+    """Forwards every attribute to the real client, timing each method call.
+
+    **The original exception, re-raised.** `_translated()` and
+    `_is_dead_stream()` classify driver errors by their message, so a wrapped
+    or replaced exception would change what the application does (PRD R4).
+
+    **Idle time per client.** The time since this client was last used, taken
+    before each call. It is what showed the brief's failures were *not* idle
+    streams dying (0-0.45 s before every one).
+
+    Records go to whichever test is running (`_current`), so a client built by
+    one test and lent to the next by `_shared_client()` reports in the second.
+    Nothing assigns to a client in `app/`, so there is no `__setattr__` to forward.
+    """
+
+    def __init__(self, real) -> None:
+        self._real = real
+        self._number = next(_client_numbers)
+        self._last_used = time.monotonic()
+
+    def __getattr__(self, name):
+        attr = getattr(self._real, name)
+        if not callable(attr):
+            return attr
+
+        def timed(*args, **kwargs):
+            started = time.monotonic()
+            idle = started - self._last_used
+            error = None
+            try:
+                return attr(*args, **kwargs)
+            except Exception as exc:
+                error = _infra_error(str(exc))
+                raise
+            finally:
+                self._last_used = time.monotonic()
+                _record(_Call(name, self._last_used - started, self._number, idle, error))
+
+        return timed
+
+
+def _recorded_connect(real) -> Callable[..., _RecordedClient]:
+    """`libsql.connect`, timed, handing back a `_RecordedClient`.
+
+    `connect` is recorded too: the 21 s `tcp connect error` in the brief's
+    evidence happened at construction, during a test's setup.
+    """
+
+    def connect(*args, **kwargs) -> _RecordedClient:
+        started = time.monotonic()
+        try:
+            client = _RecordedClient(real(*args, **kwargs))
+        except Exception as exc:
+            _record(_Call("connect", time.monotonic() - started, None, None, _infra_error(str(exc))))
+            raise
+        _record(_Call("connect", time.monotonic() - started, client._number, None, None))
+        return client
+
+    return connect
+
+
+def _verdict(records: list[_Call]) -> str:
+    """One line that says whether the infrastructure was involved (PRD Section 6.6)."""
+    if not records:
+        return "no driver calls recorded"
+    failed = [call for call in records if call.error is not None]
+    if failed:
+        call = max(failed, key=lambda call: call.seconds)
+        return f"likely infrastructure -- {call.op} took {call.seconds:.2f} s and ended in {call.error}"
+    slowest = max(records, key=lambda call: call.seconds)
+    if slowest.seconds >= _STALL_SECONDS:
+        return f"likely infrastructure -- {slowest.op} took {slowest.seconds:.2f} s (no driver error)"
+    return f"no infrastructure signal ({len(records)} calls, slowest {slowest.seconds:.2f} s)"
+
+
+def _diagnostics(records: list[_Call]) -> str:
+    """The `libsql diagnostics` section's text. Its last line starts `libsql verdict: `.
+
+    Method names, durations, idle times and marker labels only, never SQL text,
+    parameters or whole driver messages (PRD Section 9.2). **ASCII only**, as
+    `_UNDECLARED` is: piped or `tee`d output on Windows is cp1252, and a reader
+    decoding it as UTF-8 (pytester, a log parser) fails on `—`, `×` or `→`.
+    """
+    verdict = f"libsql verdict: {_verdict(records)}"
+    if not records:
+        return f"calls: 0\n{verdict}"
+    clients = len({call.client for call in records if call.client is not None})
+    connects = sum(call.op == "connect" for call in records)
+    slowest = max(records, key=lambda call: call.seconds)
+    idle = f" (client idle {slowest.idle:.2f} s before)" if slowest.idle is not None else ""
+    ended = f" -> {slowest.error}" if slowest.error is not None else ""
+    stalls = ", ".join(f"{call.op} {call.seconds:.3f} s" for call in records if call.seconds >= _STALL_SECONDS)
+    errors: dict[str, int] = {}
+    for call in records:
+        if call.error is not None:
+            errors[call.error] = errors.get(call.error, 0) + 1
+    return "\n".join(
+        (
+            f"calls: {len(records)} on {clients} client{'s' if clients != 1 else ''}, "
+            f"{connects} connect{'s' if connects != 1 else ''}",
+            f"slowest: {slowest.op} {slowest.seconds:.3f} s{idle}{ended}",
+            f"over {_STALL_SECONDS:g} s: {stalls or 'none'}",
+            "driver errors: " + (", ".join(f"{n} x {label}" for label, n in errors.items()) or "none"),
+            verdict,
+        )
+    )
+
+
+#: What a test that is not `db` is told when it reaches storage (PRD-014 Section 10).
+#: The teardown check and `pytest_runtest_makereport` recognise it by its first words.
+_UNDECLARED = (
+    "{nodeid} reached storage ({where}) without declaring it.\n"
+    "Request temp_db (or database_url / uninitialized_db / database_url_factory / db_connect),\n"
+    "add @pytest.mark.db, or -- for a suite that must not be edited -- add its nodeid to\n"
+    "_DB_NODEIDS in tests/conftest.py."
+)
+
+#: The repository root, from the application package rather than pytest's rootdir, so
+#: frames resolve the same in a `pytester` child whose rootdir is a temp directory.
+_REPO = Path(database.__file__).resolve().parents[2]
+
+#: Where "the first app frame" may live.
+_APP_ROOTS = (_REPO / "app", _REPO / "chat_ui")
+
+_HERE = Path(__file__).resolve()
+
+
+def _where(path: Path, name: str) -> str:
+    try:
+        shown = path.relative_to(_REPO).as_posix()
+    except ValueError:
+        shown = path.as_posix()
+    return f"{shown}:{name}"
+
+
+def _first_app_frame(test_path: Optional[Path] = None) -> str:
+    """The innermost frame of application code on the current stack, e.g.
+    `app/db/database.py:get_connection`.
+
+    Failing that -- a test that calls `libsql.connect` itself -- the innermost
+    frame in the test's own file, and failing that the innermost frame outside
+    this one, so the message always names somewhere to look.
+    """
+    frames = [(Path(frame.filename).resolve(), frame.name) for frame in reversed(traceback.extract_stack())]
+    for path, name in frames:
+        if any(path.is_relative_to(root) for root in _APP_ROOTS):
+            return _where(path, name)
+    if test_path is not None:
+        target = Path(test_path).resolve()
+        for path, name in frames:
+            if path == target:
+                return _where(path, name)
+    for path, name in frames:
+        if path != _HERE:
+            return _where(path, name)
+    return "unknown"
+
+
+def _refuse(item, sink: list[str]) -> Callable[..., NoReturn]:
+    """What `database._shared_client` and `libsql.connect` become in a test that is not `db`.
+
+    **`pytest.fail`, which raises a `BaseException`.** Routers and services turn
+    `Exception` into status codes (`StorageError` into a `503`, for one), so an
+    `Exception` would be swallowed and the test could pass on the error page.
+    `pytest.fail.Exception` gets past every `except Exception`.
+
+    **The sink is the backstop for what does catch it** -- an `except
+    BaseException`, a worker thread from `asyncio.to_thread`, a background task:
+    `_storage_policy` fails the test at teardown when anything was recorded.
+
+    **Not "point the test at an unreachable URL".** On Windows a refused localhost
+    connect costs about two seconds of SYN retries per test, and it reads as a
+    network error -- the very ambiguity PRD-014 exists to remove. This refuses
+    before any socket is opened.
+    """
+
+    def refused(*args, **kwargs) -> NoReturn:
+        where = _first_app_frame(getattr(item, "path", None))
+        sink.append(where)
+        pytest.fail(_UNDECLARED.format(nodeid=item.nodeid, where=where), pytrace=False)
+
+    return refused
+
+
+@pytest.fixture(scope="session")
 def _libsql_endpoint() -> str:
     """Proves the endpoint is reachable once, and says how to start it if not.
 
     A hard failure rather than a skip: a suite that quietly stops exercising
     storage still reports green, which is worse than a red one.
+
+    **Since PRD-014 STORY-004 it is not autouse.** Only `_storage_policy`'s `db`
+    branch and the storage fixtures (`database_url`, `database_url_factory`)
+    instantiate it, so a `-m "not db"` session never probes and runs with
+    Docker stopped. The price is where a full run with Docker stopped ends: at
+    the *first `db` test*, not before the first test. The tests that ran before
+    it have already reported and the rest never run, so it is still a hard
+    exit, and it still names the fix.
     """
     try:
         libsql.connect(_ENDPOINT).execute("SELECT 1").fetchone()
@@ -189,9 +565,18 @@ def _libsql_endpoint() -> str:
     return _ENDPOINT
 
 
+#: Set on an item whose setup or call already failed through the guard, so the
+#: teardown check does not report the same access a second time.
+_REFUSED = pytest.StashKey[bool]()
+
+
 @pytest.fixture(autouse=True)
-def _never_the_configured_database(_libsql_endpoint, monkeypatch) -> None:
-    """Every test starts on an empty database, whether it asked for one or not.
+def _storage_policy(request, monkeypatch):
+    """A `db` test starts on an empty database; any other test cannot reach one.
+
+    Until PRD-014 STORY-003 this fixture was `_never_the_configured_database`,
+    and it reset the database before every test, whether it asked for one or
+    not. The history that shaped it still holds:
 
     Until STORY-005, `DATABASE_URL` defaulted to `sqlite:///harness_ai.db`, so a
     test that reached storage without requesting a fixture quietly opened the
@@ -215,9 +600,52 @@ def _never_the_configured_database(_libsql_endpoint, monkeypatch) -> None:
     anything in", and the reset is what makes that true. Explicit fixtures still
     win: `database_url` below patches the same setting afterwards, and pytest
     instantiates autouse fixtures first.
+
+    **Since PRD-014 STORY-003 only `db` tests are reset** (the marker from
+    `pytest_collection_modifyitems`), and every other test is refused storage
+    outright. Two thirds of the suite never needed a database, yet each paid a
+    reset and each was exposed to the libSQL stalls that made full runs red at
+    random. A test that is not `db` gets `DATABASE_URL` set to the endpoint --
+    code that only *reads* the setting behaves as before -- and two patch points
+    replaced by `_refuse()`: `database._shared_client`, which every
+    `get_connection()` goes through and which also stops a client cached by an
+    earlier `db` test from being lent, and `libsql.connect`, which catches direct
+    construction. Isolation still holds without the reset: a test that cannot
+    reach storage can neither see rows nor leave them. Declared first among the
+    function-scoped autouse fixtures, so nothing it guards runs before it.
+
+    The guard rides on the test's own `monkeypatch`, so a test that patches
+    either point itself is restored in the right order. The one way round it is
+    `monkeypatch.undo()` in a test that is not `db`; the seven calls in
+    `tests/test_db.py` are all in `db` tests.
+
+    **Since PRD-014 STORY-005 a `db` test's driver calls are recorded.**
+    `libsql.connect` is wrapped by `_recorded_connect()` after the session probe,
+    which is not recorded, and `_current` points at this test from before the
+    reset until this fixture's teardown. That teardown runs after the test's own
+    fixtures have torn down, so their calls are recorded too. The `finally` clears
+    the pointer even when the reset fails. A test that patches `libsql.connect`
+    itself layers over the wrapper and sees its own fake, unrecorded.
     """
-    monkeypatch.setattr(settings, "DATABASE_URL", _libsql_endpoint)
-    _reset_database()
+    item = request.node
+    if item.get_closest_marker(_DB_MARKER) is not None:
+        monkeypatch.setattr(settings, "DATABASE_URL", request.getfixturevalue("_libsql_endpoint"))
+        monkeypatch.setattr(libsql, "connect", _recorded_connect(libsql.connect))
+        _begin(item)
+        try:
+            _reset_database()
+            yield
+        finally:
+            _end(item)
+        return
+    monkeypatch.setattr(settings, "DATABASE_URL", _ENDPOINT)
+    sink: list[str] = []
+    refused = _refuse(item, sink)
+    monkeypatch.setattr(database, "_shared_client", refused)
+    monkeypatch.setattr(libsql, "connect", refused)
+    yield
+    if sink and not item.stash.get(_REFUSED, False):
+        pytest.fail(_UNDECLARED.format(nodeid=item.nodeid, where=sink[0]), pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -308,8 +736,9 @@ def database_url_factory(_libsql_endpoint) -> Callable[[str], str]:
     the client addresses by hostname (`<ns>.localhost`) and which does not
     resolve inside a container -- a suite that passes on one machine and fails on
     another. What replaces the guarantee: every probe is created inside a test,
-    after `_never_the_configured_database` has emptied the database, so each one
+    after `_storage_policy` has emptied the database, so each one
     still starts from nothing. `name` is kept because it documents the call site.
+    (Requesting this fixture makes the test `db`, which is what gets it reset.)
     """
 
     def make(name: str) -> str:
