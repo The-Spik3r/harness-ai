@@ -916,7 +916,20 @@ libsql verdict: likely infrastructure -- execute took 15.05 s and ended in STREA
 
 The section shows method names, timings and error labels only, never SQL statements, parameters or credentials.
 
-**If `db` tests flake on Docker Desktop.** The stalls behind most infrastructure verdicts were measured only behind Docker Desktop's port forwarding: 0 stall events in-network against 2 on the host, over about 143,000 driver calls each (a small sample). Running `-m db` from a container on the same Docker network as `harness-libsql-dev` avoided them. The command is in [`.agents/spikes/PRD-014-docker-network-stalls.md`](.agents/spikes/PRD-014-docker-network-stalls.md). It has two caveats: it needs `docker run --network`, because `docker compose run` has no `--network`; and the three `tests/test_measure_usage_latency.py` tests fail there by design, because their script refuses a non-local host name. A documented recipe is to follow.
+**If `db` tests flake on Docker Desktop.** The stalls behind most infrastructure verdicts were measured only behind Docker Desktop's port forwarding: 0 stall events in-network against 2 on the host, over about 143,000 driver calls each (a small sample). Running `-m db` from a container on the same Docker network as `harness-libsql-dev` avoided them ([spike report](.agents/spikes/PRD-014-docker-network-stalls.md)). One script does that, from Git Bash on Windows or any bash:
+
+```bash
+scripts/test-db-in-network.sh                     # build the image, then run every db test
+scripts/test-db-in-network.sh --no-build -x -k audit   # reuse the last image; extra args go to pytest
+```
+
+It builds the `harness-ai` image and puts `harness-libsql-dev` on a `harness-test-net` network, which it creates the first time and leaves in place. It then runs `pytest tests/ -m db` in a throwaway container that reaches the server by name, with the same three overrides as the in-container run below. It uses `docker run --network` because `docker compose run` has no `--network`. The server keeps its `127.0.0.1:8080` port, so host-side runs are unaffected. Three things to know about it:
+
+- It tests the code **baked into the image**. After a change, leave out `--no-build`.
+- It deselects the three `tests/test_measure_usage_latency.py` tests that write to the database. Their script refuses any host name but localhost, by design, so the host run covers them.
+- `docker compose` needs the `.env` from [Quickstart — Docker](#quickstart--docker) to exist, although the test container never receives it.
+
+The host-side `pytest tests/ -m db` stays supported, with the verdict line to classify its rare stalls.
 
 Inside the Docker container:
 
