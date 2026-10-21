@@ -6,7 +6,7 @@ status: draft
 base_branch: main
 epic_branch: epic/PRD-014-test-suite-db-isolation
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 ## 1. Executive Summary
@@ -452,7 +452,9 @@ Both arms run with the STORY-005 recorder. The spike also counts calls ≥ 10 s,
 
 ### D5 result
 
-_To be filled by STORY-006._
+**Confirmed, on thin evidence** (STORY-006, 2026-10-21; [spike report](../../spikes/PRD-014-docker-network-stalls.md)). Over three interleaved `-m db` runs per arm, about 143,500 driver calls each, the in-network arm (`harness-test-net` → `http://harness-libsql-dev:8080`) recorded **0 stall events** and the host arm (`127.0.0.1:8080`, through Docker Desktop's port forwarding) **2**: a 21.05 s `tcp connect error` (`os error 10060`) that errored one test's setup, and a `STREAM_EXPIRED` in the next test that `_reset_database()`'s retry absorbed. A fourth host run was discarded because Windows slept mid-run. If both arms stalled at the host's rate, zero in-network events would still happen about 13.5% of the time.
+
+**Recommendation for STORY-008.** Take the "confirmed" branch of Section 13: document an in-network `-m db` recipe (possibly `scripts/test-db-in-network.sh`) as the reliable local way to run storage tests, keeping the host-side run supported with its verdict line. The recipe must use `docker run --network` (`docker compose run` has no `--network`), and must handle the three `tests/test_measure_usage_latency.py` tests, which refuse the non-local hostname `harness-libsql-dev` by design. Because the sample is small, repeat a few in-network runs while validating the recipe and treat any in-network stall as reopening D5. A scoped rerun policy is not needed now. If one is added later, its pattern must match `tcp connect error` and `STREAM_EXPIRED` (the recorder's labels on both platforms), not only `os error 10060`.
 
 ### Assumptions
 
