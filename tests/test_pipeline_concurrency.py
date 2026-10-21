@@ -607,10 +607,9 @@ async def test_manual_smoke_against_a_slow_local_server(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        monkeypatch.setattr(
-            "app.services.openrouter_client._API_URL",
-            f"http://127.0.0.1:{port}/",
-        )
+        # PRD-015 STORY-002 replaced the client's _API_URL constant with this
+        # setting; _SlowHandler answers any path.
+        monkeypatch.setattr(settings, "OPENROUTER_BASE_URL", f"http://127.0.0.1:{port}/v1")
 
         identity = resolve(_AUTH_TOKEN)
         assert identity is not None

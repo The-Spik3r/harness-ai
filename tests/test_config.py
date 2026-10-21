@@ -1155,3 +1155,78 @@ def test_env_example_says_what_disabling_usage_limits_does():
 
     assert "false" in block
     assert "counter" in block
+
+
+# --- PRD-015 STORY-002: OPENROUTER_BASE_URL ------------------------------------
+#
+# The validator is PRD-015 Section 9.2 T10's mitigation: every call sends
+# OPENROUTER_API_KEY to this URL, so only https:// or a loopback http:// host
+# boots.
+
+_BASE_URL_RULE_FRAGMENTS = ("OPENROUTER_BASE_URL", "https://", "127.0.0.1", "localhost", "::1", "Example")
+
+
+def test_openrouter_base_url_defaults_to_openrouter():
+    assert _settings(DATABASE_URL=_LOCAL_URL).OPENROUTER_BASE_URL == "https://openrouter.ai/api/v1"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://openrouter.ai/api/v1", id="default"),
+        pytest.param("HTTPS://openrouter.ai/api/v1", id="upper-scheme"),
+        pytest.param("https://proxy.internal.example/v1", id="other-https-host"),
+        pytest.param("https://openrouter.ai/api/v1/", id="trailing-slash"),
+        pytest.param("http://127.0.0.1:9100/v1", id="ipv4-loopback"),
+        pytest.param("http://localhost:9100/v1", id="localhost"),
+        pytest.param("http://LOCALHOST:9100/v1", id="localhost-upper"),
+        pytest.param("http://[::1]:9100/v1", id="ipv6-loopback"),
+    ],
+)
+def test_openrouter_base_url_accepts_https_or_loopback_http(url):
+    assert _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url).OPENROUTER_BASE_URL == url
+
+
+def test_openrouter_base_url_surrounding_whitespace_is_stripped():
+    result = _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL="  http://127.0.0.1:9100/v1\n")
+
+    assert result.OPENROUTER_BASE_URL == "http://127.0.0.1:9100/v1"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://example.com/v1", id="http-remote"),
+        pytest.param("http://127.0.0.2/v1", id="http-other-127"),
+        pytest.param("http://localhost.example.com/v1", id="http-localhost-prefix"),
+        pytest.param("ftp://127.0.0.1/v1", id="ftp"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="blank"),
+        pytest.param("openrouter.ai/api/v1", id="no-scheme"),
+        pytest.param("https://", id="no-host"),
+    ],
+)
+def test_openrouter_base_url_rejection_names_the_setting_rule_and_an_example(url):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url)
+
+    message = str(exc_info.value)
+    for fragment in _BASE_URL_RULE_FRAGMENTS:
+        assert fragment in message, fragment
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(f"http://user:{_TOKEN_SENTINEL}@example.com/v1", id="userinfo"),
+        pytest.param(f"ftp://127.0.0.1/{_TOKEN_SENTINEL}", id="path"),
+        pytest.param(f"https://?key={_TOKEN_SENTINEL}", id="query-no-host"),
+    ],
+)
+def test_openrouter_base_url_rejection_never_echoes_the_value(url):
+    """Messages quote the scheme and host only (`_scheme_of`'s rule), and
+    hide_input_in_errors keeps pydantic from appending the raw value."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url)
+
+    assert _TOKEN_SENTINEL not in str(exc_info.value)
