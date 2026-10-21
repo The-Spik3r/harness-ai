@@ -1,9 +1,9 @@
 ---
-target_prd: PRD-014
+target_prd: PRD-015
 slug: openai-compatible-endpoint
 title: OpenAI-compatible endpoint (text)
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md
 depends_on: [PRD-011, PRD-012, PRD-013]
 blocks: [PRD-016]
 estimated_stories: 14-16
