@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "1 - Foundations"
-status: in-progress
+status: done
 labels: [backend, tests, characterization]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: .agents/plans/PRD-015-openai-compatible-endpoint/STORY-001-query-error-body-characterization.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-001-query-error-body-characterization.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-001-query-error-body-characterization.report.md
+commit: 0341ed6
 depends_on: []
 blocks: [STORY-002, STORY-006, STORY-010]
 skills: []
