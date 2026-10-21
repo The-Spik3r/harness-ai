@@ -7,17 +7,17 @@ type: spike
 priority: medium
 complexity: small
 phase: "3 - Diagnose and investigate"
-status: todo
+status: done
 labels: [spike, docker, libsql, infrastructure]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-006-docker-network-spike.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-006-docker-network-spike.report.md
+commit: f905425
 depends_on: [STORY-005]
 blocks: [STORY-007, STORY-008]
 skills: []
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # STORY-006: Spike: stalls inside the Docker network (D5)
