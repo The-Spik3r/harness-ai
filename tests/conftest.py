@@ -17,15 +17,31 @@ also stays here rather than spreading.
 
 **Where isolation comes from now.** It used to come from `tmp_path`: a distinct
 file per test. One libSQL server serves one database, so isolation is now a
-**reset** rather than a fresh name -- `_reset_database()` drops every table and
-index before each `db` test, from the autouse `_storage_policy`. Since PRD-014 a
-test that is not `db` cannot reach storage at all, so it has nothing to start
-empty. The promise the old docstring made is
-unchanged; only the mechanism behind it moved. What did not survive is distinct
-URLs per test: see `database_url_factory`.
+**reset** rather than a fresh name, and since PRD-014 only the tests that need
+storage get one:
 
-Running these tests needs the local libSQL dev server from STORY-001's decision
-record. It is offline, takes no token, and cannot reach production:
+- **The `db` marker.** `pytest_collection_modifyitems` marks a test `db` when its
+  fixture closure meets `_STORAGE_FIXTURES` or its nodeid is in `_DB_NODEIDS`,
+  so no test file has to declare it (`@pytest.mark.db` also works).
+- **The reset.** The autouse `_storage_policy` runs `_reset_database()`, which
+  drops every table and index, before each `db` test, so each one starts empty.
+- **The guard.** Every other test has `database._shared_client` and
+  `libsql.connect` replaced by `_refuse()`. Reaching storage fails the test with
+  a message that names the fix, and an access something swallowed fails it at
+  teardown. A test that cannot reach storage can neither see rows nor leave
+  them.
+- **The lazy endpoint.** `_libsql_endpoint` is probed only when a `db` test or a
+  storage fixture asks for it, so `pytest -m "not db"` runs without the server.
+
+A failing `db` test also gets a `libsql diagnostics` section ending in
+`libsql verdict: ...` (see `pytest_runtest_makereport`). The promise the old
+docstring made -- no test reaches another test's rows, or anyone's real
+database -- is unchanged; only the mechanism behind it moved. What did not
+survive is distinct URLs per test: see `database_url_factory`.
+
+Running the `db` tests needs the local libSQL dev server from STORY-001's
+decision record (`-m "not db"` needs nothing). It is offline, takes no token,
+and cannot reach production:
 
     docker run -d --name harness-libsql-dev -p 8080:8080 -e SQLD_NODE=primary \\
       ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67

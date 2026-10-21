@@ -386,7 +386,7 @@ The full design, including the threat reasoning, is in [PRD-013](.agents/PRDs/PR
 - Docker & Docker Compose (optional, for containerized deployment)
 - An [OpenRouter](https://openrouter.ai) API key
 - A Turso database, or any libSQL endpoint — `DATABASE_URL` has no default and the application will not start without one (see [Persistence & Deployment](#persistence--deployment))
-- For running the test suite only: a local libSQL server (see [Running Tests](#running-tests)) — no Turso account needed
+- For running the test suite only: a local libSQL server for the storage tests (see [Running Tests](#running-tests)); `pytest -m "not db"` needs none — no Turso account needed
 - ~500 MB of disk for the English spaCy NLP model (`en_core_web_lg`) used by PII redaction
 - Network access at install/build time to download that model — or at first startup, if you skip the download step and let Presidio fetch it
 
@@ -873,8 +873,50 @@ The tests default to `http://127.0.0.1:8080`; set `HARNESS_TEST_LIBSQL_URL` to p
 Locally:
 
 ```bash
-pytest tests/ -v
+pytest tests/ -v                         # everything (the default); needs the libSQL server
+pytest tests/ -m "not db" -v             # the tests that never touch storage; no Docker needed
+pytest tests/ -m db -v                   # only the storage tests
+pytest tests/ --collect-only -q -m db    # list what counts as a db test
 ```
+
+About two thirds of the suite never touches storage. Those tests are not `db`: they are not reset, and they cannot reach the server at all, so `-m "not db"` is a fast loop that runs with Docker stopped. A test is `db` when it requests a storage fixture (`temp_db`, `database_url`, `uninitialized_db`, `database_url_factory` or `db_connect`, directly or through another fixture), carries `@pytest.mark.db`, or is listed in `_DB_NODEIDS` in `tests/conftest.py`. The marker is applied at collection, so test files do not declare it. With the server down, a full run stops at the first `db` test with a "libSQL dev server ... is unreachable" message that says how to start it.
+
+**A test failed with "reached storage ... without declaring it".** For example:
+
+```
+tests/test_router_extra.py::test_lists_rows reached storage (app/db/database.py:get_connection) without declaring it.
+Request temp_db (or database_url / uninitialized_db / database_url_factory / db_connect),
+add @pytest.mark.db, or -- for a suite that must not be edited -- add its nodeid to
+_DB_NODEIDS in tests/conftest.py.
+```
+
+A test that is not `db` tried to open a database connection, and the harness refused before any socket was opened. That is a missing declaration, not a database problem, and it fails the test even if application code catches the error: an `except Exception` cannot catch it, and an access swallowed some other way (or made in a worker thread) fails the test at teardown. Fix it in one of three ways, in this order of preference:
+
+1. Request a storage fixture, usually `temp_db`. This is the right fix for a new test.
+2. Add `@pytest.mark.db` when the test reaches storage some other way, for example through the app's lifespan.
+3. Add its nodeid, or its module path, to `_DB_NODEIDS` in `tests/conftest.py` when its file must not be edited (the PRD-006 suites that `tests/test_untouched_app.py` pins).
+
+**Reading a `libsql diagnostics` section.** Every `db` test that fails in setup, call or teardown gets one in its failure report. A passing test gets none. The last line always starts with `libsql verdict: `, so `grep "libsql verdict"` over a run's output classifies every failure without a rerun:
+
+```
+------------------------------ libsql diagnostics ------------------------------
+calls: 212 on 2 clients, 1 connect
+slowest: execute 15.047 s (client idle 0.12 s before) -> STREAM_EXPIRED
+over 10 s: execute 15.047 s
+driver errors: 1 x STREAM_EXPIRED
+libsql verdict: likely infrastructure -- execute took 15.05 s and ended in STREAM_EXPIRED
+```
+
+| Verdict | What it means | What to do |
+|---|---|---|
+| `likely infrastructure -- <op> took <s> s and ended in <error>` (`STREAM_EXPIRED`, `tcp connect error`, ...) | The libSQL server stalled or dropped the stream during this test | Rerun the test alone. If it passes, it was not your change. Quote the verdict line wherever you report the flake |
+| `likely infrastructure -- <op> took <s> s (no driver error)` | A call took 10 s or more, but the driver reported no error. The failure is probably a timeout downstream of the stall | The same: rerun it alone |
+| `no infrastructure signal (<n> calls, slowest <s> s)` | Storage behaved normally | Treat it as a real failure and debug it |
+| `no driver calls recorded` | Nothing was recorded: the test failed before any storage call, or `monkeypatch.undo()` removed the recorder | Judge it from the traceback |
+
+The section shows method names, timings and error labels only, never SQL statements, parameters or credentials.
+
+**If `db` tests flake on Docker Desktop.** The stalls behind most infrastructure verdicts were measured only behind Docker Desktop's port forwarding: 0 stall events in-network against 2 on the host, over about 143,000 driver calls each (a small sample). Running `-m db` from a container on the same Docker network as `harness-libsql-dev` avoided them. The command is in [`.agents/spikes/PRD-014-docker-network-stalls.md`](.agents/spikes/PRD-014-docker-network-stalls.md). It has two caveats: it needs `docker run --network`, because `docker compose run` has no `--network`; and the three `tests/test_measure_usage_latency.py` tests fail there by design, because their script refuses a non-local host name. A documented recipe is to follow.
 
 Inside the Docker container:
 
