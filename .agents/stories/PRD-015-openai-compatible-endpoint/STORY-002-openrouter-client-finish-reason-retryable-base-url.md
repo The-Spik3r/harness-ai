@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, upstream, config]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-002-openrouter-client-finish-reason-retryable-base-url.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-002-openrouter-client-finish-reason-retryable-base-url.report.md
+commit: f4f2a83
 depends_on: [STORY-001]
 blocks: [STORY-009, STORY-011, STORY-014]
 skills: []
