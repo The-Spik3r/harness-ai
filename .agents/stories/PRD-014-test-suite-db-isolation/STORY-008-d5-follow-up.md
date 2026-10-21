@@ -7,17 +7,17 @@ type: technical
 priority: low
 complexity: small
 phase: "4 - Document and prove"
-status: todo
+status: done
 labels: [tests, docker, conditional]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-008-d5-follow-up.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-008-d5-follow-up.report.md
+commit: da96827
 depends_on: [STORY-006]
 blocks: []
 skills: []
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # STORY-008: Act on the D5 result

@@ -456,6 +456,8 @@ Both arms run with the STORY-005 recorder. The spike also counts calls ≥ 10 s,
 
 **Recommendation for STORY-008.** Take the "confirmed" branch of Section 13: document an in-network `-m db` recipe (possibly `scripts/test-db-in-network.sh`) as the reliable local way to run storage tests, keeping the host-side run supported with its verdict line. The recipe must use `docker run --network` (`docker compose run` has no `--network`), and must handle the three `tests/test_measure_usage_latency.py` tests, which refuse the non-local hostname `harness-libsql-dev` by design. Because the sample is small, repeat a few in-network runs while validating the recipe and treat any in-network stall as reopening D5. A scoped rerun policy is not needed now. If one is added later, its pattern must match `tcp connect error` and `STREAM_EXPIRED` (the recorder's labels on both platforms), not only `os error 10060`.
 
+**Acted on (STORY-008, 2026-10-21, `da96827`).** `scripts/test-db-in-network.sh` is the recipe, documented in README *Running Tests*. It deselects the three `test_measure_usage_latency.py` tests in-network. Three validation runs gave 1,267 passed / 1 skipped each with 0 `libsql verdict` lines, so D5 stays confirmed. No rerun policy was added, and D4 stands ([report](../../reports/PRD-014-test-suite-db-isolation/STORY-008-d5-follow-up.report.md)).
+
 ### Assumptions
 
 - The brief's counts (3,453 tests; 1,090 with a storage fixture; ~40,000 driver calls per run) were measured on 2026-10-14. PRD-013 work landed afterwards, so STORY-001's baseline is authoritative and the criteria in Section 11 refer to it.
