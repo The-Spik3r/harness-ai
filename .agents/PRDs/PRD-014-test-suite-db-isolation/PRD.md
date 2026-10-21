@@ -348,33 +348,33 @@ _DB_NODEIDS in tests/conftest.py.
 
 The brief's six criteria, all measured:
 
-- [ ] `pytest -m "not db"` passes with Docker Desktop stopped
-- [ ] Every non-`db` test issues zero in-process driver calls, enforced by the guard on every run
-- [ ] A test that reaches storage without declaring it fails with a message naming it and what to add
-- [ ] Every `db` failure (setup, call or teardown) carries a `libsql diagnostics` section ending in a verdict line
-- [ ] Total and passing counts equal STORY-001's baseline (3,453 collected at brief time; the baseline run is authoritative), and no assertion in any pinned suite changes
-- [ ] Driver calls per full run drop from STORY-001's figure (~40,000) to the `db` tests' own share, measured again in STORY-007 with the same scratch plugin
+- [x] `pytest -m "not db"` passes with Docker Desktop stopped *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Every non-`db` test issues zero in-process driver calls, enforced by the guard on every run *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] A test that reaches storage without declaring it fails with a message naming it and what to add *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Every `db` failure (setup, call or teardown) carries a `libsql diagnostics` section ending in a verdict line *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Total and passing counts equal STORY-001's baseline (3,453 collected at brief time; the baseline run is authoritative), and no assertion in any pinned suite changes *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Driver calls per full run drop from STORY-001's figure (~40,000) to the `db` tests' own share, measured again in STORY-007 with the same scratch plugin *(evidence: STORY-007 report, Section 11 checklist)*
 
 ### Functional requirements
 
-- [ ] `db` is registered, so `--strict-markers` would accept it, and `pytest --markers` lists it with a one-line description
-- [ ] Marking is identical with and without `--run-benchmark`
-- [ ] A test requesting a storage fixture only transitively is marked
-- [ ] `git diff main -- tests/test_admin_auth.py tests/test_audit_router.py tests/test_stats_router.py tests/test_db.py tests/test_route_reservations.py tests/test_chat_state.py` is empty at the epic's end
-- [ ] `tests/test_untouched_app.py` passes
-- [ ] The guard's exception is not caught by `except Exception`, and an access swallowed by `except BaseException` or made in a worker thread still fails the test at teardown
-- [ ] A client cached by a `db` test is never lent to a non-`db` test
-- [ ] `_reset_database()`'s dead-stream retry and its three tests in `test_conftest_fixtures.py` are unchanged and pass
-- [ ] Diagnostics re-raise the driver's original exception object, so `_translated()` and `_is_dead_stream()` behave identically
-- [ ] Diagnostics never print SQL or parameters, and error text is redacted
-- [ ] A passing test's report has no diagnostics section
+- [x] `db` is registered, so `--strict-markers` would accept it, and `pytest --markers` lists it with a one-line description *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Marking is identical with and without `--run-benchmark` *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] A test requesting a storage fixture only transitively is marked *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] `git diff main -- tests/test_admin_auth.py tests/test_audit_router.py tests/test_stats_router.py tests/test_db.py tests/test_route_reservations.py tests/test_chat_state.py` is empty at the epic's end *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] `tests/test_untouched_app.py` passes *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] The guard's exception is not caught by `except Exception`, and an access swallowed by `except BaseException` or made in a worker thread still fails the test at teardown *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] A client cached by a `db` test is never lent to a non-`db` test *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] `_reset_database()`'s dead-stream retry and its three tests in `test_conftest_fixtures.py` are unchanged and pass *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Diagnostics re-raise the driver's original exception object, so `_translated()` and `_is_dead_stream()` behave identically *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Diagnostics never print SQL or parameters, and error text is redacted *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] A passing test's report has no diagnostics section *(evidence: STORY-007 report, Section 11 checklist)*
 
 ### Quality indicators
 
-- [ ] `-m "not db"` wall time recorded in STORY-004 (expected: well under the full run, since it skips ~2,360 resets)
-- [ ] Full-run wall time not worse than STORY-001's baseline
-- [ ] Three consecutive full runs in STORY-007: every failure, if any, carries `libsql verdict: likely infrastructure`. Any `no infrastructure signal` failure is a defect and blocks the story
-- [ ] Spike report states a conclusion (confirmed / refuted / inconclusive) with stall counts for both arms
+- [x] `-m "not db"` wall time recorded in STORY-004 (expected: well under the full run, since it skips ~2,360 resets) *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Full-run wall time not worse than STORY-001's baseline *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Three consecutive full runs in STORY-007: every failure, if any, carries `libsql verdict: likely infrastructure`. Any `no infrastructure signal` failure is a defect and blocks the story *(evidence: STORY-007 report, Section 11 checklist)*
+- [x] Spike report states a conclusion (confirmed / refuted / inconclusive) with stall counts for both arms *(evidence: STORY-007 report, Section 11 checklist)*
 
 ## 12. Implementation Phases
 

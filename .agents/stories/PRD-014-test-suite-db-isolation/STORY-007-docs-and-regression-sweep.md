@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Document and prove"
-status: todo
+status: done
 labels: [docs, tests, regression]
 epic_branch: epic/PRD-014-test-suite-db-isolation
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-014-test-suite-db-isolation/completed/STORY-007-docs-and-regression-sweep.plan.md
+report: .agents/reports/PRD-014-test-suite-db-isolation/STORY-007-docs-and-regression-sweep.report.md
+commit: 57a534c
 depends_on: [STORY-003, STORY-004, STORY-005, STORY-006]
 blocks: []
 skills: []
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # STORY-007: Documentation and regression sweep
