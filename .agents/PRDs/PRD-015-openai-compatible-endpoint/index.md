@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/19 stories done — 11%
+3/19 stories done — 16%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`.
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Characterize /query's error bodies and the upstream request body before /v1 exists | technical | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-001-query-error-body-characterization.plan.md) | `0341ed6` |
 | STORY-002 | OpenRouter client: finish_reason, upstream_status and retryable, OPENROUTER_BASE_URL | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-002-openrouter-client-finish-reason-retryable-base-url.plan.md) | `f4f2a83` |
-| STORY-003 | V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS settings with startup validators | technical | ⬜ todo | small | — | — |
+| STORY-003 | V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-003-v1-settings.plan.md) | `566b071` |
 | STORY-004 | /v1 request, response, chunk and error schemas | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Request translation: messages, the developer role and edge structure checks | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Parameter classification: forward, ignore-and-record, reject; the explicit tools refusal | feature | ⬜ todo | medium | — | — |

@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, config]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-003-v1-settings.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-003-v1-settings.report.md
+commit: 566b071
 depends_on: []
 blocks: [STORY-009, STORY-013]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # STORY-003: V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS settings with startup validators

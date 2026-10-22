@@ -6,7 +6,7 @@ status: draft
 base_branch: main
 epic_branch: epic/PRD-015-openai-compatible-endpoint
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 > **Numbering.** The track's briefs, PRDs 010–013 and the code comments call this PRD **"PRD-014"**. That number went to the test-suite PRD ([PRD-014](../PRD-014-test-suite-db-isolation/PRD.md)) first, so this one is PRD-015. Every comment that says "PRD-014 adds `/v1`" (`query_pipeline.Ingress`, `GenerationParams.from_mapping`, `pattern_config`, `schemas.QueryBlockedUsageLimitResponse`) means this document. Tool calling and action policy are referred to by their briefs (PRE-PRD-016, PRE-PRD-015) because their PRD numbers are not assigned yet.
