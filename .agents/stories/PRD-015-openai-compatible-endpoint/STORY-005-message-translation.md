@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, api, translation]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-005-message-translation.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-005-message-translation.report.md
+commit: d2eaf30
 depends_on: [STORY-004]
 blocks: [STORY-006, STORY-009]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # STORY-005: Request translation: messages, the developer role and edge structure checks

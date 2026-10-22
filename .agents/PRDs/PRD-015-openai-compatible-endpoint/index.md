@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/19 stories done — 21%
+5/19 stories done — 26%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`.
 | STORY-002 | OpenRouter client: finish_reason, upstream_status and retryable, OPENROUTER_BASE_URL | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-002-openrouter-client-finish-reason-retryable-base-url.plan.md) | `f4f2a83` |
 | STORY-003 | V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-003-v1-settings.plan.md) | `566b071` |
 | STORY-004 | /v1 request, response, chunk and error schemas | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-004-v1-schemas.plan.md) | `0be7da0` |
-| STORY-005 | Request translation: messages, the developer role and edge structure checks | feature | ⬜ todo | medium | — | — |
+| STORY-005 | Request translation: messages, the developer role and edge structure checks | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-005-message-translation.plan.md) | `d2eaf30` |
 | STORY-006 | Parameter classification: forward, ignore-and-record, reject; the explicit tools refusal | feature | ⬜ todo | medium | — | — |
 | STORY-007 | audit_logs.ignored_params: column, writer, every pipeline arm and the /audit field | feature | ⬜ todo | medium | — | — |
 | STORY-008 | code profile flags assistant turns; examples/patterns.yaml matches again | enhancement | ⬜ todo | small | — | — |
