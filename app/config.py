@@ -355,6 +355,18 @@ class Settings(BaseSettings):
     # STORY-013's step 2b.
     BREAK_GLASS_INGRESSES: str = "query,chat"
 
+    # OpenAI-compatible ingress (PRD-015 Section 9.3). Nothing reads these yet --
+    # each field names the story that becomes its consumer. No setting chooses
+    # the /v1 profile: it is the literal "code" at the call site (PRD-011 D2).
+
+    # Mount /v1 at all. Off: the routes are not included and /v1/* is 404.
+    # Consumed by STORY-009's router mount.
+    V1_ENABLED: bool = True
+
+    # Seconds between `: keep-alive` comment lines on a buffered /v1 stream,
+    # > 0 and <= 60. Consumed by STORY-013.
+    V1_SSE_KEEPALIVE_SECONDS: float = 10.0
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -595,6 +607,24 @@ class Settings(BaseSettings):
                 f"BREAK_GLASS_INGRESSES names unknown ingress(es) {', '.join(unknown)} "
                 f"(in {value!r}). Names are case-sensitive. Accepted values: "
                 f"{accepted} (any subset, or empty)."
+            )
+        return value
+
+    @field_validator("V1_SSE_KEEPALIVE_SECONDS")
+    @classmethod
+    def _validate_v1_sse_keepalive_seconds(cls, value: float) -> float:
+        """Within (0, 60], or a startup error (PRD-015 Section 9.3).
+
+        0 or less would spin or never fire; above 60 outlasts common proxy idle
+        timeouts, which the keep-alive exists to beat. Written as
+        `not 0 < value <= 60` so that NaN is rejected too, as
+        _validate_pii_score_threshold_code does.
+        """
+        if not 0 < value <= 60:
+            raise ValueError(
+                f"V1_SSE_KEEPALIVE_SECONDS must be > 0 and <= 60, got {value}. "
+                "It is the interval in seconds between keep-alive lines on a "
+                "streamed /v1 response. Example: V1_SSE_KEEPALIVE_SECONDS=10."
             )
         return value
 

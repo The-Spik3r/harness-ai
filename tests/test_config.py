@@ -1230,3 +1230,69 @@ def test_openrouter_base_url_rejection_never_echoes_the_value(url):
         _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url)
 
     assert _TOKEN_SENTINEL not in str(exc_info.value)
+
+
+# --- PRD-015 STORY-003: V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS --------------
+#
+# Nothing reads these yet -- STORY-009 mounts /v1 from V1_ENABLED and
+# STORY-013 paces keep-alive lines from V1_SSE_KEEPALIVE_SECONDS.
+# `.env.example` is STORY-019's, not this block's.
+
+_V1_VARS = ("V1_ENABLED", "V1_SSE_KEEPALIVE_SECONDS")
+_KEEPALIVE_RULE_FRAGMENTS = ("V1_SSE_KEEPALIVE_SECONDS", "> 0", "<= 60", "Example")
+
+
+def test_v1_settings_available_with_documented_defaults(monkeypatch):
+    """AC 1, with the developer's exported environment taken out of it."""
+    for var in _V1_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.V1_ENABLED is True
+    assert result.V1_SSE_KEEPALIVE_SECONDS == 10
+
+
+def test_v1_enabled_parses_the_string_false():
+    """AC 3. Asserted with `is`, as the earlier blocks do for their switches."""
+    assert _settings(DATABASE_URL=_LOCAL_URL, V1_ENABLED="false").V1_ENABLED is False
+
+
+@pytest.mark.parametrize(
+    "value,shown",
+    [
+        (0, "got 0"),
+        (-1, "got -1"),
+        (61, "got 61"),
+        ("0", "got 0"),
+        (60.01, "got 60.01"),
+        ("nan", "got nan"),
+        ("inf", "got inf"),
+    ],
+)
+def test_v1_sse_keepalive_seconds_out_of_range_is_a_startup_error(value, shown):
+    """AC 2: names the setting, the value, the accepted range and an example.
+
+    `"nan"` and `"inf"` parse as floats, so the range check itself must turn
+    them away -- which `not 0 < value <= 60` does.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, V1_SSE_KEEPALIVE_SECONDS=value)
+
+    message = str(exc_info.value)
+    for fragment in _KEEPALIVE_RULE_FRAGMENTS:
+        assert fragment in message, fragment
+    assert shown in message
+
+
+@pytest.mark.parametrize("value", [0.5, 60, "60"])
+def test_v1_sse_keepalive_seconds_accepts_the_range_bounds(value):
+    result = _settings(DATABASE_URL=_LOCAL_URL, V1_SSE_KEEPALIVE_SECONDS=value)
+
+    assert result.V1_SSE_KEEPALIVE_SECONDS == float(value)
+
+
+def test_no_setting_chooses_the_v1_profile():
+    """PRD-015 Section 9.3: the /v1 profile is the literal "code" at the call
+    site (PRD-011 D2), never a setting."""
+    assert not [name for name in Settings.model_fields if name.startswith("V1_") and "PROFILE" in name]
