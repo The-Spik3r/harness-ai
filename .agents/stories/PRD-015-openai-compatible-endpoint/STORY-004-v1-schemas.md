@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, api, schemas]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-004-v1-schemas.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-004-v1-schemas.report.md
+commit: 0be7da0
 depends_on: []
 blocks: [STORY-005, STORY-006, STORY-009, STORY-010, STORY-012, STORY-013]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # STORY-004: /v1 request, response, chunk and error schemas
