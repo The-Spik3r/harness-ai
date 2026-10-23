@@ -201,6 +201,8 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "denied_permission",
         "device",
         "has_tool_calls",
+        # PRD-015 Section 10: additive, nullable (STORY-007).
+        "ignored_params",
         "ingress",
         "input_tokens",
         "limit_exceeded",

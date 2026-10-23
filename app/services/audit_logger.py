@@ -59,6 +59,16 @@ def log_query(
     has_tool_calls: bool = False,
     conversation_key: Optional[str] = None,
     limit_exceeded: Optional[str] = None,
+    # PRD-015 STORY-007 (Section 7.3, D3). Defaulted here but never omitted in
+    # the pipeline: every row run_conversation writes passes it explicitly --
+    # _deny requires it, and tests/test_query_pipeline_audit_fields.py and
+    # tests/test_query_pipeline_pii_profiles.py scan every direct call site --
+    # because a forgotten arm must not write a `/v1` row that claims the client
+    # got everything it asked for. The default exists for the callers that
+    # never ignore anything: /query's foreign-session refusal
+    # (app/routers/query.py), the test suite and scripts/, where NULL is the
+    # truth. Stored verbatim: v1_translate builds the string, not this module.
+    ignored_params: Optional[str] = None,
 ) -> int:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
@@ -92,5 +102,6 @@ def log_query(
         has_tool_calls=has_tool_calls,
         conversation_key=conversation_key,
         limit_exceeded=limit_exceeded,
+        ignored_params=ignored_params,
     )
     return insert_audit_log(entry)

@@ -238,6 +238,11 @@ class AuditQueryEntry(BaseModel):
     has_tool_calls: bool = False
     conversation_key: Optional[str] = None
     limit_exceeded: Optional[str] = None
+    # PRD-015 Section 10: the client parameter names `/v1` did not forward,
+    # sorted and comma-joined. Optional, defaulted and unvalidated for
+    # `session_id`'s reasons: NULL on every `/query` and chat row and on every
+    # row written before PRD-015.
+    ignored_params: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

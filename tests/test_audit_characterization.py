@@ -117,6 +117,8 @@ FIELDS_ADDED_SINCE: frozenset[str] = frozenset({
     # PRD-013 STORY-002.
     "ingress", "message_count", "input_tokens", "output_tokens",
     "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
+    # PRD-015 STORY-007.
+    "ignored_params",
 })
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

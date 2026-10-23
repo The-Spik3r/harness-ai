@@ -171,10 +171,12 @@ def test_dest_columns_match_the_ddl():
         "pattern_role", "pattern_action", "profile",
         "ingress", "message_count", "input_tokens", "output_tokens",
         "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
+        "ignored_params",
         # session_id: PRD-008 STORY-002; dedup_key: PRD-009 STORY-002;
         # pattern_role, pattern_action: PRD-011 STORY-009 (D6);
         # profile: PRD-012 STORY-011 (D9)
         # ingress ... limit_exceeded: PRD-013 STORY-002 (Section 6.2)
+        # ignored_params: PRD-015 STORY-007 (Section 7.3)
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",

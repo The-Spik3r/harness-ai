@@ -11,6 +11,7 @@ from app.db.database import insert_audit_log, insert_user
 from app.db.models import AuditLog, User
 from app.main import app
 from app.services.identity import hash_token
+from app.services.openrouter_client import OpenRouterResult
 
 client = TestClient(app)
 
@@ -102,6 +103,8 @@ def test_valid_token_returns_expected_shape(temp_db):
             "has_tool_calls",
             "conversation_key",
             "limit_exceeded",
+            # PRD-015 Section 10: additive, nullable (STORY-007).
+            "ignored_params",
         }
 
     newest, oldest = body["queries"]
@@ -371,3 +374,58 @@ def test_audit_entry_carries_profile(temp_db):
 
     assert response.status_code == 200
     assert [q["profile"] for q in response.json()["queries"]] == ["chat", "code", None]
+
+
+def test_audit_entry_carries_ignored_params(temp_db):
+    """PRD-015 STORY-007 AC 4: passed through verbatim, newest first; a row
+    with nothing ignored -- every row off `/v1` -- reads null."""
+    for timestamp, prompt_hash, ingress, ignored in [
+        ("2026-10-23T12:00:00Z", "hv", "v1", "seed,user"),
+        ("2026-10-23T11:00:00Z", "hq", "query", None),
+    ]:
+        insert_audit_log(
+            AuditLog(
+                timestamp=timestamp,
+                user_id="juan@empresa.com",
+                prompt_hash=prompt_hash,
+                ingress=ingress,
+                ignored_params=ignored,
+            )
+        )
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    assert response.status_code == 200
+    assert [q["ignored_params"] for q in response.json()["queries"]] == ["seed,user", None]
+
+
+def test_a_query_row_reads_null_ignored_params_on_audit(temp_db, monkeypatch):
+    """PRD-015 STORY-007 AC 4, over a row the real `/query` route wrote."""
+    insert_user(
+        User(user_id="juan@empresa.com", role="user", token_hash=hash_token("story007-token"))
+    )
+    monkeypatch.setattr(
+        "app.routers.query.call_openrouter",
+        lambda messages, model="gpt-4", api_key=None: OpenRouterResult(
+            response="ok", model_used=model, tokens_used=3
+        ),
+    )
+
+    sent = client.post(
+        "/query",
+        json={"prompt": "what is a linked list?"},
+        headers={"Authorization": "Bearer story007-token"},
+    )
+    assert sent.status_code == 200
+    assert sent.json()["status"] == "SUCCESS"
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    (entry,) = response.json()["queries"]
+    assert entry["audit_id"] == sent.json()["audit_id"]
+    assert entry["ingress"] == "query"
+    assert entry["ignored_params"] is None

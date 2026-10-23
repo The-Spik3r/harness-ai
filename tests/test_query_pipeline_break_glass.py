@@ -94,9 +94,11 @@ _NO_DOOR = object()
 
 
 def _run(identity, prompt="how do I parse a date?", *, ingress=_NO_DOOR, upstream=_answer,
-         api_key=None):
-    """`run_conversation` with one user turn; `ingress` omitted unless given."""
+         api_key=None, **extra):
+    """`run_conversation` with one user turn; `ingress` omitted unless given.
+    `extra` reaches it as is (PRD-015 STORY-007's `ignored_params`)."""
     kwargs = {} if ingress is _NO_DOOR else {"ingress": ingress}
+    kwargs.update(extra)
     return query_pipeline.run_conversation(
         identity=identity, messages=[Message("user", prompt)], device=None,
         model="gpt-4", openrouter_api_key=api_key, call_openrouter=upstream,
@@ -150,6 +152,24 @@ def test_break_glass_is_refused_with_the_forbidden_body_and_one_row(temp_db, mon
     assert row.limit_exceeded is None
     assert row.was_duplicate_blocked is False
     assert row.error_message is None
+
+
+@pytest.mark.parametrize(
+    ("passed", "recorded"),
+    [pytest.param({"ignored_params": "seed,user"}, "seed,user", id="passed"),
+     pytest.param({}, None, id="omitted")],
+)
+def test_the_refusal_row_records_ignored_params(temp_db, monkeypatch, passed, recorded):
+    """PRD-015 STORY-007 AC 2: the break-glass arm, which ARM_CASES does not
+    drive, carries the value when passed and NULL when omitted."""
+    monkeypatch.setattr(query_pipeline, "admit", _fail_if_called)
+
+    result = _run(_break_glass(), ingress="v1", upstream=_fail_if_called, **passed)
+
+    assert result == _REFUSAL
+    row = _last_audit_entry()
+    assert row.denied_permission == _LABEL
+    assert row.ignored_params == recorded
 
 
 def test_the_refusal_holds_with_usage_limits_off(temp_db, monkeypatch):
