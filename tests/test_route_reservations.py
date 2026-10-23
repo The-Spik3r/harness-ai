@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+from app.config import settings
 from app.main import app
 
 # Reserved by Reflex >=0.8 (chat_ui/ pins reflex==0.9.6.post1); see PRD-002 Section 9.
@@ -29,3 +30,9 @@ def test_no_route_collides_with_reflex_reserved_routes():
 
 def test_expected_harness_routes_present():
     assert {"/query", "/audit", "/stats", "/health"} <= _harness_route_paths()
+
+
+def test_v1_routes_present_when_enabled():
+    # PRD-015 STORY-009. The default is on; STORY-012 adds /v1/models here.
+    assert settings.V1_ENABLED
+    assert {"/v1/chat/completions"} <= _harness_route_paths()

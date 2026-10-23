@@ -674,12 +674,22 @@ def test_no_route_accepts_messages_params_or_system():
     Top-level fields only, which is what the story specifies. A body model that
     nested a conversation inside a sub-model would need this walk extended; no
     request model in the app has a nested model today.
+
+    PRD-015 STORY-009 is that handoff ("PRD-014" above is PRD-015, see its
+    numbering note). `POST /v1/chat/completions` accepts `messages`, and only
+    `messages`: PRD-015 Section 9.2 T1/T2 states the policy for it, and STORY-008
+    flags `assistant` turns under the `code` profile that route runs. It is
+    exempted by name, and the pin below fails if it ever gains `params`,
+    `system` or `profile`, or if another route gains any of the four.
     """
     offenders = {
         (path, field)
         for path, model in _request_body_models()
         for field in _FORBIDDEN_BODY_FIELDS & set(model.model_fields)
     }
+    v1_fields = {(path, field) for path, field in offenders if path == "/v1/chat/completions"}
+    assert v1_fields == {("/v1/chat/completions", "messages")}, v1_fields
+    offenders -= v1_fields
 
     assert not offenders, (
         "a route now accepts caller-supplied conversation input: "

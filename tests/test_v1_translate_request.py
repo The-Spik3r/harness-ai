@@ -341,6 +341,8 @@ def test_is_pure():
         "typing",
         "dataclasses",
         "app.models.messages",
+        # STORY-009: translate_result reads QuerySuccessResponse (pydantic only).
+        "app.models.schemas",
         "app.models.v1_schemas",
         "app.services.openrouter_client",
     }

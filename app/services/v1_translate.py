@@ -1,17 +1,32 @@
-"""Request translation for `/v1` (PRD-015 Sections 4, 7.1 and 7.3).
+"""Request and result translation for `/v1` (PRD-015 Sections 4, 7.1-7.4).
 
 Turns the wire request into pipeline arguments: the messages, the forwarded
-generation parameters and the names of everything ignored. Every refusal is a
-`V1RequestError`, which the router maps to a 400 (STORY-009/010). Pure on
-purpose, like `app/models/messages.py`: no I/O, no settings reads, no logging.
+generation parameters and the names of everything ignored, plus the
+`X-Harness-Device` header. Turns a successful pipeline result into the
+`chat.completion` the client reads. Every refusal is a `V1RequestError`,
+which the router maps to a 400 (STORY-009/010). Pure on purpose, like
+`app/models/messages.py`: no I/O, no settings reads, no logging, no clock.
 """
 
 from dataclasses import dataclass
 from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from app.models.messages import Message, MessageNormalizationError, normalize_message
-from app.models.v1_schemas import ChatCompletionRequest
-from app.services.openrouter_client import GenerationParams, UnsupportedParameterError
+from app.models.schemas import QuerySuccessResponse
+from app.models.v1_schemas import (
+    AssistantMessage,
+    ChatCompletion,
+    ChatCompletionRequest,
+    Choice,
+    HarnessCompletionInfo,
+    Usage,
+    chat_completion_id,
+)
+from app.services.openrouter_client import (
+    GenerationParams,
+    OpenRouterResult,
+    UnsupportedParameterError,
+)
 
 INVALID_MESSAGES = "invalid_messages"
 INVALID_PARAMETER = "invalid_parameter"
@@ -19,8 +34,16 @@ UNSUPPORTED_PARAMETER = "unsupported_parameter"
 # The `tools` parameter refusal raises this same constant, so a client sees
 # one code whether the tool use was in a parameter or a message.
 TOOLS_NOT_SUPPORTED = "tools_not_supported"
+INVALID_HEADER = "invalid_header"
 
 IGNORED_MESSAGE_NAME = "messages[].name"
+
+DEVICE_HEADER = "X-Harness-Device"
+MAX_DEVICE_LENGTH = 128
+
+# The values `FinishReason` accepts (v1_schemas). Anything else the upstream
+# reports, None included, is sent as "stop".
+_FINISH_REASONS = frozenset({"stop", "length", "content_filter"})
 
 # PRD-015 Section 7.3 (D3): every key a client sends is in exactly one of three
 # groups. Widening the upstream surface means changing PRD-010's allowlist,
@@ -251,4 +274,68 @@ def translate_request(body: ChatCompletionRequest) -> V1Call:
         stream=body.stream,
         include_usage=body.stream and include_usage,
         ignored_params=",".join(sorted(ignored)) or None,
+    )
+
+
+def translate_device(raw: Optional[str]) -> Optional[str]:
+    """The `X-Harness-Device` header as the audit row's `device` (PRD-015 Section 7.2).
+
+    Stripped, then at most `MAX_DEVICE_LENGTH` printable characters. Absent,
+    or empty once stripped, is None: there is nothing to record. The body's
+    `user` field is never the device (D1); the router reads only this header.
+    The refusal names the header and the rule, never the value (T6).
+    """
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    if len(value) > MAX_DEVICE_LENGTH or not value.isprintable():
+        raise V1RequestError(
+            INVALID_HEADER,
+            f"{DEVICE_HEADER}: must be at most {MAX_DEVICE_LENGTH} printable characters",
+        )
+    return value
+
+
+def translate_result(
+    result: QuerySuccessResponse, upstream: OpenRouterResult, created: int
+) -> ChatCompletion:
+    """A successful pipeline result as a `chat.completion` (PRD-015 Section 7.4).
+
+    `QuerySuccessResponse` carries neither the finish reason nor the token
+    split, and `/query`'s body must not move (STORY-001), so the router passes
+    the upstream result its `call_openrouter` wrapper captured. `created` is a
+    parameter so this function reads no clock.
+
+    `finish_reason` is the upstream's when the schema can carry it, else
+    "stop" (an omitted one included). A missing split is `0` on both sides
+    with the reported total, so clients that compute cost from the keys keep
+    working; the audit row keeps NULL, which stays the truth. `model` is the
+    requested name, as `model_used` records it.
+    """
+    reported = upstream.finish_reason
+    finish_reason = reported if reported in _FINISH_REASONS else "stop"
+    prompt_tokens = 0 if upstream.input_tokens is None else upstream.input_tokens
+    completion_tokens = 0 if upstream.output_tokens is None else upstream.output_tokens
+    return ChatCompletion(
+        id=chat_completion_id(result.audit_id),
+        created=created,
+        model=result.model_used,
+        choices=[
+            Choice(
+                message=AssistantMessage(content=result.response),
+                finish_reason=finish_reason,
+            )
+        ],
+        usage=Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=result.tokens_used,
+        ),
+        harness=HarnessCompletionInfo(
+            audit_id=result.audit_id,
+            pii_redacted=result.pii_redacted,
+            pii_entities_masked=result.pii_entities_masked,
+        ),
     )

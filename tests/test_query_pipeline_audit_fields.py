@@ -553,11 +553,14 @@ def test_every_production_pipeline_call_names_its_door():
     """AC 5. `ingress` defaults to None on run_conversation for the test
     suite's sake, so nothing but this scan stops a new production caller from
     writing NULL doors. The exact site list makes a renamed dispatcher, or a
-    scan that silently matches nothing, fail here rather than pass."""
+    scan that silently matches nothing, fail here rather than pass. PRD-015
+    STORY-009 adds the `/v1` site, which hands `run_conversation` to
+    `run_in_pipeline` as ChatState does."""
     sites = _scan().pipeline
 
     assert sorted((path, enclosing, target) for path, enclosing, target, _, _ in sites) == [
         ("app/routers/query.py", "_handle_query", "run_query"),
+        ("app/routers/v1.py", "chat_completions", "run_conversation"),
         ("app/services/query_pipeline.py", "run_query", "run_conversation"),
         ("chat_ui/chat_ui/state.py", "_do_send", "run_conversation"),
         ("chat_ui/chat_ui/state.py", "_do_send", "run_query"),
