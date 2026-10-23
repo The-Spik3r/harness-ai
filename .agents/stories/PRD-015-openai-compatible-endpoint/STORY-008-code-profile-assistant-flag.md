@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, patterns, security]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-008-code-profile-assistant-flag.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-008-code-profile-assistant-flag.report.md
+commit: 4ed6379
 depends_on: []
 blocks: [STORY-019]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # STORY-008: code profile flags assistant turns; examples/patterns.yaml matches again
