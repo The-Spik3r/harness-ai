@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, audit, pipeline, db]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-007-ignored-params-audit-column.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-007-ignored-params-audit-column.report.md
+commit: 4100d89
 depends_on: []
 blocks: [STORY-009]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # STORY-007: audit_logs.ignored_params: column, writer, every pipeline arm and the /audit field
