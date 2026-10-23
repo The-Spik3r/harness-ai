@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Non-streaming endpoint"
-status: todo
+status: done
 labels: [backend, api, router]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-009-v1-router-non-streaming-success.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-009-v1-router-non-streaming-success.report.md
+commit: 3193854
 depends_on: [STORY-002, STORY-003, STORY-004, STORY-005, STORY-006, STORY-007]
 blocks: [STORY-010, STORY-012]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # STORY-009: POST /v1/chat/completions: router, identity, device header and non-streaming success

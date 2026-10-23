@@ -6,7 +6,7 @@
 
 ## Progress
 
-8/19 stories done — 42%
+9/19 stories done — 47%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`.
 | STORY-006 | Parameter classification: forward, ignore-and-record, reject; the explicit tools refusal | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-006-parameter-classification-and-tools-refusal.plan.md) | `b62f21e` |
 | STORY-007 | audit_logs.ignored_params: column, writer, every pipeline arm and the /audit field | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-007-ignored-params-audit-column.plan.md) | `4100d89` |
 | STORY-008 | code profile flags assistant turns; examples/patterns.yaml matches again | enhancement | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-008-code-profile-assistant-flag.plan.md) | `4ed6379` |
-| STORY-009 | POST /v1/chat/completions: router, identity, device header and non-streaming success | feature | ⬜ todo | large | — | — |
+| STORY-009 | POST /v1/chat/completions: router, identity, device header and non-streaming success | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-009-v1-router-non-streaming-success.plan.md) | `3193854` |
 | STORY-010 | Verdicts to OpenAI error objects; /v1-scoped 400/401/403 handlers; /query isolation | feature | ⬜ todo | large | — | — |
 | STORY-011 | Upstream and internal fault mapping with deliberate retry semantics | feature | ⬜ todo | medium | — | — |
 | STORY-012 | GET /v1/models and /v1/models/{id} from MODEL_ALLOWLIST | feature | ⬜ todo | small | — | — |
