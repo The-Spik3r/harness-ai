@@ -49,7 +49,8 @@ class GenerationParams:
     """The only generation parameters call_openrouter may forward (PRD-010 F3, T5).
 
     Every field defaults to None and is sent only when set. from_mapping is
-    PRD-014's entry point; nothing in this PRD calls it in production.
+    PRD-015's entry point (the track's "PRD-014"): v1_translate.translate_request
+    is its production caller.
     """
 
     temperature: Optional[float] = None   # 0.0 <= t <= 2.0
@@ -91,7 +92,7 @@ class GenerationParams:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "GenerationParams":
-        """PRD-014's entry point. Raises for any key outside the allowlist, sorted."""
+        """PRD-015's entry point (`/v1`). Raises for any key outside the allowlist, sorted."""
         unsupported = sorted(set(raw) - _ALLOWED_GENERATION_PARAMS)
         if unsupported:
             raise UnsupportedParameterError(

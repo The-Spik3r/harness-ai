@@ -1,10 +1,13 @@
-"""PRD-015 STORY-005: `translate_messages`.
+"""PRD-015 STORY-005 `translate_messages` and STORY-006 `translate_request`.
 
 The client's `messages` reach the pipeline as `normalize_messages` would build
 them, with `developer` as `system` and `name` reported as ignored. Everything
 else is a `V1RequestError` naming a location and a rule, never the content
 (canary tests). The edge checks make `_validate_conversation` unreachable: a
-seeded property test feeds every accepted input to it. No DB.
+seeded property test feeds every accepted input to it.
+
+STORY-006: every other key is forwarded, refused unless it is the default, or
+ignored with its name recorded. Only the T5 upstream-body test needs the DB.
 """
 
 import os
@@ -15,22 +18,39 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import ast
 import copy
 import inspect
+import json
 import random
 import re
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 
+import app.services.query_pipeline as query_pipeline
 import app.services.v1_translate as v1_translate_module
+from app.db.database import insert_user
+from app.db.models import User
 from app.models.messages import Message, MessageNormalizationError, normalize_messages
+from app.models.schemas import QuerySuccessResponse
+from app.models.v1_schemas import ChatCompletionRequest
+from app.services.identity import Identity, hash_token
+from app.services.openrouter_client import GenerationParams
 from app.services.query_pipeline import _validate_conversation
 from app.services.v1_translate import (
+    FORWARDED,
     IGNORED_MESSAGE_NAME,
     INVALID_MESSAGES,
+    INVALID_PARAMETER,
+    REJECTED_UNLESS_DEFAULT,
     TOOLS_NOT_SUPPORTED,
+    UNSUPPORTED_PARAMETER,
+    V1Call,
     V1RequestError,
+    _STRUCTURAL,
     translate_messages,
+    translate_request,
 )
+from tests.test_v1_query_isolation import _capturing_transport, _mask_nothing, _upstream_over
 
 _CANARY = "jane@corp.com SECRET-CANARY"
 
@@ -317,7 +337,13 @@ def test_is_pure():
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     names |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
 
-    assert modules <= {"typing", "app.models.messages"}
+    assert modules <= {
+        "typing",
+        "dataclasses",
+        "app.models.messages",
+        "app.models.v1_schemas",
+        "app.services.openrouter_client",
+    }
     assert not names & {"settings", "open", "httpx", "log_query", "logging", "logger", "query_pipeline"}
 
 
@@ -392,3 +418,474 @@ def test_property_generator_is_not_degenerate():
 
     assert accepted >= len(_SEEDS) * 0.25
     assert len(_SEEDS) - accepted >= len(_SEEDS) * 0.25
+
+
+# === STORY-006: translate_request ============================================
+
+
+def _body(**extra):
+    return ChatCompletionRequest.model_validate({"model": "gpt-4", "messages": [_USER], **extra})
+
+
+def _refusal(**extra):
+    with pytest.raises(V1RequestError) as caught:
+        translate_request(_body(**extra))
+    return caught.value
+
+
+# --- AC 1: forwarded ---------------------------------------------------------
+
+
+def test_forwarded_params_become_generation_params():
+    call = translate_request(_body(temperature=0.2, top_p=0.9, max_tokens=100, stop=["END"]))
+
+    assert call.params == GenerationParams(temperature=0.2, max_tokens=100, top_p=0.9, stop=["END"])
+    assert call.ignored_params is None
+
+
+def test_nothing_forwarded_is_params_none():
+    assert translate_request(_body()).params is None
+
+
+def test_explicit_null_forwarded_is_absent_and_not_ignored():
+    call = translate_request(_body(temperature=None, top_p=None, max_tokens=None, stop=None))
+
+    assert call.params is None
+    assert call.ignored_params is None
+
+
+def test_integer_temperature_is_a_number():
+    assert translate_request(_body(temperature=1)).params == GenerationParams(temperature=1)
+
+
+def test_max_completion_tokens_alone_becomes_max_tokens():
+    call = translate_request(_body(max_completion_tokens=50))
+
+    assert call.params == GenerationParams(max_tokens=50)
+    assert call.ignored_params is None
+
+
+def test_max_tokens_and_max_completion_tokens_equal_are_forwarded_once():
+    call = translate_request(_body(max_tokens=50, max_completion_tokens=50))
+
+    assert call.params == GenerationParams(max_tokens=50)
+
+
+def test_max_completion_tokens_with_null_max_tokens():
+    call = translate_request(_body(max_tokens=None, max_completion_tokens=7))
+
+    assert call.params == GenerationParams(max_tokens=7)
+
+
+def test_max_tokens_and_max_completion_tokens_different_are_refused():
+    exc = _refusal(max_tokens=50, max_completion_tokens=60)
+
+    assert exc.code == INVALID_PARAMETER
+    assert exc.param == "max_completion_tokens"
+    assert exc.message == "max_completion_tokens: must equal max_tokens when both are sent"
+
+
+_INVALID_FORWARDED = [
+    ("temperature", 2.5),
+    ("temperature", -0.1),
+    ("temperature", "hot"),
+    ("temperature", True),
+    ("temperature", float("nan")),
+    ("top_p", 0),
+    ("top_p", 1.5),
+    ("top_p", "0.5"),
+    ("max_tokens", 0),
+    ("max_tokens", 1.5),
+    ("max_tokens", "5"),
+    ("max_tokens", True),
+    ("max_completion_tokens", 0),
+    ("max_completion_tokens", 2.0),
+    ("stop", ["a", "b", "c", "d", "e"]),
+    ("stop", [1]),
+    ("stop", {}),
+]
+
+
+@pytest.mark.parametrize(
+    "key, value", _INVALID_FORWARDED, ids=[f"{key}={value!r}" for key, value in _INVALID_FORWARDED]
+)
+def test_forwarded_out_of_range_or_wrong_type_is_invalid_parameter(key, value):
+    # No TypeError escapes: GenerationParams alone raises one for "hot" and "5".
+    exc = _refusal(**{key: value})
+
+    assert exc.code == INVALID_PARAMETER
+    assert exc.param == key
+    assert exc.message.startswith(f"{key}: ")
+    assert exc.__cause__ is None
+
+
+def test_forwarded_checks_run_in_table_order():
+    assert _refusal(temperature=9, stop=[1]).param == "temperature"
+
+
+# --- AC 2: unsupported -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("n", 2),
+        ("n", True),
+        ("n", 1.0),
+        ("logprobs", True),
+        ("top_logprobs", 3),
+        ("top_logprobs", 0),
+        ("response_format", {"type": "json_object"}),
+        ("response_format", {"type": "json_schema", "json_schema": {"name": "x"}}),
+        ("response_format", "text"),
+        ("modalities", ["text", "audio"]),
+        ("modalities", "text"),
+        ("audio", {"voice": "alloy", "format": "wav"}),
+    ],
+    ids=[
+        "n-2",
+        "n-true",
+        "n-float",
+        "logprobs-true",
+        "top-logprobs-3",
+        "top-logprobs-0",
+        "json-object",
+        "json-schema",
+        "response-format-bare-string",
+        "audio-modality",
+        "modalities-bare-string",
+        "audio",
+    ],
+)
+def test_non_default_is_unsupported_parameter(key, value):
+    exc = _refusal(**{key: value})
+
+    assert exc.code == UNSUPPORTED_PARAMETER
+    assert exc.param == key
+    assert exc.message == f"{key}: only the default value is supported on this endpoint"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"n": 1},
+        {"n": None},
+        {"logprobs": False},
+        {"logprobs": None},
+        {"top_logprobs": None},
+        {"response_format": {"type": "text"}},
+        {"modalities": ["text"]},
+        {"audio": None},
+    ],
+    ids=[
+        "n-1",
+        "n-null",
+        "logprobs-false",
+        "logprobs-null",
+        "top-logprobs-null",
+        "text-format",
+        "text-modality",
+        "audio-null",
+    ],
+)
+def test_default_is_accepted_and_not_ignored(extra):
+    call = translate_request(_body(**extra))
+
+    assert call.ignored_params is None
+    assert call.params is None
+
+
+# --- AC 3: tools -------------------------------------------------------------
+
+_TOOL = {"type": "function", "function": {"name": "ls", "parameters": {}}}
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("tools", [_TOOL]),
+        ("functions", [{"name": "ls"}]),
+        ("tool_choice", "auto"),
+        ("tool_choice", "required"),
+        ("tool_choice", {"type": "function", "function": {"name": "ls"}}),
+        ("function_call", "auto"),
+        ("function_call", "none"),
+        ("function_call", {"name": "ls"}),
+    ],
+    ids=[
+        "tools",
+        "functions",
+        "tool-choice-auto",
+        "tool-choice-required",
+        "tool-choice-named",
+        "function-call-auto",
+        "function-call-none",
+        "function-call-named",
+    ],
+)
+def test_tool_use_is_tools_not_supported(key, value):
+    exc = _refusal(**{key: value})
+
+    assert exc.code == TOOLS_NOT_SUPPORTED
+    assert exc.param == key
+    assert exc.message == f"{key}: tool calling is not supported (PRD-016)"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"tools": []},
+        {"tools": None},
+        {"functions": []},
+        {"tool_choice": "none"},
+        {"tools": [], "tool_choice": "none"},
+        {"function_call": None},
+    ],
+    ids=[
+        "tools-empty",
+        "tools-null",
+        "functions-empty",
+        "tool-choice-none",
+        "both-defaults",
+        "function-call-null",
+    ],
+)
+def test_tools_defaults_are_accepted(extra):
+    assert translate_request(_body(**extra)).ignored_params is None
+
+
+def test_tools_refusal_comes_before_every_other_check():
+    exc = _refusal(n=2, temperature=9, tools=[_TOOL], messages=[{"role": "tool", "content": "x"}])
+
+    assert (exc.code, exc.param) == (TOOLS_NOT_SUPPORTED, "tools")
+
+
+# --- AC 4: ignored -----------------------------------------------------------
+
+_AC4_IGNORED = {
+    "seed": 7,
+    "user": "jane",
+    "presence_penalty": 0.5,
+    "logit_bias": {"50256": -100},
+    "metadata": {"k": "v"},
+    "profile": "permissive",
+    "ingress": "query",
+    "openrouter_api_key": "sk-or-x",
+    "x_custom": True,
+}
+
+
+def test_ignored_names_sorted_comma_joined():
+    call = translate_request(
+        _body(stream=True, stream_options={"include_usage": True, "foo": 1}, **_AC4_IGNORED)
+    )
+
+    assert call.ignored_params == (
+        "ingress,logit_bias,metadata,openrouter_api_key,presence_penalty,"
+        "profile,seed,stream_options.foo,user,x_custom"
+    )
+    assert call.include_usage is True
+    assert call.params is None
+
+
+def test_ignored_values_never_appear():
+    body = _body(
+        stream=True,
+        stream_options={"include_usage": False, "foo": _CANARY},
+        **{key: _CANARY for key in _AC4_IGNORED},
+    )
+
+    call = translate_request(body)
+
+    assert "CANARY" not in repr(call)
+    assert call.include_usage is False
+
+
+def test_nothing_ignored_is_none():
+    call = translate_request(_body(stream=True, stream_options={"include_usage": True}))
+
+    assert call.ignored_params is None
+
+
+def test_ignored_key_is_recorded_even_when_null():
+    assert translate_request(_body(seed=None)).ignored_params == "seed"
+
+
+def test_message_name_merges_and_is_listed_once():
+    messages = [
+        {"role": "user", "content": "a", "name": "bob"},
+        {"role": "assistant", "content": "b", "name": "helper"},
+        _USER,
+    ]
+
+    call = translate_request(_body(messages=messages, seed=1))
+
+    assert call.ignored_params == "messages[].name,seed"
+
+
+def test_include_usage_only_on_streamed_requests():
+    call = translate_request(_body(stream_options={"include_usage": True}))
+
+    assert call.include_usage is False
+    assert call.stream is False
+
+
+@pytest.mark.parametrize(
+    "stream_options, param",
+    [
+        ("yes", "stream_options"),
+        ([], "stream_options"),
+        ({"include_usage": "true"}, "stream_options.include_usage"),
+    ],
+    ids=["string", "list", "include-usage-string"],
+)
+def test_malformed_stream_options_is_invalid_parameter(stream_options, param):
+    exc = _refusal(stream=True, stream_options=stream_options)
+
+    assert (exc.code, exc.param) == (INVALID_PARAMETER, param)
+    assert exc.message.startswith(f"{param}: ")
+
+
+def test_model_and_stream_pass_through():
+    call = translate_request(
+        ChatCompletionRequest.model_validate({"model": "x/y", "messages": [_USER], "stream": True})
+    )
+
+    assert (call.model, call.stream, call.include_usage) == ("x/y", True, False)
+
+
+# --- T4: no field chooses the profile or the door ----------------------------
+
+
+def test_profile_and_ingress_are_ordinary_ignored_keys():
+    call = translate_request(_body(profile="permissive", ingress="query"))
+
+    assert call.ignored_params == "ingress,profile"
+    assert {field.name for field in fields(V1Call)} == {
+        "messages",
+        "params",
+        "model",
+        "stream",
+        "include_usage",
+        "ignored_params",
+    }
+
+
+# --- AC 5: the table ---------------------------------------------------------
+
+
+def test_forwarded_is_generation_params_plus_alias():
+    assert FORWARDED == {field.name for field in fields(GenerationParams)} | {"max_completion_tokens"}
+
+
+def test_the_three_groups_are_disjoint():
+    rejected = set(REJECTED_UNLESS_DEFAULT)
+
+    assert not FORWARDED & rejected
+    assert not FORWARDED & _STRUCTURAL
+    assert not rejected & _STRUCTURAL
+
+
+def test_every_declared_request_field_is_classified():
+    # A field added to ChatCompletionRequest must land in the table; `user` is
+    # declared only to document D1 and is ignored like any unknown key.
+    classified = FORWARDED | set(REJECTED_UNLESS_DEFAULT) | _STRUCTURAL | {"user"}
+
+    assert set(ChatCompletionRequest.model_fields) == classified
+
+
+# --- T6: refusals never echo values ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"stop": [_CANARY] * 5},
+        {"stop": [_CANARY, 1]},
+        {"temperature": _CANARY},
+        {"n": _CANARY},
+        {"tools": [_CANARY]},
+        {"stream_options": {"include_usage": _CANARY}},
+    ],
+    ids=["stop-too-many", "stop-non-string", "temperature-string", "n-string", "tools", "include-usage"],
+)
+def test_parameter_refusal_never_echoes_the_value(extra):
+    exc = _refusal(**extra)
+
+    assert "CANARY" not in str(exc)
+    assert "CANARY" not in exc.param
+    assert exc.__cause__ is None
+
+
+# --- messages still go through translate_messages ---------------------------
+
+
+def test_messages_are_translate_messages_output():
+    raw = [{"role": "developer", "content": "be brief"}, _USER]
+
+    assert translate_request(_body(messages=raw)).messages == translate_messages(raw)[0]
+
+
+def test_message_refusal_surfaces_unchanged():
+    exc = _refusal(messages=[_USER, {"role": "assistant", "content": "x"}])
+
+    assert (exc.code, exc.param) == (INVALID_MESSAGES, "messages[1]")
+
+
+# --- AC 5 / T5: the upstream body is still STORY-001's set -------------------
+
+_AUTH_USER_ID = "juan@empresa.com"
+
+
+@pytest.fixture
+def _v1_user(temp_db):
+    """conftest's initialized database, plus the user the pipeline authorizes."""
+    insert_user(User(user_id=_AUTH_USER_ID, role="user", token_hash=hash_token("v1-translate-token")))
+    return temp_db
+
+
+def test_translated_request_upstream_body_is_the_t5_set(_v1_user, monkeypatch):
+    accepted_defaults = {
+        "n": 1,
+        "logprobs": False,
+        "response_format": {"type": "text"},
+        "modalities": ["text"],
+        "tools": [],
+        "tool_choice": "none",
+    }
+    body = ChatCompletionRequest.model_validate(
+        {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hello world"}],
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "max_completion_tokens": 100,
+            "stop": ["END"],
+            "stream_options": {"include_usage": True, "foo": 1},
+            **_AC4_IGNORED,
+            **accepted_defaults,
+        }
+    )
+    call = translate_request(body)
+    seen: list = []
+    monkeypatch.setattr(query_pipeline, "redact", _mask_nothing)
+
+    result = query_pipeline.run_conversation(
+        Identity(user_id=_AUTH_USER_ID, role="user"),
+        call.messages,
+        None,
+        call.model,
+        None,
+        call.params,
+        call_openrouter=_upstream_over(_capturing_transport(seen)),
+        profile="code",
+        ingress="v1",
+    )
+
+    assert isinstance(result, QuerySuccessResponse)
+    assert len(seen) == 1
+    upstream = json.loads(seen[0].content)
+    # T5: the keys STORY-001 pinned, in call_openrouter's order, nothing more.
+    assert list(upstream) == ["model", "messages", "temperature", "max_tokens", "top_p", "stop"]
+    assert upstream["max_tokens"] == 100
+    assert not set(upstream) & (set(_AC4_IGNORED) | set(accepted_defaults) | {"stream_options"})
