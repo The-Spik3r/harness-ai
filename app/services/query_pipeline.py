@@ -551,8 +551,10 @@ def run_conversation(
     # names one hit: the first flag in walk order; further flags are not
     # recorded (a second table is PRD-013's). A block above has already
     # returned, so a flag followed by a block leaves only the block row.
-    # Unreachable from any ingress today: `chat` has no flag cell, and step 0
-    # refuses `tool` turns until PRD-016.
+    # `chat` has no flag cell. `code` flags `assistant` turns (PRD-015 D9),
+    # which `/v1` reaches once its router is mounted (STORY-009) -- until then
+    # only tests do. Its `tool` cell stays unreachable: step 0 refuses `tool`
+    # turns until PRD-016.
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(

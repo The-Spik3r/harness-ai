@@ -89,7 +89,7 @@ _MATRIX = [
     ("chat", "tool", None),
     ("code", "system", None),
     ("code", "user", "block"),
-    ("code", "assistant", None),
+    ("code", "assistant", "flag"),
     ("code", "tool", "flag"),
 ]
 
@@ -113,10 +113,17 @@ def test_built_in_matrix_cell(profile_name, role, expected):
 
 def test_the_matrix_has_no_cells_beyond_section_6_4():
     """Exactly two profiles, exactly these keys -- the parametrized cells above
-    cannot see an extra profile or an extra role nobody wrote into the table."""
+    cannot see an extra profile or an extra role nobody wrote into the table.
+    `code`'s `assistant` cell is PRD-015's (Section 7.8, D9), and its declared
+    order is asserted too: dict `==` ignores order."""
     assert set(BUILT_IN_POLICY.profiles) == {"chat", "code"}
     assert dict(BUILT_IN_POLICY.profiles["chat"].roles) == {"user": "block"}
-    assert dict(BUILT_IN_POLICY.profiles["code"].roles) == {"user": "block", "tool": "flag"}
+    assert dict(BUILT_IN_POLICY.profiles["code"].roles) == {
+        "user": "block",
+        "assistant": "flag",
+        "tool": "flag",
+    }
+    assert list(BUILT_IN_POLICY.profiles["code"].roles) == ["user", "assistant", "tool"]
 
 
 def test_built_in_profile_lists():
