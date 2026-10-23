@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, api, translation, security]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-006-parameter-classification-and-tools-refusal.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-006-parameter-classification-and-tools-refusal.report.md
+commit: b62f21e
 depends_on: [STORY-001, STORY-004, STORY-005]
 blocks: [STORY-009]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # STORY-006: Parameter classification: forward, ignore-and-record, reject; the explicit tools refusal
