@@ -3,8 +3,9 @@
 Turns the wire request into pipeline arguments: the messages, the forwarded
 generation parameters and the names of everything ignored, plus the
 `X-Harness-Device` header. Turns a successful pipeline result into the
-`chat.completion` the client reads, and a blocked one into the `V1Error` the
-router sends (Section 7.5). Every refusal is a `V1RequestError`, which the
+`chat.completion` the client reads, a blocked one into the `V1Error` the
+router sends (Section 7.5), and a pipeline fault into the `V1Error` its retry
+semantics call for (D7). Every refusal is a `V1RequestError`, which the
 router maps to a 400 (STORY-009/010). Pure on purpose, like
 `app/models/messages.py`: no I/O, no settings reads, no logging, no clock.
 """
@@ -69,6 +70,12 @@ PERMISSION_DENIED = "permission_denied"
 USAGE_LIMIT_EXCEEDED = "usage_limit_exceeded"
 # A missing or invalid bearer (router handler).
 INVALID_API_KEY = "invalid_api_key"
+
+# Section 7.5, one per pipeline fault (D7). The router names the fault.
+UPSTREAM_UNAVAILABLE = "upstream_unavailable"
+UPSTREAM_ERROR = "upstream_error"
+INTERNAL_ERROR = "internal_error"
+REDACTION_FAILED = "redaction_failed"
 
 # The forbidden labels the pipeline writes (authz.authorize_model, step 2b).
 _MODEL_PERMISSION_PREFIX = "query:model:"
@@ -164,7 +171,9 @@ class V1Error:
 
     `harness` is the pipeline response's own fields, or None when there is no
     pipeline response. `message` names the rule and its details, never content
-    (T6).
+    (T6). `retryable` is True only for a fault the same request may get past
+    (D7); every verdict is False, and the router sends `x-should-retry: false`
+    for any error that is not retryable.
     """
 
     status_code: int
@@ -173,6 +182,7 @@ class V1Error:
     message: str
     harness: Optional[Dict[str, Any]] = None
     param: Optional[str] = None
+    retryable: bool = False
 
 
 def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str]]:
@@ -468,4 +478,40 @@ def translate_verdict(result: QueryBlockedResponse) -> V1Error:
         code=_verdict_code(result, default_code),
         message=f"{result.reason}: {details(result)}",
         harness=result.model_dump(mode="json", exclude={"status"}),
+    )
+
+
+# PRD-015 Section 7.5 (D7): (status, type, retryable) per pipeline fault. A
+# transient upstream or storage fault is retryable; a deterministic one is not,
+# so the same request is never sent again to fail the same way. Keyed by code,
+# not exception type: three of the four exceptions live beside storage or the
+# PII engines, whose import would end this module's purity. The router maps
+# the exception to its code.
+_FAULTS: Mapping[str, Tuple[int, str, bool]] = {
+    UPSTREAM_UNAVAILABLE: (502, "api_error", True),
+    UPSTREAM_ERROR: (502, "api_error", False),
+    INTERNAL_ERROR: (500, "api_error", True),
+    REDACTION_FAILED: (500, "api_error", False),
+}
+
+
+def translate_fault(code: str, message: str) -> V1Error:
+    """A pipeline fault as the error the client reads (PRD-015 Section 7.5, D7).
+
+    The router names the code from the exception. `message` is the
+    exception's own text, as `/query`'s `detail` is: for an upstream fault the
+    client's `OpenRouterError` text, which names the HTTP failure and never the
+    provider's body. `harness` is None: there is no pipeline response. Raises
+    TypeError for a code without a row, as translate_verdict does.
+    """
+    try:
+        status_code, type_, retryable = _FAULTS[code]
+    except KeyError:
+        raise TypeError(f"no /v1 fault for {code}") from None
+    return V1Error(
+        status_code=status_code,
+        type=type_,
+        code=code,
+        message=message,
+        retryable=retryable,
     )

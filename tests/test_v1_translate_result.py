@@ -1,12 +1,14 @@
-"""PRD-015 STORY-009 `translate_result` and `translate_device`; STORY-010 `translate_verdict`.
+"""PRD-015 STORY-009 `translate_result` and `translate_device`; STORY-010
+`translate_verdict`; STORY-011 `translate_fault`.
 
 The success translation builds Section 7.4's `chat.completion` from the
 pipeline's `QuerySuccessResponse` and the upstream result the router captured:
 the finish reason (or "stop"), the split (0 when missing, total as reported)
 and the `harness` object. The device header is stripped, at most 128 printable
 characters, and its refusal never echoes the value. Each blocked pipeline
-result maps to its Section 7.5 row, and every blocked member has one. No app,
-no storage: every
+result maps to its Section 7.5 row, and every blocked member has one. Each
+pipeline fault code maps to its 5xx row, and only the transient ones are
+retryable (D7). No app, no storage: every
 test here runs under `-m "not db"`. The module's purity is pinned in
 `tests/test_v1_translate_request.py::test_is_pure`, which covers both halves.
 """
@@ -32,13 +34,19 @@ from app.models.v1_schemas import ErrorDetail, chat_completion_id
 from app.services.openrouter_client import OpenRouterResult
 from app.services.query_pipeline import QueryPipelineResult
 from app.services.v1_translate import (
+    _FAULTS,
     _VERDICTS,
+    INTERNAL_ERROR,
     INVALID_HEADER,
     MAX_DEVICE_LENGTH,
+    REDACTION_FAILED,
+    UPSTREAM_ERROR,
+    UPSTREAM_UNAVAILABLE,
     QueryBlockedResponse,
     V1Error,
     V1RequestError,
     translate_device,
+    translate_fault,
     translate_result,
     translate_verdict,
 )
@@ -348,4 +356,57 @@ def test_success_has_no_verdict():
 def test_every_verdict_type_fits_the_error_schema():
     for case in _VERDICT_CASES:
         error = translate_verdict(case[0])
+        ErrorDetail(message=error.message, type=error.type, code=error.code, harness=error.harness)
+
+
+def test_no_verdict_is_retryable():
+    # D7: `retryable` is what keeps `x-should-retry: false` off a response.
+    assert not any(translate_verdict(case[0]).retryable for case in _VERDICT_CASES)
+
+
+# --- translate_fault (STORY-011) -----------------------------------------------
+#
+# Section 7.5's four fault rows. The message is passed through as received:
+# the router hands over the exception's own text.
+
+_FAULT_CASES = [
+    (UPSTREAM_UNAVAILABLE, 502, True),
+    (UPSTREAM_ERROR, 502, False),
+    (INTERNAL_ERROR, 500, True),
+    (REDACTION_FAILED, 500, False),
+]
+
+
+@pytest.mark.parametrize(
+    "code, status_code, retryable", _FAULT_CASES, ids=[case[0] for case in _FAULT_CASES]
+)
+def test_fault_maps_to_the_section_7_5_row(code, status_code, retryable):
+    assert translate_fault(code, "OpenRouter request failed: probe") == V1Error(
+        status_code=status_code,
+        type="api_error",
+        code=code,
+        message="OpenRouter request failed: probe",
+        harness=None,
+        param=None,
+        retryable=retryable,
+    )
+
+
+def test_unknown_fault_is_a_type_error():
+    with pytest.raises(TypeError):
+        translate_fault("duplicate_request", "probe")
+
+
+def test_every_fault_is_a_5xx_and_only_transient_ones_retry():
+    assert set(_FAULTS) == {case[0] for case in _FAULT_CASES}
+    assert {row[0] for row in _FAULTS.values()} <= {500, 502}
+    assert {code for code, row in _FAULTS.items() if row[2]} == {
+        UPSTREAM_UNAVAILABLE,
+        INTERNAL_ERROR,
+    }
+
+
+def test_every_fault_type_fits_the_error_schema():
+    for code, _status, _retryable in _FAULT_CASES:
+        error = translate_fault(code, "probe")
         ErrorDetail(message=error.message, type=error.type, code=error.code, harness=error.harness)

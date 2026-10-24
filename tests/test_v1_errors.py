@@ -13,6 +13,15 @@ a `V1RequestError`) carry `harness: null` and write no row (T9). Every 4xx
 carries `x-should-retry: false`, and no verdict is 429 or 5xx (T7). No body
 echoes message content (T6).
 
+STORY-011: the pipeline's faults are 502/500 `api_error`s (Section 7.5, D7).
+A transient one (upstream timeout, connect error, 5xx, 429; a storage
+failure) carries no `x-should-retry` header, so the SDK's status rule retries
+it; a deterministic one carries `x-should-retry: false`. The upstream faults
+are driven through the real `call_openrouter` over `httpx.MockTransport`, so
+`retryable` is the client's own classification, and the provider's body is a
+canary that must not reach the response. The rows are the ones `/query`
+writes for the same fault, with `ingress='v1'`.
+
 Only the no-bearer tests reach no storage. Per the libSQL dev-server note:
 mass fixture errors here mean restart the dev container, not bisect code.
 """
@@ -22,8 +31,10 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import inspect
 import logging
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -32,9 +43,14 @@ from app.db.database import get_audit_log, get_connection, insert_user
 from app.db.models import User
 from app.main import app
 from app.models.schemas import QueryBlockedForbiddenResponse
-from app.services import pii_policy
+from app.routers.v1 import _PIPELINE_FAULTS, _fault_code
+from app.services import pii_policy, query_pipeline
+from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import hash_token
-from app.services.openrouter_client import OpenRouterResult
+from app.services.openrouter_client import OpenRouterError, OpenRouterResult
+from app.services.openrouter_client import call_openrouter as _real_call_openrouter
+from app.services.pii_redactor import PiiRedactorError
+from app.services.usage_limits import UsageLimitError
 
 _AUTH_USER_ID = "juan@empresa.com"
 _AUTH_TOKEN = "test-user-token"
@@ -477,4 +493,405 @@ def test_dependency_refusal_logs_code_only(caplog):
 
     records = [r for r in caplog.records if r.name == "app.routers.v1"]
     assert [r.getMessage() for r in records] == ["v1 request refused: code=invalid_api_key"]
+    assert _CANARY not in caplog.text
+
+
+# --- STORY-011: pipeline faults (Section 7.5, D7) --------------------------------
+
+_UPSTREAM_PREFIX = "OpenRouter request failed: "
+_ANSWER = {
+    "choices": [{"message": {"content": "Hello from the model."}, "finish_reason": "stop"}],
+    "usage": {"total_tokens": 12},
+}
+
+
+def _upstream_over(handler):
+    """The real call_openrouter, sending through a MockTransport over `handler`.
+
+    `params` is accepted because run_conversation passes it only when set.
+    """
+    transport = httpx.MockTransport(handler)
+
+    def _call(messages, model="gpt-4", api_key=None, params=None):
+        with httpx.Client(transport=transport) as http_client:
+            return _real_call_openrouter(
+                messages, model=model, api_key=api_key, params=params, client=http_client
+            )
+
+    return _call
+
+
+def _status(status_code):
+    # The provider's body is the canary: it must never reach `error.message`.
+    return lambda request: httpx.Response(status_code, text=_CANARY)
+
+
+def _transport_failure(exc_type):
+    def _handler(request):
+        raise exc_type("probe", request=request)
+
+    return _handler
+
+
+def _json(payload):
+    return lambda request: httpx.Response(200, json=payload)
+
+
+def _no_request(request):
+    raise AssertionError("the upstream must not be called")
+
+
+def _raising(exc):
+    def _raise(*args, **kwargs):
+        raise exc
+
+    return _raise
+
+
+def _real_then_raising(real, exc):
+    """Real on the first call (the user turn), raising on the second (the response)."""
+    calls = []
+
+    def _redact(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            return real(*args, **kwargs)
+        raise exc
+
+    return _redact
+
+
+def _rows():
+    with get_connection() as conn:
+        ids = [row["id"] for row in conn.execute("SELECT id FROM audit_logs ORDER BY id").fetchall()]
+    return [get_audit_log(row_id) for row_id in ids]
+
+
+def _assert_fault(response, status_code, code, retryable, message=None):
+    """The whole body, and the retry signal (D7). `message=None` skips its pin."""
+    error = response.json()["error"]
+    expected_message = error["message"] if message is None else message
+    assert (response.status_code, error) == (
+        status_code,
+        {
+            "message": expected_message,
+            "type": "api_error",
+            "param": None,
+            "code": code,
+            "harness": None,
+        },
+    )
+    if retryable:
+        assert "x-should-retry" not in response.headers
+    else:
+        assert response.headers["x-should-retry"] == _NO_RETRY
+    assert _CANARY not in response.text
+    return error["message"]
+
+
+def _assert_one_v1_failure_row(message):
+    rows = _rows()
+    assert len(rows) == 1, f"expected exactly one audit row, found {len(rows)}"
+    row = rows[0]
+    assert (row.success, row.error_message) == (False, message)
+    assert (row.ingress, row.profile, row.streamed) == ("v1", "code", False)
+    return row
+
+
+# --- The router's exception -> code step (no storage) -----------------------------
+
+
+@pytest.mark.parametrize(
+    "exc, code",
+    [
+        (OpenRouterError("probe", retryable=True), "upstream_unavailable"),
+        (OpenRouterError("probe"), "upstream_error"),
+        (DuplicateCheckError("probe"), "internal_error"),
+        (UsageLimitError("probe"), "internal_error"),
+        (PiiRedactorError("probe"), "redaction_failed"),
+    ],
+    ids=["upstream-retryable", "upstream", "duplicate-lookup", "usage-gate", "redaction"],
+)
+def test_fault_code_per_pipeline_fault(exc, code):
+    assert isinstance(exc, _PIPELINE_FAULTS)
+    assert _fault_code(exc) == code
+
+
+def test_fault_code_refuses_an_unmapped_exception():
+    with pytest.raises(TypeError):
+        _fault_code(ValueError("probe"))
+
+
+# --- AC 1, AC 4: upstream faults through the real client -------------------------
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        _status(503),
+        _status(429),
+        _transport_failure(httpx.ConnectError),
+        _transport_failure(httpx.ReadTimeout),
+    ],
+    ids=["5xx", "429", "connect", "timeout"],
+)
+def test_retryable_upstream_fault_is_502_upstream_unavailable(temp_db, monkeypatch, handler):
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _upstream_over(handler))
+
+    response = client.post(_PATH, json=_body())
+
+    # httpx's own text (status line and URL) follows the prefix; not pinned.
+    message = _assert_fault(response, 502, "upstream_unavailable", retryable=True)
+    assert message.startswith(_UPSTREAM_PREFIX)
+    assert _assert_one_v1_failure_row(message).model_used == _MODEL
+
+
+@pytest.mark.parametrize(
+    "handler, message",
+    [
+        (_status(400), None),
+        (
+            _json({"unexpected": _CANARY}),
+            "OpenRouter returned an unexpected response shape: 'choices'",
+        ),
+        (
+            _json(
+                {
+                    "choices": [{"message": {"content": None}, "finish_reason": "stop"}],
+                    "usage": {"total_tokens": 1},
+                }
+            ),
+            "OpenRouter returned no text content (finish_reason=stop)",
+        ),
+    ],
+    ids=["4xx", "malformed", "null-content"],
+)
+def test_deterministic_upstream_fault_is_502_upstream_error(temp_db, monkeypatch, handler, message):
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _upstream_over(handler))
+
+    response = client.post(_PATH, json=_body())
+
+    sent = _assert_fault(response, 502, "upstream_error", retryable=False, message=message)
+    if message is None:
+        assert sent.startswith(_UPSTREAM_PREFIX)
+    _assert_one_v1_failure_row(sent)
+
+
+def test_missing_upstream_key_is_502_upstream_error(temp_db, monkeypatch):
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _upstream_over(_no_request))
+
+    response = client.post(_PATH, json=_body())
+
+    message = _assert_fault(
+        response, 502, "upstream_error", retryable=False,
+        message="OpenRouter API key not configured: pass openrouter_api_key or set OPENROUTER_API_KEY",
+    )
+    _assert_one_v1_failure_row(message)
+
+
+# --- AC 2: storage and redaction faults ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "binding, exc",
+    [
+        ("check_duplicate", DuplicateCheckError("Duplicate lookup failed: probe")),
+        ("admit", UsageLimitError("Usage admission failed: probe")),
+    ],
+    ids=["duplicate-lookup", "usage-gate"],
+)
+def test_storage_fault_is_500_internal_error_retryable(temp_db, upstream, monkeypatch, binding, exc):
+    monkeypatch.setattr(query_pipeline, binding, _raising(exc))
+
+    response = client.post(_PATH, json=_body())
+
+    _assert_fault(response, 500, "internal_error", retryable=True, message=str(exc))
+    # Fails closed before any row and before the upstream, as on /query.
+    assert _count_audit_rows() == 0
+    assert upstream.calls == []
+
+
+def test_input_redaction_fault_is_500_redaction_failed(temp_db, upstream, monkeypatch):
+    # `code` redacts through redact_for_policy, not `redact` (query_pipeline._redact).
+    monkeypatch.setattr(
+        query_pipeline, "redact_for_policy", _raising(PiiRedactorError("PII analysis failed: probe"))
+    )
+
+    response = client.post(_PATH, json=_body())
+
+    _assert_fault(
+        response, 500, "redaction_failed", retryable=False, message="PII analysis failed: probe"
+    )
+    _assert_one_v1_failure_row("PII analysis failed: probe")
+    assert upstream.calls == []
+
+
+def test_output_redaction_fault_is_500_redaction_failed(temp_db, upstream, monkeypatch):
+    # `code` does not redact output by default (PRD-012 D1); conftest's
+    # _default_pii_policy restores the policies afterwards.
+    monkeypatch.setattr(settings, "PII_CODE_REDACT_OUTPUT", True)
+    pii_policy.load()
+    monkeypatch.setattr(
+        query_pipeline,
+        "redact_for_policy",
+        _real_then_raising(
+            query_pipeline.redact_for_policy, PiiRedactorError("PII analysis failed: probe on output")
+        ),
+    )
+
+    response = client.post(_PATH, json=_body())
+
+    _assert_fault(
+        response, 500, "redaction_failed", retryable=False,
+        message="PII analysis failed: probe on output",
+    )
+    assert upstream.calls == [_MODEL]
+    _assert_one_v1_failure_row("PII analysis failed: probe on output")
+
+
+# --- AC 3: the rows are /query's for the same fault ------------------------------
+
+
+def _both_upstreams(monkeypatch, call):
+    monkeypatch.setattr("app.routers.query.call_openrouter", call)
+    monkeypatch.setattr("app.routers.v1.call_openrouter", call)
+
+
+def _fault_upstream_5xx(monkeypatch):
+    _both_upstreams(monkeypatch, _upstream_over(_status(503)))
+
+
+def _fault_upstream_4xx(monkeypatch):
+    _both_upstreams(monkeypatch, _upstream_over(_status(400)))
+
+
+def _fault_duplicate_lookup(monkeypatch):
+    _both_upstreams(monkeypatch, _upstream_over(_no_request))
+    monkeypatch.setattr(
+        query_pipeline, "check_duplicate", _raising(DuplicateCheckError("Duplicate lookup failed: probe"))
+    )
+
+
+def _fault_usage_gate(monkeypatch):
+    _both_upstreams(monkeypatch, _upstream_over(_no_request))
+    monkeypatch.setattr(
+        query_pipeline, "admit", _raising(UsageLimitError("Usage admission failed: probe"))
+    )
+
+
+def _fault_input_redaction(monkeypatch):
+    # `chat` (/query) redacts through `redact`, `code` (/v1) through redact_for_policy.
+    _both_upstreams(monkeypatch, _upstream_over(_no_request))
+    exc = PiiRedactorError("PII analysis failed: probe")
+    monkeypatch.setattr(query_pipeline, "redact", _raising(exc))
+    monkeypatch.setattr(query_pipeline, "redact_for_policy", _raising(exc))
+
+
+def _fault_output_redaction(monkeypatch):
+    # `chat` always redacts output; `code` only with the switch (PRD-012 D1).
+    _both_upstreams(monkeypatch, _upstream_over(lambda request: httpx.Response(200, json=_ANSWER)))
+    monkeypatch.setattr(settings, "PII_CODE_REDACT_OUTPUT", True)
+    pii_policy.load()
+    exc = PiiRedactorError("PII analysis failed: probe on output")
+    monkeypatch.setattr(query_pipeline, "redact", _real_then_raising(query_pipeline.redact, exc))
+    monkeypatch.setattr(
+        query_pipeline, "redact_for_policy", _real_then_raising(query_pipeline.redact_for_policy, exc)
+    )
+
+
+@pytest.mark.parametrize(
+    "install, expected_rows",
+    [
+        (_fault_upstream_5xx, 1),
+        (_fault_upstream_4xx, 1),
+        (_fault_duplicate_lookup, 0),
+        (_fault_usage_gate, 0),
+        (_fault_input_redaction, 1),
+        (_fault_output_redaction, 1),
+    ],
+    ids=["upstream-5xx", "upstream-4xx", "duplicate-lookup", "usage-gate",
+         "input-redaction", "output-redaction"],
+)
+def test_fault_rows_match_query_s(temp_db, monkeypatch, install, expected_rows):
+    install(monkeypatch)
+
+    query_response = client.post("/query", json={"prompt": _PROMPT})
+    query_rows = _rows()
+    v1_response = client.post(_PATH, json=_body())
+    v1_rows = _rows()[len(query_rows):]
+
+    # The same status on both doors: 502 upstream, 500 storage and redaction.
+    assert v1_response.status_code == query_response.status_code
+    assert (len(query_rows), len(v1_rows)) == (expected_rows, expected_rows)
+    # The fault's own fields only: the pii_* fields differ by profile (PRD-012).
+    def _fault_fields(row):
+        return row.success, row.error_message, row.model_used is not None
+
+    assert [_fault_fields(row) for row in v1_rows] == [_fault_fields(row) for row in query_rows]
+    assert all(row.success is False for row in v1_rows)
+    assert [row.ingress for row in query_rows] == ["query"] * expected_rows
+    assert [(row.ingress, row.profile, row.streamed) for row in v1_rows] == [
+        ("v1", "code", False)
+    ] * expected_rows
+
+
+# --- AC 5: a retried transient failure is answered, not held as a duplicate ------
+
+
+def test_retryable_upstream_failure_then_retry_is_answered_not_duplicate(temp_db, monkeypatch):
+    answers = iter([httpx.Response(503, text=_CANARY), httpx.Response(200, json=_ANSWER)])
+    monkeypatch.setattr(
+        "app.routers.v1.call_openrouter", _upstream_over(lambda request: next(answers))
+    )
+
+    failed = client.post(_PATH, json=_body())
+    retried = client.post(_PATH, json=_body())
+
+    _assert_fault(failed, 502, "upstream_unavailable", retryable=True)
+    # PRD-009 Section 6.3: a success=False row never matches the duplicate lookup.
+    assert retried.status_code == 200
+    assert retried.json()["choices"][0]["message"]["content"] == "Hello from the model."
+    rows = _rows()
+    assert [(row.success, row.ingress) for row in rows] == [(False, "v1"), (True, "v1")]
+    assert rows[0].dedup_key == rows[1].dedup_key
+    assert rows[1].was_duplicate_blocked is False
+
+
+# --- ChatSessionError is unreachable: /v1 passes no session ----------------------
+
+
+def test_run_conversation_gets_no_session(temp_db, upstream, monkeypatch):
+    real = query_pipeline.run_conversation
+    bound = []
+
+    def _spy(*args, **kwargs):
+        bound.append(inspect.signature(real).bind(*args, **kwargs).arguments)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("app.routers.v1.run_conversation", _spy)
+
+    assert client.post(_PATH, json=_body()).status_code == 200
+    assert len(bound) == 1
+    assert bound[0].get("session_id") is None
+
+
+# --- Faults are logged with who and which fault only ----------------------------
+
+
+def test_fault_logs_user_and_code_only(temp_db, upstream, monkeypatch, caplog):
+    # The body carries the exception's text, as /query's `detail` does
+    # (parity, design decision 3); the log line never does.
+    exc = DuplicateCheckError(f"Duplicate lookup failed: {_CANARY}")
+    monkeypatch.setattr(query_pipeline, "check_duplicate", _raising(exc))
+
+    with caplog.at_level(logging.INFO, logger="app.routers.v1"):
+        response = client.post(_PATH, json=_body())
+
+    assert response.status_code == 500
+    assert response.json()["error"]["message"] == str(exc)
+    records = [r for r in caplog.records if r.name == "app.routers.v1"]
+    assert [(r.levelno, r.getMessage()) for r in records] == [
+        (logging.WARNING, f"v1 request failed: user_id={_AUTH_USER_ID} code=internal_error")
+    ]
     assert _CANARY not in caplog.text

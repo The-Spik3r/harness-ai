@@ -13,7 +13,8 @@ follows.
 STORY-009 shipped the non-streaming success path; STORY-010 maps every
 verdict to its Section 7.5 error and installs the `/v1`-scoped handlers for
 the 401/403 dependency refusals and the 400 body failures. STORY-011 maps the
-pipeline's exceptions, STORY-012 adds `/v1/models`, STORY-013 the buffered
+pipeline's faults to Section 7.5's 502/500 rows, retryable only when the
+fault is transient (D7). STORY-012 adds `/v1/models`, STORY-013 the buffered
 stream.
 """
 
@@ -35,18 +36,26 @@ from app.middleware.auth import require_permission
 from app.models.schemas import QuerySuccessResponse
 from app.models.v1_schemas import ChatCompletionRequest, ErrorDetail, ErrorResponse
 from app.services.authz import PERMISSION_QUERY_SUBMIT
+from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
-from app.services.openrouter_client import OpenRouterResult, call_openrouter
+from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
+from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation
+from app.services.usage_limits import UsageLimitError
 from app.services.v1_translate import (
     DEVICE_HEADER,
+    INTERNAL_ERROR,
     INVALID_API_KEY,
     INVALID_REQUEST,
     PERMISSION_DENIED,
+    REDACTION_FAILED,
+    UPSTREAM_ERROR,
+    UPSTREAM_UNAVAILABLE,
     V1Error,
     V1RequestError,
     translate_device,
+    translate_fault,
     translate_request,
     translate_result,
     translate_verdict,
@@ -62,7 +71,8 @@ _V1_PREFIX = "/v1/"
 # 7.5). 401 and 403 are `require_identity` / `require_permission`; 404 and 405
 # are routing (an unknown path, a wrong method). Any other 4xx is
 # `_OTHER_CLIENT_ERROR`, any 5xx `_SERVER_ERROR`: nothing under `/v1/` raises
-# one today, and STORY-011 owns the deliberate 5xx mapping.
+# one today. The deliberate 5xx are the pipeline faults, which
+# `chat_completions` maps itself (`_PIPELINE_FAULTS`).
 _HTTP_ERRORS: Dict[int, Tuple[str, str]] = {
     401: ("authentication_error", INVALID_API_KEY),
     403: ("permission_error", PERMISSION_DENIED),
@@ -70,7 +80,12 @@ _HTTP_ERRORS: Dict[int, Tuple[str, str]] = {
     405: ("invalid_request_error", "method_not_allowed"),
 }
 _OTHER_CLIENT_ERROR = ("invalid_request_error", INVALID_REQUEST)
-_SERVER_ERROR = ("api_error", "internal_error")
+_SERVER_ERROR = ("api_error", INTERNAL_ERROR)
+
+# What `run_conversation` raises (PRD-015 Section 7.5): `/query`'s chain in
+# app/routers/query.py minus `ChatSessionError`, which needs a session and
+# `/v1` passes none. Anything else is a bug and stays Starlette's 500.
+_PIPELINE_FAULTS = (OpenRouterError, DuplicateCheckError, UsageLimitError, PiiRedactorError)
 
 
 class _Upstream:
@@ -118,10 +133,30 @@ def _error(
 
 
 def _from_v1_error(error: V1Error) -> JSONResponse:
+    # A retryable fault carries no header, so the SDK's status rule retries
+    # it; `true` would force a retry the status rule might not make (D7).
     return _error(
         error.status_code, error.type, error.code, error.message, error.param,
+        headers=None if error.retryable else {"x-should-retry": "false"},
         harness=error.harness,
     )
+
+
+def _fault_code(exc: Exception) -> str:
+    """A `_PIPELINE_FAULTS` exception as its Section 7.5 code (D7).
+
+    An upstream fault is retryable exactly when the client says so
+    (`_classify_http_error`). A storage fault is transient by nature. A
+    redaction failure repeats on the same text. STORY-013's post-commit error
+    event reuses this.
+    """
+    if isinstance(exc, OpenRouterError):
+        return UPSTREAM_UNAVAILABLE if exc.retryable else UPSTREAM_ERROR
+    if isinstance(exc, (DuplicateCheckError, UsageLimitError)):
+        return INTERNAL_ERROR
+    if isinstance(exc, PiiRedactorError):
+        return REDACTION_FAILED
+    raise TypeError(f"no /v1 fault for {type(exc).__name__}")
 
 
 def _placeholder(message: str) -> JSONResponse:
@@ -153,20 +188,30 @@ async def chat_completions(
         return _placeholder("streaming is not available yet")
 
     upstream = _Upstream()
-    result = await run_in_pipeline(
-        run_conversation,
-        identity,
-        call.messages,
-        device,
-        call.model,
-        None,  # openrouter_api_key: BYOK is out (PRD-015 Section 4)
-        call.params,
-        call_openrouter=upstream,
-        profile="code",
-        ingress="v1",
-        streamed=False,
-        ignored_params=call.ignored_params,
-    )
+    try:
+        result = await run_in_pipeline(
+            run_conversation,
+            identity,
+            call.messages,
+            device,
+            call.model,
+            None,  # openrouter_api_key: BYOK is out (PRD-015 Section 4)
+            call.params,
+            call_openrouter=upstream,
+            profile="code",
+            ingress="v1",
+            streamed=False,
+            ignored_params=call.ignored_params,
+        )
+    except _PIPELINE_FAULTS as exc:
+        # The pipeline has already written whatever row `/query` writes for
+        # the same fault: one `success=False` row for an upstream or
+        # redaction failure, none for a failed duplicate lookup or usage gate.
+        code = _fault_code(exc)
+        # Who and which fault, never the message: a storage error's text is
+        # driver output (T9's rule, applied to faults).
+        logger.warning("v1 request failed: user_id=%s code=%s", identity.user_id, code)
+        return _from_v1_error(translate_fault(code, str(exc)))
 
     if not isinstance(result, QuerySuccessResponse):
         # A verdict: 400 or 403, never 429 or 5xx (D2, T7). The pipeline has
