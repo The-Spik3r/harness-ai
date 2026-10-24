@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Non-streaming endpoint"
-status: todo
+status: done
 labels: [backend, api, errors]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-010-verdict-to-error-translation.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-010-verdict-to-error-translation.report.md
+commit: 0cd544c
 depends_on: [STORY-001, STORY-004, STORY-009]
 blocks: [STORY-011, STORY-012, STORY-013]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # STORY-010: Verdicts to OpenAI error objects; /v1-scoped 400/401/403 handlers; /query isolation
