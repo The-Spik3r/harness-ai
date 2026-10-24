@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Non-streaming endpoint"
-status: todo
+status: done
 labels: [backend, api, errors, upstream]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-011-fault-mapping-and-retry-semantics.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-011-fault-mapping-and-retry-semantics.report.md
+commit: a8ac6de
 depends_on: [STORY-002, STORY-010]
 blocks: [STORY-013]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # STORY-011: Upstream and internal fault mapping with deliberate retry semantics

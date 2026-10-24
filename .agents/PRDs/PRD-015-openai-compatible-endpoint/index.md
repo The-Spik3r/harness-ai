@@ -6,7 +6,7 @@
 
 ## Progress
 
-10/19 stories done — 53%
+11/19 stories done — 58%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`.
 | STORY-008 | code profile flags assistant turns; examples/patterns.yaml matches again | enhancement | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-008-code-profile-assistant-flag.plan.md) | `4ed6379` |
 | STORY-009 | POST /v1/chat/completions: router, identity, device header and non-streaming success | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-009-v1-router-non-streaming-success.plan.md) | `3193854` |
 | STORY-010 | Verdicts to OpenAI error objects; /v1-scoped 400/401/403 handlers; /query isolation | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-010-verdict-to-error-translation.plan.md) | `0cd544c` |
-| STORY-011 | Upstream and internal fault mapping with deliberate retry semantics | feature | ⬜ todo | medium | — | — |
+| STORY-011 | Upstream and internal fault mapping with deliberate retry semantics | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-011-fault-mapping-and-retry-semantics.plan.md) | `a8ac6de` |
 | STORY-012 | GET /v1/models and /v1/models/{id} from MODEL_ALLOWLIST | feature | ⬜ todo | small | — | — |
 | STORY-013 | Buffered SSE: commit on upstream start, keep-alive, chunk sequence, include_usage, post-commit error | feature | ⬜ todo | large | — | — |
 | STORY-014 | Scripted stub upstream for E2E runs | technical | ⬜ todo | medium | — | — |
