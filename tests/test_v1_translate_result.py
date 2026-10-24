@@ -1,10 +1,12 @@
-"""PRD-015 STORY-009 `translate_result` and `translate_device`.
+"""PRD-015 STORY-009 `translate_result` and `translate_device`; STORY-010 `translate_verdict`.
 
 The success translation builds Section 7.4's `chat.completion` from the
 pipeline's `QuerySuccessResponse` and the upstream result the router captured:
 the finish reason (or "stop"), the split (0 when missing, total as reported)
 and the `harness` object. The device header is stripped, at most 128 printable
-characters, and its refusal never echoes the value. No app, no storage: every
+characters, and its refusal never echoes the value. Each blocked pipeline
+result maps to its Section 7.5 row, and every blocked member has one. No app,
+no storage: every
 test here runs under `-m "not db"`. The module's purity is pinned in
 `tests/test_v1_translate_request.py::test_is_pure`, which covers both halves.
 """
@@ -14,17 +16,31 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+from typing import get_args
+
 import pytest
 
-from app.models.schemas import QuerySuccessResponse
-from app.models.v1_schemas import chat_completion_id
+from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
+    QueryBlockedDuplicateResponse,
+    QueryBlockedForbiddenResponse,
+    QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
+    QuerySuccessResponse,
+)
+from app.models.v1_schemas import ErrorDetail, chat_completion_id
 from app.services.openrouter_client import OpenRouterResult
+from app.services.query_pipeline import QueryPipelineResult
 from app.services.v1_translate import (
+    _VERDICTS,
     INVALID_HEADER,
     MAX_DEVICE_LENGTH,
+    QueryBlockedResponse,
+    V1Error,
     V1RequestError,
     translate_device,
     translate_result,
+    translate_verdict,
 )
 
 _CREATED = 1792569600
@@ -179,3 +195,157 @@ def test_device_refusal_never_echoes_the_value():
     assert "SECRET-CANARY" not in str(caught.value)
     assert "SECRET-CANARY" not in caught.value.message
     assert "X-Harness-Device" in caught.value.message
+
+
+# --- translate_verdict (STORY-010) ---------------------------------------------
+#
+# Section 7.5's table, one case per verdict cell in the story's AC 1. Each case
+# pins the whole V1Error, so a changed status, type, code or message is a
+# diff here.
+
+_RESETS_AT = "2026-10-22T00:00:00Z"
+
+_VERDICT_CASES = [
+    (
+        QueryBlockedDuplicateResponse(
+            reason="Duplicate query within 24 hours", first_query_at="2026-10-21T09:00:00Z"
+        ),
+        400, "invalid_request_error", "duplicate_request",
+        "Duplicate query within 24 hours: first seen 2026-10-21T09:00:00Z",
+    ),
+    (
+        QueryBlockedSuspiciousResponse(
+            reason="Suspicious pattern detected", pattern="ignore previous instructions"
+        ),
+        400, "invalid_request_error", "suspicious_pattern",
+        "Suspicious pattern detected: ignore previous instructions",
+    ),
+    (
+        QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit", limit="messages", maximum=100, actual=140
+        ),
+        400, "invalid_request_error", "context_length_exceeded",
+        "Conversation exceeds context limit: messages 140 > 100",
+    ),
+    (
+        QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit", limit="characters", maximum=50, actual=51
+        ),
+        400, "invalid_request_error", "context_length_exceeded",
+        "Conversation exceeds context limit: characters 51 > 50",
+    ),
+    (
+        QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds redaction limit",
+            limit="redaction_characters", maximum=200000, actual=200001,
+        ),
+        400, "invalid_request_error", "redaction_limit_exceeded",
+        "Conversation exceeds redaction limit: redaction_characters 200001 > 200000",
+    ),
+    (
+        QueryBlockedForbiddenResponse(
+            reason="Missing required permission", required_permission="query:submit"
+        ),
+        403, "permission_error", "permission_denied",
+        "Missing required permission: query:submit",
+    ),
+    (
+        QueryBlockedForbiddenResponse(
+            reason="Missing required permission", required_permission="query:byok"
+        ),
+        403, "permission_error", "permission_denied",
+        "Missing required permission: query:byok",
+    ),
+    (
+        QueryBlockedForbiddenResponse(
+            reason="Model not permitted for this role",
+            required_permission="query:model:openai/gpt-4o",
+        ),
+        403, "permission_error", "model_not_permitted",
+        "Model not permitted for this role: query:model:openai/gpt-4o",
+    ),
+    (
+        QueryBlockedForbiddenResponse(
+            reason="Break-glass credential not permitted on this ingress",
+            required_permission="ingress:break_glass",
+        ),
+        403, "permission_error", "break_glass_not_permitted",
+        "Break-glass credential not permitted on this ingress: ingress:break_glass",
+    ),
+    (
+        QueryBlockedUsageLimitResponse(
+            reason="Usage limit reached", limit="requests", maximum=60, actual=61,
+            resets_at="2026-10-21T09:01:00Z",
+        ),
+        403, "permission_error", "usage_limit_exceeded",
+        "Usage limit reached: requests 61 of 60; resets at 2026-10-21T09:01:00Z",
+    ),
+    (
+        QueryBlockedUsageLimitResponse(
+            reason="Usage limit reached", limit="tokens", maximum=1000000, actual=1000412,
+            resets_at=_RESETS_AT,
+        ),
+        403, "permission_error", "usage_limit_exceeded",
+        f"Usage limit reached: tokens 1000412 of 1000000; resets at {_RESETS_AT}",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "result, status_code, type_, code, message",
+    _VERDICT_CASES,
+    ids=[f"{type(case[0]).__name__}-{case[3]}-{i}" for i, case in enumerate(_VERDICT_CASES)],
+)
+def test_verdict_maps_to_the_section_7_5_row(result, status_code, type_, code, message):
+    assert translate_verdict(result) == V1Error(
+        status_code=status_code,
+        type=type_,
+        code=code,
+        message=message,
+        # Every field but the constant `status`.
+        harness=result.model_dump(mode="json", exclude={"status"}),
+        param=None,
+    )
+
+
+def test_harness_is_every_field_but_status():
+    result = QueryBlockedUsageLimitResponse(
+        reason="Usage limit reached", limit="tokens", maximum=1000000, actual=1000412,
+        resets_at=_RESETS_AT,
+    )
+
+    assert translate_verdict(result).harness == {
+        "reason": "Usage limit reached",
+        "limit": "tokens",
+        "maximum": 1000000,
+        "actual": 1000412,
+        "resets_at": _RESETS_AT,
+    }
+
+
+def test_every_blocked_member_has_a_verdict():
+    # A future QueryPipelineResult member without a row fails here, not in
+    # production as a TypeError.
+    blocked = set(get_args(QueryPipelineResult)) - {QuerySuccessResponse}
+
+    assert blocked == set(get_args(QueryBlockedResponse))
+    assert blocked == set(_VERDICTS)
+
+
+def test_no_verdict_is_retryable_by_status():
+    # T7: the OpenAI SDKs retry 429 and every 5xx.
+    statuses = {row[0] for row in _VERDICTS.values()}
+    statuses |= {translate_verdict(case[0]).status_code for case in _VERDICT_CASES}
+
+    assert statuses <= {400, 403}
+
+
+def test_success_has_no_verdict():
+    with pytest.raises(TypeError):
+        translate_verdict(_success())
+
+
+def test_every_verdict_type_fits_the_error_schema():
+    for case in _VERDICT_CASES:
+        error = translate_verdict(case[0])
+        ErrorDetail(message=error.message, type=error.type, code=error.code, harness=error.harness)

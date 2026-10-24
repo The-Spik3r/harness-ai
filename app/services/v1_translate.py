@@ -1,18 +1,37 @@
-"""Request and result translation for `/v1` (PRD-015 Sections 4, 7.1-7.4).
+"""Request and result translation for `/v1` (PRD-015 Sections 4, 7.1-7.5).
 
 Turns the wire request into pipeline arguments: the messages, the forwarded
 generation parameters and the names of everything ignored, plus the
 `X-Harness-Device` header. Turns a successful pipeline result into the
-`chat.completion` the client reads. Every refusal is a `V1RequestError`,
-which the router maps to a 400 (STORY-009/010). Pure on purpose, like
+`chat.completion` the client reads, and a blocked one into the `V1Error` the
+router sends (Section 7.5). Every refusal is a `V1RequestError`, which the
+router maps to a 400 (STORY-009/010). Pure on purpose, like
 `app/models/messages.py`: no I/O, no settings reads, no logging, no clock.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 from app.models.messages import Message, MessageNormalizationError, normalize_message
-from app.models.schemas import QuerySuccessResponse
+from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
+    QueryBlockedDuplicateResponse,
+    QueryBlockedForbiddenResponse,
+    QueryBlockedSuspiciousResponse,
+    QueryBlockedUsageLimitResponse,
+    QuerySuccessResponse,
+)
 from app.models.v1_schemas import (
     AssistantMessage,
     ChatCompletion,
@@ -35,6 +54,25 @@ UNSUPPORTED_PARAMETER = "unsupported_parameter"
 # one code whether the tool use was in a parameter or a message.
 TOOLS_NOT_SUPPORTED = "tools_not_supported"
 INVALID_HEADER = "invalid_header"
+# A body that is not JSON or fails `ChatCompletionRequest` (router handler).
+INVALID_REQUEST = "invalid_request"
+
+# Section 7.5, one per verdict. `context_length_exceeded` is OpenAI's own
+# spelling, so clients that already handle it (Aider) do.
+DUPLICATE_REQUEST = "duplicate_request"
+SUSPICIOUS_PATTERN = "suspicious_pattern"
+CONTEXT_LENGTH_EXCEEDED = "context_length_exceeded"
+REDACTION_LIMIT_EXCEEDED = "redaction_limit_exceeded"
+MODEL_NOT_PERMITTED = "model_not_permitted"
+BREAK_GLASS_NOT_PERMITTED = "break_glass_not_permitted"
+PERMISSION_DENIED = "permission_denied"
+USAGE_LIMIT_EXCEEDED = "usage_limit_exceeded"
+# A missing or invalid bearer (router handler).
+INVALID_API_KEY = "invalid_api_key"
+
+# The forbidden labels the pipeline writes (authz.authorize_model, step 2b).
+_MODEL_PERMISSION_PREFIX = "query:model:"
+_BREAK_GLASS_PERMISSION = "ingress:break_glass"
 
 IGNORED_MESSAGE_NAME = "messages[].name"
 
@@ -118,6 +156,23 @@ class V1Call:
     stream: bool
     include_usage: bool
     ignored_params: Optional[str]
+
+
+@dataclass(frozen=True)
+class V1Error:
+    """An error the router sends as `ErrorResponse` with `status_code` (Section 7.5).
+
+    `harness` is the pipeline response's own fields, or None when there is no
+    pipeline response. `message` names the rule and its details, never content
+    (T6).
+    """
+
+    status_code: int
+    type: str
+    code: str
+    message: str
+    harness: Optional[Dict[str, Any]] = None
+    param: Optional[str] = None
 
 
 def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str]]:
@@ -338,4 +393,79 @@ def translate_result(
             pii_redacted=result.pii_redacted,
             pii_entities_masked=result.pii_entities_masked,
         ),
+    )
+
+
+# The blocked members of `QueryPipelineResult`, spelled out rather than taken
+# from query_pipeline, whose import would bring storage into this pure module.
+QueryBlockedResponse = Union[
+    QueryBlockedDuplicateResponse,
+    QueryBlockedSuspiciousResponse,
+    QueryBlockedForbiddenResponse,
+    QueryBlockedContextLimitResponse,
+    QueryBlockedUsageLimitResponse,
+]
+
+# PRD-015 Section 7.5 (D2): (status, type, default code, details) per verdict.
+# Content verdicts are 400, policy verdicts 403; never 429 or 5xx (T7). The
+# details follow the reason after ": " and name only fields of the response:
+# the matched pattern is the configured one, returned as on `/query` (T6).
+# A blocked member without a row here is a TypeError in translate_verdict, and
+# test_every_blocked_member_has_a_verdict fails.
+_VERDICTS: Mapping[type, Tuple[int, str, str, Callable[[Any], str]]] = {
+    QueryBlockedDuplicateResponse: (
+        400, "invalid_request_error", DUPLICATE_REQUEST,
+        lambda r: f"first seen {r.first_query_at}",
+    ),
+    QueryBlockedSuspiciousResponse: (
+        400, "invalid_request_error", SUSPICIOUS_PATTERN,
+        lambda r: r.pattern,
+    ),
+    QueryBlockedContextLimitResponse: (
+        400, "invalid_request_error", CONTEXT_LENGTH_EXCEEDED,
+        lambda r: f"{r.limit} {r.actual} > {r.maximum}",
+    ),
+    QueryBlockedForbiddenResponse: (
+        403, "permission_error", PERMISSION_DENIED,
+        lambda r: r.required_permission,
+    ),
+    QueryBlockedUsageLimitResponse: (
+        403, "permission_error", USAGE_LIMIT_EXCEEDED,
+        lambda r: f"{r.limit} {r.actual} of {r.maximum}; resets at {r.resets_at}",
+    ),
+}
+
+
+def _verdict_code(result: QueryBlockedResponse, default: str) -> str:
+    """The table's code, refined by the two fields Section 7.5 splits on."""
+    if isinstance(result, QueryBlockedContextLimitResponse):
+        if result.limit == "redaction_characters":
+            return REDACTION_LIMIT_EXCEEDED
+    elif isinstance(result, QueryBlockedForbiddenResponse):
+        if result.required_permission.startswith(_MODEL_PERMISSION_PREFIX):
+            return MODEL_NOT_PERMITTED
+        if result.required_permission == _BREAK_GLASS_PERMISSION:
+            return BREAK_GLASS_NOT_PERMITTED
+    return default
+
+
+def translate_verdict(result: QueryBlockedResponse) -> V1Error:
+    """A blocked pipeline result as the error the client reads (PRD-015 Section 7.5).
+
+    The pipeline has already written the row. `harness` is every field of the
+    response except the constant `status`, so a field added to a response
+    reaches the client without a change here. Raises TypeError for a type
+    without a verdict, `QuerySuccessResponse` included: guessing a status
+    would be worse than a 500.
+    """
+    try:
+        status_code, type_, default_code, details = _VERDICTS[type(result)]
+    except KeyError:
+        raise TypeError(f"no /v1 verdict for {type(result).__name__}") from None
+    return V1Error(
+        status_code=status_code,
+        type=type_,
+        code=_verdict_code(result, default_code),
+        message=f"{result.reason}: {details(result)}",
+        harness=result.model_dump(mode="json", exclude={"status"}),
     )

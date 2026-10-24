@@ -25,7 +25,11 @@ which a whole-body pin cannot hold. The real failure stays pinned in
 builds. It is the PRD Section 9.2 T5 baseline: no key outside `model`,
 `messages` and `GenerationParams`' four fields.
 
-Only the no-bearer test reaches no storage, so it is the one test that runs
+**The `/v1` half** (below its own heading) was added by STORY-010: the same
+app answers `/v1/chat/completions` with the OpenAI error shape, so the pins
+above are proven against an app whose handlers are installed.
+
+Only the no-bearer tests reach no storage, so they are the ones that run
 under `-m "not db"`. Per the libSQL dev-server note: mass fixture errors here
 mean restart the dev container, not bisect code.
 """
@@ -287,3 +291,82 @@ def test_run_conversation_upstream_request_with_all_four_params_is_pinned(temp_d
         "top_p": 0.9,
         "stop": ["END"],
     }
+
+
+# --- /v1 half (STORY-010) ------------------------------------------------------
+#
+# The same refusals on `/v1/chat/completions`, as whole bodies. Added below the
+# STORY-001 pins; nothing above this heading changed.
+
+_V1_PATH = "/v1/chat/completions"
+_V1_BODY = {"model": "openai/gpt-4o", "messages": [{"role": "user", "content": _PROMPT}]}
+
+
+def _v1_error(type_, code, message, param=None):
+    return {"error": {"message": message, "type": type_, "param": param, "code": code, "harness": None}}
+
+
+_V1_401 = _v1_error("authentication_error", "invalid_api_key", "Invalid or missing credential")
+
+
+def test_v1_401_without_bearer_is_openai_shape(monkeypatch):
+    # No temp_db: like the /query no-bearer pin, this runs under -m "not db".
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _fail_if_called)
+
+    response = TestClient(app).post(_V1_PATH, json=_V1_BODY)
+
+    assert response.status_code == 401
+    assert response.json() == _V1_401
+    assert response.headers["x-should-retry"] == "false"
+
+
+def test_v1_401_with_unknown_bearer_is_openai_shape(temp_db, monkeypatch):
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _fail_if_called)
+    unknown_client = TestClient(app, headers={"Authorization": "Bearer not-a-real-token"})
+
+    response = unknown_client.post(_V1_PATH, json=_V1_BODY)
+
+    assert response.status_code == 401
+    assert response.json() == _V1_401
+
+
+def test_v1_403_without_query_submit_is_openai_shape(temp_db, monkeypatch):
+    insert_user(
+        User(user_id="reviewer", role="auditor", token_hash=hash_token("auditor-token"))
+    )
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _fail_if_called)
+    auditor_client = TestClient(app, headers={"Authorization": "Bearer auditor-token"})
+
+    response = auditor_client.post(_V1_PATH, json=_V1_BODY)
+
+    assert response.status_code == 403
+    assert response.json() == _v1_error(
+        "permission_error", "permission_denied", "Permission denied: query:submit"
+    )
+
+
+def test_v1_400_empty_body_is_openai_shape(temp_db, monkeypatch):
+    # /query's 422 for the same mistake, as a 400 here (Section 7.5).
+    monkeypatch.setattr("app.routers.v1.call_openrouter", _fail_if_called)
+
+    response = client.post(_V1_PATH, json={})
+
+    assert response.status_code == 400
+    assert response.json() == _v1_error(
+        "invalid_request_error", "invalid_request", "model: Field required", param="model"
+    )
+
+
+def test_one_app_answers_both_shapes():
+    # No temp_db: neither request reaches storage. The /query pin, then /v1,
+    # then /query again, from one client, so neither handler path leaks state.
+    anonymous = TestClient(app)
+
+    first = anonymous.post("/query", json={"prompt": _PROMPT})
+    v1 = anonymous.post(_V1_PATH, json=_V1_BODY)
+    again = anonymous.post("/query", json={"prompt": _PROMPT})
+
+    assert (first.status_code, first.json()) == (401, {"detail": "Invalid or missing credential"})
+    assert (v1.status_code, v1.json()) == (401, _V1_401)
+    assert (again.status_code, again.json()) == (401, {"detail": "Invalid or missing credential"})
+    assert "x-should-retry" not in first.headers

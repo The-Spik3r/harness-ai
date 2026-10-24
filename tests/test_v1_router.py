@@ -7,10 +7,12 @@ one row with `ingress='v1'`, `profile='code'`, `streamed=0` and the translated
 pipeline body runs on the dedicated executor. `V1_ENABLED=false` unmounts the
 route and leaves `/query` alone.
 
-**The `test_placeholder_*` tests pin temporary behaviour** (501 for
-`stream: true` and for every non-success result). STORY-010 and STORY-013
-replace the placeholders and rewrite those tests; nothing else here should
-change when they do.
+**`test_placeholder_stream_true_is_501_without_row` pins temporary
+behaviour** (501 for `stream: true`). STORY-013 replaces the placeholder and
+rewrites that test; nothing else here should change when it does. STORY-010
+replaced the non-success placeholder with the verdict's error object
+(`test_blocked_result_is_translated_verdict`; every verdict is in
+`tests/test_v1_errors.py`).
 """
 
 import os
@@ -341,7 +343,7 @@ def test_v1_disabled_routes_404_and_query_unaffected(monkeypatch):
     assert query_response.json() == {"detail": "Invalid or missing credential"}
 
 
-# --- Placeholders (STORY-010 and STORY-013 rewrite these) -----------------------
+# --- Stream placeholder (STORY-013 rewrites it); the verdict that replaced the other --
 
 
 def test_placeholder_stream_true_is_501_without_row(temp_db, upstream):
@@ -354,16 +356,18 @@ def test_placeholder_stream_true_is_501_without_row(temp_db, upstream):
     assert upstream.calls == []
 
 
-def test_placeholder_blocked_result_is_501(temp_db, upstream):
+def test_blocked_result_is_translated_verdict(temp_db, upstream):
     response = client.post(
         _PATH, json=_body(messages=[{"role": "user", "content": _INJECTION}])
     )
 
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "not_implemented"
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == "suspicious_pattern"
+    assert error["harness"]["pattern"] == _INJECTION
     assert response.headers["x-should-retry"] == "false"
     assert upstream.calls == []
-    # The pipeline wrote its own row before the placeholder.
+    # The pipeline wrote its own row before the translation.
     row = _only_row()
     assert row.suspicious_pattern == _INJECTION
     assert row.pattern_action == "block"
