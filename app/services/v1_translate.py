@@ -70,6 +70,8 @@ PERMISSION_DENIED = "permission_denied"
 USAGE_LIMIT_EXCEEDED = "usage_limit_exceeded"
 # A missing or invalid bearer (router handler).
 INVALID_API_KEY = "invalid_api_key"
+# A `GET /v1/models/{id}` name not in MODEL_ALLOWLIST (router, Section 7.7).
+MODEL_NOT_FOUND = "model_not_found"
 
 # Section 7.5, one per pipeline fault (D7). The router names the fault.
 UPSTREAM_UNAVAILABLE = "upstream_unavailable"

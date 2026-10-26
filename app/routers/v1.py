@@ -14,7 +14,9 @@ STORY-009 shipped the non-streaming success path; STORY-010 maps every
 verdict to its Section 7.5 error and installs the `/v1`-scoped handlers for
 the 401/403 dependency refusals and the 400 body failures. STORY-011 maps the
 pipeline's faults to Section 7.5's 502/500 rows, retryable only when the
-fault is transient (D7). STORY-012 adds `/v1/models`, STORY-013 the buffered
+fault is transient (D7). STORY-012 added `GET /v1/models`, which lists
+`MODEL_ALLOWLIST`, refuses the break-glass credential itself (no pipeline
+runs there) and writes no row (Section 7.7). STORY-013 adds the buffered
 stream.
 """
 
@@ -32,9 +34,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.config import settings
 from app.middleware.auth import require_permission
 from app.models.schemas import QuerySuccessResponse
-from app.models.v1_schemas import ChatCompletionRequest, ErrorDetail, ErrorResponse
+from app.models.v1_schemas import (
+    ChatCompletionRequest,
+    ErrorDetail,
+    ErrorResponse,
+    ModelEntry,
+    ModelList,
+)
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
@@ -44,10 +53,12 @@ from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation
 from app.services.usage_limits import UsageLimitError
 from app.services.v1_translate import (
+    BREAK_GLASS_NOT_PERMITTED,
     DEVICE_HEADER,
     INTERNAL_ERROR,
     INVALID_API_KEY,
     INVALID_REQUEST,
+    MODEL_NOT_FOUND,
     PERMISSION_DENIED,
     REDACTION_FAILED,
     UPSTREAM_ERROR,
@@ -69,7 +80,8 @@ _V1_PREFIX = "/v1/"
 
 # An `HTTPException` under `/v1/` as (type, code), by status (PRD-015 Section
 # 7.5). 401 and 403 are `require_identity` / `require_permission`; 404 and 405
-# are routing (an unknown path, a wrong method). Any other 4xx is
+# are routing (an unknown path, a wrong method). `model_not_found` is not
+# here: `retrieve_model` builds that 404 itself. Any other 4xx is
 # `_OTHER_CLIENT_ERROR`, any 5xx `_SERVER_ERROR`: nothing under `/v1/` raises
 # one today. The deliberate 5xx are the pipeline faults, which
 # `chat_completions` maps itself (`_PIPELINE_FAULTS`).
@@ -225,6 +237,71 @@ async def chat_completions(
         completion.model_dump(mode="json"),
         headers={"X-Harness-Audit-Id": str(result.audit_id)},
     )
+
+
+# --- GET /v1/models (PRD-015 Section 7.7) ---------------------------------------
+
+
+def _model_entry(model_id: str) -> ModelEntry:
+    """One allowlisted name as its entry: `owned_by` is the prefix before `/`, else `harness`."""
+    prefix, sep, _ = model_id.partition("/")
+    return ModelEntry(id=model_id, owned_by=prefix if sep and prefix else "harness")
+
+
+def _refuse_break_glass(identity: Identity) -> Optional[JSONResponse]:
+    """The break-glass refusal for a route that runs no pipeline (PRD-015 Section 7.2).
+
+    `chat_completions` leaves this to the pipeline's step 2b, which writes
+    the row. Here nothing runs, so the router refuses and nothing is written.
+    Only `resolve(ADMIN_TOKEN)` sets `break_glass`, so a user token with the
+    `admin` role passes. `BREAK_GLASS_INGRESSES` is not read: its validator
+    forbids `v1` (PRD-013), so the answer is always to refuse. The message is
+    the pipeline's, so one rule reads the same on every `/v1` route.
+    """
+    if not identity.break_glass:
+        return None
+    logger.info(
+        "v1 request refused: user_id=%s code=%s", identity.user_id, BREAK_GLASS_NOT_PERMITTED
+    )
+    return _error(
+        403, "permission_error", BREAK_GLASS_NOT_PERMITTED,
+        "Break-glass credential not permitted on this ingress: ingress:break_glass",
+    )
+
+
+@router.get("/v1/models")
+async def list_models(
+    identity: Identity = Depends(require_permission(PERMISSION_QUERY_SUBMIT)),
+) -> Any:
+    refusal = _refuse_break_glass(identity)
+    if refusal is not None:
+        return refusal
+    # Read per request (tests monkeypatch it). An `admin` may send any model,
+    # but "any" cannot be listed, so every role sees the configured entries.
+    models = ModelList(data=[_model_entry(model) for model in settings.model_allowlist_list])
+    return JSONResponse(models.model_dump(mode="json"))
+
+
+@router.get("/v1/models/{model_id:path}")
+async def retrieve_model(
+    model_id: str,
+    identity: Identity = Depends(require_permission(PERMISSION_QUERY_SUBMIT)),
+) -> Any:
+    # `:path` because ids contain `/`. Routing matches the decoded path, so
+    # `openai%2Fgpt-4o` arrives as `openai/gpt-4o`.
+    refusal = _refuse_break_glass(identity)
+    if refusal is not None:
+        return refusal
+    # Exact match, no aliasing (D4). Neither the body nor the log names the
+    # id: the rule is enough, and the id is the caller's input.
+    if model_id not in settings.model_allowlist_list:
+        logger.info(
+            "v1 request refused: user_id=%s code=%s", identity.user_id, MODEL_NOT_FOUND
+        )
+        return _error(
+            404, "invalid_request_error", MODEL_NOT_FOUND, "model is not in MODEL_ALLOWLIST"
+        )
+    return JSONResponse(_model_entry(model_id).model_dump(mode="json"))
 
 
 # --- /v1-scoped exception handlers (PRD-015 Section 7.5, Risk 4) ---------------
