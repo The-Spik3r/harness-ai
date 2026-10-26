@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "2 - Non-streaming endpoint"
-status: todo
+status: done
 labels: [backend, api]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-012-v1-models.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-012-v1-models.report.md
+commit: 799df1d
 depends_on: [STORY-004, STORY-009, STORY-010]
 blocks: [STORY-015]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-25
 ---
 
 # STORY-012: GET /v1/models and /v1/models/{id} from MODEL_ALLOWLIST
