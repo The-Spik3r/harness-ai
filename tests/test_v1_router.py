@@ -7,12 +7,11 @@ one row with `ingress='v1'`, `profile='code'`, `streamed=0` and the translated
 pipeline body runs on the dedicated executor. `V1_ENABLED=false` unmounts the
 route and leaves `/query` alone.
 
-**`test_placeholder_stream_true_is_501_without_row` pins temporary
-behaviour** (501 for `stream: true`). STORY-013 replaces the placeholder and
-rewrites that test; nothing else here should change when it does. STORY-010
-replaced the non-success placeholder with the verdict's error object
+`stream: true` is `tests/test_v1_sse.py` (STORY-013), which replaced the
+501 placeholder this module used to pin. STORY-010 replaced the non-success
+placeholder with the verdict's error object
 (`test_blocked_result_is_translated_verdict`; every verdict is in
-`tests/test_v1_errors.py`).
+`tests/test_v1_errors.py`, streamed and not).
 """
 
 import os
@@ -343,17 +342,7 @@ def test_v1_disabled_routes_404_and_query_unaffected(monkeypatch):
     assert query_response.json() == {"detail": "Invalid or missing credential"}
 
 
-# --- Stream placeholder (STORY-013 rewrites it); the verdict that replaced the other --
-
-
-def test_placeholder_stream_true_is_501_without_row(temp_db, upstream):
-    response = client.post(_PATH, json=_body(stream=True))
-
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "not_implemented"
-    assert response.headers["x-should-retry"] == "false"
-    assert _count_audit_rows() == 0
-    assert upstream.calls == []
+# --- The verdict that replaced the non-success placeholder ------------------------
 
 
 def test_blocked_result_is_translated_verdict(temp_db, upstream):

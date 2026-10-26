@@ -16,14 +16,17 @@ the 401/403 dependency refusals and the 400 body failures. STORY-011 maps the
 pipeline's faults to Section 7.5's 502/500 rows, retryable only when the
 fault is transient (D7). STORY-012 added `GET /v1/models`, which lists
 `MODEL_ALLOWLIST`, refuses the break-glass credential itself (no pipeline
-runs there) and writes no row (Section 7.7). STORY-013 adds the buffered
-stream.
+runs there) and writes no row (Section 7.7). STORY-013 added the buffered
+stream: a `stream: true` request is committed to SSE only once the upstream
+call has started (Section 6.4), so every verdict keeps its real status.
 """
 
+import asyncio
+import functools
 import logging
 import time
 from http import HTTPStatus
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Request
 from fastapi.exception_handlers import (
@@ -31,19 +34,21 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
 from app.middleware.auth import require_permission
 from app.models.schemas import QuerySuccessResponse
 from app.models.v1_schemas import (
+    ChatCompletion,
     ChatCompletionRequest,
     ErrorDetail,
     ErrorResponse,
     ModelEntry,
     ModelList,
 )
+from app.services import v1_sse
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
@@ -109,16 +114,39 @@ class _Upstream:
     `call_openrouter` is looked up at call time, so a test's replacement
     applies. `kwargs` is forwarded as received: `params=` reaches the client
     only when the pipeline passed it, and the suite's stubs with signature
-    (messages, model, api_key) keep working (PRD-010 STORY-005). STORY-013
-    adds the start signal here.
+    (messages, model, api_key) keep working (PRD-010 STORY-005).
+
+    It is also the commit signal for a streamed request (Section 6.4): being
+    called means step 7 has started, so every verdict is behind the request.
+    `called` is set on the pipeline thread before any result can exist, which
+    makes it the deterministic answer to "commit or not"; `started` wakes the
+    event loop for it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self.result: Optional[OpenRouterResult] = None
+        self.called = False
+        self.started = asyncio.Event()
+        self._loop = loop
 
     def __call__(self, messages, model, api_key, **kwargs) -> OpenRouterResult:
+        self.called = True
+        self._loop.call_soon_threadsafe(self.started.set)
         self.result = call_openrouter(messages, model=model, api_key=api_key, **kwargs)
         return self.result
+
+
+def _error_body(
+    type_: str,
+    code: str,
+    message: str,
+    param: Optional[str] = None,
+    harness: Optional[Dict[str, Any]] = None,
+) -> ErrorResponse:
+    """The error object itself, sent as a JSON body or as a post-commit SSE event."""
+    return ErrorResponse(
+        error=ErrorDetail(message=message, type=type_, param=param, code=code, harness=harness)
+    )
 
 
 def _error(
@@ -136,9 +164,7 @@ def _error(
     are not retried by the OpenAI SDKs anyway, so the header makes "retry: no"
     one rule rather than one per status. A 5xx passes its own headers.
     """
-    body = ErrorResponse(
-        error=ErrorDetail(message=message, type=type_, param=param, code=code, harness=harness)
-    )
+    body = _error_body(type_, code, message, param, harness)
     if status_code < 500:
         headers = {**(headers or {}), "x-should-retry": "false"}
     return JSONResponse(body.model_dump(mode="json"), status_code=status_code, headers=headers)
@@ -159,8 +185,8 @@ def _fault_code(exc: Exception) -> str:
 
     An upstream fault is retryable exactly when the client says so
     (`_classify_http_error`). A storage fault is transient by nature. A
-    redaction failure repeats on the same text. STORY-013's post-commit error
-    event reuses this.
+    redaction failure repeats on the same text. A post-commit fault on a
+    stream is the same code, sent as an SSE `error` event (Section 7.6).
     """
     if isinstance(exc, OpenRouterError):
         return UPSTREAM_UNAVAILABLE if exc.retryable else UPSTREAM_ERROR
@@ -171,13 +197,73 @@ def _fault_code(exc: Exception) -> str:
     raise TypeError(f"no /v1 fault for {type(exc).__name__}")
 
 
-def _placeholder(message: str) -> JSONResponse:
-    # STORY-013 replaces this placeholder. `x-should-retry: false` because
-    # the OpenAI SDKs retry a 5xx by default, and each retry would run the
-    # pipeline again.
-    return _error(
-        501, "api_error", "not_implemented", message, headers={"x-should-retry": "false"}
+def _outcome(
+    pipeline: asyncio.Future, upstream: _Upstream, identity: Identity
+) -> Union[ChatCompletion, V1Error]:
+    """A finished pipeline as the completion or the error, for either response.
+
+    Anything outside `_PIPELINE_FAULTS` is a bug and propagates.
+    """
+    try:
+        result = pipeline.result()
+    except _PIPELINE_FAULTS as exc:
+        # The pipeline has already written whatever row `/query` writes for
+        # the same fault: one `success=False` row for an upstream or
+        # redaction failure, none for a failed duplicate lookup or usage gate.
+        code = _fault_code(exc)
+        # Who and which fault, never the message: a storage error's text is
+        # driver output (T9's rule, applied to faults).
+        logger.warning("v1 request failed: user_id=%s code=%s", identity.user_id, code)
+        return translate_fault(code, str(exc))
+
+    if not isinstance(result, QuerySuccessResponse):
+        # A verdict: 400 or 403, never 429 or 5xx (D2, T7). The pipeline has
+        # already written the row.
+        return translate_verdict(result)
+
+    # A success means step 7 ran, so the wrapper holds its result.
+    assert upstream.result is not None
+    return translate_result(result, upstream.result, int(time.time()))
+
+
+def _json_response(pipeline: asyncio.Future, upstream: _Upstream, identity: Identity) -> Any:
+    outcome = _outcome(pipeline, upstream, identity)
+    if isinstance(outcome, V1Error):
+        return _from_v1_error(outcome)
+    return JSONResponse(
+        outcome.model_dump(mode="json"),
+        headers={"X-Harness-Audit-Id": str(outcome.harness.audit_id)},
     )
+
+
+def _sse_events(
+    pipeline: asyncio.Future, upstream: _Upstream, identity: Identity, include_usage: bool
+) -> List[str]:
+    """A finished pipeline as the events after commit (Section 7.6).
+
+    The `200` is already sent, so there is no status left to fall back on:
+    an exception outside `_PIPELINE_FAULTS` (a bug, which the JSON path
+    leaves to Starlette's 500) is logged and sent as `internal_error`, so the
+    stream ends with an event rather than a torn body.
+    """
+    try:
+        outcome = _outcome(pipeline, upstream, identity)
+    except Exception:
+        logger.exception(
+            "v1 stream failed after commit: user_id=%s code=%s", identity.user_id, INTERNAL_ERROR
+        )
+        outcome = translate_fault(INTERNAL_ERROR, HTTPStatus.INTERNAL_SERVER_ERROR.phrase)
+    if isinstance(outcome, ChatCompletion):
+        return v1_sse.completion_events(outcome, include_usage)
+    if outcome.harness is not None:
+        # Only a verdict carries a pipeline response, and every verdict is
+        # decided before step 7 (Risk 5). Sent as the error event regardless.
+        logger.warning(
+            "v1 verdict after stream commit: user_id=%s code=%s", identity.user_id, outcome.code
+        )
+    return [v1_sse.error_event(
+        _error_body(outcome.type, outcome.code, outcome.message, outcome.param, outcome.harness)
+    )]
 
 
 @router.post("/v1/chat/completions")
@@ -195,47 +281,53 @@ async def chat_completions(
         logger.info("v1 request refused: user_id=%s code=%s", identity.user_id, exc.code)
         return _error(400, "invalid_request_error", exc.code, exc.message, exc.param)
 
+    upstream = _Upstream(asyncio.get_running_loop())
+    # A task, not an await: a streamed request waits on it alongside the
+    # upstream signal. It is never cancelled (Section 7.6).
+    pipeline = asyncio.ensure_future(run_in_pipeline(
+        run_conversation,
+        identity,
+        call.messages,
+        device,
+        call.model,
+        None,  # openrouter_api_key: BYOK is out (PRD-015 Section 4)
+        call.params,
+        call_openrouter=upstream,
+        profile="code",
+        ingress="v1",
+        # From the request, on every arm: `_deny`'s rule that a defaulted
+        # False would mislabel an SSE refusal (PRD-013 Section 6.9).
+        streamed=call.stream,
+        ignored_params=call.ignored_params,
+    ))
+    # Whatever happens to this request, the pipeline finishes and its outcome
+    # is retrieved.
+    v1_sse.detach(pipeline)
+
     if call.stream:
-        # STORY-013 replaces this placeholder with the buffered stream.
-        return _placeholder("streaming is not available yet")
+        await v1_sse.wait_for_commit(pipeline, upstream.started)
+    else:
+        await asyncio.wait({pipeline})
 
-    upstream = _Upstream()
-    try:
-        result = await run_in_pipeline(
-            run_conversation,
-            identity,
-            call.messages,
-            device,
-            call.model,
-            None,  # openrouter_api_key: BYOK is out (PRD-015 Section 4)
-            call.params,
-            call_openrouter=upstream,
-            profile="code",
-            ingress="v1",
-            streamed=False,
-            ignored_params=call.ignored_params,
-        )
-    except _PIPELINE_FAULTS as exc:
-        # The pipeline has already written whatever row `/query` writes for
-        # the same fault: one `success=False` row for an upstream or
-        # redaction failure, none for a failed duplicate lookup or usage gate.
-        code = _fault_code(exc)
-        # Who and which fault, never the message: a storage error's text is
-        # driver output (T9's rule, applied to faults).
-        logger.warning("v1 request failed: user_id=%s code=%s", identity.user_id, code)
-        return _from_v1_error(translate_fault(code, str(exc)))
+    # The commit rule (Section 6.4, D8): until the upstream is called, the
+    # outcome is a verdict or a pre-upstream fault and keeps its real status.
+    # Read from the wrapper's flag, not from which wait finished first.
+    if not (call.stream and upstream.called):
+        return _json_response(pipeline, upstream, identity)
 
-    if not isinstance(result, QuerySuccessResponse):
-        # A verdict: 400 or 403, never 429 or 5xx (D2, T7). The pipeline has
-        # already written the row.
-        return _from_v1_error(translate_verdict(result))
-
-    # A success means step 7 ran, so the wrapper holds its result.
-    assert upstream.result is not None
-    completion = translate_result(result, upstream.result, int(time.time()))
-    return JSONResponse(
-        completion.model_dump(mode="json"),
-        headers={"X-Harness-Audit-Id": str(result.audit_id)},
+    # No X-Harness-Audit-Id: the row does not exist yet. Every chunk's id
+    # carries it (Section 7.6).
+    return StreamingResponse(
+        v1_sse.stream(
+            pipeline,
+            functools.partial(
+                _sse_events, upstream=upstream, identity=identity,
+                include_usage=call.include_usage,
+            ),
+            settings.V1_SSE_KEEPALIVE_SECONDS,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

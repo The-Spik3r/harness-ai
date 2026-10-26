@@ -7,6 +7,10 @@ asserted: status, `type`, `code`, `message` (the reason plus its details)
 and `harness` (every field of the pipeline response but `status`). The one
 verdict HTTP cannot reach, the pipeline's own `query:submit` refusal (the
 dependency refuses first), is returned by a replaced `run_conversation`.
+STORY-013: every verdict, and every fault decided before the upstream call,
+runs twice (`stream` fixture): with `stream: true` it is the same JSON error
+with the same status, and its row has `streamed=1`. Faults after the upstream
+call are SSE `error` events, in `tests/test_v1_sse.py`.
 
 The shape refusals (401, 403 from the dependency, a non-JSON or invalid body,
 a `V1RequestError`) carry `harness: null` and write no row (T9). Every 4xx
@@ -96,6 +100,14 @@ def upstream(monkeypatch):
     return stub
 
 
+@pytest.fixture(params=[False, True], ids=["json", "sse"])
+def stream(request):
+    """STORY-013 AC 1: with `stream: true`, a block or fault decided before
+    the upstream call is the same JSON error with the same status, never a
+    200 stream, and its row records `streamed` from the request."""
+    return request.param
+
+
 def _body(content=_PROMPT, **extra):
     return {"model": _MODEL, "messages": [{"role": "user", "content": content}], **extra}
 
@@ -126,6 +138,8 @@ def _error(status_code, type_, code, message, harness=None, param=None):
 
 def _assert_response(response, expected):
     status_code, body = expected
+    # Never a committed stream, whatever the request's `stream` (STORY-013).
+    assert response.headers["content-type"] == "application/json"
     assert (response.status_code, response.json()) == (status_code, body)
     assert response.headers["x-should-retry"] == _NO_RETRY
     assert _CANARY not in response.text
@@ -134,10 +148,10 @@ def _assert_response(response, expected):
 # --- AC 1: every pipeline verdict ----------------------------------------------
 
 
-def test_duplicate_is_400_duplicate_request(temp_db, upstream):
+def test_duplicate_is_400_duplicate_request(temp_db, upstream, stream):
     assert client.post(_PATH, json=_body()).status_code == 200
 
-    response = client.post(_PATH, json=_body())
+    response = client.post(_PATH, json=_body(stream=stream))
 
     first_query_at = response.json()["error"]["harness"]["first_query_at"]
     _assert_response(
@@ -149,11 +163,11 @@ def test_duplicate_is_400_duplicate_request(temp_db, upstream):
         ),
     )
     assert upstream.calls == [_MODEL]
-    assert _count_audit_rows() == 2
+    assert [row.streamed for row in _rows()] == [False, stream]
 
 
-def test_suspicious_is_400_suspicious_pattern(temp_db, upstream):
-    response = client.post(_PATH, json=_body(f"{_INJECTION} {_CANARY}"))
+def test_suspicious_is_400_suspicious_pattern(temp_db, upstream, stream):
+    response = client.post(_PATH, json=_body(f"{_INJECTION} {_CANARY}", stream=stream))
 
     _assert_response(
         response,
@@ -164,10 +178,11 @@ def test_suspicious_is_400_suspicious_pattern(temp_db, upstream):
         ),
     )
     assert upstream.calls == []
-    assert _only_row().suspicious_pattern == _INJECTION
+    row = _only_row()
+    assert (row.suspicious_pattern, row.streamed) == (_INJECTION, stream)
 
 
-def test_context_messages_is_400_context_length_exceeded(temp_db, upstream, monkeypatch):
+def test_context_messages_is_400_context_length_exceeded(temp_db, upstream, monkeypatch, stream):
     monkeypatch.setattr(settings, "CONTEXT_MAX_MESSAGES", 2)
     messages = [
         {"role": "user", "content": _CANARY},
@@ -175,7 +190,7 @@ def test_context_messages_is_400_context_length_exceeded(temp_db, upstream, monk
         {"role": "user", "content": _PROMPT},
     ]
 
-    response = client.post(_PATH, json={"model": _MODEL, "messages": messages})
+    response = client.post(_PATH, json={"model": _MODEL, "messages": messages, "stream": stream})
 
     _assert_response(
         response,
@@ -189,13 +204,13 @@ def test_context_messages_is_400_context_length_exceeded(temp_db, upstream, monk
         ),
     )
     assert upstream.calls == []
-    assert _count_audit_rows() == 1
+    assert _only_row().streamed is stream
 
 
-def test_context_characters_is_400_context_length_exceeded(temp_db, upstream, monkeypatch):
+def test_context_characters_is_400_context_length_exceeded(temp_db, upstream, monkeypatch, stream):
     monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 10)
 
-    response = client.post(_PATH, json=_body(_CANARY))
+    response = client.post(_PATH, json=_body(_CANARY, stream=stream))
 
     _assert_response(
         response,
@@ -209,16 +224,16 @@ def test_context_characters_is_400_context_length_exceeded(temp_db, upstream, mo
         ),
     )
     assert upstream.calls == []
-    assert _count_audit_rows() == 1
+    assert _only_row().streamed is stream
 
 
-def test_redaction_limit_is_400_redaction_limit_exceeded(temp_db, upstream, monkeypatch):
+def test_redaction_limit_is_400_redaction_limit_exceeded(temp_db, upstream, monkeypatch, stream):
     monkeypatch.setattr(settings, "PII_REDACTION_ENABLED", True)
     monkeypatch.setattr(settings, "PII_MAX_CHARACTERS_CODE", 10)
     # conftest's _default_pii_policy restores the policies afterwards.
     pii_policy.load()
 
-    response = client.post(_PATH, json=_body(_CANARY))
+    response = client.post(_PATH, json=_body(_CANARY, stream=stream))
 
     _assert_response(
         response,
@@ -232,11 +247,11 @@ def test_redaction_limit_is_400_redaction_limit_exceeded(temp_db, upstream, monk
         ),
     )
     assert upstream.calls == []
-    assert _count_audit_rows() == 1
+    assert _only_row().streamed is stream
 
 
-def test_disallowed_model_is_403_model_not_permitted(temp_db, upstream):
-    response = client.post(_PATH, json={**_body(), "model": _DISALLOWED_MODEL})
+def test_disallowed_model_is_403_model_not_permitted(temp_db, upstream, stream):
+    response = client.post(_PATH, json={**_body(stream=stream), "model": _DISALLOWED_MODEL})
 
     permission = f"query:model:{_DISALLOWED_MODEL}"
     _assert_response(
@@ -248,14 +263,15 @@ def test_disallowed_model_is_403_model_not_permitted(temp_db, upstream):
         ),
     )
     assert upstream.calls == []
-    assert _only_row().denied_permission == permission
+    row = _only_row()
+    assert (row.denied_permission, row.streamed) == (permission, stream)
 
 
-def test_admin_token_is_403_break_glass_not_permitted_with_one_row(temp_db, upstream):
+def test_admin_token_is_403_break_glass_not_permitted_with_one_row(temp_db, upstream, stream):
     # AC 2. The bearer is ADMIN_TOKEN itself, so the identity is resolve()'s.
     admin_client = TestClient(app, headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"})
 
-    response = admin_client.post(_PATH, json=_body())
+    response = admin_client.post(_PATH, json=_body(stream=stream))
 
     _assert_response(
         response,
@@ -271,7 +287,7 @@ def test_admin_token_is_403_break_glass_not_permitted_with_one_row(temp_db, upst
     assert upstream.calls == []
     row = _only_row()
     assert row.denied_permission == "ingress:break_glass"
-    assert row.ingress == "v1"
+    assert (row.ingress, row.streamed) == ("v1", stream)
 
 
 def _seed_usage(requests_in_window=0, input_tokens=0):
@@ -304,35 +320,39 @@ def _assert_usage_limit(response, limit):
     )
 
 
-def test_token_budget_is_403_usage_limit_exceeded(temp_db, upstream, monkeypatch):
+def test_token_budget_is_403_usage_limit_exceeded(temp_db, upstream, monkeypatch, stream):
     # Outcome 8's lever: today's counter seeded at the budget.
     monkeypatch.setattr(settings, "USAGE_DAILY_TOKEN_BUDGET", "*=100")
     _seed_usage(input_tokens=100)
 
-    response = client.post(_PATH, json=_body())
+    response = client.post(_PATH, json=_body(stream=stream))
 
     _assert_usage_limit(response, "tokens")
     assert response.json()["error"]["harness"]["maximum"] == 100
     assert upstream.calls == []
-    assert _only_row().limit_exceeded == "tokens"
+    row = _only_row()
+    assert (row.limit_exceeded, row.streamed) == ("tokens", stream)
 
 
-def test_request_rate_is_403_usage_limit_exceeded(temp_db, upstream, monkeypatch):
+def test_request_rate_is_403_usage_limit_exceeded(temp_db, upstream, monkeypatch, stream):
     # The current minute's window seeded at the rate. A minute boundary between
     # the seed and the request would reset the window; the rate is 1, so a
     # flip makes this request pass with a 200, which the assertion names.
     monkeypatch.setattr(settings, "USAGE_REQUESTS_PER_MINUTE", "*=1")
     _seed_usage(requests_in_window=1)
 
-    response = client.post(_PATH, json=_body())
+    response = client.post(_PATH, json=_body(stream=stream))
 
     _assert_usage_limit(response, "requests")
     assert response.json()["error"]["harness"]["maximum"] == 1
     assert upstream.calls == []
-    assert _only_row().limit_exceeded == "requests"
+    row = _only_row()
+    assert (row.limit_exceeded, row.streamed) == ("requests", stream)
 
 
-def test_pipeline_query_submit_refusal_is_403_permission_denied(temp_db, upstream, monkeypatch):
+def test_pipeline_query_submit_refusal_is_403_permission_denied(
+    temp_db, upstream, monkeypatch, stream
+):
     # The dependency refuses a missing query:submit before the pipeline, so
     # the pipeline's own refusal is returned by a replaced run_conversation.
     def _refuse(*args, **kwargs):
@@ -342,7 +362,7 @@ def test_pipeline_query_submit_refusal_is_403_permission_denied(temp_db, upstrea
 
     monkeypatch.setattr("app.routers.v1.run_conversation", _refuse)
 
-    response = client.post(_PATH, json=_body())
+    response = client.post(_PATH, json=_body(stream=stream))
 
     _assert_response(
         response,
@@ -569,6 +589,7 @@ def _rows():
 
 def _assert_fault(response, status_code, code, retryable, message=None):
     """The whole body, and the retry signal (D7). `message=None` skips its pin."""
+    assert response.headers["content-type"] == "application/json"
     error = response.json()["error"]
     expected_message = error["message"] if message is None else message
     assert (response.status_code, error) == (
@@ -589,12 +610,12 @@ def _assert_fault(response, status_code, code, retryable, message=None):
     return error["message"]
 
 
-def _assert_one_v1_failure_row(message):
+def _assert_one_v1_failure_row(message, streamed=False):
     rows = _rows()
     assert len(rows) == 1, f"expected exactly one audit row, found {len(rows)}"
     row = rows[0]
     assert (row.success, row.error_message) == (False, message)
-    assert (row.ingress, row.profile, row.streamed) == ("v1", "code", False)
+    assert (row.ingress, row.profile, row.streamed) == ("v1", "code", streamed)
     return row
 
 
@@ -701,10 +722,12 @@ def test_missing_upstream_key_is_502_upstream_error(temp_db, monkeypatch):
     ],
     ids=["duplicate-lookup", "usage-gate"],
 )
-def test_storage_fault_is_500_internal_error_retryable(temp_db, upstream, monkeypatch, binding, exc):
+def test_storage_fault_is_500_internal_error_retryable(
+    temp_db, upstream, monkeypatch, binding, exc, stream
+):
     monkeypatch.setattr(query_pipeline, binding, _raising(exc))
 
-    response = client.post(_PATH, json=_body())
+    response = client.post(_PATH, json=_body(stream=stream))
 
     _assert_fault(response, 500, "internal_error", retryable=True, message=str(exc))
     # Fails closed before any row and before the upstream, as on /query.
@@ -712,18 +735,18 @@ def test_storage_fault_is_500_internal_error_retryable(temp_db, upstream, monkey
     assert upstream.calls == []
 
 
-def test_input_redaction_fault_is_500_redaction_failed(temp_db, upstream, monkeypatch):
+def test_input_redaction_fault_is_500_redaction_failed(temp_db, upstream, monkeypatch, stream):
     # `code` redacts through redact_for_policy, not `redact` (query_pipeline._redact).
     monkeypatch.setattr(
         query_pipeline, "redact_for_policy", _raising(PiiRedactorError("PII analysis failed: probe"))
     )
 
-    response = client.post(_PATH, json=_body())
+    response = client.post(_PATH, json=_body(stream=stream))
 
     _assert_fault(
         response, 500, "redaction_failed", retryable=False, message="PII analysis failed: probe"
     )
-    _assert_one_v1_failure_row("PII analysis failed: probe")
+    _assert_one_v1_failure_row("PII analysis failed: probe", streamed=stream)
     assert upstream.calls == []
 
 
