@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Buffered SSE"
-status: todo
+status: done
 labels: [backend, api, streaming]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-013-buffered-sse.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-013-buffered-sse.report.md
+commit: 2b1773a
 depends_on: [STORY-003, STORY-004, STORY-010, STORY-011]
 blocks: [STORY-015, STORY-016, STORY-017, STORY-018]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-26
 ---
 
 # STORY-013: Buffered SSE: commit on upstream start, keep-alive, chunk sequence, include_usage, post-commit error

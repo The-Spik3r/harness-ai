@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/19 stories done — 63%
+13/19 stories done — 68%
 
 ## Stories
 
@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`.
 | STORY-010 | Verdicts to OpenAI error objects; /v1-scoped 400/401/403 handlers; /query isolation | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-010-verdict-to-error-translation.plan.md) | `0cd544c` |
 | STORY-011 | Upstream and internal fault mapping with deliberate retry semantics | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-011-fault-mapping-and-retry-semantics.plan.md) | `a8ac6de` |
 | STORY-012 | GET /v1/models and /v1/models/{id} from MODEL_ALLOWLIST | feature | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-012-v1-models.plan.md) | `799df1d` |
-| STORY-013 | Buffered SSE: commit on upstream start, keep-alive, chunk sequence, include_usage, post-commit error | feature | ⬜ todo | large | — | — |
+| STORY-013 | Buffered SSE: commit on upstream start, keep-alive, chunk sequence, include_usage, post-commit error | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-013-buffered-sse.plan.md) | `2b1773a` |
 | STORY-014 | Scripted stub upstream for E2E runs | technical | ⬜ todo | medium | — | — |
 | STORY-015 | E2E: OpenAI Python SDK, non-streaming, streaming, blocks and retries | technical | ⬜ todo | medium | — | — |
 | STORY-016 | E2E: Aider applies a scripted edit through the harness | technical | ⬜ todo | medium | — | — |
