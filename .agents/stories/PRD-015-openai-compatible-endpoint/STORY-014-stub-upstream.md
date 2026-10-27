@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Real clients, deployment, documentation"
-status: todo
+status: done
 labels: [tests, tooling, e2e]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-014-stub-upstream.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-014-stub-upstream.report.md
+commit: e6d9ab7
 depends_on: [STORY-002]
 blocks: [STORY-015, STORY-016, STORY-017, STORY-018]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-26
 ---
 
 # STORY-014: Scripted stub upstream for E2E runs
