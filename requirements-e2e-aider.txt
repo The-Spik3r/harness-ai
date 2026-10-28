@@ -1,0 +1,7 @@
+# Aider for the PRD-015 STORY-016 E2E (tests/e2e/test_aider.py). Its own venv, never
+# the harness venv: aider-chat pins exact openai/httpx/pydantic/litellm versions that
+# would move the packages the harness subprocess runs on. Aider only runs as a
+# subprocess, found through HARNESS_E2E_AIDER. Install:
+#   uv venv --python 3.11 C:\Users\<you>\.venvs\aider-e2e
+#   uv pip install --python C:\Users\<you>\.venvs\aider-e2e\Scripts\python.exe -r requirements-e2e-aider.txt
+aider-chat==0.86.2

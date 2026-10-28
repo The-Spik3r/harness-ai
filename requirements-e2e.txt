@@ -1,4 +1,5 @@
 # E2E-only client dependencies (PRD-015 Section 8). Not part of requirements.txt:
 # the harness never imports them. Install with `pip install -r requirements-e2e.txt`
-# to run `pytest tests/e2e -m e2e --run-e2e`. STORY-016 adds aider-chat here.
+# to run `pytest tests/e2e -m e2e --run-e2e`. Aider pins its own openai/httpx/pydantic,
+# so it lives in requirements-e2e-aider.txt and its own venv (STORY-016).
 openai==3.40.0

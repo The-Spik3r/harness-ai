@@ -32,32 +32,22 @@ Run (skipped without `--run-e2e`; needs `pip install -r requirements-e2e.txt`):
 """
 
 import json
-import os
 import re
 import secrets
-import socket
-import subprocess
-import sys
-import threading
-import time
-from pathlib import Path
-from urllib.parse import urlsplit
 
-import httpx
 import pytest
 
-from tests.conftest import child_db_env
+from tests.e2e import _live
 
 openai = pytest.importorskip("openai")
 
 pytestmark = pytest.mark.e2e
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = _live.REPO_ROOT
 _SCRIPT = REPO_ROOT / "tests" / "e2e" / "scripts" / "openai_sdk.json"
 _ALLOWLIST = "openai/gpt-4o,anthropic/claude-3.5-sonnet,gpt-4"
 _MODEL = "openai/gpt-4o"
 _CONTEXT_MAX_MESSAGES = 4
-_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 _RECIPE = (
     "docker run -d --name harness-libsql-e2e015 -p 8088:8080 -e SQLD_NODE=primary "
     "ghcr.io/tursodatabase/libsql-server:latest, then "
@@ -65,15 +55,6 @@ _RECIPE = (
 )
 
 NONCE = secrets.token_hex(4)
-
-# Prints one user's rows as JSON. A single-quoted constant on purpose: it runs
-# as `python -c` in a child with DATABASE_URL pinned to the E2E endpoint.
-_DUMP = (
-    "import dataclasses, json, sys\n"
-    "from app.db.database import list_audit_logs\n"
-    "rows = list_audit_logs(limit=1000, user_id=sys.argv[1])\n"
-    "print(json.dumps([dataclasses.asdict(row) for row in rows]))\n"
-)
 
 #: Row fields copied into rows.json. Never the token, the prompt or the answer.
 _REPORT_FIELDS = (
@@ -91,63 +72,14 @@ def _user(content: str) -> list:
     return [{"role": "user", "content": content}]
 
 
-def _read_line_within(stream, timeout):
-    box = []
-    reader = threading.Thread(target=lambda: box.append(stream.readline()), daemon=True)
-    reader.start()
-    reader.join(timeout)
-    assert box and box[0], f"no line from the child within {timeout}s"
-    return box[0]
-
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _port_closed_within(port: int, timeout: float) -> bool:
-    """Whether nothing accepts on `port` within `timeout`.
-
-    A wait, not one probe: a venv's `Scripts\\python.exe` on Windows is a
-    launcher whose interpreter is a child process. `terminate()` ends the
-    launcher, and the child (which holds the socket) follows it a moment later,
-    when the launcher's job object closes. A real orphan never closes.
-    """
-    deadline = time.monotonic() + timeout
-    while True:
-        with socket.socket() as sock:
-            sock.settimeout(1)
-            if sock.connect_ex(("127.0.0.1", port)) != 0:
-                return True
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.2)
-
-
-def _stop(proc: subprocess.Popen, timeout: float) -> None:
-    if proc.poll() is None:
-        proc.terminate()
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-
-
 # --------------------------------------------------------------------------
-# Fixtures: database, users, stub, harness
+# Fixtures: database, users, stub, harness (plumbing in tests/e2e/_live.py)
 # --------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
 def e2e_db_url():
-    url = os.environ.get("HARNESS_E2E_LIBSQL_URL", "").strip()
-    if not url:
-        pytest.fail(f"HARNESS_E2E_LIBSQL_URL is not set. Start a throwaway libSQL: {_RECIPE}")
-    if urlsplit(url).hostname not in _LOOPBACK:
-        pytest.fail(f"HARNESS_E2E_LIBSQL_URL must be a loopback endpoint, got host {urlsplit(url).hostname!r}")
-    return url
+    return _live.resolve_e2e_db_url(_RECIPE)
 
 
 @pytest.fixture(scope="module")
@@ -159,28 +91,15 @@ def child_cwd(tmp_path_factory):
 @pytest.fixture(scope="module")
 def child_env(e2e_db_url):
     def build(**extra) -> dict:
-        return {
-            **os.environ,
-            **child_db_env(e2e_db_url),
-            "TURSO_AUTH_TOKEN": "",
-            "PYTHONPATH": str(REPO_ROOT),
-            **extra,
-        }
+        return _live.child_env(e2e_db_url, **extra)
 
     return build
 
 
 @pytest.fixture(scope="module")
 def run_child(child_cwd, child_env):
-    def run(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [sys.executable, *args],
-            cwd=str(child_cwd),
-            env=child_env(),
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+    def run(*args: str):
+        return _live.run_child(child_cwd, child_env(), *args)
 
     return run
 
@@ -188,116 +107,36 @@ def run_child(child_cwd, child_env):
 @pytest.fixture(scope="module")
 def users(run_child):
     """{label: (user_id, token)}. `budget` has a daily token budget of 1."""
-    manage = str(REPO_ROOT / "scripts" / "manage_users.py")
     created = {}
     for label in ("main", "budget"):
         user_id = f"e2e015-{label}-{NONCE}"
-        proc = run_child(manage, "create-user", "--user-id", user_id, "--role", "user")
-        # The token is on stdout: report only the exit code and stderr.
-        assert proc.returncode == 0, f"create-user {user_id} exited {proc.returncode}: {proc.stderr}"
-        match = re.search(r"Token \(save this now[^)]*\): (\S+)", proc.stdout)
-        assert match, f"create-user {user_id} printed no token line"
-        created[label] = (user_id, match.group(1))
+        created[label] = (user_id, _live.create_user(run_child, user_id))
+    manage = str(REPO_ROOT / "scripts" / "manage_users.py")
     proc = run_child(manage, "set-limits", "--user-id", created["budget"][0], "--token-budget", "1")
     assert proc.returncode == 0, f"set-limits exited {proc.returncode}: {proc.stderr}"
     return created
 
 
-class _Stub:
-    def __init__(self, proc: subprocess.Popen, base: str) -> None:
-        self.proc = proc
-        self.base = base
-        self.lines: list = []
-        threading.Thread(target=self._drain, daemon=True).start()
-
-    def _drain(self) -> None:
-        for line in self.proc.stderr:
-            self.lines.append(line.rstrip("\n"))
-
-    def requests(self) -> list:
-        """The rule label of every chat request the stub has answered so far."""
-        return [line.split(" rule=", 1)[1].split()[0] for line in list(self.lines) if " rule=" in line]
-
-    def settle(self) -> list:
-        """`requests()` once the log has been quiet for 0.3 s (the drain is a thread)."""
-        seen = len(self.lines)
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            time.sleep(0.3)
-            if len(self.lines) == seen:
-                break
-            seen = len(self.lines)
-        return self.requests()
-
-
 @pytest.fixture(scope="module")
 def stub(child_cwd):
-    proc = subprocess.Popen(
-        [sys.executable, str(REPO_ROOT / "scripts" / "stub_openrouter.py"), "--port", "0", "--script", str(_SCRIPT)],
-        cwd=str(child_cwd),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    try:
-        line = _read_line_within(proc.stdout, 10)
-        assert line.startswith("stub_openrouter: listening on http://127.0.0.1:"), line
-        yield _Stub(proc, line.split("listening on ", 1)[1].strip())
-    finally:
-        _stop(proc, 10)
-
-
-class _Harness:
-    def __init__(self, base: str, port: int, admin_token: str) -> None:
-        self.base = base
-        self.port = port
-        self.admin_token = admin_token
+    with _live.start_stub(_SCRIPT, child_cwd) as running:
+        yield running
 
 
 @pytest.fixture(scope="module")
 def harness(users, stub, child_cwd, child_env):
     """`uvicorn app.main:app` on a free port. After `users`: startup refuses an empty users table."""
-    port = _free_port()
-    admin_token = secrets.token_urlsafe(16)
     env = child_env(
         OPENROUTER_BASE_URL=stub.base,
         OPENROUTER_API_KEY="e2e-unused-key",
-        ADMIN_TOKEN=admin_token,
         RBAC_ENABLED="true",
         V1_ENABLED="true",
         MODEL_ALLOWLIST=_ALLOWLIST,
         CONTEXT_MAX_MESSAGES=str(_CONTEXT_MAX_MESSAGES),
         USAGE_REQUESTS_PER_MINUTE="*=unlimited",
     )
-    log_path = child_cwd / "uvicorn.log"
-    with open(log_path, "w", encoding="utf-8") as log:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "app.main:app", "--app-dir", str(REPO_ROOT),
-             "--host", "127.0.0.1", "--port", str(port)],
-            cwd=str(child_cwd),
-            env=env,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-    base = f"http://127.0.0.1:{port}"
-    try:
-        deadline = time.monotonic() + 180  # Presidio and spaCy load at startup
-        while True:
-            if proc.poll() is not None:
-                pytest.fail(f"uvicorn exited {proc.returncode} before /health answered:\n"
-                            + log_path.read_text(encoding="utf-8", errors="replace"))
-            try:
-                if httpx.get(f"{base}/health", timeout=2).status_code == 200:
-                    break
-            except httpx.HTTPError:
-                pass
-            if time.monotonic() > deadline:
-                pytest.fail("uvicorn did not answer /health within 180 s")
-            time.sleep(0.5)
-        yield _Harness(base, port, admin_token)
-    finally:
-        _stop(proc, 15)
-        assert _port_closed_within(port, 10), f"something still listens on :{port} 10 s after stop"
+    with _live.start_harness(child_cwd, env) as running:
+        yield running
 
 
 @pytest.fixture(scope="module")
@@ -327,9 +166,7 @@ def seen_rows(request, child_cwd):
 def rows(run_child, users, seen_rows):
     """rows(label) -> that user's rows, oldest first."""
     def read(label: str) -> list:
-        proc = run_child("-c", _DUMP, users[label][0])
-        assert proc.returncode == 0, f"audit dump exited {proc.returncode}: {proc.stderr}"
-        found = sorted(json.loads(proc.stdout), key=lambda row: row["id"])
+        found = _live.dump_rows(run_child, users[label][0])
         for row in found:
             seen_rows[row["id"]] = {"user": label, **{key: row[key] for key in _REPORT_FIELDS}}
         return found
