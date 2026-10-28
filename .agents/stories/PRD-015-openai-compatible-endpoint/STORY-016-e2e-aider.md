@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Real clients, deployment, documentation"
-status: todo
+status: done
 labels: [tests, e2e, clients]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-016-e2e-aider.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-016-e2e-aider.report.md
+commit: a87c078
 depends_on: [STORY-013, STORY-014, STORY-015]
 blocks: [STORY-019]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-28
 ---
 
 # STORY-016: E2E: Aider applies a scripted edit through the harness
