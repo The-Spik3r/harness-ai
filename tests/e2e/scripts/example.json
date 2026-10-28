@@ -27,6 +27,15 @@
     {
       "contains": "bad upstream request",
       "fail_status": 400
+    },
+    {
+      "contains": "flaky upstream",
+      "times": 1,
+      "fail_status": 503
+    },
+    {
+      "contains": "flaky upstream",
+      "content": "Recovered after one scripted 503."
     }
   ]
 }

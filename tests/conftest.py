@@ -90,6 +90,9 @@ from app.services import pii_policy  # noqa: E402
 #: The marker on latency-budget assertions (PRD-012 STORY-013).
 _BENCHMARK_MARKER = "benchmark"
 
+#: The marker on live-client E2E tests (PRD-015 STORY-015).
+_E2E_MARKER = "e2e"
+
 #: The marker on tests that reach storage (PRD-014 STORY-002), applied at collection.
 _DB_MARKER = "db"
 
@@ -140,16 +143,23 @@ def pytest_addoption(parser) -> None:
         default=False,
         help="run @pytest.mark.benchmark latency assertions (PRD-012 STORY-013)",
     )
+    parser.addoption(
+        "--run-e2e",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.e2e live-client tests; needs HARNESS_E2E_LIBSQL_URL (PRD-015 STORY-015)",
+    )
 
 
 def pytest_configure(config) -> None:
     config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
+    config.addinivalue_line("markers", f"{_E2E_MARKER}: live client E2E against a subprocess harness and stub; skipped unless --run-e2e")
     config.addinivalue_line("markers", f"{_DB_MARKER}: reaches storage (a storage fixture, or listed in _DB_NODEIDS); applied at collection")
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items) -> None:
-    """Mark `db` tests, then skip `@pytest.mark.benchmark` tests unless `--run-benchmark` is given.
+    """Mark `db` tests, then skip `benchmark` and `e2e` tests unless `--run-benchmark` / `--run-e2e` is given.
 
     A test is `db` when its fixture closure meets `_STORAGE_FIXTURES` or its
     nodeid is in `_DB_NODEIDS` (PRD-014 STORY-002), so `-m db` / `-m "not db"`
@@ -166,17 +176,25 @@ def pytest_collection_modifyitems(config, items) -> None:
     character conversations. STORY-013 and STORY-014 run it explicitly:
 
         pytest tests/test_pii_code_corpus.py -m benchmark --run-benchmark -s
+
+    `@pytest.mark.e2e` (PRD-015 STORY-015) is skipped the same way unless
+    `--run-e2e` is given, and each option un-skips only its own marker. The E2E
+    tests start the harness and the stub as subprocesses against their own
+    libSQL endpoint (see `tests/e2e/test_openai_sdk.py`):
+
+        HARNESS_E2E_LIBSQL_URL=http://127.0.0.1:8088 pytest tests/e2e -m e2e --run-e2e -v
     """
     db = getattr(pytest.mark, _DB_MARKER)
     for item in items:
         if _STORAGE_FIXTURES.intersection(getattr(item, "fixturenames", ())) or _in_db_nodeids(item.nodeid):
             item.add_marker(db)
-    if config.getoption("--run-benchmark"):
-        return
-    skip = pytest.mark.skip(reason=f"{_BENCHMARK_MARKER}: pass --run-benchmark")
-    for item in items:
-        if _BENCHMARK_MARKER in item.keywords:
-            item.add_marker(skip)
+    for marker, option in ((_BENCHMARK_MARKER, "--run-benchmark"), (_E2E_MARKER, "--run-e2e")):
+        if config.getoption(option):
+            continue
+        skip = pytest.mark.skip(reason=f"{marker}: pass {option}")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
 
 
 @pytest.hookimpl(wrapper=True)

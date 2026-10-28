@@ -1,0 +1,4 @@
+# E2E-only client dependencies (PRD-015 Section 8). Not part of requirements.txt:
+# the harness never imports them. Install with `pip install -r requirements-e2e.txt`
+# to run `pytest tests/e2e -m e2e --run-e2e`. STORY-016 adds aider-chat here.
+openai==3.40.0

@@ -36,7 +36,9 @@ wins; no match uses `default` (or a built-in one when the script has none).
 A reply sets `content`, `finish_reason` and `usage`, or `fail_status`
 (400-599) instead of a body; either may be preceded by `delay_seconds`.
 `usage` fields default to 1 prompt + 1 completion token, and `total_tokens`
-to their sum.
+to their sum. A rule with `times: N` answers its first N matches and is then
+skipped as if it did not match, so "fail once, then answer" is two rules with
+the same matcher; the count is per stub process.
 
 Each request is logged as one ASCII line on stderr: the model, the message
 count, the request's other parameter keys and the rule that answered. Message
@@ -60,6 +62,7 @@ _SCRIPT_KEYS = frozenset({"rules", "default"})
 _REPLY_KEYS = frozenset({"content", "finish_reason", "usage", "delay_seconds", "fail_status"})
 _BODY_KEYS = frozenset({"content", "finish_reason", "usage"})
 _MATCHER_KEYS = frozenset({"contains", "regex"})
+_RULE_KEYS = frozenset({"times"})  # rule only: `default` rejects it as unknown
 _USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "total_tokens"})
 
 _BUILT_IN_DEFAULT_CONTENT = f"{_PREFIX}: no rule matched"
@@ -87,6 +90,7 @@ class Rule:
     reply: Reply
     contains: Optional[str] = None
     pattern: Optional["re.Pattern[str]"] = None
+    times: Optional[int] = None
 
     def matches(self, subject: str) -> bool:
         if self.contains is not None:
@@ -99,11 +103,20 @@ class Script:
     rules: tuple
     default: Reply
 
-    def select(self, subject: str) -> "tuple[str, Reply]":
-        """(label, reply): the first matching rule's index, or "default"."""
+    def select(self, subject: str, hits: Optional[dict] = None) -> "tuple[str, Reply]":
+        """(label, reply): the first matching rule's index, or "default".
+
+        `hits` is the caller's {rule index: answers so far}, which a rule with
+        `times` is checked against and charged to. Without it no rule is capped.
+        """
         for index, rule in enumerate(self.rules):
-            if rule.matches(subject):
-                return str(index), rule.reply
+            if not rule.matches(subject):
+                continue
+            if rule.times is not None and hits is not None:
+                if hits.get(index, 0) >= rule.times:
+                    continue
+                hits[index] = hits.get(index, 0) + 1
+            return str(index), rule.reply
         return "default", self.default
 
 
@@ -164,24 +177,27 @@ def _parse_rule(raw: Any, index: int) -> Rule:
     where = f"rules[{index}]"
     if not isinstance(raw, dict):
         raise ScriptError(f"{where}: must be an object, got {raw!r}")
-    unknown = sorted(set(raw) - _REPLY_KEYS - _MATCHER_KEYS)
+    unknown = sorted(set(raw) - _REPLY_KEYS - _MATCHER_KEYS - _RULE_KEYS)
     if unknown:
         raise ScriptError(f"{where}: unknown key(s): {', '.join(unknown)}")
     matchers = sorted(_MATCHER_KEYS & set(raw))
     if len(matchers) != 1:
         raise ScriptError(f"{where}: needs exactly one of contains or regex, got {matchers or 'neither'}")
+    times = raw.get("times")
+    if "times" in raw and not (_is_count(times) and times >= 1):
+        raise ScriptError(f"{where}: times must be an integer >= 1, got {times!r}")
     reply = _parse_reply(raw, where)
     if "contains" in raw:
         if not isinstance(raw["contains"], str):
             raise ScriptError(f"{where}: contains must be a string, got {raw['contains']!r}")
-        return Rule(reply=reply, contains=raw["contains"])
+        return Rule(reply=reply, contains=raw["contains"], times=times)
     if not isinstance(raw["regex"], str):
         raise ScriptError(f"{where}: regex must be a string, got {raw['regex']!r}")
     try:
         pattern = re.compile(raw["regex"])
     except re.error as exc:
         raise ScriptError(f"{where}: regex does not compile: {exc}") from exc
-    return Rule(reply=reply, pattern=pattern)
+    return Rule(reply=reply, pattern=pattern, times=times)
 
 
 def parse_script(raw: Any) -> Script:
@@ -241,6 +257,8 @@ class _StubHandler(BaseHTTPRequestHandler):
     log_stream: TextIO
     log_lock: threading.Lock
     ids: "itertools.count"
+    hits: dict
+    hits_lock: threading.Lock
 
     def log_message(self, *args):  # the access log would be a second, unscrubbed line
         pass
@@ -292,7 +310,9 @@ class _StubHandler(BaseHTTPRequestHandler):
         messages = body["messages"]
         model = body.get("model")
         params = sorted(str(key) for key in body if key not in ("model", "messages"))
-        label, reply = self.script.select(_last_user_text(messages))
+        # Under the lock, so two concurrent requests cannot both take a capped rule's last answer.
+        with self.hits_lock:
+            label, reply = self.script.select(_last_user_text(messages), self.hits)
         status = reply.fail_status or 200
         self._log(
             f"{_PREFIX}: POST {ascii(self.path)} model={ascii(model)} messages={len(messages)} "
@@ -343,6 +363,8 @@ def make_server(
             "log_stream": log if log is not None else sys.stderr,
             "log_lock": threading.Lock(),
             "ids": itertools.count(1),
+            "hits": {},
+            "hits_lock": threading.Lock(),
         },
     )
     return _StubServer((host, port), handler)

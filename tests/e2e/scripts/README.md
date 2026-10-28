@@ -23,7 +23,9 @@ OPENROUTER_BASE_URL=http://127.0.0.1:9100/v1 uvicorn app.main:app --port 8765
     {"contains": "rename foo", "content": "...", "usage": {"prompt_tokens": 12, "completion_tokens": 30}},
     {"regex": "(?i)^hello", "content": "..."},
     {"contains": "please be slow", "delay_seconds": 5, "content": "..."},
-    {"contains": "upstream down", "fail_status": 503}
+    {"contains": "upstream down", "fail_status": 503},
+    {"contains": "flaky", "times": 1, "fail_status": 503},
+    {"contains": "flaky", "content": "answered on the retry"}
   ]
 }
 ```
@@ -36,6 +38,7 @@ OPENROUTER_BASE_URL=http://127.0.0.1:9100/v1 uvicorn app.main:app --port 8765
 | `usage` | rule, default | `prompt_tokens` / `completion_tokens` default to 1 each. `total_tokens` defaults to their sum |
 | `delay_seconds` | rule, default | Sleeps before replying. Defaults to 0 |
 | `fail_status` | rule, default | Replies with this status (400 to 599) and an error body instead of a body. It cannot be combined with `content`, `finish_reason` or `usage` |
+| `times` | rule only | Answers the first N matches (an integer from 1), then the rule is skipped as if it did not match, so a later rule or `default` answers. Counted per stub process: restart the stub to reset it |
 
 The first matching rule wins. If no rule matches, `default` answers. If `default` is missing, a built-in default answers `stub_openrouter: no rule matched`. A malformed script is rejected at startup, with exit code 2 and the offending field named.
 

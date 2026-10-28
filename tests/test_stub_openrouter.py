@@ -226,6 +226,50 @@ def test_fail_status_5xx_and_429_raise_retryable_errors(stub, trigger, status):
 
 
 # --------------------------------------------------------------------------
+# `times`: a rule that answers its first N matches (PRD-015 STORY-015)
+# --------------------------------------------------------------------------
+
+_FLAKY = {
+    "rules": [
+        {"contains": "flaky", "times": 1, "fail_status": 503},
+        {"contains": "flaky", "content": "recovered"},
+    ]
+}
+
+
+def test_times_caps_a_rule_then_falls_through_to_the_next_match(stub):
+    _, log = stub(_FLAKY)
+    with pytest.raises(OpenRouterError) as info:
+        _call("flaky")
+    assert info.value.upstream_status == 503
+    assert _call("flaky").response == "recovered"
+    assert _call("flaky").response == "recovered"
+    rules = [line.split(" rule=", 1)[1].split()[0] for line in _lines(log)]
+    assert rules == ["0", "1", "1"]
+
+
+def test_times_without_a_later_match_falls_through_to_default(stub):
+    stub({"default": {"content": "fallback"}, "rules": [{"contains": "once", "times": 2, "content": "capped"}]})
+    assert [_call("once").response for _ in range(3)] == ["capped", "capped", "fallback"]
+
+
+def test_times_is_counted_per_server(stub):
+    for _ in range(2):
+        stub(_FLAKY)  # each start points the client at the new server
+        with pytest.raises(OpenRouterError):
+            _call("flaky")
+        assert _call("flaky").response == "recovered"
+
+
+def test_a_rule_without_times_is_never_capped():
+    script = parse_script(_FLAKY)
+    hits = {}
+    assert [script.select("flaky", hits)[0] for _ in range(3)] == ["0", "1", "1"]
+    assert script.select("flaky")[0] == "0"  # no `hits`: nothing is capped
+    assert hits == {0: 1}
+
+
+# --------------------------------------------------------------------------
 # AC 4: the Authorization value is never logged
 # --------------------------------------------------------------------------
 
@@ -314,6 +358,11 @@ def test_response_body_has_the_chat_completion_shape(stub):
         ({"rules": [{"contains": "a", "content": 5}]}, "content must be a string"),
         ({"rules": [{"contains": "a", "finish_reason": 1}]}, "finish_reason"),
         ({"default": {"contains": "a"}}, "default: unknown key(s): contains"),
+        ({"rules": [{"contains": "a", "times": 0}]}, "rules[0]: times must be an integer >= 1"),
+        ({"rules": [{"contains": "a", "times": True}]}, "times must be an integer >= 1"),
+        ({"rules": [{"contains": "a", "times": "1"}]}, "times must be an integer >= 1"),
+        ({"rules": [{"contains": "a", "times": 1.5}]}, "times must be an integer >= 1"),
+        ({"default": {"content": "x", "times": 1}}, "default: unknown key(s): times"),
         ({"rules": {}}, "rules must be a list"),
         ({"extra": 1}, "unknown top-level key(s): extra"),
         ([], "must be a JSON object"),
@@ -332,6 +381,7 @@ def test_the_example_script_loads_with_every_rule_kind():
     assert any(rule.pattern is not None for rule in rules)
     assert any(rule.reply.delay_seconds > 0 for rule in rules)
     assert {rule.reply.fail_status for rule in rules} >= {400, 503}
+    assert any(rule.times for rule in rules)
     assert script.default.content != "stub_openrouter: no rule matched"
 
 
