@@ -6,7 +6,7 @@
 
 ## Progress
 
-14/19 stories done — 74%
+15/19 stories done — 79%
 
 ## Stories
 
@@ -28,7 +28,7 @@ All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`.
 | STORY-012 | GET /v1/models and /v1/models/{id} from MODEL_ALLOWLIST | feature | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-012-v1-models.plan.md) | `799df1d` |
 | STORY-013 | Buffered SSE: commit on upstream start, keep-alive, chunk sequence, include_usage, post-commit error | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-013-buffered-sse.plan.md) | `2b1773a` |
 | STORY-014 | Scripted stub upstream for E2E runs | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-014-stub-upstream.plan.md) | `e6d9ab7` |
-| STORY-015 | E2E: OpenAI Python SDK, non-streaming, streaming, blocks and retries | technical | ⬜ todo | medium | — | — |
+| STORY-015 | E2E: OpenAI Python SDK, non-streaming, streaming, blocks and retries | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-015-e2e-openai-python-sdk.plan.md) | `f642340` |
 | STORY-016 | E2E: Aider applies a scripted edit through the harness | technical | ⬜ todo | medium | — | — |
 | STORY-017 | E2E: Continue chat through the harness | technical | ⬜ todo | medium | — | — |
 | STORY-018 | Caddy routes /v1/*; Docker smoke with keep-alive through Caddy | technical | ⬜ todo | medium | — | — |

@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Real clients, deployment, documentation"
-status: todo
+status: done
 labels: [tests, e2e, clients]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-015-e2e-openai-python-sdk.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-015-e2e-openai-python-sdk.report.md
+commit: f642340
 depends_on: [STORY-012, STORY-013, STORY-014]
 blocks: [STORY-016, STORY-017, STORY-019]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-27
 ---
 
 # STORY-015: E2E: OpenAI Python SDK, non-streaming, streaming, blocks and retries
