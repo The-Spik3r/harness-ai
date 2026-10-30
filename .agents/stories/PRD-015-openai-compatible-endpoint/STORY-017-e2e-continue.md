@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Real clients, deployment, documentation"
-status: todo
+status: done
 labels: [tests, e2e, clients]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-017-e2e-continue.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-017-e2e-continue.report.md
+commit: d64774d
 depends_on: [STORY-013, STORY-014, STORY-015]
 blocks: [STORY-019]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-30
 ---
 
 # STORY-017: E2E: Continue chat through the harness
