@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
@@ -105,12 +106,26 @@ def test_an_empty_tools_list_is_its_own_shape():
 
 
 class _Upstream(BaseHTTPRequestHandler):
+    #: X-Harness-Device values this upstream received, in order.
+    devices: list = []
+
     def log_message(self, *args):
         pass
 
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        _Upstream.devices.append(self.headers.get("X-Harness-Device"))
         seen_auth = self.headers.get("Authorization", "")
+        if "split" in self.path:
+            # A keep-alive line cut across two chunks, then a whole one.
+            self.send_response(200)
+            self.send_header("content-type", "text/event-stream")
+            self.end_headers()
+            for part in (b": keep-", b"alive\n\n: keep-alive\n\n", b"data: {\"x\": 1}\n\ndata: [DONE]\n\n"):
+                self.wfile.write(part)
+                self.wfile.flush()
+                time.sleep(0.05)
+            return
         if "refuse" in self.path:
             body = b'{"error": {"code": "suspicious_pattern"}}'
             self.send_response(400)
@@ -185,13 +200,43 @@ def test_the_recorder_forwards_get_and_logs_it_apart_from_posts(recorder):
     response = httpx.get(f"{recorder.base}/v1/models")
     assert response.json() == {"data": []}
     assert recorder.posts() == []
-    assert recorder.log == [{"method": "GET", "path": "/v1/models"}]
+    assert recorder.log == [{"method": "GET", "path": "/v1/models", "status": 200, "keepalives": 0,
+                             "device_header": False}]
 
 
 def test_a_body_that_is_not_json_is_still_relayed(recorder):
     response = httpx.post(f"{recorder.base}/v1/chat/completions", content=b"not json")
     assert response.status_code == 200
     assert recorder.posts()[0]["keys"] is None
+
+
+def test_the_recorder_logs_the_status_of_a_get_and_a_post(recorder):
+    """STORY-017 AC 3: a `/v1/models` call is judged by the status the client got."""
+    httpx.get(f"{recorder.base}/v1/models")
+    httpx.post(f"{recorder.base}/v1/chat/completions/refuse", json={"model": "m"})
+    assert [(entry["method"], entry["status"]) for entry in recorder.log] == [("GET", 200), ("POST", 400)]
+
+
+def test_the_recorder_counts_keep_alive_lines_across_chunk_boundaries(recorder):
+    response = httpx.post(f"{recorder.base}/v1/chat/completions/split", json={"model": "m", "stream": True})
+    assert response.text == ': keep-alive\n\n: keep-alive\n\ndata: {"x": 1}\n\ndata: [DONE]\n\n'
+    [entry] = recorder.posts()
+    assert entry["keepalives"] == 2
+
+
+def test_the_recorder_counts_one_keep_alive_on_the_plain_stream(recorder):
+    httpx.post(f"{recorder.base}/v1/chat/completions", json={"model": "m", "stream": True})
+    assert recorder.posts()[0]["keepalives"] == 1
+
+
+def test_the_recorder_forwards_the_device_header_and_records_only_its_presence(recorder):
+    _Upstream.devices.clear()
+    httpx.post(f"{recorder.base}/v1/chat/completions", json={"model": "m"},
+               headers={"X-Harness-Device": "laptop-SECRET-7"})
+    httpx.post(f"{recorder.base}/v1/chat/completions", json={"model": "m"})
+    assert _Upstream.devices == ["laptop-SECRET-7", None]
+    assert [entry["device_header"] for entry in recorder.posts()] == [True, False]
+    assert "SECRET" not in json.dumps(recorder.log)
 
 
 # --------------------------------------------------------------------------

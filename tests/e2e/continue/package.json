@@ -1,0 +1,8 @@
+{
+  "name": "harness-e2e-continue",
+  "private": true,
+  "description": "Continue's CLI for the PRD-015 STORY-017 E2E (tests/e2e/test_continue.py). Installed outside the repo: cp tests/e2e/continue/package*.json C:/Users/<you>/.venvs/continue-e2e/ && npm ci --prefix C:/Users/<you>/.venvs/continue-e2e",
+  "dependencies": {
+    "@continuedev/cli": "1.5.47"
+  }
+}

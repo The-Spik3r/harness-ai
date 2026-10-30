@@ -285,15 +285,19 @@ def request_shape(body: dict) -> dict:
 class _RecordingHandler(BaseHTTPRequestHandler):
     recorder: "Recorder"
     _RELAYED = ("content-type", "x-should-retry", "x-harness-audit-id")
+    # X-Harness-Device passes too (PRD-015 Section 7.2): without it the row's
+    # `device` would be None because of the proxy, not the client.
+    _FORWARDED = ("authorization", "content-type", "accept", "x-harness-device")
 
     def log_message(self, *args) -> None:
         pass  # no header echo, and ASCII-only output
 
-    def _relay(self, method: str, raw: Optional[bytes]) -> None:
-        headers = {key: value for key, value in self.headers.items()
-                   if key.lower() in ("authorization", "content-type", "accept")}
+    def _relay(self, method: str, raw: Optional[bytes], entry: dict) -> None:
+        headers = {key: value for key, value in self.headers.items() if key.lower() in self._FORWARDED}
         with httpx.Client(timeout=None) as client, \
                 client.stream(method, self.recorder.upstream + self.path, content=raw, headers=headers) as upstream:
+            with self.recorder.lock:
+                entry["status"] = upstream.status_code
             self.send_response(upstream.status_code)
             for key in self._RELAYED:
                 if key in upstream.headers:
@@ -302,9 +306,23 @@ class _RecordingHandler(BaseHTTPRequestHandler):
             # (keep-alives included) is flushed as it arrives.
             self.send_header("Connection", "close")
             self.end_headers()
+            partial = b""
             for chunk in upstream.iter_raw():
+                # Count SSE comment lines (": keep-alive") before relaying the
+                # chunk, carrying a line split across chunks. Only the count is kept.
+                *lines, partial = (partial + chunk).split(b"\n")
+                with self.recorder.lock:
+                    entry["keepalives"] += sum(1 for line in lines if line.startswith(b":"))
                 self.wfile.write(chunk)
                 self.wfile.flush()
+
+    def _record(self, method: str, shape: dict) -> dict:
+        has_device = "x-harness-device" in {key.lower() for key in self.headers}
+        entry = {"method": method, "path": self.path, **shape,
+                 "status": None, "keepalives": 0, "device_header": has_device}
+        with self.recorder.lock:
+            self.recorder.log.append(entry)
+        return entry
 
     def do_POST(self) -> None:
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
@@ -312,14 +330,10 @@ class _RecordingHandler(BaseHTTPRequestHandler):
             shape = request_shape(json.loads(raw))
         except (ValueError, AttributeError):
             shape = {"keys": None}
-        with self.recorder.lock:
-            self.recorder.log.append({"method": "POST", "path": self.path, **shape})
-        self._relay("POST", raw)
+        self._relay("POST", raw, self._record("POST", shape))
 
     def do_GET(self) -> None:
-        with self.recorder.lock:
-            self.recorder.log.append({"method": "GET", "path": self.path})
-        self._relay("GET", None)
+        self._relay("GET", None, self._record("GET", {}))
 
 
 class Recorder:
@@ -328,6 +342,11 @@ class Recorder:
     It tells what a client sends: the audit row cannot, because an accepted
     default such as `tools: []` is never recorded as ignored. No content, no
     header value and no token is kept.
+
+    Each `log` entry holds `method` and `path`, the shape for a POST, and
+    `status` (the harness's answer), `keepalives` (SSE comment lines relayed
+    to the client) and `device_header` (whether `X-Harness-Device` was sent,
+    never its value).
     """
 
     def __init__(self, upstream: str) -> None:
