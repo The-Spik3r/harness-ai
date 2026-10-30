@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Real clients, deployment, documentation"
-status: todo
+status: done
 labels: [deployment, docker, caddy, e2e]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-018-caddy-route-and-docker-smoke.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-018-caddy-route-and-docker-smoke.report.md
+commit: c472495
 depends_on: [STORY-013, STORY-014]
 blocks: [STORY-019]
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-30
 ---
 
 # STORY-018: Caddy routes /v1/*; Docker smoke with keep-alive through Caddy
