@@ -1,10 +1,16 @@
 # E2E stub scripts
 
-These are the scripts for `scripts/stub_openrouter.py`. The stub is a scripted stand-in for OpenRouter, and it is a test tool, not shipped behaviour (PRD-015 Section 7.9). The client E2E stories (STORY-015 to STORY-018) add their own scripts here: `openai_sdk.json` (STORY-015), `aider.json` (STORY-016) and `continue.json` (STORY-017). `example.json` demonstrates every rule kind.
+These are the scripts for `scripts/stub_openrouter.py`. The stub is a scripted stand-in for OpenRouter, and it is a test tool, not shipped behaviour (PRD-015 Section 7.9). The client E2E stories (STORY-015 to STORY-018) add their own scripts here: `openai_sdk.json` (STORY-015), `aider.json` (STORY-016), `continue.json` (STORY-017) and `docker_smoke.json` (STORY-018). `example.json` demonstrates every rule kind.
 
 `aider.json` answers Aider's edit request with a SEARCH/REPLACE block in the `diff` edit format, and Aider's separate commit-message request (its user turn always contains `# Diffs:`) with a fixed sentence. The commit-message rule comes first, because that request also quotes the edit request.
 
 `continue.json` answers Continue's chat prompt with a fixed sentence, and its slow prompt with another after a 20 s delay, so the harness sends SSE keep-alives before the answer. Continue's CLI makes one request per prompt, so there is no second rule.
+
+`docker_smoke.json` is the script for the Docker smoke (`tests/e2e/test_docker_smoke.py`). There the stub runs inside the harness container's network namespace (`tests/e2e/docker/compose.smoke.yml`), so the harness still reaches it on `127.0.0.1`. Each rule has a job:
+- The default answers the direct-vs-Caddy comparison.
+- `SMOKE-SLOW` waits 30 s, so keep-alives can be timed through Caddy at a 10 s interval.
+- `SMOKE-WAVE` waits 5 s, which separates the requests that found a pipeline worker from the ones that queued for one.
+- `SMOKE-QUERY` answers the `/query` check.
 
 ## Run
 

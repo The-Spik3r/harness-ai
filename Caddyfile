@@ -2,7 +2,7 @@
 
 encode gzip
 
-@backend_routes path /_event/* /ping /_upload /_upload/* /query /audit /stats /health
+@backend_routes path /_event/* /ping /_upload /_upload/* /query /audit /stats /health /v1/*
 handle @backend_routes {
 	reverse_proxy localhost:{$BACKEND_INTERNAL_PORT}
 }
