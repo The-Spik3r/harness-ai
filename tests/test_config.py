@@ -1296,3 +1296,40 @@ def test_no_setting_chooses_the_v1_profile():
     """PRD-015 Section 9.3: the /v1 profile is the literal "code" at the call
     site (PRD-011 D2), never a setting."""
     assert not [name for name in Settings.model_fields if name.startswith("V1_") and "PROFILE" in name]
+
+
+# --- PRD-015 STORY-019: .env.example documents the three /v1 settings ---------
+#
+# STORY-002 and STORY-003 added the fields and left `.env.example` to this
+# story. Each is present with an explanation above it, in field order, with the
+# shipped default; OPENROUTER_BASE_URL's comment carries T10's rule.
+
+_V1_VARS = ("OPENROUTER_BASE_URL", "V1_ENABLED", "V1_SSE_KEEPALIVE_SECONDS")
+
+
+def test_env_example_documents_the_v1_vars_with_a_comment_in_field_order():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [name for name in Settings.model_fields if name in _V1_VARS]
+
+    assert sorted(declared_order) == sorted(_V1_VARS)
+    for var in _V1_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+    positions = [text.index(f"{var}=") for var in declared_order]
+    assert positions == sorted(positions)
+
+
+def test_env_example_v1_defaults_match_settings():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _V1_VARS}
+
+    assert _env_example_value(text, "OPENROUTER_BASE_URL") == defaults["OPENROUTER_BASE_URL"]
+    assert _env_example_value(text, "V1_ENABLED") == str(defaults["V1_ENABLED"]).lower()
+    assert float(_env_example_value(text, "V1_SSE_KEEPALIVE_SECONDS")) == defaults["V1_SSE_KEEPALIVE_SECONDS"]
+
+
+def test_env_example_base_url_comment_states_the_t10_rule():
+    """PRD-015 T10: a non-loopback http:// host would receive the key."""
+    block = _env_example_comment((REPO_ROOT / ".env.example").read_text(encoding="utf-8"), "OPENROUTER_BASE_URL")
+
+    for fragment in ("https://", "loopback", "127.0.0.1", "OPENROUTER_API_KEY", "T10"):
+        assert fragment in block, fragment

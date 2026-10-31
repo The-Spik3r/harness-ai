@@ -23,7 +23,7 @@ def _deselected() -> list[str]:
 
 def test_every_deselected_test_exists_and_is_a_db_test():
     nodeids = _deselected()
-    assert len(nodeids) == 3
+    assert len(nodeids) == 5
     for nodeid in nodeids:
         path, name = nodeid.split("::")
         tree = ast.parse((_ROOT / path).read_text(encoding="utf-8"))

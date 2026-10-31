@@ -122,6 +122,10 @@ _DB_NODEIDS: tuple[str, ...] = (
     "tests/test_measure_usage_latency.py::test_a_short_run_reports_both_calls_and_cleans_up",
     "tests/test_measure_usage_latency.py::test_a_refused_admit_ends_the_run_without_a_report",
     "tests/test_measure_usage_latency.py::test_a_changed_statement_count_ends_the_run_without_a_report",
+    # In-process `bench.main()` for /v1 latency: `init_db()`, a bench user, the
+    # app's lifespan and audit rows through both ingresses.
+    "tests/test_measure_v1_latency.py::test_a_short_run_reports_every_arm_and_deactivates_the_bench_user",
+    "tests/test_measure_v1_latency.py::test_a_blocked_request_ends_the_run_without_a_report",
 )
 
 
