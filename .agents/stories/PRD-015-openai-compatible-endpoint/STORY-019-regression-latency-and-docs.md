@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Real clients, deployment, documentation"
-status: todo
+status: done
 labels: [docs, tests, regression]
 epic_branch: epic/PRD-015-openai-compatible-endpoint
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-015-openai-compatible-endpoint/completed/STORY-019-regression-latency-and-docs.plan.md
+report: .agents/reports/PRD-015-openai-compatible-endpoint/STORY-019-regression-latency-and-docs.report.md
+commit: d294e59
 depends_on: [STORY-008, STORY-015, STORY-016, STORY-017, STORY-018]
 blocks: []
 skills: []
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-30
 ---
 
 # STORY-019: Regression sweep, translation latency, README API reference and per-client setup, .env.example

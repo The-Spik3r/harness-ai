@@ -2,7 +2,7 @@
 id: PRD-015
 slug: openai-compatible-endpoint
 title: OpenAI-Compatible Endpoint (Text) — One Base URL, Every Verdict an Ordinary API Error
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-015-openai-compatible-endpoint
 created: 2026-10-21
