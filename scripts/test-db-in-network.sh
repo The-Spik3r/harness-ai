@@ -19,10 +19,10 @@
 #      It uses `docker run`, because `docker compose run` has no `--network`,
 #      and it never passes `.env`.
 #
-# Three tests are deselected here: scripts/measure_usage_latency.py refuses any
-# host but localhost by design, so they fail against `harness-libsql-dev`. The
-# host run covers them. They are also listed in `_DB_NODEIDS` in
-# tests/conftest.py; rename them in both places.
+# Five tests are deselected here: scripts/measure_usage_latency.py and
+# scripts/measure_v1_latency.py refuse any host but localhost by design, so
+# they fail against `harness-libsql-dev`. The host run covers them. They are
+# also listed in `_DB_NODEIDS` in tests/conftest.py; rename them in both places.
 #
 # Usage (from Git Bash on Windows, or any bash):
 #
@@ -81,4 +81,6 @@ exec docker run --rm --network "$NETWORK" \
   --deselect "tests/test_measure_usage_latency.py::test_a_short_run_reports_both_calls_and_cleans_up" \
   --deselect "tests/test_measure_usage_latency.py::test_a_refused_admit_ends_the_run_without_a_report" \
   --deselect "tests/test_measure_usage_latency.py::test_a_changed_statement_count_ends_the_run_without_a_report" \
+  --deselect "tests/test_measure_v1_latency.py::test_a_short_run_reports_every_arm_and_deactivates_the_bench_user" \
+  --deselect "tests/test_measure_v1_latency.py::test_a_blocked_request_ends_the_run_without_a_report" \
   "$@"

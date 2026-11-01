@@ -6,7 +6,6 @@ import httpx
 from app.config import settings
 from app.models.messages import Message
 
-_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 _DEFAULT_MODEL = "gpt-4"
 
 _ALLOWED_GENERATION_PARAMS = frozenset({"temperature", "max_tokens", "top_p", "stop"})
@@ -14,7 +13,26 @@ _MAX_STOP_SEQUENCES = 4
 
 
 class OpenRouterError(Exception):
-    pass
+    """A failed upstream call, and what the client knows about why (PRD-015 D7).
+
+    upstream_status is the HTTP status the upstream answered with, None when
+    there was no response. retryable is True only for a transient fault --
+    timeout, transport error, upstream 5xx or 429 -- since the same request
+    may then succeed; STORY-011 maps it to `/v1`'s retry semantics. The
+    message is the only positional argument, so `str(exc)` -- and with it the
+    audit row's error_message and /query's 502 detail -- is unchanged.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        upstream_status: Optional[int] = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.upstream_status = upstream_status
+        self.retryable = retryable
 
 
 class UnsupportedParameterError(Exception):
@@ -31,7 +49,8 @@ class GenerationParams:
     """The only generation parameters call_openrouter may forward (PRD-010 F3, T5).
 
     Every field defaults to None and is sent only when set. from_mapping is
-    PRD-014's entry point; nothing in this PRD calls it in production.
+    PRD-015's entry point (the track's "PRD-014"): v1_translate.translate_request
+    is its production caller.
     """
 
     temperature: Optional[float] = None   # 0.0 <= t <= 2.0
@@ -73,7 +92,7 @@ class GenerationParams:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "GenerationParams":
-        """PRD-014's entry point. Raises for any key outside the allowlist, sorted."""
+        """PRD-015's entry point (`/v1`). Raises for any key outside the allowlist, sorted."""
         unsupported = sorted(set(raw) - _ALLOWED_GENERATION_PARAMS)
         if unsupported:
             raise UnsupportedParameterError(
@@ -90,6 +109,18 @@ def _token_count(value: Any) -> Optional[int]:
     return value
 
 
+def _classify_http_error(exc: httpx.HTTPError) -> tuple[Optional[int], bool]:
+    """(upstream_status, retryable) for a failed request (PRD-015 Section 7.5)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status, status >= 500 or status == 429
+    # Timeouts, connect errors and the other transport failures: no response,
+    # and nothing about the request made it fail.
+    if isinstance(exc, httpx.TransportError):
+        return None, True
+    return None, False
+
+
 @dataclass
 class OpenRouterResult:
     response: str
@@ -100,6 +131,9 @@ class OpenRouterResult:
     # tokens_used with defaults so three-argument construction keeps working.
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    # PRD-015 STORY-002: choices[0].finish_reason, None when absent or not a
+    # string. Declared last with a default for the same reason as the split.
+    finish_reason: Optional[str] = None
 
 
 def call_openrouter(
@@ -135,11 +169,18 @@ def call_openrouter(
     owns_client = client is None
     http_client = client or httpx.Client(timeout=settings.OPENROUTER_TIMEOUT_SECONDS)
     try:
+        # Read per call, for the reason query_pipeline._context_limit_exceeded gives.
+        url = f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
         try:
-            resp = http_client.post(_API_URL, headers=headers, json=payload)
+            resp = http_client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            raise OpenRouterError(f"OpenRouter request failed: {exc}") from exc
+            upstream_status, retryable = _classify_http_error(exc)
+            raise OpenRouterError(
+                f"OpenRouter request failed: {exc}",
+                upstream_status=upstream_status,
+                retryable=retryable,
+            ) from exc
 
         try:
             data = resp.json()
@@ -157,6 +198,9 @@ def call_openrouter(
             if message.get("tool_calls") is not None:
                 error_message += "; tool calls are not supported (PRD-016)"
             raise OpenRouterError(error_message)
+
+        raw_finish_reason = choice.get("finish_reason")
+        finish_reason = raw_finish_reason if isinstance(raw_finish_reason, str) else None
 
         try:
             usage = data["usage"]
@@ -178,4 +222,5 @@ def call_openrouter(
         tokens_used=tokens_used,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        finish_reason=finish_reason,
     )

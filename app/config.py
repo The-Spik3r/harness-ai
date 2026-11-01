@@ -1,5 +1,6 @@
 import re
 from typing import Optional
+from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -79,6 +80,11 @@ _LIMIT_VALUE_RE = re.compile(r"[0-9]+")
 # (Decision D4), and the setting can tighten the other two but never loosen.
 _BREAK_GLASS_ACCEPTED = frozenset({"query", "chat"})
 
+# The hosts OPENROUTER_BASE_URL may name over plaintext http:// (PRD-015
+# Section 9.3, T10). Plaintext only where the key cannot leave the machine:
+# a local stub upstream for E2E runs. Every other host needs https://.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
 
 def _scheme_of(url: str) -> str:
     """The scheme part of a URL, and the only part of one any message quotes.
@@ -152,7 +158,13 @@ def _parse_limit_map(setting: str, value: str) -> dict[str, Optional[int]]:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # hide_input_in_errors (PRD-015 STORY-002): pydantic otherwise appends
+    # `input_value=<the whole value>` to every validation error, which would
+    # undo `_scheme_of`'s rule for any URL carrying credentials. Each
+    # validator's own message already says what it needs to.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True
+    )
 
     OPENROUTER_API_KEY: str
     ADMIN_TOKEN: str
@@ -220,6 +232,12 @@ class Settings(BaseSettings):
     # Upstream request timeout in seconds, replacing the hard-coded 30.0.
     # Consumed by STORY-005's call_openrouter.
     OPENROUTER_TIMEOUT_SECONDS: float = 120.0
+
+    # Upstream base URL (PRD-015 D10); call_openrouter appends
+    # `/chat/completions` and reads it per call. It exists so E2E runs can point
+    # the client at a local stub (STORY-014). Operator-only: whoever sets it
+    # receives OPENROUTER_API_KEY, hence the https-or-loopback validator below.
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
     # Max messages a conversation may carry into the pipeline. Consumed by
     # STORY-008's context-limit refusal.
@@ -337,6 +355,18 @@ class Settings(BaseSettings):
     # STORY-013's step 2b.
     BREAK_GLASS_INGRESSES: str = "query,chat"
 
+    # OpenAI-compatible ingress (PRD-015 Section 9.3). Nothing reads these yet --
+    # each field names the story that becomes its consumer. No setting chooses
+    # the /v1 profile: it is the literal "code" at the call site (PRD-011 D2).
+
+    # Mount /v1 at all. Off: the routes are not included and /v1/* is 404.
+    # Consumed by STORY-009's router mount.
+    V1_ENABLED: bool = True
+
+    # Seconds between `: keep-alive` comment lines on a buffered /v1 stream,
+    # > 0 and <= 60. Consumed by STORY-013.
+    V1_SSE_KEEPALIVE_SECONDS: float = 10.0
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -404,6 +434,50 @@ class Settings(BaseSettings):
                 "It is the upstream request timeout in seconds."
             )
         return value
+
+    @field_validator("OPENROUTER_BASE_URL")
+    @classmethod
+    def _validate_openrouter_base_url(cls, value: str) -> str:
+        """`https://`, or `http://` on a loopback host, or a startup error (PRD-015).
+
+        This is PRD-015 Section 9.2 T10's mitigation: every call sends
+        OPENROUTER_API_KEY to this URL, so a plaintext or attacker-chosen host
+        would hand the key over. Plaintext is allowed only on a loopback host,
+        for a local stub upstream.
+
+        Messages quote the scheme and the host, never the whole value, for the
+        reason `_scheme_of` gives: a URL may carry credentials. Stripped rather
+        than rejected for whitespace, as _validate_database_url is.
+        """
+        url = value.strip()
+        rule = (
+            "It must start with https://, or with http:// only when the host is "
+            "127.0.0.1, localhost or ::1 (a local stub). "
+            "Example: OPENROUTER_BASE_URL=https://openrouter.ai/api/v1 or "
+            "OPENROUTER_BASE_URL=http://127.0.0.1:9100/v1."
+        )
+        if not url:
+            raise ValueError(f"OPENROUTER_BASE_URL must not be empty. {rule}")
+
+        scheme = _scheme_of(url).lower()
+        try:
+            host = urlsplit(url).hostname or ""
+        except ValueError:
+            host = ""
+
+        if scheme == "https://" and host:
+            return url
+        if scheme == "http://" and host in _LOOPBACK_HOSTS:
+            return url
+
+        if scheme == "http://" and host:
+            raise ValueError(
+                f"OPENROUTER_BASE_URL may use http:// only on a loopback host, got "
+                f"host {host!r}: every call sends OPENROUTER_API_KEY to this URL. {rule}"
+            )
+        if scheme in ("https://", "http://"):
+            raise ValueError(f"OPENROUTER_BASE_URL names no host (scheme {scheme!r}). {rule}")
+        raise ValueError(f"Unsupported OPENROUTER_BASE_URL scheme: {scheme!r}. {rule}")
 
     @field_validator(
         "CONTEXT_MAX_MESSAGES",
@@ -533,6 +607,24 @@ class Settings(BaseSettings):
                 f"BREAK_GLASS_INGRESSES names unknown ingress(es) {', '.join(unknown)} "
                 f"(in {value!r}). Names are case-sensitive. Accepted values: "
                 f"{accepted} (any subset, or empty)."
+            )
+        return value
+
+    @field_validator("V1_SSE_KEEPALIVE_SECONDS")
+    @classmethod
+    def _validate_v1_sse_keepalive_seconds(cls, value: float) -> float:
+        """Within (0, 60], or a startup error (PRD-015 Section 9.3).
+
+        0 or less would spin or never fire; above 60 outlasts common proxy idle
+        timeouts, which the keep-alive exists to beat. Written as
+        `not 0 < value <= 60` so that NaN is rejected too, as
+        _validate_pii_score_threshold_code does.
+        """
+        if not 0 < value <= 60:
+            raise ValueError(
+                f"V1_SSE_KEEPALIVE_SECONDS must be > 0 and <= 60, got {value}. "
+                "It is the interval in seconds between keep-alive lines on a "
+                "streamed /v1 response. Example: V1_SSE_KEEPALIVE_SECONDS=10."
             )
         return value
 

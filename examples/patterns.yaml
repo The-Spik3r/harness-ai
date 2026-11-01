@@ -45,4 +45,5 @@ profiles:
     lists: [injection]
     roles:
       user: block
+      assistant: flag
       tool: flag

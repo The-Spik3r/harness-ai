@@ -1155,3 +1155,181 @@ def test_env_example_says_what_disabling_usage_limits_does():
 
     assert "false" in block
     assert "counter" in block
+
+
+# --- PRD-015 STORY-002: OPENROUTER_BASE_URL ------------------------------------
+#
+# The validator is PRD-015 Section 9.2 T10's mitigation: every call sends
+# OPENROUTER_API_KEY to this URL, so only https:// or a loopback http:// host
+# boots.
+
+_BASE_URL_RULE_FRAGMENTS = ("OPENROUTER_BASE_URL", "https://", "127.0.0.1", "localhost", "::1", "Example")
+
+
+def test_openrouter_base_url_defaults_to_openrouter():
+    assert _settings(DATABASE_URL=_LOCAL_URL).OPENROUTER_BASE_URL == "https://openrouter.ai/api/v1"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://openrouter.ai/api/v1", id="default"),
+        pytest.param("HTTPS://openrouter.ai/api/v1", id="upper-scheme"),
+        pytest.param("https://proxy.internal.example/v1", id="other-https-host"),
+        pytest.param("https://openrouter.ai/api/v1/", id="trailing-slash"),
+        pytest.param("http://127.0.0.1:9100/v1", id="ipv4-loopback"),
+        pytest.param("http://localhost:9100/v1", id="localhost"),
+        pytest.param("http://LOCALHOST:9100/v1", id="localhost-upper"),
+        pytest.param("http://[::1]:9100/v1", id="ipv6-loopback"),
+    ],
+)
+def test_openrouter_base_url_accepts_https_or_loopback_http(url):
+    assert _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url).OPENROUTER_BASE_URL == url
+
+
+def test_openrouter_base_url_surrounding_whitespace_is_stripped():
+    result = _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL="  http://127.0.0.1:9100/v1\n")
+
+    assert result.OPENROUTER_BASE_URL == "http://127.0.0.1:9100/v1"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://example.com/v1", id="http-remote"),
+        pytest.param("http://127.0.0.2/v1", id="http-other-127"),
+        pytest.param("http://localhost.example.com/v1", id="http-localhost-prefix"),
+        pytest.param("ftp://127.0.0.1/v1", id="ftp"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="blank"),
+        pytest.param("openrouter.ai/api/v1", id="no-scheme"),
+        pytest.param("https://", id="no-host"),
+    ],
+)
+def test_openrouter_base_url_rejection_names_the_setting_rule_and_an_example(url):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url)
+
+    message = str(exc_info.value)
+    for fragment in _BASE_URL_RULE_FRAGMENTS:
+        assert fragment in message, fragment
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(f"http://user:{_TOKEN_SENTINEL}@example.com/v1", id="userinfo"),
+        pytest.param(f"ftp://127.0.0.1/{_TOKEN_SENTINEL}", id="path"),
+        pytest.param(f"https://?key={_TOKEN_SENTINEL}", id="query-no-host"),
+    ],
+)
+def test_openrouter_base_url_rejection_never_echoes_the_value(url):
+    """Messages quote the scheme and host only (`_scheme_of`'s rule), and
+    hide_input_in_errors keeps pydantic from appending the raw value."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, OPENROUTER_BASE_URL=url)
+
+    assert _TOKEN_SENTINEL not in str(exc_info.value)
+
+
+# --- PRD-015 STORY-003: V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS --------------
+#
+# Nothing reads these yet -- STORY-009 mounts /v1 from V1_ENABLED and
+# STORY-013 paces keep-alive lines from V1_SSE_KEEPALIVE_SECONDS.
+# `.env.example` is STORY-019's, not this block's.
+
+_V1_VARS = ("V1_ENABLED", "V1_SSE_KEEPALIVE_SECONDS")
+_KEEPALIVE_RULE_FRAGMENTS = ("V1_SSE_KEEPALIVE_SECONDS", "> 0", "<= 60", "Example")
+
+
+def test_v1_settings_available_with_documented_defaults(monkeypatch):
+    """AC 1, with the developer's exported environment taken out of it."""
+    for var in _V1_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.V1_ENABLED is True
+    assert result.V1_SSE_KEEPALIVE_SECONDS == 10
+
+
+def test_v1_enabled_parses_the_string_false():
+    """AC 3. Asserted with `is`, as the earlier blocks do for their switches."""
+    assert _settings(DATABASE_URL=_LOCAL_URL, V1_ENABLED="false").V1_ENABLED is False
+
+
+@pytest.mark.parametrize(
+    "value,shown",
+    [
+        (0, "got 0"),
+        (-1, "got -1"),
+        (61, "got 61"),
+        ("0", "got 0"),
+        (60.01, "got 60.01"),
+        ("nan", "got nan"),
+        ("inf", "got inf"),
+    ],
+)
+def test_v1_sse_keepalive_seconds_out_of_range_is_a_startup_error(value, shown):
+    """AC 2: names the setting, the value, the accepted range and an example.
+
+    `"nan"` and `"inf"` parse as floats, so the range check itself must turn
+    them away -- which `not 0 < value <= 60` does.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, V1_SSE_KEEPALIVE_SECONDS=value)
+
+    message = str(exc_info.value)
+    for fragment in _KEEPALIVE_RULE_FRAGMENTS:
+        assert fragment in message, fragment
+    assert shown in message
+
+
+@pytest.mark.parametrize("value", [0.5, 60, "60"])
+def test_v1_sse_keepalive_seconds_accepts_the_range_bounds(value):
+    result = _settings(DATABASE_URL=_LOCAL_URL, V1_SSE_KEEPALIVE_SECONDS=value)
+
+    assert result.V1_SSE_KEEPALIVE_SECONDS == float(value)
+
+
+def test_no_setting_chooses_the_v1_profile():
+    """PRD-015 Section 9.3: the /v1 profile is the literal "code" at the call
+    site (PRD-011 D2), never a setting."""
+    assert not [name for name in Settings.model_fields if name.startswith("V1_") and "PROFILE" in name]
+
+
+# --- PRD-015 STORY-019: .env.example documents the three /v1 settings ---------
+#
+# STORY-002 and STORY-003 added the fields and left `.env.example` to this
+# story. Each is present with an explanation above it, in field order, with the
+# shipped default; OPENROUTER_BASE_URL's comment carries T10's rule.
+
+_V1_VARS = ("OPENROUTER_BASE_URL", "V1_ENABLED", "V1_SSE_KEEPALIVE_SECONDS")
+
+
+def test_env_example_documents_the_v1_vars_with_a_comment_in_field_order():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [name for name in Settings.model_fields if name in _V1_VARS]
+
+    assert sorted(declared_order) == sorted(_V1_VARS)
+    for var in _V1_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+    positions = [text.index(f"{var}=") for var in declared_order]
+    assert positions == sorted(positions)
+
+
+def test_env_example_v1_defaults_match_settings():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _V1_VARS}
+
+    assert _env_example_value(text, "OPENROUTER_BASE_URL") == defaults["OPENROUTER_BASE_URL"]
+    assert _env_example_value(text, "V1_ENABLED") == str(defaults["V1_ENABLED"]).lower()
+    assert float(_env_example_value(text, "V1_SSE_KEEPALIVE_SECONDS")) == defaults["V1_SSE_KEEPALIVE_SECONDS"]
+
+
+def test_env_example_base_url_comment_states_the_t10_rule():
+    """PRD-015 T10: a non-loopback http:// host would receive the key."""
+    block = _env_example_comment((REPO_ROOT / ".env.example").read_text(encoding="utf-8"), "OPENROUTER_BASE_URL")
+
+    for fragment in ("https://", "loopback", "127.0.0.1", "OPENROUTER_API_KEY", "T10"):
+        assert fragment in block, fragment

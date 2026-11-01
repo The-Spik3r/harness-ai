@@ -17,7 +17,7 @@ The README roadmap lists an [OpenAI-compatible endpoint](../README.md#openai-com
 | 3 | [Pattern policy per role](./PRE-PRD-011-pattern-policy.md) | [PRD-011](../.agents/PRDs/PRD-011-pattern-policy/PRD.md) | 10–12 | 010 | `promoted` |
 | 3 | [PII redaction for code](./PRE-PRD-012-pii-for-code.md) | [PRD-012](../.agents/PRDs/PRD-012-pii-for-code/PRD.md) | 12–14 | 010 | `promoted` |
 | 3 | [Audit & usage limits](./PRE-PRD-013-audit-and-usage-limits.md) | [PRD-013](../.agents/PRDs/PRD-013-audit-and-usage-limits/PRD.md) | 16–18 | 010 | `promoted` |
-| 4 | [OpenAI-compatible endpoint (text)](./PRE-PRD-014-openai-compatible-endpoint.md) | PRD-014 | 14–16 | 011, 012, 013 | `draft` |
+| 4 | [OpenAI-compatible endpoint (text)](./PRE-PRD-014-openai-compatible-endpoint.md) | [PRD-015](../.agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md) (PRD-014 was taken by the test-suite brief) | 14–16 | 011, 012, 013 | `promoted` |
 | 4 | [Action policy rules](./PRE-PRD-015-action-policy-rules.md) | PRD-015 | 12–15 | 011 | `draft` |
 | 5 | [Tool calling on the compatible endpoint](./PRE-PRD-016-tool-calling.md) | PRD-016 | 10–12 | 014, 015 | `draft` |
 
@@ -31,7 +31,7 @@ Estimated total: ~98–117 stories.
 
 - **Serial:** 009 → 010. Everything else depends on the message model 010 defines.
 - **Parallel:** 011, 012 and 013 once 010 is done. 015 can start as soon as 011 lands (configurable lists are its prerequisite, per the README).
-- **Milestone 1** — PRD-014 done: usable from the OpenAI SDKs, Aider and Continue.
+- **Milestone 1** — PRD-014 done: usable from the OpenAI SDKs, Aider and Continue. **Reached 2026-10-30**: the brief became [PRD-015](../.agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md), whose 19 stories are done on `epic/PRD-015-openai-compatible-endpoint` (not yet merged to `main`); the per-client setup is in the [README](../README.md#openai-compatible-endpoint).
 - **Milestone 2** — PRD-016 done: drop-in for OpenCode and Cline in agent mode.
 
 **Shortcut (explicit debt):** 009 → 010 → 014 with conservative defaults (patterns on `user` turns only, PII on input only, audit unchanged). ~38–46 stories. Do not start 016 until 011–013 and 015 are closed.

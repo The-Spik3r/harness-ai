@@ -173,6 +173,8 @@ def test_audit_response_shape():
                 "has_tool_calls": False,
                 "conversation_key": None,
                 "limit_exceeded": None,
+                # PRD-015 Section 10 (STORY-007): additive, nullable, defaulted.
+                "ignored_params": None,
             }
         ],
     }

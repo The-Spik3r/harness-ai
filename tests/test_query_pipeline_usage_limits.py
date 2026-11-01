@@ -291,6 +291,25 @@ def test_when_both_limits_are_broken_the_rate_is_reported(temp_db, monkeypatch):
     assert _last_audit_entry().limit_exceeded == "requests"
 
 
+@pytest.mark.parametrize(
+    ("passed", "recorded"),
+    [pytest.param({"ignored_params": "seed,user"}, "seed,user", id="passed"),
+     pytest.param({}, None, id="omitted")],
+)
+def test_the_refusal_row_records_ignored_params(temp_db, monkeypatch, passed, recorded):
+    """PRD-015 STORY-007 AC 2: the usage-limit arm, which ARM_CASES does not
+    drive, carries the value when passed and NULL when omitted."""
+    _limits(monkeypatch, rpm="*=1")
+    _returns(monkeypatch, _usage(window_requests=2))
+
+    result = _run(upstream=_fail_if_called, ingress="v1", **passed)
+
+    assert isinstance(result, QueryBlockedUsageLimitResponse)
+    row = _last_audit_entry()
+    assert row.limit_exceeded == "requests"
+    assert row.ignored_params == recorded
+
+
 def test_run_query_reaches_the_same_arm_and_names_the_query_door(temp_db, monkeypatch):
     _limits(monkeypatch, rpm="*=1")
     _returns(monkeypatch, _usage(window_requests=2))

@@ -69,6 +69,8 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             has_tool_calls=log.has_tool_calls,
             conversation_key=log.conversation_key,
             limit_exceeded=log.limit_exceeded,
+            # Verbatim passthrough (PRD-015 Section 10); NULL off `/v1`.
+            ignored_params=log.ignored_params,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,

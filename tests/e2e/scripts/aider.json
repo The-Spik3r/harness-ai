@@ -1,0 +1,21 @@
+{
+  "default": {
+    "content": "stub_openrouter: aider.json has no rule for this request",
+    "finish_reason": "stop",
+    "usage": {"prompt_tokens": 2, "completion_tokens": 2}
+  },
+  "rules": [
+    {
+      "contains": "# Diffs:",
+      "content": "e2e: scripted edit through the harness",
+      "finish_reason": "stop",
+      "usage": {"prompt_tokens": 30, "completion_tokens": 8}
+    },
+    {
+      "contains": "E2E-AIDER-EDIT",
+      "content": "greeting.py\n```python\n<<<<<<< SEARCH\n    return \"hello\"\n=======\n    return \"hello, harness\"\n>>>>>>> REPLACE\n```\n",
+      "finish_reason": "stop",
+      "usage": {"prompt_tokens": 40, "completion_tokens": 20}
+    }
+  ]
+}

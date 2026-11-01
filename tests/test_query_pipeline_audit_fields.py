@@ -16,6 +16,9 @@ Sections, by acceptance criterion:
 - **AC 4, fifty turns.** The PRD's MVP case.
 - **AC 5, the scan.** Every production call of the pipeline names its door,
   and every direct `log_query` call passes the three fields.
+- **PRD-015 STORY-007, `ignored_params`.** Every `ARM_CASES` arm records it
+  when passed and NULL when omitted; `_deny` requires it; `/query` and chat
+  rows read NULL; every `log_query` call in the pipeline passes it.
 
 Rows are read back through `get_audit_log`, never by spying on `log_query`,
 so the writer and the mapper are both covered (the characterization rule). No
@@ -47,6 +50,7 @@ from app.db.database import get_audit_log, insert_user
 from app.db.models import User
 from app.main import app
 from app.models.messages import Message
+from app.services.authz import PermissionDenied
 from app.services.conversation_key import conversation_key
 from app.services.duplicate_checker import hash_prompt
 from app.services.identity import Identity, hash_token
@@ -219,7 +223,11 @@ def test_a_direct_call_without_a_door_records_null(temp_db, monkeypatch, arm):
         assert row.conversation_key == conversation_key(identity.user_id, list(messages))
 
 
-@pytest.mark.parametrize("name", ["ingress", "message_count", "conversation_key", "streamed"])
+@pytest.mark.parametrize(
+    "name",
+    # PRD-015 STORY-007 added ignored_params on the same terms.
+    ["ingress", "message_count", "conversation_key", "streamed", "ignored_params"],
+)
 def test_deny_requires_each_new_field_with_no_default(name):
     """Required, like session_id, dedup_key and profile: a forgotten
     authorization arm is a TypeError, not a NULL."""
@@ -227,6 +235,62 @@ def test_deny_requires_each_new_field_with_no_default(name):
 
     assert parameter.default is inspect.Parameter.empty
     assert parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+
+
+# --- PRD-015 STORY-007: ignored_params on every arm ------------------------------
+#
+# The twelve ARM_CASES arms here; break-glass and the usage limit, which
+# ARM_CASES does not drive, in tests/test_query_pipeline_break_glass.py and
+# tests/test_query_pipeline_usage_limits.py. Fourteen in all.
+
+#: What a `/v1` router would pass: sorted, comma-joined names (PRD Section 7.3).
+_IGNORED = "seed,user"
+
+
+def _with_ignored(monkeypatch, value: str) -> None:
+    """Route `_drive` through `ignored_params=value`, as `_with_door` does for
+    the door: every arm, the duplicate arm's seed send included."""
+    real = query_pipeline.run_conversation
+
+    def _run_conversation(*args, **kwargs):
+        return real(*args, ignored_params=value, **kwargs)
+
+    monkeypatch.setattr(query_pipeline, "run_conversation", _run_conversation)
+
+
+@pytest.mark.parametrize("arm", _ARMS)
+def test_each_arm_records_ignored_params(temp_db, monkeypatch, arm):
+    """AC 2: every row the arm writes carries the value verbatim."""
+    _with_ignored(monkeypatch, _IGNORED)
+    before = _last_audit_id()
+
+    _drive(monkeypatch, arm)
+
+    written = _audit_rows_since(before)
+    assert len(written) == len(_ROWS_BY_ARM[arm])
+    assert [row.ignored_params for row in written] == [_IGNORED] * len(written)
+
+
+@pytest.mark.parametrize("arm", _ARMS)
+def test_each_arm_without_ignored_params_records_null(temp_db, monkeypatch, arm):
+    """AC 2: the keyword omitted, as every door but `/v1` omits it."""
+    before = _last_audit_id()
+
+    _drive(monkeypatch, arm)
+
+    written = _audit_rows_since(before)
+    assert len(written) == len(_ROWS_BY_ARM[arm])
+    assert [row.ignored_params for row in written] == [None] * len(written)
+
+
+def test_deny_without_ignored_params_is_a_type_error():
+    """AC 3: the call itself fails, before anything is written."""
+    with pytest.raises(TypeError, match="ignored_params"):
+        query_pipeline._deny(
+            _ANALYST, "hi", None, session_id=None, dedup_key=None, profile="chat",
+            ingress="v1", message_count=1, conversation_key=None, streamed=False,
+            exc=PermissionDenied("query:submit"), reason="Missing required permission",
+        )
 
 
 def test_a_response_without_the_split_still_records_the_total(temp_db):
@@ -273,6 +337,8 @@ def test_query_rows_name_the_query_door(temp_db, client, prompt, status):
     assert row.message_count == 1
     assert row.conversation_key == conversation_key(_AUTH_USER_ID, [Message("user", prompt)])
     assert row.streamed is False
+    # PRD-015 STORY-007: `/query` ignores nothing, so NULL.
+    assert row.ignored_params is None
 
 
 def test_the_foreign_session_refusal_names_the_door_and_no_key(temp_db, client):
@@ -291,6 +357,8 @@ def test_the_foreign_session_refusal_names_the_door_and_no_key(temp_db, client):
     assert row.message_count == 1
     assert row.conversation_key is None
     assert row.dedup_key is None
+    # PRD-015 STORY-007: the router's own log_query call keeps the default.
+    assert row.ignored_params is None
 
 
 # --- AC 3: chat -------------------------------------------------------------------
@@ -353,6 +421,8 @@ async def test_the_nth_chat_send_carries_2n_minus_1_messages(temp_db, monkeypatc
     assert [2 * n - 1 for n in range(1, 5)] == [1, 3, 5, 7]
     assert [entry[1] for entry in received] == [1, 3, 5, 7]
     assert [row.message_count for row in rows] == [1, 3, 5, 7]
+    # PRD-015 STORY-007: the chat UI ignores nothing, so NULL.
+    assert [row.ignored_params for row in rows] == [None] * 4
 
 
 @pytest.mark.asyncio
@@ -369,6 +439,7 @@ async def test_a_chat_send_without_history_names_the_chat_door(temp_db, monkeypa
     rows = _audit_rows_since(before)
     assert [entry[:1] + entry[2:] for entry in received] == [("run_query", "chat")] * 2
     assert [(row.ingress, row.message_count) for row in rows] == [("chat", 1)] * 2
+    assert [row.ignored_params for row in rows] == [None] * 2
 
 
 # --- AC 4: fifty turns (PRD-013 Section 11, MVP definition) ----------------------
@@ -482,11 +553,14 @@ def test_every_production_pipeline_call_names_its_door():
     """AC 5. `ingress` defaults to None on run_conversation for the test
     suite's sake, so nothing but this scan stops a new production caller from
     writing NULL doors. The exact site list makes a renamed dispatcher, or a
-    scan that silently matches nothing, fail here rather than pass."""
+    scan that silently matches nothing, fail here rather than pass. PRD-015
+    STORY-009 adds the `/v1` site, which hands `run_conversation` to
+    `run_in_pipeline` as ChatState does."""
     sites = _scan().pipeline
 
     assert sorted((path, enclosing, target) for path, enclosing, target, _, _ in sites) == [
         ("app/routers/query.py", "_handle_query", "run_query"),
+        ("app/routers/v1.py", "chat_completions", "run_conversation"),
         ("app/services/query_pipeline.py", "run_query", "run_conversation"),
         ("chat_ui/chat_ui/state.py", "_do_send", "run_conversation"),
         ("chat_ui/chat_ui/state.py", "_do_send", "run_query"),
@@ -518,3 +592,22 @@ def test_every_direct_log_query_call_passes_the_three_fields():
         if not required <= keywords
     ]
     assert missing == [], missing
+
+
+def test_every_pipeline_log_query_call_passes_ignored_params():
+    """PRD-015 STORY-007 AC 5. The eleven sites in the pipeline (ten arms and
+    `_deny`) pass it; the router's foreign-session refusal, the twelfth site,
+    does not, and keeps writing NULL by default, by the story."""
+    sites = _scan().log_query
+    pipeline = [site for site in sites if site[0] == "app/services/query_pipeline.py"]
+    elsewhere = [site for site in sites if site[0] != "app/services/query_pipeline.py"]
+
+    assert len(pipeline) == 11, [f"{path}:{lineno}" for path, _, _, lineno in pipeline]
+    missing = [
+        f"{path}:{lineno}" for path, _, keywords, lineno in pipeline
+        if "ignored_params" not in keywords
+    ]
+    assert missing == [], f"pipeline log_query calls without ignored_params=: {missing}"
+    assert [(path, "ignored_params" in keywords) for path, _, keywords, _ in elsewhere] == [
+        ("app/routers/query.py", False)
+    ]

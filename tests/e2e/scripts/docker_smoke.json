@@ -1,0 +1,29 @@
+{
+  "default": {
+    "content": "harness smoke answer: the front door is open",
+    "finish_reason": "stop",
+    "usage": {"prompt_tokens": 7, "completion_tokens": 8}
+  },
+  "rules": [
+    {
+      "contains": "SMOKE-SLOW",
+      "delay_seconds": 30,
+      "content": "harness smoke slow answer: keep-alives came through",
+      "finish_reason": "stop",
+      "usage": {"prompt_tokens": 9, "completion_tokens": 7}
+    },
+    {
+      "contains": "SMOKE-WAVE",
+      "delay_seconds": 5,
+      "content": "harness smoke wave answer",
+      "finish_reason": "stop",
+      "usage": {"prompt_tokens": 4, "completion_tokens": 4}
+    },
+    {
+      "contains": "SMOKE-QUERY",
+      "content": "harness smoke query answer: query still works",
+      "finish_reason": "stop",
+      "usage": {"prompt_tokens": 6, "completion_tokens": 7}
+    }
+  ]
+}

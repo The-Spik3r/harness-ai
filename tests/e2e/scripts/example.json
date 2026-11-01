@@ -1,0 +1,41 @@
+{
+  "default": {
+    "content": "Stub default answer: no rule matched this prompt.",
+    "finish_reason": "stop",
+    "usage": {"prompt_tokens": 5, "completion_tokens": 9}
+  },
+  "rules": [
+    {
+      "contains": "rename foo",
+      "content": "Renamed `foo` to `bar`.",
+      "finish_reason": "length",
+      "usage": {"prompt_tokens": 12, "completion_tokens": 30, "total_tokens": 42}
+    },
+    {
+      "regex": "(?i)^\\s*hello\\b",
+      "content": "Hello from the stub upstream."
+    },
+    {
+      "contains": "please be slow",
+      "delay_seconds": 5,
+      "content": "This answer arrived five seconds late."
+    },
+    {
+      "contains": "upstream down",
+      "fail_status": 503
+    },
+    {
+      "contains": "bad upstream request",
+      "fail_status": 400
+    },
+    {
+      "contains": "flaky upstream",
+      "times": 1,
+      "fail_status": 503
+    },
+    {
+      "contains": "flaky upstream",
+      "content": "Recovered after one scripted 503."
+    }
+  ]
+}

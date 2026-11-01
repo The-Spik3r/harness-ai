@@ -201,6 +201,8 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "denied_permission",
         "device",
         "has_tool_calls",
+        # PRD-015 Section 10: additive, nullable (STORY-007).
+        "ignored_params",
         "ingress",
         "input_tokens",
         "limit_exceeded",
@@ -299,9 +301,13 @@ def test_redaction_disabled_passes_both_directions_through_unmasked(temp_db, mon
 # same story, so a byte pin on it cannot survive the epic. It moves out of
 # layer 1 and stays covered by layer 2: all four of its test function names are
 # kept, each rewritten against the new API with a comment citing PRD-011.
+#
+# PRD-015 STORY-009 does the same for tests/test_route_reservations.py: its AC 4
+# requires that file to assert the `/v1` paths beside the existing routes, so it
+# gains one test function. Both existing functions are unchanged, and layer 2
+# still holds them.
 _PRE_EPIC_UNTOUCHED_TESTS = [
     "tests/test_admin_auth.py",
-    "tests/test_route_reservations.py",
 ]
 
 # PRD-007 STORY-003 centralizes every test's DATABASE_URL behind one conftest fixture,

@@ -895,3 +895,15 @@ def test_every_log_query_call_site_in_the_pipeline_passes_profile():
 
     missing = [call for call in calls if "profile=" not in call]
     assert missing == [], f"log_query call sites not passing profile: {missing}"
+
+
+def test_every_log_query_call_site_in_the_pipeline_passes_ignored_params():
+    """PRD-015 STORY-007 AC 5, by the same source scan: log_query defaults
+    ignored_params for /query's foreign-session refusal, so this is what
+    requires it of every call site in the pipeline, `_deny`'s included."""
+    calls = _log_query_call_sources(inspect.getsource(query_pipeline))
+
+    assert len(calls) == 11, f"expected eleven log_query call sites, found {len(calls)}"
+
+    missing = [call for call in calls if "ignored_params=" not in call]
+    assert missing == [], f"log_query call sites not passing ignored_params: {missing}"

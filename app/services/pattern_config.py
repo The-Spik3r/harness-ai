@@ -138,8 +138,9 @@ class Profile:
 
     Under the built-in `code` profile, `system` is not inspected on purpose: it
     is the client's own prompt, and the richest source of false positives
-    (STORY-011 demonstrates it). PRD-014 is where that cell may change -- see
-    the comment on the `code` profile in `_build_built_in()`.
+    (STORY-011 demonstrates it). PRD-015 decided the cells PRD-011 left open
+    (D9): `system` stays uninspected and `assistant` is flagged -- see the
+    comment on the `code` profile in `_build_built_in()`.
     """
 
     name: str
@@ -227,7 +228,16 @@ def _build_built_in() -> PatternPolicy:
             # richest source of false positives -- all three keywords appear in
             # real agent system prompts. A deployment that distrusts its clients
             # adds `system: block` to its own profile. This is the default, not
-            # a ceiling (PRD-011 Section 6.4).
+            # a ceiling (PRD-011 Section 6.4; PRD-015 D9 keeps it).
+            #
+            # `assistant` flags rather than blocks (PRD-015 Section 7.8, D9).
+            # `/v1` is the first ingress whose caller writes the history, so a
+            # caller can forge an `assistant` turn to carry an injection phrase
+            # past the `user` block; the flag makes that visible in the audit
+            # instead of invisible. It does not block because a real agent's
+            # history holds the model's own earlier answers, which may quote
+            # such phrases. Only `injection` is loaded here, so ordinary source
+            # vocabulary in those answers does not flag.
             #
             # `tool` flags rather than blocks because nobody has run the flag in
             # production yet; promoting it is a default change, not a code
@@ -235,7 +245,7 @@ def _build_built_in() -> PatternPolicy:
             "code": Profile(
                 name="code",
                 lists=(injection,),
-                roles={"user": "block", "tool": "flag"},
+                roles={"user": "block", "assistant": "flag", "tool": "flag"},
             ),
         },
     )

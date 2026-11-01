@@ -1,0 +1,57 @@
+# Compose override for the Docker smoke (PRD-015 STORY-018).
+#
+# Laid over the unchanged docker-compose.yml under its own project name, so the
+# smoke never touches another harness-ai container, the dev databases or the
+# database `.env` names:
+#
+#     PORT=8095 HARNESS_SMOKE_ADMIN_TOKEN=<random> docker compose -p harness-smoke \
+#         -f docker-compose.yml -f tests/e2e/docker/compose.smoke.yml up -d
+#
+# tests/e2e/test_docker_smoke.py drives it end to end. The decisions are
+# recorded in the STORY-018 plan:
+#
+# - `libsql` is a throwaway libSQL server with no published port. The harness
+#   reaches it by service name over plain http://, which takes no token
+#   (app/config.py, _require_token_for_remote_endpoint). `down -v` removes it.
+# - `stub` is scripts/stub_openrouter.py in the same image, inside the harness
+#   container's network namespace (`network_mode: service:harness-ai`). The
+#   harness reaches it on 127.0.0.1, so OPENROUTER_BASE_URL stays a loopback
+#   http:// URL and the settings validator needs no exception. The other way
+#   round would take the published port away from harness-ai.
+# - `environment:` overrides every key the smoke depends on. docker-compose.yml's
+#   `env_file: .env` still loads, and these keys win over it.
+
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    environment:
+      SQLD_NODE: primary
+
+  harness-ai:
+    image: harness-smoke-harness-ai:local
+    depends_on:
+      - libsql
+    environment:
+      # `.env` usually sets PORT too, and env_file beats the image's ENV PORT,
+      # so without this Caddy would listen on .env's port while compose
+      # publishes ${PORT}.
+      PORT: ${PORT:-8000}
+      DATABASE_URL: http://libsql:8080
+      TURSO_AUTH_TOKEN: ""
+      OPENROUTER_BASE_URL: http://127.0.0.1:9100/v1
+      OPENROUTER_API_KEY: smoke-stub-key
+      ADMIN_TOKEN: ${HARNESS_SMOKE_ADMIN_TOKEN:?set HARNESS_SMOKE_ADMIN_TOKEN}
+      MODEL_ALLOWLIST: openai/gpt-4o,anthropic/claude-3.5-sonnet
+      V1_SSE_KEEPALIVE_SECONDS: "10"
+      PIPELINE_MAX_WORKERS: ${HARNESS_SMOKE_WORKERS:-4}
+      USAGE_REQUESTS_PER_MINUTE: "*=600"
+
+  stub:
+    image: harness-smoke-harness-ai:local
+    pull_policy: never
+    network_mode: "service:harness-ai"
+    depends_on:
+      - harness-ai
+    command: >-
+      python scripts/stub_openrouter.py --host 127.0.0.1 --port 9100
+      --script tests/e2e/scripts/docker_smoke.json

@@ -409,7 +409,7 @@ def test_the_built_in_profiles_carry_the_section_6_4_matrix():
     ]
     assert policy.profiles["chat"].roles == {"user": "block"}
     assert [pattern_list.name for pattern_list in policy.profiles["code"].lists] == ["injection"]
-    assert policy.profiles["code"].roles == {"user": "block", "tool": "flag"}
+    assert policy.profiles["code"].roles == {"user": "block", "assistant": "flag", "tool": "flag"}
 
 
 # --- AC 3: one case per malformed-file rule --------------------------------

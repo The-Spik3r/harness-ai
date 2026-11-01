@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     streamed INTEGER NOT NULL DEFAULT 0,
     has_tool_calls INTEGER NOT NULL DEFAULT 0,
     conversation_key TEXT,
-    limit_exceeded TEXT
+    limit_exceeded TEXT,
+    ignored_params TEXT
 )
 """
 
@@ -43,7 +44,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 # STORY-002 adds dedup_key; PRD-011 STORY-009 adds pattern_role and
 # pattern_action; PRD-012 STORY-011 adds profile; PRD-013 STORY-002 adds
 # ingress, message_count, input_tokens, output_tokens, streamed,
-# has_tool_calls, conversation_key and limit_exceeded). CREATE TABLE IF NOT
+# has_tool_calls, conversation_key and limit_exceeded; PRD-015 STORY-007 adds
+# ignored_params). CREATE TABLE IF NOT
 # EXISTS is a no-op against a database created before they existed, so
 # init_db() ALTERs in whichever of these an old file is missing.
 #
@@ -124,6 +126,13 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # Nothing writes a non-default value into these eight yet: log_query gains
     # the parameters in STORY-005.
     "limit_exceeded": "TEXT",
+    # PRD-015 (Section 7.3, D3): the sorted, comma-joined *names* of the
+    # top-level request keys (and `stream_options.<key>`) a `/v1` caller sent
+    # that the harness did not forward -- never their values. Nullable with no
+    # default on purpose, like dedup_key: NULL is "nothing ignored", which is
+    # true of every `/query` and chat row and of every row written before
+    # PRD-015, so it is never backfilled.
+    "ignored_params": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -389,6 +398,12 @@ class AuditLog:
     has_tool_calls: bool = False
     conversation_key: Optional[str] = None
     limit_exceeded: Optional[str] = None
+    # PRD-015 STORY-007 (Section 7.3). Same pattern as limit_exceeded:
+    # insert_audit_log() writes it and _row_to_audit_log() maps it back on both
+    # read shapes. Set only by `/v1` (STORY-009); NULL everywhere else.
+    # Declared after limit_exceeded to mirror the table, so id stays the
+    # trailing field.
+    ignored_params: Optional[str] = None
     id: Optional[int] = None
 
 

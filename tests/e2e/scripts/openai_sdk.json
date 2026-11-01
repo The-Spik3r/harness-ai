@@ -1,0 +1,48 @@
+{
+  "default": {
+    "content": "sdk default answer",
+    "finish_reason": "stop",
+    "usage": {"prompt_tokens": 2, "completion_tokens": 2}
+  },
+  "rules": [
+    {
+      "contains": "sdk plain answer",
+      "content": "Plain answer from the stub.",
+      "finish_reason": "stop",
+      "usage": {"prompt_tokens": 11, "completion_tokens": 7}
+    },
+    {
+      "contains": "sdk streamed answer",
+      "content": "Line one.\nLine two.",
+      "finish_reason": "length",
+      "usage": {"prompt_tokens": 13, "completion_tokens": 5}
+    },
+    {
+      "contains": "sdk budget burner",
+      "content": "spent",
+      "usage": {"prompt_tokens": 3, "completion_tokens": 2}
+    },
+    {
+      "contains": "sdk flaky upstream",
+      "times": 1,
+      "fail_status": 503
+    },
+    {
+      "contains": "sdk flaky upstream",
+      "content": "Recovered after one 503."
+    },
+    {
+      "contains": "sdk flaky stream",
+      "times": 1,
+      "fail_status": 503
+    },
+    {
+      "contains": "sdk flaky stream",
+      "content": "never sent: a mid-stream error is not retried"
+    },
+    {
+      "contains": "sdk bad upstream request",
+      "fail_status": 400
+    }
+  ]
+}

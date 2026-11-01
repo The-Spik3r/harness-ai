@@ -73,10 +73,15 @@ def test_run_conversation_signature_matches_the_prd():
     # 6.6, D2). Keyword-only so no positional caller can pass it by accident.
     # PRD-013 STORY-005: trailing keyword-only `ingress` and `streamed`
     # (PRD-013 Section 6.9), chosen by the call site like `profile`.
+    # PRD-015 STORY-007: trailing keyword-only `ignored_params`, passed only by
+    # the `/v1` router; run_query passes nothing, so its signature is unchanged.
     assert list(signature.parameters) == [
         "identity", "messages", "device", "model", "openrouter_api_key",
         "params", "call_openrouter", "session_id", "profile", "ingress", "streamed",
+        "ignored_params",
     ]
+    assert signature.parameters["ignored_params"].default is None
+    assert signature.parameters["ignored_params"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["profile"].default is None
     assert signature.parameters["profile"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["ingress"].default is None

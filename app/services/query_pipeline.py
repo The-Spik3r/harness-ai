@@ -222,6 +222,10 @@ def _deny(
     message_count: int,
     conversation_key: Optional[str],
     streamed: bool,
+    # Required for the same reason as the five above (PRD-015 STORY-007): a
+    # forgotten authorization arm is a TypeError, not a `/v1` row that
+    # silently claims the client got everything it asked for.
+    ignored_params: Optional[str],
     exc: PermissionDenied,
     reason: str,
 ) -> QueryBlockedForbiddenResponse:
@@ -239,6 +243,7 @@ def _deny(
         message_count=message_count,
         conversation_key=conversation_key,
         streamed=streamed,
+        ignored_params=ignored_params,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -266,6 +271,10 @@ def run_conversation(
     ingress: Optional[Ingress] = None,
     # Whether the response is delivered as SSE. Always False until PRD-014.
     streamed: bool = False,
+    # PRD-015 Section 7.3: the request keys `/v1` did not forward, as
+    # v1_translate names them, passed by the router (STORY-009) and recorded
+    # on every row below. None for every other door; run_query passes nothing.
+    ignored_params: Optional[str] = None,
 ) -> QueryPipelineResult:
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
@@ -300,7 +309,8 @@ def run_conversation(
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
-            conversation_key=conv_key, streamed=streamed, exc=exc,
+            conversation_key=conv_key, streamed=streamed,
+            ignored_params=ignored_params, exc=exc,
             reason="Missing required permission",
         )
 
@@ -310,7 +320,8 @@ def run_conversation(
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
-            conversation_key=conv_key, streamed=streamed, exc=exc,
+            conversation_key=conv_key, streamed=streamed,
+            ignored_params=ignored_params, exc=exc,
             reason="Model not permitted for this role",
         )
 
@@ -321,7 +332,8 @@ def run_conversation(
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
                 profile=profile_name, ingress=ingress, message_count=message_count,
-                conversation_key=conv_key, streamed=streamed, exc=exc,
+                conversation_key=conv_key, streamed=streamed,
+                ignored_params=ignored_params, exc=exc,
                 reason="Missing required permission",
             )
 
@@ -342,6 +354,7 @@ def run_conversation(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
+            ignored_params=ignored_params,
             exc=PermissionDenied("ingress:break_glass"),
             reason="Break-glass credential not permitted on this ingress",
         )
@@ -398,6 +411,7 @@ def run_conversation(
                 message_count=message_count,
                 conversation_key=conv_key,
                 streamed=streamed,
+                ignored_params=ignored_params,
             )
             return QueryBlockedUsageLimitResponse(
                 reason="Usage limit reached",
@@ -441,6 +455,7 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
+            ignored_params=ignored_params,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds context limit",
@@ -471,6 +486,7 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
+            ignored_params=ignored_params,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -521,6 +537,7 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
+            ignored_params=ignored_params,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -534,8 +551,10 @@ def run_conversation(
     # names one hit: the first flag in walk order; further flags are not
     # recorded (a second table is PRD-013's). A block above has already
     # returned, so a flag followed by a block leaves only the block row.
-    # Unreachable from any ingress today: `chat` has no flag cell, and step 0
-    # refuses `tool` turns until PRD-016.
+    # `chat` has no flag cell. `code` flags `assistant` turns (PRD-015 D9),
+    # which `/v1` reaches once its router is mounted (STORY-009) -- until then
+    # only tests do. Its `tool` cell stays unreachable: step 0 refuses `tool`
+    # turns until PRD-016.
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
@@ -553,6 +572,7 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
+            ignored_params=ignored_params,
         )
 
     # Step 6: redact input per the profile's PII policy (PRD-012 Sections
@@ -591,6 +611,7 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
+            ignored_params=ignored_params,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds redaction limit",
@@ -634,6 +655,7 @@ def run_conversation(
                 message_count=message_count,
                 conversation_key=conv_key,
                 streamed=streamed,
+                ignored_params=ignored_params,
             )
             raise
         redacted_messages.append(Message(message.role, redacted_content))
@@ -670,6 +692,7 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
+            ignored_params=ignored_params,
         )
         raise
 
@@ -731,6 +754,7 @@ def run_conversation(
                 message_count=message_count,
                 conversation_key=conv_key,
                 streamed=streamed,
+                ignored_params=ignored_params,
             )
             raise
     else:
@@ -764,6 +788,7 @@ def run_conversation(
         message_count=message_count,
         conversation_key=conv_key,
         streamed=streamed,
+        ignored_params=ignored_params,
     )
 
     return QuerySuccessResponse(

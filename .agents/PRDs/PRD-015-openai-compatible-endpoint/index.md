@@ -1,0 +1,58 @@
+# PRD-015-openai-compatible-endpoint: OpenAI-Compatible Endpoint (Text) — One Base URL, Every Verdict an Ordinary API Error — Story Board
+
+**PRD**: [PRD.md](./PRD.md)
+**Epic Branch**: `epic/PRD-015-openai-compatible-endpoint` (base: `main`)
+**Status**: done
+
+## Progress
+
+19/19 stories done — 100%
+
+## Stories
+
+All stories commit on the epic branch `epic/PRD-015-openai-compatible-endpoint`. No per-story branches.
+
+| ID | Title | Type | Status | Complexity | Plan | Commit |
+|----|-------|------|--------|------------|------|--------|
+| STORY-001 | Characterize /query's error bodies and the upstream request body before /v1 exists | technical | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-001-query-error-body-characterization.plan.md) | `0341ed6` |
+| STORY-002 | OpenRouter client: finish_reason, upstream_status and retryable, OPENROUTER_BASE_URL | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-002-openrouter-client-finish-reason-retryable-base-url.plan.md) | `f4f2a83` |
+| STORY-003 | V1_ENABLED and V1_SSE_KEEPALIVE_SECONDS settings with startup validators | technical | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-003-v1-settings.plan.md) | `566b071` |
+| STORY-004 | /v1 request, response, chunk and error schemas | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-004-v1-schemas.plan.md) | `0be7da0` |
+| STORY-005 | Request translation: messages, the developer role and edge structure checks | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-005-message-translation.plan.md) | `d2eaf30` |
+| STORY-006 | Parameter classification: forward, ignore-and-record, reject; the explicit tools refusal | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-006-parameter-classification-and-tools-refusal.plan.md) | `b62f21e` |
+| STORY-007 | audit_logs.ignored_params: column, writer, every pipeline arm and the /audit field | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-007-ignored-params-audit-column.plan.md) | `4100d89` |
+| STORY-008 | code profile flags assistant turns; examples/patterns.yaml matches again | enhancement | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-008-code-profile-assistant-flag.plan.md) | `4ed6379` |
+| STORY-009 | POST /v1/chat/completions: router, identity, device header and non-streaming success | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-009-v1-router-non-streaming-success.plan.md) | `3193854` |
+| STORY-010 | Verdicts to OpenAI error objects; /v1-scoped 400/401/403 handlers; /query isolation | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-010-verdict-to-error-translation.plan.md) | `0cd544c` |
+| STORY-011 | Upstream and internal fault mapping with deliberate retry semantics | feature | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-011-fault-mapping-and-retry-semantics.plan.md) | `a8ac6de` |
+| STORY-012 | GET /v1/models and /v1/models/{id} from MODEL_ALLOWLIST | feature | ✅ done | small | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-012-v1-models.plan.md) | `799df1d` |
+| STORY-013 | Buffered SSE: commit on upstream start, keep-alive, chunk sequence, include_usage, post-commit error | feature | ✅ done | large | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-013-buffered-sse.plan.md) | `2b1773a` |
+| STORY-014 | Scripted stub upstream for E2E runs | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-014-stub-upstream.plan.md) | `e6d9ab7` |
+| STORY-015 | E2E: OpenAI Python SDK, non-streaming, streaming, blocks and retries | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-015-e2e-openai-python-sdk.plan.md) | `f642340` |
+| STORY-016 | E2E: Aider applies a scripted edit through the harness | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-016-e2e-aider.plan.md) | `a87c078` |
+| STORY-017 | E2E: Continue chat through the harness | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-017-e2e-continue.plan.md) | `d64774d` |
+| STORY-018 | Caddy routes /v1/*; Docker smoke with keep-alive through Caddy | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-018-caddy-route-and-docker-smoke.plan.md) | `c472495` |
+| STORY-019 | Regression sweep, translation latency, README API reference and per-client setup, .env.example | technical | ✅ done | medium | [plan](../../plans/PRD-015-openai-compatible-endpoint/completed/STORY-019-regression-latency-and-docs.plan.md) | `d294e59` |
+
+## Status Icons
+- ⬜ todo
+- 🟡 in-progress
+- ✅ done
+- 🔴 blocked
+
+## Dependencies
+
+- STORY-002 blocked by STORY-001
+- STORY-005 blocked by STORY-004
+- STORY-006 blocked by STORY-001, STORY-004, STORY-005
+- STORY-009 blocked by STORY-002, STORY-003, STORY-004, STORY-005, STORY-006, STORY-007
+- STORY-010 blocked by STORY-001, STORY-004, STORY-009
+- STORY-011 blocked by STORY-002, STORY-010
+- STORY-012 blocked by STORY-004, STORY-009, STORY-010
+- STORY-013 blocked by STORY-003, STORY-004, STORY-010, STORY-011
+- STORY-014 blocked by STORY-002
+- STORY-015 blocked by STORY-012, STORY-013, STORY-014
+- STORY-016 blocked by STORY-013, STORY-014, STORY-015
+- STORY-017 blocked by STORY-013, STORY-014, STORY-015
+- STORY-018 blocked by STORY-013, STORY-014
+- STORY-019 blocked by STORY-008, STORY-015, STORY-016, STORY-017, STORY-018

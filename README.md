@@ -82,13 +82,14 @@ All captures were taken from a running instance with [agent-browser](https://www
 ## Architecture
 
 ```
-┌──────────────┐        ┌──────────────┐
-│   Chat UI    │        │   Your App   │
-│ (browser)    │        │  (any client)│
-└──────┬───────┘        └──────┬───────┘
-       │                       │
-       │      POST /query      │
-       └───────────┬───────────┘
+┌──────────────┐        ┌──────────────┐     ┌──────────────┐
+│   Chat UI    │        │   Your App   │     │ Coding agent │
+│ (browser)    │        │  (any client)│     │ / OpenAI SDK │
+└──────┬───────┘        └──────┬───────┘     └──────┬───────┘
+       │                       │                    │
+       │      POST /query      │     POST /v1/*     │
+       └───────────┬───────────┘                    │
+                   ├────────────────────────────────┘
                     ▼
         ┌───────────────────────┐
         │   Harness AI (FastAPI)│
@@ -150,7 +151,8 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 
 | Capability | Description |
 |---|---|
-| **Single entry point** | `POST /query` intercepts every prompt/response pair; nothing reaches OpenRouter without passing through it. |
+| **Single entry point** | One pipeline intercepts every prompt/response pair, behind two doors: `POST /query` and the OpenAI-compatible `POST /v1/chat/completions`. Nothing reaches OpenRouter without passing through it. |
+| **OpenAI-compatible endpoint** | `POST /v1/chat/completions` and `GET /v1/models`, so the OpenAI SDKs, Aider and Continue work with only their base URL and key changed. It is a translation layer onto the same pipeline, not a second one: coding-agent traffic runs the `code` profile, every block comes back as an ordinary `400` or `403` error that clients show and do not retry, and `stream: true` is answered after the whole response has been checked. See [OpenAI-compatible endpoint](#openai-compatible-endpoint). |
 | **Chat UI** | A browser-based chat served from the same port and process as the API, running through the identical pipeline as `POST /query`. |
 | **Role-based access control** | Every request is resolved to a verified `Identity` from a per-user bearer token — no self-declared `user_id` is trusted. Three fixed roles (`admin`, `auditor`, `user`) each hold an explicit permission set; deny-by-default for any unmapped role or permission. `ADMIN_TOKEN` remains a break-glass admin credential, not the primary auth mechanism. |
 | **Duplicate blocking** | Exact-match (word-for-word) detection of a prompt the **same account** already had answered within a rolling 24-hour window. Scoped per user, never across users — see [Duplicate detection scope](docs/features.md#duplicate-detection-scope). |

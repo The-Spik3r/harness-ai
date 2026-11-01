@@ -797,9 +797,10 @@ def insert_audit_log(entry: AuditLog) -> int:
                 role, denied_permission, session_id, dedup_key,
                 pattern_role, pattern_action, profile,
                 ingress, message_count, input_tokens, output_tokens,
-                streamed, has_tool_calls, conversation_key, limit_exceeded
+                streamed, has_tool_calls, conversation_key, limit_exceeded,
+                ignored_params
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.timestamp,
@@ -833,6 +834,7 @@ def insert_audit_log(entry: AuditLog) -> int:
                 int(entry.has_tool_calls),
                 entry.conversation_key,
                 entry.limit_exceeded,
+                entry.ignored_params,
             ),
         )
         return cursor.lastrowid
@@ -929,6 +931,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         has_tool_calls=bool(row["has_tool_calls"]),
         conversation_key=row["conversation_key"],
         limit_exceeded=row["limit_exceeded"],
+        ignored_params=row["ignored_params"],
     )
 
 
@@ -1292,6 +1295,9 @@ class SummarySnapshot:
 # `blocked_usage_limits`) take no parameter and come after every existing one,
 # so the tuple did not change (PRD-013 Risk 8). A future column with a `?`
 # must also go last, and its value goes at the end of the tuple.
+# PRD-015 STORY-007's `ignored_params` is a key in the row's `json_object`, not
+# a figure: no `?`, so the tuple is unchanged again. It must be there, though:
+# `_row_to_audit_log` reads every key, and a missing one is a KeyError.
 #
 # `"rows"` is quoted: ROWS is a keyword (window frames) and an unquoted alias
 # is a syntax error.
@@ -1339,7 +1345,8 @@ SELECT
               'streamed', streamed,
               'has_tool_calls', has_tool_calls,
               'conversation_key', conversation_key,
-              'limit_exceeded', limit_exceeded))
+              'limit_exceeded', limit_exceeded,
+              'ignored_params', ignored_params))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

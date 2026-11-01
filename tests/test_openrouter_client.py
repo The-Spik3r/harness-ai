@@ -432,5 +432,175 @@ def test_three_positional_arguments_still_construct_a_result():
 
 def test_the_split_fields_are_declared_last_and_in_order():
     assert [f.name for f in dataclasses.fields(OpenRouterResult)] == [
-        "response", "model_used", "tokens_used", "input_tokens", "output_tokens",
+        # PRD-015 STORY-002 appends finish_reason after the split.
+        "response", "model_used", "tokens_used", "input_tokens", "output_tokens", "finish_reason",
+    ]
+
+
+# --- PRD-015 STORY-002: finish_reason ---
+
+
+def _finish_reason_call(choice_extra):
+    choice = {"message": {"content": "Hello!"}, **choice_extra}
+    body = {"choices": [choice], "usage": {"total_tokens": 45}}
+    client = _FakeClient(response=_response(body=body))
+    return call_openrouter([Message("user", "hello")], api_key="k", client=client)
+
+
+@pytest.mark.parametrize("reason", ["stop", "length", "content_filter"])
+def test_finish_reason_is_carried_from_the_first_choice(reason):
+    result = _finish_reason_call({"finish_reason": reason})
+
+    assert result.finish_reason == reason
+    assert result.response == "Hello!"
+
+
+@pytest.mark.parametrize(
+    "choice_extra",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"finish_reason": None}, id="null"),
+        pytest.param({"finish_reason": 1}, id="int"),
+        pytest.param({"finish_reason": True}, id="bool"),
+        pytest.param({"finish_reason": ["stop"]}, id="list"),
+    ],
+)
+def test_an_unusable_finish_reason_is_none_and_the_call_succeeds(choice_extra):
+    result = _finish_reason_call(choice_extra)
+
+    assert result.finish_reason is None
+    assert (result.response, result.tokens_used) == ("Hello!", 45)
+
+
+def test_three_argument_construction_leaves_finish_reason_none():
+    assert OpenRouterResult("r", "m", 3).finish_reason is None
+    assert OpenRouterResult(response="r", model_used="m", tokens_used=3).finish_reason is None
+
+
+# --- PRD-015 STORY-002: upstream_status and retryable ---
+
+
+def _status_client(status_code):
+    return _FakeClient(response=_response(status_code=status_code, body={"error": "x"}))
+
+
+def _malformed_json_client():
+    request = httpx.Request("POST", _API_URL)
+    return _FakeClient(response=httpx.Response(200, request=request, content=b"not json"))
+
+
+_FAILURES = [
+    pytest.param(lambda: _FakeClient(exc=httpx.ReadTimeout("t")), None, True, "OpenRouter request failed: ", id="read-timeout"),
+    pytest.param(lambda: _FakeClient(exc=httpx.ConnectTimeout("t")), None, True, "OpenRouter request failed: ", id="connect-timeout"),
+    pytest.param(lambda: _FakeClient(exc=httpx.ConnectError("c")), None, True, "OpenRouter request failed: ", id="connect-error"),
+    pytest.param(lambda: _status_client(500), 500, True, "OpenRouter request failed: ", id="500"),
+    pytest.param(lambda: _status_client(503), 503, True, "OpenRouter request failed: ", id="503"),
+    pytest.param(lambda: _status_client(429), 429, True, "OpenRouter request failed: ", id="429"),
+    pytest.param(lambda: _status_client(400), 400, False, "OpenRouter request failed: ", id="400"),
+    pytest.param(lambda: _status_client(401), 401, False, "OpenRouter request failed: ", id="401"),
+    pytest.param(lambda: _status_client(404), 404, False, "OpenRouter request failed: ", id="404"),
+    pytest.param(_malformed_json_client, None, False, "OpenRouter returned an unexpected response shape: ", id="malformed-json"),
+    pytest.param(
+        lambda: _FakeClient(response=_response(body={"usage": {"total_tokens": 1}})),
+        None, False, "OpenRouter returned an unexpected response shape: ", id="missing-choices",
+    ),
+    pytest.param(lambda: _FakeClient(response=_null_content_response()), None, False, "OpenRouter returned no text content", id="null-content"),
+]
+
+
+@pytest.mark.parametrize("make_client, status, retryable, prefix", _FAILURES)
+def test_each_failure_carries_upstream_status_and_retryable(make_client, status, retryable, prefix):
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter([Message("user", "hi")], api_key="k", client=make_client())
+
+    assert exc_info.value.upstream_status == status
+    assert exc_info.value.retryable is retryable
+    assert str(exc_info.value).startswith(prefix)
+
+
+def test_missing_key_is_not_retryable_and_has_no_status(monkeypatch):
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "")
+
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter([Message("user", "hi")], client=_FakeClient())
+
+    assert (exc_info.value.upstream_status, exc_info.value.retryable) == (None, False)
+    assert str(exc_info.value) == (
+        "OpenRouter API key not configured: pass openrouter_api_key or set OPENROUTER_API_KEY"
+    )
+
+
+def test_a_status_failure_message_is_byte_identical_to_todays():
+    """The format is pinned, not httpx's wording: the expected string is built
+    from the same HTTPStatusError the client sees."""
+    response = _response(status_code=503, body={"error": "x"})
+    with pytest.raises(httpx.HTTPStatusError) as status_exc:
+        response.raise_for_status()
+
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter([Message("user", "hi")], api_key="k", client=_FakeClient(response=response))
+
+    assert str(exc_info.value) == f"OpenRouter request failed: {status_exc.value}"
+
+
+def test_a_transport_failure_message_is_byte_identical_to_todays():
+    error = httpx.ConnectError("connection refused")
+
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter([Message("user", "hi")], api_key="k", client=_FakeClient(exc=error))
+
+    assert str(exc_info.value) == f"OpenRouter request failed: {error}"
+
+
+def test_a_shape_failure_message_is_byte_identical_to_todays():
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter(
+            [Message("user", "hi")], api_key="k",
+            client=_FakeClient(response=_response(body={"unexpected": "shape"})),
+        )
+
+    assert str(exc_info.value) == "OpenRouter returned an unexpected response shape: 'choices'"
+
+
+def test_positional_construction_keeps_message_and_conservative_defaults():
+    exc = OpenRouterError("x")
+
+    assert str(exc) == "x"
+    assert exc.args == ("x",)
+    assert exc.upstream_status is None
+    assert exc.retryable is False
+
+
+# --- PRD-015 STORY-002: OPENROUTER_BASE_URL ---
+
+
+def test_default_base_url_gives_todays_request_url():
+    client = _FakeClient(response=_response())
+
+    call_openrouter([Message("user", "hi")], api_key="k", client=client)
+
+    assert client.requests[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:9100/v1", "http://127.0.0.1:9100/v1/"])
+def test_base_url_setting_redirects_the_request(monkeypatch, base_url):
+    monkeypatch.setattr(settings, "OPENROUTER_BASE_URL", base_url)
+    client = _FakeClient(response=_response())
+
+    call_openrouter([Message("user", "hi")], api_key="k", client=client)
+
+    assert client.requests[0]["url"] == "http://127.0.0.1:9100/v1/chat/completions"
+
+
+def test_base_url_is_read_per_call_not_cached_at_import(monkeypatch):
+    client = _FakeClient(response=_response())
+
+    monkeypatch.setattr(settings, "OPENROUTER_BASE_URL", "http://127.0.0.1:9100/v1")
+    call_openrouter([Message("user", "hi")], api_key="k", client=client)
+    monkeypatch.setattr(settings, "OPENROUTER_BASE_URL", "http://localhost:9200/v1")
+    call_openrouter([Message("user", "hi")], api_key="k", client=client)
+
+    assert [r["url"] for r in client.requests] == [
+        "http://127.0.0.1:9100/v1/chat/completions",
+        "http://localhost:9200/v1/chat/completions",
     ]

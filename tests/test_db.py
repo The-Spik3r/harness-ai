@@ -1087,6 +1087,8 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "has_tool_calls",
         "conversation_key",
         "limit_exceeded",
+        # PRD-015 STORY-007 (Section 7.3): the names of ignored /v1 parameters.
+        "ignored_params",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -2254,13 +2256,14 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     # PRD-009 STORY-002 appended dedup_key after session_id, and PRD-011
     # STORY-009 (D6) appended pattern_role and pattern_action after that, and
     # PRD-012 STORY-011 (D9) appended profile, and PRD-013 STORY-002 (Section
-    # 6.2) appended eight more after profile. The claim is unchanged: the
-    # surrogate key stays the trailing field.
-    assert names[-14:] == [
+    # 6.2) appended eight more after profile, and PRD-015 STORY-007 appended
+    # ignored_params. The claim is unchanged: the surrogate key stays the
+    # trailing field.
+    assert names[-15:] == [
         "session_id", "dedup_key", "pattern_role", "pattern_action", "profile",
         "ingress", "message_count", "input_tokens", "output_tokens",
         "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
-        "id",
+        "ignored_params", "id",
     ]
 
 
@@ -2959,9 +2962,10 @@ def test_audit_logs_declares_each_prd013_column_in_both_places(name, ddl):
 
 def test_the_prd013_columns_are_declared_last_and_in_order():
     """The mapping's order is the order init_db() ALTERs in, and the CREATE's
-    is the order AuditLog mirrors."""
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-8:] == list(_PRD013_COLUMNS)
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-8:] == list(_PRD013_COLUMNS)
+    is the order AuditLog mirrors. PRD-015 STORY-007 appended ignored_params
+    after them, so they are the eight before the last."""
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-9:-1] == list(_PRD013_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-9:-1] == list(_PRD013_COLUMNS)
 
 
 @pytest.mark.parametrize("name", list(_PRD013_COLUMNS))
@@ -2987,10 +2991,13 @@ def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, mo
 
     init_db()
 
+    # PRD-015 STORY-007's ignored_params is missing from this database too, so
+    # it is ALTERed in last; test_init_db_migrates_a_pre_prd015_database is
+    # where it is the only one in flight.
     assert [sql for sql in statements if "ADD COLUMN" in sql.upper()] == [
         f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
         for name, ddl in _PRD013_COLUMNS.items()
-    ]
+    ] + ["ALTER TABLE audit_logs ADD COLUMN ignored_params TEXT"]
     assert not any(
         sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
     ), statements
@@ -3005,7 +3012,7 @@ def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, mo
         raw = conn.execute(
             f"SELECT {', '.join(_PRD013_COLUMNS)} FROM audit_logs ORDER BY id"
         ).fetchall()
-    assert len(columns) == 32
+    assert len(columns) == 33
     for name in _PRD013_COLUMNS:
         assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
 
@@ -3146,7 +3153,163 @@ def test_audit_log_carries_the_prd013_fields_without_breaking_construction():
     assert _prd013_fields(carried) == _PRD013_ROW_A
 
     names = [field.name for field in dataclasses.fields(AuditLog)]
-    assert names[-9:] == [*_PRD013_COLUMNS, "id"]
+    # PRD-015 STORY-007's ignored_params sits between them and id.
+    assert names[-10:] == [*_PRD013_COLUMNS, "ignored_params", "id"]
+
+
+# ---------------------------------------------------------------------------
+# PRD-015 STORY-007: audit_logs.ignored_params (Section 7.3, D3).
+# ---------------------------------------------------------------------------
+
+
+def _create_pre_prd015_database(connect, url) -> None:
+    """Builds the 32-column audit_logs table exactly as it shipped before
+    PRD-015 STORY-007 -- every PRD-013 column, no ignored_params -- with the
+    dedup index in place, and seeds one `/query` success row, so a test can
+    show the migration adds the one column and backfills nothing."""
+    legacy = connect(url)
+    legacy.execute(
+        """
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            device TEXT,
+            prompt_hash TEXT NOT NULL,
+            prompt_preview TEXT,
+            response_hash TEXT,
+            response_preview TEXT,
+            model_used TEXT,
+            tokens_used INTEGER,
+            was_duplicate_blocked INTEGER NOT NULL DEFAULT 0,
+            suspicious_pattern TEXT,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            pii_detected_input INTEGER NOT NULL DEFAULT 0,
+            pii_detected_output INTEGER NOT NULL DEFAULT 0,
+            pii_entities TEXT,
+            role TEXT,
+            denied_permission TEXT,
+            session_id TEXT,
+            dedup_key TEXT,
+            pattern_role TEXT,
+            pattern_action TEXT,
+            profile TEXT,
+            ingress TEXT,
+            message_count INTEGER,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            streamed INTEGER NOT NULL DEFAULT 0,
+            has_tool_calls INTEGER NOT NULL DEFAULT 0,
+            conversation_key TEXT,
+            limit_exceeded TEXT
+        )
+        """
+    )
+    legacy.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
+    legacy.execute(
+        "INSERT INTO audit_logs "
+        "(timestamp, user_id, prompt_hash, tokens_used, dedup_key, profile, ingress) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("2026-10-21T09:00:00Z", "ana@empresa.com", "pre015", 42, "k-pre015", "chat", "query"),
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def test_audit_logs_declares_ignored_params_in_both_places_last():
+    """The mapping converges an old database, the CREATE builds a fresh one,
+    and both declare it the same way, after every earlier column."""
+    assert AUDIT_LOGS_ADDED_COLUMNS["ignored_params"] == "TEXT"
+    assert "ignored_params TEXT" in CREATE_AUDIT_LOGS_TABLE
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-1] == "ignored_params"
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-1] == "ignored_params"
+
+
+def test_init_db_creates_ignored_params_as_nullable_text(temp_db):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info["ignored_params"]["type"] == "TEXT"
+    assert info["ignored_params"]["notnull"] == 0
+    assert info["ignored_params"]["dflt_value"] is None
+
+
+def test_init_db_migrates_a_pre_prd015_database(uninitialized_db, db_connect, monkeypatch):
+    """AC 1: the column is added once, as nullable TEXT; the existing row
+    reads NULL with no UPDATE issued; a second init_db() is a no-op."""
+    _create_pre_prd015_database(db_connect, uninitialized_db)
+    statements = _count_statements(monkeypatch)
+
+    init_db()
+
+    assert [sql for sql in statements if "ADD COLUMN" in sql.upper()] == [
+        "ALTER TABLE audit_logs ADD COLUMN ignored_params TEXT"
+    ]
+    assert not any(
+        sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
+    ), statements
+
+    statements.clear()
+    init_db()
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER" in sql.upper() for sql in statements), statements
+
+    with get_connection() as conn:
+        columns = _column_names(conn, "audit_logs")
+        raw = conn.execute("SELECT ignored_params FROM audit_logs").fetchall()
+    assert len(columns) == 33
+    assert columns.count("ignored_params") == 1
+    assert [row["ignored_params"] for row in raw] == [None]
+
+    preserved = get_audit_log(1)
+    assert preserved.ignored_params is None
+    assert (preserved.tokens_used, preserved.dedup_key, preserved.ingress) == (
+        42, "k-pre015", "query"
+    )
+
+
+def test_ignored_params_round_trips_and_defaults_to_none(temp_db):
+    """The `SELECT *` read shape, and the default for every caller that
+    supplies nothing."""
+    carried = insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-23T09:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h70",
+            ingress="v1",
+            ignored_params="seed,user",
+        )
+    )
+    bare = insert_audit_log(
+        AuditLog(timestamp="2026-10-23T09:05:00Z", user_id="ana@empresa.com", prompt_hash="h71")
+    )
+
+    assert get_audit_log(carried).ignored_params == "seed,user"
+    assert get_audit_log(bare).ignored_params is None
+    assert AuditLog(timestamp="t", user_id="u", prompt_hash="h").ignored_params is None
+
+
+def test_summary_snapshot_carries_ignored_params(temp_db):
+    """The `json_object` read shape: `_row_to_audit_log` reads every key, so a
+    key missing from `_SUMMARY_SQL` would be a KeyError, not a NULL."""
+    insert_audit_log(
+        AuditLog(
+            timestamp="2026-10-23T09:00:00Z",
+            user_id="ana@empresa.com",
+            prompt_hash="h72",
+            ignored_params="seed",
+        )
+    )
+    insert_audit_log(
+        AuditLog(timestamp="2026-10-23T09:05:00Z", user_id="ana@empresa.com", prompt_hash="h73")
+    )
+
+    snapshot = summary_snapshot()
+
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    assert [row.ignored_params for row in snapshot.rows] == [None, "seed"]
 
 
 def test_chat_sessions_table_matches_its_ddl(temp_db):
