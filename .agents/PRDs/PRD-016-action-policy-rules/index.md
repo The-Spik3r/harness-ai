@@ -6,7 +6,7 @@
 
 ## Progress
 
-14/20 stories done — 70%
+15/20 stories done — 75%
 
 ## Stories
 
@@ -28,7 +28,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-012 | Network egress rules — URL parse, IDNA, allowlist, reserved addresses | feature | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md) | `33c5327` |
 | STORY-013 | Secret access rules, and shell embedding of SQL, URLs and secret reads | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-013-secret-rules-and-shell-embedding.plan.md) | `cbcb58c` |
 | STORY-014 | Decision engine: evaluate(), grants via holds(), most-severe-wins, safe reasons, fail closed | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-014-decision-engine.plan.md) | `dab8066` |
-| STORY-015 | action_decisions table, indexes, record() and read functions | feature | ⬜ todo | medium | — | — |
+| STORY-015 | action_decisions table, indexes, record() and read functions | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-015-action-decisions-table-and-record.plan.md) | `pending` |
 | STORY-016 | GET /audit/actions with audit scoping, and the three action counts on /stats | feature | ⬜ todo | small | — | — |
 | STORY-017 | Synthetic tool-call corpus, its suite end to end through record(), and evaluate() latency | technical | ⬜ todo | medium | — | — |
 | STORY-018 | Evasion corpus — obfuscated variants of denied calls, none may produce allow | technical | ⬜ todo | medium | — | — |

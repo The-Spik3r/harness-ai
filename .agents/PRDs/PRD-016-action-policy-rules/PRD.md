@@ -398,6 +398,7 @@ CREATE TABLE IF NOT EXISTS action_decisions (
     arguments_preview TEXT,           -- first 500 chars of the raw arguments string
     decision TEXT NOT NULL,           -- allow | flag | deny
     rule TEXT NOT NULL,
+    reason TEXT NOT NULL,           -- added by orchestrator decision (STORY-014/015 plans): the fixed-template reason, stored so the audit reads without code
     granted_by TEXT,                  -- the action permission, when one lifted the rule
     classifications TEXT NOT NULL,    -- JSON array: [{rule, kind, detail}], every one
     policy_digest TEXT NOT NULL

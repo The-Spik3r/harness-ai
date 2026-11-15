@@ -37,7 +37,7 @@ As a security admin, I want to read recent action decisions over the API, filter
 
 - `app/routers/admin.py`: new route next to `get_audit`, copying its two-step `authorize` scoping; `/stats` reads `count_action_decisions()`.
 - `app/models/schemas.py`: `ActionDecisionEntry`, `ActionsResponse`; `StatsResponse` gains three ints with default 0.
-- `reason` is not a column: rebuild it from `rule` and the first classification's `detail` with the STORY-014 templates, so the API and the engine cannot disagree.
+- `reason` IS a stored column (orchestrator decision, STORY-014/015 plans; PRD 6.10 amended): return it as stored, do not rebuild it.
 - Tests: new `tests/test_admin_actions.py`; extend the `/stats` tests.
 - Skills: none applicable. No UI.
 
