@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-018-evasion-corpus.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: 5efc769
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-018-evasion-corpus.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `5efc769`
 
 ## Summary
 

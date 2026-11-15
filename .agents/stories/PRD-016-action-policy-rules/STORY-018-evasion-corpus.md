@@ -12,7 +12,7 @@ labels: [tests, security, corpus]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-018-evasion-corpus.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-018-evasion-corpus.report.md
-commit: pending
+commit: 5efc769
 depends_on: [STORY-017]
 blocks: [STORY-020]
 skills: []
