@@ -1,0 +1,10 @@
+# tool.malformed: arguments that are not JSON. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: 'not json'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: tool.malformed
+note: 'Arguments that do not parse as JSON are tool.malformed, deny (fail closed, F1).'

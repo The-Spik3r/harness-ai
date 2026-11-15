@@ -1,0 +1,10 @@
+# Ordinary work: search files. Cline 3.x `search_files` (SOURCES.md: Cline v3.89.2; target `path`).
+tool_call:
+  name: search_files
+  arguments: '{"path":"src","regex":"TODO","file_pattern":"*.ts"}'
+policy: built_in
+client: Cline 3.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.read
+note: 'search_files is fs_read on path.'

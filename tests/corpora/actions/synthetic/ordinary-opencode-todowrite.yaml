@@ -1,0 +1,10 @@
+# Ordinary work: update the todo list. OpenCode `todowrite` (SOURCES.md: OpenCode v1.19.5; target `todos`).
+tool_call:
+  name: todowrite
+  arguments: '{"todos":[{"content":"x","status":"pending"}]}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: tool.opaque
+note: 'The example policy lists todowrite under opaque_tools: allow, so its arguments are not read.'

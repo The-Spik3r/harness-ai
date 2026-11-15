@@ -1,0 +1,10 @@
+# Ordinary work: an LSP hover. OpenCode `lsp` (SOURCES.md: OpenCode v1.19.5; target `filePath`).
+tool_call:
+  name: lsp
+  arguments: '{"operation":"hover","filePath":"src/a.ts","line":1,"character":1}'
+policy: built_in
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.read
+note: 'lsp is mapped by the built-in policy as fs_read on filePath.'

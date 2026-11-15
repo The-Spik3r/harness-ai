@@ -1,0 +1,10 @@
+# Floor: a Cline 4.x shell call under the built-in policy. Cline 4.x `run_commands` (SOURCES.md: Cline v4.1.26; target `commands[]`).
+tool_call:
+  name: run_commands
+  arguments: '{"commands":["git status"]}'
+policy: built_in
+client: Cline 4.x
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.unlisted
+note: 'The built-in shell allowlist is empty, and the example policy does not map Cline tools, so no Cline shell call is allowed without a deployment''s own tools: and shell.allow (STORY-017 plan, finding 2).'

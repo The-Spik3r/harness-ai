@@ -1,0 +1,10 @@
+# net.unlisted through Cline 4.x fetch_web_content. Cline 4.x `fetch_web_content` (SOURCES.md: Cline v4.1.26; target `requests[].url`).
+tool_call:
+  name: fetch_web_content
+  arguments: '{"requests":[{"url":"https://docs.python.org/3/"}]}'
+policy: built_in
+client: Cline 4.x
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: net.unlisted
+note: 'Each requests[].url is a target; the built-in allowlist is empty, so the host is net.unlisted.'

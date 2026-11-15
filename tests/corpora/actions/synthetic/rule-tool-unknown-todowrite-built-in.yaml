@@ -1,0 +1,10 @@
+# tool.unknown: an unmapped OpenCode tool under the built-in policy. OpenCode `todowrite` (SOURCES.md: OpenCode v1.19.5; target `todos`).
+tool_call:
+  name: todowrite
+  arguments: '{"todos":[]}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: tool.unknown
+note: 'SOURCES.md lists todowrite with no operation kind; the built-in opaque_tools is empty, so it is tool.unknown. The example policy allows it (ordinary-opencode-todowrite).'

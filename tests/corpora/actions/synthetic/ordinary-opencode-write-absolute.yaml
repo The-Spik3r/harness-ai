@@ -1,0 +1,10 @@
+# Ordinary work: write a file inside the workspace. OpenCode `write` (SOURCES.md: OpenCode v1.19.5; target `filePath`).
+tool_call:
+  name: write
+  arguments: '{"filePath":"/home/dev/projects/app/src/util.ts","content":"export {}\n"}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'The absolute path is under the example root /home/dev/projects.'

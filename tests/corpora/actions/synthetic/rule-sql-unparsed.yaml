@@ -1,0 +1,10 @@
+# sql.unparsed: SQL the parser cannot read is denied. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"SELEC FROM ((("}'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.unparsed
+note: 'Fail closed: text sqlglot cannot parse is sql.unparsed, deny (Section 6.3).'

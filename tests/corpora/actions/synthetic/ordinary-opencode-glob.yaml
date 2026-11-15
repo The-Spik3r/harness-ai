@@ -1,0 +1,10 @@
+# Ordinary work: glob for files. OpenCode `glob` (SOURCES.md: OpenCode v1.19.5; target `path`).
+tool_call:
+  name: glob
+  arguments: '{"pattern":"**/*.ts"}'
+policy: built_in
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.read
+note: 'glob is mapped by the built-in policy as fs_read; with no path it reads the working directory.'

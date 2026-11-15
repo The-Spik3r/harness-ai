@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Evidence"
-status: todo
+status: done
 labels: [tests, security, corpus]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-017-synthetic-tool-call-corpus.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-017-synthetic-tool-call-corpus.report.md
+commit: pending
 depends_on: [STORY-014, STORY-015]
 blocks: [STORY-018]
 skills: []

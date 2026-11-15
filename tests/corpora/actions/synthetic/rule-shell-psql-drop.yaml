@@ -1,0 +1,11 @@
+# SQL embedded in a shell command is classified as SQL. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"psql -c \"DROP TABLE t\""}'
+policy: example
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.ddl
+includes: [shell.unlisted]
+note: 'psql -c carries SQL, classified in psql''s dialect (STORY-013); DROP is sql.ddl and the deny outranks the flagged shell.unlisted head.'

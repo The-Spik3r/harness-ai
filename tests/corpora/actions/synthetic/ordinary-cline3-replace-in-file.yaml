@@ -1,0 +1,10 @@
+# Ordinary work: replace in a file. Cline 3.x `replace_in_file` (SOURCES.md: Cline v3.89.2; target `path`).
+tool_call:
+  name: replace_in_file
+  arguments: '{"path":"src/x.ts","diff":"------- SEARCH\na\n=======\nb\n+++++++ REPLACE"}'
+policy: built_in
+client: Cline 3.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'A relative path below the working directory is inside the workspace.'

@@ -1,0 +1,10 @@
+# net.unparsed: userinfo that disguises the host. OpenCode `webfetch` (SOURCES.md: OpenCode v1.19.5; target `url`).
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://registry.npmjs.org@evil.com/","format":"text"}'
+policy: example
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: net.unparsed
+note: 'PRD Section 6.3: a URL with userinfo (allowed.com@evil.com) is net.unparsed, whatever the userinfo names.'

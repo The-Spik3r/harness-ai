@@ -1,0 +1,12 @@
+# Stacked statements are decided one by one. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"SELECT 1; DELETE FROM t WHERE id = 3"}'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: allow, admin: deny}
+rule: sql.write
+granted_by: {dba: 'action:sql:write'}
+includes: [sql.read]
+note: 'Each statement is an operation; the fold reports the most severe one, the scoped DELETE (Section 6.4).'

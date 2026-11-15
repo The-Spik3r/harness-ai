@@ -1,0 +1,10 @@
+# shell.package_install: npm install. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"npm install lodash"}'
+policy: example
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.package_install
+note: 'Installing a package is shell.package_install; the allowlisted head is npm test, which does not cover npm install.'

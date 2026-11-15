@@ -1,0 +1,10 @@
+# tool.malformed: the target key is missing. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{}'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: tool.malformed
+note: 'A mapped tool whose target key is absent is tool.malformed. The over-cap case stays in test_action_policy.py (STORY-017 plan, finding 6).'

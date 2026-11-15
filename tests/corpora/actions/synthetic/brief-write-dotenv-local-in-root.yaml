@@ -1,0 +1,10 @@
+# Brief criterion: .env.local inside a workspace root. OpenCode `write` (SOURCES.md: OpenCode v1.19.5; target `filePath`).
+tool_call:
+  name: write
+  arguments: '{"filePath":"/home/dev/projects/app/.env.local","content":"A=1"}'
+policy: example
+client: OpenCode
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: fs.write_protected
+note: 'PRD Section 11: protection wins over workspace containment; the path is inside /home/dev/projects and still denied.'

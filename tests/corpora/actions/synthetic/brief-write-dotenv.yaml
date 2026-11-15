@@ -1,0 +1,10 @@
+# Brief criterion: a write to .env is denied. OpenCode `write` (SOURCES.md: OpenCode v1.19.5; target `filePath`).
+tool_call:
+  name: write
+  arguments: '{"filePath":".env","content":"A=1"}'
+policy: built_in
+client: OpenCode
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: fs.write_protected
+note: 'PRD Section 11: .env matches the built-in protected paths; fs.write_protected takes no grant (T5).'

@@ -1,0 +1,10 @@
+# Ordinary work: read files. Cline 4.x `read_files` (SOURCES.md: Cline v4.1.26; target `files[].path`).
+tool_call:
+  name: read_files
+  arguments: '{"files":[{"path":"/home/dev/projects/app/package.json"}]}'
+policy: built_in
+client: Cline 4.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.read
+note: 'Each files[].path is a read; package.json is not a secret.'

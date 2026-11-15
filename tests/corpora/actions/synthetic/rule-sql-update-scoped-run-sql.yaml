@@ -1,0 +1,11 @@
+# sql.write through the example policy's run_sql mapping. MCP `run_sql` (SOURCES.md: MCP timeplus, main head; target `query`).
+tool_call:
+  name: run_sql
+  arguments: '{"query":"UPDATE orders SET status = ''shipped'' WHERE id = 7"}'
+policy: example
+client: MCP
+category: rule
+expect: {user: deny, dba: allow, admin: deny}
+rule: sql.write
+granted_by: {dba: 'action:sql:write'}
+note: 'A scoped UPDATE is sql.write; the example policy restates its deny default and grant (examples/action_policy.yaml rules:).'

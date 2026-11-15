@@ -1,0 +1,10 @@
+# Ordinary work: add a file through a patch. OpenCode `apply_patch` (SOURCES.md: OpenCode v1.19.5; target `patchText`).
+tool_call:
+  name: apply_patch
+  arguments: '{"patchText":"*** Begin Patch\n*** Add File: /home/dev/projects/app/src/new.ts\n+export const x = 1;\n*** End Patch"}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'The target is read from the Add File header and is inside the workspace.'

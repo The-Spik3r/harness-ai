@@ -1,0 +1,10 @@
+# tool.malformed: arguments that are a JSON array. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '[]'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: tool.malformed
+note: 'Arguments must be a JSON object; an array is tool.malformed.'

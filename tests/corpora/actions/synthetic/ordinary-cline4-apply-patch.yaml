@@ -1,0 +1,10 @@
+# Ordinary work: patch a file. Cline 4.x `apply_patch` (SOURCES.md: Cline v4.1.26; target `input`).
+tool_call:
+  name: apply_patch
+  arguments: '{"input":"*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch"}'
+policy: built_in
+client: Cline 4.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'The target is read from the Update File header and is a relative path inside the workspace.'

@@ -1,0 +1,10 @@
+# Ordinary work: grep the code. OpenCode `grep` (SOURCES.md: OpenCode v1.19.5; target `path`).
+tool_call:
+  name: grep
+  arguments: '{"pattern":"TODO","include":"*.ts"}'
+policy: built_in
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.read
+note: 'grep is mapped by the built-in policy as fs_read.'

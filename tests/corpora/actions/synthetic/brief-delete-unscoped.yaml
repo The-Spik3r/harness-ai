@@ -1,0 +1,10 @@
+# Brief criterion: an unscoped DELETE is denied for every role. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"DELETE FROM t"}'
+policy: built_in
+client: MCP
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.unscoped_write
+note: 'PRD Section 11: a DELETE without WHERE is sql.unscoped_write, which takes no grant, so dba is denied too.'

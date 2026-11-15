@@ -1,0 +1,10 @@
+# sql.dcl: GRANT is denied. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"GRANT ALL ON orders TO analyst"}'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.dcl
+note: 'GRANT and REVOKE are sql.dcl, a deny with no grant (T5).'

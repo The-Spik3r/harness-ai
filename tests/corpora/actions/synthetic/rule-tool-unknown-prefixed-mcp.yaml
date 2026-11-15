@@ -1,0 +1,10 @@
+# tool.unknown: an MCP tool as OpenCode names it. OpenCode `postgres_query` (SOURCES.md: OpenCode v1.19.5; target `sql`).
+tool_call:
+  name: postgres_query
+  arguments: '{"sql":"SELECT 1"}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: tool.unknown
+note: 'SOURCES.md: OpenCode prefixes MCP tool names with the server name, so postgres_query is not the mapped query and is tool.unknown (D11).'

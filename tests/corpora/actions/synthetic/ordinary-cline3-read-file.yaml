@@ -1,0 +1,10 @@
+# Ordinary work: read a file. Cline 3.x `read_file` (SOURCES.md: Cline v3.89.2; target `path`).
+tool_call:
+  name: read_file
+  arguments: '{"path":"src/app.ts"}'
+policy: built_in
+client: Cline 3.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.read
+note: 'A read of a non-secret file is fs.read.'

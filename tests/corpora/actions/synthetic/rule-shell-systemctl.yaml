@@ -1,0 +1,10 @@
+# shell.service_control: systemctl. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"systemctl restart nginx"}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.service_control
+note: 'Starting, stopping or restarting a service is shell.service_control, deny.'

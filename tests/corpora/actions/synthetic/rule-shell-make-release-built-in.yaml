@@ -1,0 +1,10 @@
+# shell.unlisted under the built-in policy. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"make release"}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.unlisted
+note: 'The built-in shell allowlist is empty, so any head is shell.unlisted, deny by default (Section 6.5).'

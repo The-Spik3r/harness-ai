@@ -1,0 +1,11 @@
+# Brief criterion: a scoped DELETE is allowed only for a role holding action:sql:write. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"DELETE FROM t WHERE id = 3"}'
+policy: built_in
+client: MCP
+category: brief
+expect: {user: deny, dba: allow, admin: deny}
+rule: sql.write
+granted_by: {dba: 'action:sql:write'}
+note: 'PRD Section 11, D7: sql.write is deny by default and granted by action:sql:write; only the test matrix''s dba holds it, admin does not (Section 6.7).'
