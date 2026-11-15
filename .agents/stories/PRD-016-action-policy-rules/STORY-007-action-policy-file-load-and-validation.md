@@ -1,0 +1,54 @@
+---
+id: STORY-007
+prd: PRD-016
+slug: action-policy-file-load-and-validation
+title: "action_config, part 2: ACTION_POLICY_FILE load, per-id rule merge, wholesale sections, validation, sample file"
+type: feature
+priority: high
+complexity: medium
+phase: "2 - Configuration"
+status: todo
+labels: [backend, config, security]
+epic_branch: epic/PRD-016-action-policy-rules
+plan: null
+report: null
+commit: null
+depends_on: [STORY-005, STORY-006]
+blocks: [STORY-008]
+skills: []
+created: 2026-11-15
+updated: 2026-11-15
+---
+
+# STORY-007: action_config, part 2: ACTION_POLICY_FILE load, per-id rule merge, wholesale sections, validation, sample file
+
+## Description
+
+As a platform operator, I want to set my workspace, allowlists and rollout modes in a file that is validated at startup, so that I can configure the policy without a code change and a typo stops the boot instead of reopening anything.
+
+## Acceptance Criteria
+
+- [ ] Given a file whose `rules:` sets only `shell.unlisted: {default: flag}`, when loaded, then that rule is `flag` and every other rule keeps its built-in default and grant (per-id merge, D12).
+- [ ] Given a file with a `tools:` section, when loaded, then the built-in tool mappings are replaced wholesale; the same holds for `shell.allow`, `network.allow`, `secrets` and `workspace.roots`; a section absent from the file keeps the built-in one.
+- [ ] Given a file breaking any one validation rule in PRD Section 9.3, when loaded, then `ActionConfigError` names the file, the node and the rule, with one test per rule, including: an unknown rule id, a bad decision, an unknown permission, a grant on each of the ten non-grantable rules, `tools: {}`, an unknown `kind`, a relative workspace root, a name in both `tools` and `opaque_tools`, a bad network entry, a `shell.allow` entry containing `;`, and a duplicate YAML key.
+- [ ] Given a file that fails validation after a valid one was loaded, when `load()` runs, then the previously loaded policy and its digest are still in force.
+- [ ] Given `examples/action_policy.yaml` (PRD Section 6.6), when a test loads it, then it loads, and its digest differs from the built-in digest.
+
+## Technical Notes
+
+- Extend `app/services/action_config.py`: read with `strict_yaml.safe_load` (STORY-005); `_fail(path, *parts)` and `_allowed()` message helpers copied in shape from `pattern_config`; `_policy` rebound as the last statement of `load()`.
+- Required versus optional keys: every section is optional; inside a rule both `default` and `grant` are optional (an absent one keeps the built-in value); inside a tool mapping both `kind` and `target` are required.
+- Network entries: exact host, `*.`-wildcard host or IP literal via `ipaddress`; anything else is an error. `shell.allow` entries may be multi-token; refuse an empty one or one containing `;`, `&`, `|`, `$` or a backtick.
+- The `ACTION_SQL_DIALECT` cross-check is added by STORY-008, where `sqlglot` arrives.
+- New `examples/action_policy.yaml`, with comments explaining the `rules:` merge exception (PRD Risk 7).
+- Tests: extend `tests/test_action_config.py`, one function per validation rule.
+- Skills: none applicable. No UI.
+
+## Dependencies
+
+- **Blocked by**: STORY-005, STORY-006
+- **Blocks**: STORY-008
+
+## PRD Reference
+
+Source: [`PRD-016-action-policy-rules/PRD.md`](../../PRDs/PRD-016-action-policy-rules/PRD.md) — sections 6.6, 9.2 (T5, T7, T13), 9.3, 11 (Configuration criteria), 14 (Risk 7), 15 (D12, D13)

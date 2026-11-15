@@ -1,10 +1,10 @@
 ---
-target_prd: PRD-016
+target_prd: PRD-017
 slug: tool-calling
 title: Tool calling on the OpenAI-compatible endpoint
 status: draft
 prd:
-depends_on: [PRD-014, PRD-015]
+depends_on: [PRD-015, PRD-016]
 blocks: []
 estimated_stories: 10-12
 created: 2026-09-16
@@ -14,19 +14,19 @@ created: 2026-09-16
 
 ## Problem
 
-After PRD-014, `/v1/chat/completions` refuses `tools`. OpenCode and Cline in agent mode are unusable without function calling: the model must be able to return `tool_calls`, and the client must be able to send `tool`-role results back. Today [openrouter_client.py](../app/services/openrouter_client.py) reads only `message.content` and treats anything else as an unexpected shape.
+After PRD-015, `/v1/chat/completions` refuses `tools`. OpenCode and Cline in agent mode are unusable without function calling: the model must be able to return `tool_calls`, and the client must be able to send `tool`-role results back. Today [openrouter_client.py](../app/services/openrouter_client.py) reads only `message.content` and treats anything else as an unexpected shape.
 
 ## Goal
 
-OpenCode and Cline run real tasks through the harness, with every tool call passed through PRD-015's action policy before the client sees it.
+OpenCode and Cline run real tasks through the harness, with every tool call passed through PRD-016's action policy before the client sees it.
 
 ## Proposed scope
 
 **In**
 - Forward `tools` and `tool_choice` to OpenRouter.
 - Parse `tool_calls` (and `content: null`) from upstream.
-- Every `tool_call` evaluated by PRD-015 before the response leaves the harness.
-- Denial wire shape the agent can understand and recover from (PRD-015 D4).
+- Every `tool_call` evaluated by PRD-016 before the response leaves the harness.
+- Denial wire shape the agent can understand and recover from (PRD-016 D4).
 - `tool`-role messages accepted in the pipeline, under PRD-011/012 role policies.
 - Duplicate key revisited for `tool` turns (PRD-009 D4).
 - Tool-call arguments never PII-redacted; JSON validity guaranteed (PRD-012).
@@ -51,7 +51,7 @@ OpenCode and Cline run real tasks through the harness, with every tool call pass
 ## Evidence
 
 - `content = data["choices"][0]["message"]["content"]` — the only field read upstream.
-- PRD-014 D-scope: `tools` currently refused with 400.
+- PRD-015 D-scope: `tools` currently refused with 400.
 
 ## Success criteria
 
