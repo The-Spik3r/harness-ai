@@ -55,8 +55,8 @@ Core principles:
 - [ ] `ToolCall(id, name, arguments: str)` — the OpenAI `tool_calls[i]` shape, `arguments` kept as the raw JSON string
 - [ ] `Operation(kind, target, source_tool)` with `kind ∈ {shell, sql, fs_write, fs_read, http}`
 - [ ] A tool mapping: tool name → operation kind + the argument key that carries the target
-- [ ] Built-in mappings for **OpenCode** (`bash`, `write`, `edit`, `patch`, `read`, `webfetch`, `glob`, `grep`, `list`) and **Cline** (`execute_command`, `write_to_file`, `replace_in_file`, `read_file`, `list_files`, `search_files`, `browser_action`), each verified against the client's tool schema in STORY-001 and recorded in `tests/corpora/actions/SOURCES.md`
-- [ ] A generic `sql` mapping for common database tool names (`query`, `execute_sql`, `run_sql`) whose single argument holds a statement
+- [ ] Built-in mappings for **OpenCode** v1.19.5 (`bash`, `write`, `edit`, `apply_patch`, `read`, `webfetch`, `glob`, `grep`, `lsp`) and **Cline** 4.x, the current client (`run_commands`, `read_files`, `editor`, `apply_patch`, `fetch_web_content`), with the Cline 3.x names that reach `tool_calls` in its native variants (`execute_command`, `write_to_file`, `replace_in_file`, `read_file`, `list_files`, `search_files`, `browser_action`) as additional candidates. Each was verified against the client's tool schema in STORY-001 and is recorded in `tests/corpora/actions/SOURCES.md`. *STORY-001 corrections:* OpenCode's `patch` is now `apply_patch` (`patchText`, with the paths inside the patch text) and `list` was removed. Cline 4.x targets are arrays (`commands[]`, `files[].path`, `requests[].url`) or patch text (`input`). Cline 3.x sends `absolutePath` or `path` depending on the model family. The shapes the mapping must read are listed under *Implications for STORY-004* in `SOURCES.md`.
+- [ ] A generic `sql` mapping for common database tool names (`query`, `execute_sql`, `run_sql`) whose single argument holds a statement. *STORY-001:* the key is not the tool name. It is `sql` for `query` (MCP reference Postgres server), and `query` for `execute_sql` (Supabase) and `run_sql` (Timeplus). Through OpenCode and Cline, MCP tools arrive prefixed with the server name (`postgres_query`, `supabase__execute_sql`), so the bare names match only an unprefixed caller or a deployment's own `tools:`.
 - [ ] Deployment-defined mappings in the policy file, replacing the built-in set wholesale
 - [ ] `arguments` that is not a JSON object, a missing target key, a target that is not a string, or an argument string over `ACTION_MAX_ARGUMENT_CHARACTERS` → `tool.malformed`
 - [ ] An unmapped tool name → `tool.unknown`, unless the policy's `opaque_tools` names it (D1)
@@ -262,9 +262,9 @@ A single tool call can produce several classifications: `npm test && rm -rf buil
 The harness does not know the agent's working directory. Section 6.5's rules, stated once:
 
 1. A path is normalized first: `\` → `/`, a drive letter lowercased, `~` left as the literal `~` segment (which no workspace root contains), repeated `/` collapsed, `.` removed, `..` resolved lexically. No filesystem access, no symlink resolution (Risk 4).
-2. A **relative** path whose normalization does not escape above its start is inside the workspace. Coding agents run in the repository, and Cline's tools send relative paths; treating them as outside would deny every edit.
+2. A **relative** path whose normalization does not escape above its start is inside the workspace. Coding agents run in the repository, and every surveyed client's executor accepts a relative path and resolves it against the working directory (Cline 3.x's generic tool specs ask for one). Treating them as outside would deny every edit.
 3. A relative path that escapes (`../../etc/passwd`) is `fs.write_outside_workspace`.
-4. An **absolute** path is inside only if it is under one of `workspace.roots`. The built-in list is **empty**, so with no configuration every absolute-path write is outside. OpenCode sends absolute paths, so an OpenCode deployment must set its root — the README says so in the setup steps, and `examples/action_policy.yaml` shows it.
+4. An **absolute** path is inside only if it is under one of `workspace.roots`. The built-in list is **empty**, so with no configuration every absolute-path write is outside. OpenCode and Cline 4.x ask the model for absolute paths (`tests/corpora/actions/SOURCES.md`), so a deployment of either must set its root — the README says so in the setup steps, and `examples/action_policy.yaml` shows it.
 5. Protection is checked **before** containment: `.env` inside the workspace is still `fs.write_protected`.
 
 The network allowlist is empty in the built-in policy for the same reason — egress to anything is a decision the deployment writes. Entries are exact hosts (`registry.npmjs.org`) or explicit wildcards (`*.githubusercontent.com`, which matches subdomains and **not** the apex); an IP literal matches only if written as one. `localhost`, `127.0.0.0/8`, `::1`, link-local and the cloud metadata address `169.254.169.254` are never matched by a wildcard, only by an exact entry.
@@ -275,7 +275,7 @@ The network allowlist is empty in the built-in policy for the same reason — eg
 # examples/action_policy.yaml
 workspace:
   roots:
-    - /home/dev/projects          # OpenCode sends absolute paths; Cline relative ones
+    - /home/dev/projects          # OpenCode and Cline 4.x send absolute paths
 
 network:
   allow:
@@ -738,7 +738,9 @@ Every file in `tests/corpora/actions/synthetic/` produces its declared decision 
 
 ### Assumptions to verify in STORY-001
 - OpenCode's and Cline's current tool names and argument keys are those listed in Section 4; STORY-001 records the exact schema source for each and corrects the built-in mapping before STORY-004 ships it.
+  **Corrected (STORY-001).** OpenCode v1.19.5: `patch` → `apply_patch` (`patchText`), `list` removed, `lsp` added. Cline 4.x (v4.1.26) renamed every tool. The Section 4 names are 3.x names, kept as candidates. Cline 4.x targets are arrays or patch text, and Cline 4.x asks for absolute paths. The SQL names carry `sql`/`query` and arrive prefixed through MCP. Section 4 is updated. Details and pinned sources: [`tests/corpora/actions/SOURCES.md`](../../../tests/corpora/actions/SOURCES.md). Threat mapping: [`threat-model.md`](../../spikes/PRD-016-action-policy-rules/threat-model.md).
 - **Aider** does not emit OpenAI `tool_calls` in its edit formats (it edits through text blocks), so it needs no adapter. If STORY-001 finds a mode that does, its mapping is added to STORY-004.
+  **Verified (STORY-001)** at v0.86.0 and `main` @ `5dc9490`. `send_completion` sends `tools` only when `functions` is not `None`, and the only coders that set it (the `*_func_coder.py` files) are absent from `coders.__all__`, which is how `--edit-format` picks a coder. Two of them also raise `RuntimeError` in `__init__`. See *Aider* in `SOURCES.md`.
 - `sqlglot` returns `exp.Command` for statements it does not model, and exposes `where` on `Update`/`Delete`; STORY-008 pins the version this is verified on.
 
 ### Evidence (verified against `main` @ `1ab739e`)

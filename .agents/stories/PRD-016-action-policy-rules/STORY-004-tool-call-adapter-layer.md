@@ -39,6 +39,7 @@ As a security admin, I want every tool call mapped to the operation it performs,
 - New `app/services/action_adapters.py`: `ToolCall`, `Operation`, `ToolMapping(kind, target)`, `MappingResult = Operations | Opaque | Unknown | Malformed`, `map_tool_call(call, tools, opaque_tools, max_argument_characters)`.
 - `BUILT_IN_TOOLS: Mapping[str, ToolMapping]` is module data so STORY-006 can place it in the built-in policy (PRD F1: "data in `action_config`, not code"); STORY-006's validator must accept it unchanged.
 - Generic SQL names `query`, `execute_sql`, `run_sql` use the target key STORY-001 recorded.
+- STORY-001 found that real tools do not fit a single-key `ToolMapping(kind, target)`. The mapping must support the shapes listed in `tests/corpora/actions/SOURCES.md`, section *Implications for STORY-004*: array targets (`commands[]`, `files[].path`, `requests[].url`), mixed string/argv elements, paths inside patch text (`apply_patch`), optional targets with a default (`glob.path?`), a second target key (`glob.pattern`), aliases and per-variant key spellings (`absolutePath`/`path`), and prefixed MCP names. For each shape, it either supports it or states that the shape maps to `tool.malformed` or `tool.unknown`.
 - Taking plain parameters (not an `ActionPolicy`) keeps this story independent of STORY-006; STORY-014 passes the policy's fields.
 - Tests: `tests/test_action_adapters.py`, parametrized over the `SOURCES.md` entries.
 - Skills: none applicable. No UI.
