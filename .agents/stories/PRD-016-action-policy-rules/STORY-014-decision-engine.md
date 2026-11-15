@@ -12,7 +12,7 @@ labels: [backend, security, rbac]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-014-decision-engine.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-014-decision-engine.report.md
-commit: pending
+commit: dab8066
 depends_on: [STORY-004, STORY-008, STORY-013]
 blocks: [STORY-015, STORY-017]
 skills: []
