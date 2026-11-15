@@ -12,7 +12,7 @@ labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-013-secret-rules-and-shell-embedding.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-013-secret-rules-and-shell-embedding.report.md
-commit: pending
+commit: cbcb58c
 depends_on: [STORY-008, STORY-010, STORY-011, STORY-012]
 blocks: [STORY-014]
 skills: []

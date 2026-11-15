@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-010 | Shell classifier, part 2: allowlist, destructive flags, pipe-to-interpreter, inline interpreters, installs, services | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-010-shell-command-rules.plan.md) | `48f74eb` |
 | STORY-011 | Filesystem path rules — normalization, workspace containment, protected paths | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-011-filesystem-path-rules.plan.md) | `13a2de4` |
 | STORY-012 | Network egress rules — URL parse, IDNA, allowlist, reserved addresses | feature | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md) | `33c5327` |
-| STORY-013 | Secret access rules, and shell embedding of SQL, URLs and secret reads | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-013-secret-rules-and-shell-embedding.plan.md) | `pending` |
+| STORY-013 | Secret access rules, and shell embedding of SQL, URLs and secret reads | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-013-secret-rules-and-shell-embedding.plan.md) | `cbcb58c` |
 | STORY-014 | Decision engine: evaluate(), grants via holds(), most-severe-wins, safe reasons, fail closed | feature | ⬜ todo | medium | — | — |
 | STORY-015 | action_decisions table, indexes, record() and read functions | feature | ⬜ todo | medium | — | — |
 | STORY-016 | GET /audit/actions with audit scoping, and the three action counts on /stats | feature | ⬜ todo | small | — | — |
