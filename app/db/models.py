@@ -378,7 +378,7 @@ CREATE TABLE IF NOT EXISTS action_decisions (
     tool_name TEXT NOT NULL,
     operation_kind TEXT,              -- NULL for tool.unknown / tool.malformed
     target_preview TEXT,              -- first 500 chars of the target the rule judged
-    arguments_hash TEXT NOT NULL,     -- hash_prompt() over the raw arguments string
+    arguments_hash TEXT NOT NULL,     -- hash_prompt over the raw arguments string
     arguments_preview TEXT,           -- first 500 chars of the raw arguments string
     decision TEXT NOT NULL,           -- allow | flag | deny
     rule TEXT NOT NULL,

@@ -18,7 +18,7 @@ What each column holds, for decision `d` and identity `i`:
   (`tool.unknown`, `tool.malformed`, `tool.opaque`, the fail-closed path).
 - `target_preview`: the reported operation's target -- what the rule judged
   (Section 6.10), not `operations[0]` -- redacted (below), then cut to 500.
-- `arguments_hash`: `hash_prompt()` of the full raw arguments string.
+- `arguments_hash`: `hash_prompt` of the full raw arguments string.
 - `arguments_preview`: the raw arguments string, URL-redacted (below), then
   cut to 500 -- `audit_logger`'s preview length, imported rather than copied.
 - `classifications`: a JSON array of `{rule, kind, detail}`, every

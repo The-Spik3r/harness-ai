@@ -402,4 +402,8 @@ def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
         # same string audit_logger hashes; the prefix is hashed with hashlib
         # directly, so it adds no site.
         "app/services/duplicate_checker.py": 1,
+        # PRD-016 Section 6.10 (STORY-015): arguments_hash of an action decision. The
+        # site receives raw text only: the tool call's full arguments string as the
+        # agent sent it, never the redacted preview.
+        "app/services/action_audit.py": 1,
     }
