@@ -35,6 +35,7 @@ As a security admin, I want obfuscated versions of every denied call checked in 
 
 ## Technical Notes
 
+- Orchestrator note (STORY-013): add rows for the PowerShell `Env:` drive (`gci env:`, `Get-Content env:AWS_SECRET`), which the shell classifier does not read; fix deny-only or record as a limitation.
 - Orchestrator note (STORY-011): add evasion rows for Win32 trailing-dot/`...` segments in containment (fix in `paths.py`: a relative path with a segment made only of dots and spaces is outside the workspace; deny-only), `x.pem.`/`x.pem::$DATA`, and case variants of protected paths.
 - Orchestrator note (STORY-010): candidate evasion rows the shell head tables do not cover yet: `format`, `diskpart`, `Clear-Disk`, winget/choco/dnf/yum/`npm ci`, PowerShell `rm -r X` (no force), and code no parse reaches (`python -c "os.system(..)"`, `find -exec`, `git -c alias.x=!cmd`, awk `system()`). Record each as caught or as a stated limitation.
 - File shape (PRD F12): `{tool_call, of: <synthetic file>, expect: not_allow, technique: "..."}`.

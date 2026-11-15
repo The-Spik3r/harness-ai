@@ -16,6 +16,9 @@ itself would prove nothing.
 STORY-008: the `ACTION_SQL_DIALECT` cross-check `load()` runs first, file or
 no file (PRD-016 Sections 6.9, 9.3).
 
+STORY-014: the two getters `action_policy` reads, `get_sql_dialect()` and
+`get_max_argument_characters()`.
+
 What it deliberately does **not** cover: how a classifier uses a glob, a list
 or the dialect -- STORY-008's `tests/test_action_sql.py` and STORY-010 to
 STORY-014.
@@ -1198,3 +1201,33 @@ def test_sql_dialect_is_checked_before_the_policy_file(tmp_path, monkeypatch):
     assert "ACTION_SQL_DIALECT" in str(excinfo.value)
     assert "ACTION_POLICY_FILE" not in str(excinfo.value)
     assert get_policy() is BUILT_IN_POLICY
+
+
+# --- STORY-014: the getters action_policy reads ------------------------------
+#
+# PRD-016 STORY-014 (plan D-1): `action_policy` reads no `settings`; the SQL
+# dialect and the argument cap reach it through these two call-time getters.
+
+
+def test_get_sql_dialect_reads_the_setting_at_call_time(monkeypatch):
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "")
+    assert action_config.get_sql_dialect() is None
+
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "postgres")
+    assert action_config.get_sql_dialect() == "postgres"
+
+
+def test_get_max_argument_characters_reads_the_setting_at_call_time(monkeypatch):
+    assert action_config.get_max_argument_characters() == 100_000
+
+    monkeypatch.setattr(settings, "ACTION_MAX_ARGUMENT_CHARACTERS", 7)
+    assert action_config.get_max_argument_characters() == 7
+
+
+def test_the_sql_dialect_is_not_in_the_digest(monkeypatch):
+    """STORY-008 orchestrator decision: the dialect is a setting, not an `ActionPolicy` field."""
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "")
+    generic = policy_digest()
+
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "postgres")
+    assert policy_digest() == generic

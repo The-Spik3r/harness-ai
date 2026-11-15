@@ -16,6 +16,10 @@ Three entry points (PRD-016 Section 10):
   `ActionDecision` and audit row so a decision can be traced to the policy
   that made it (PRD-016 Sections 4, 6.2).
 
+Two call-time getters, `get_sql_dialect()` and `get_max_argument_characters()`
+(STORY-014), hand `action_policy` the two settings it needs, so that it reads
+no `settings` itself (Section 6.12).
+
 Called once at startup in **both** lifespans (`app/main.py` and
 `chat_ui/chat_ui/chat_ui.py`): the Reflex `api_transformer` mount bypasses the
 former entirely, which is why `authz.load()` and `pattern_config.load()` are
@@ -748,6 +752,30 @@ def get_policy() -> ActionPolicy:
     return _policy
 
 
+def get_sql_dialect() -> Optional[str]:
+    """`ACTION_SQL_DIALECT`, or None for sqlglot's generic dialect (PRD-016 Sections 6.9, 9.3).
+
+    The STORY-008 orchestrator decision: the dialect is a validated setting,
+    not an `ActionPolicy` field, so it is not in `policy_digest()`. Read at
+    call time, never at import. Validated by `load()` (`_check_sql_dialect`),
+    not here; an unvalidated value that still reaches `classify_sql` is
+    `sql.unparsed`, which fails closed. The caller is
+    `action_policy.evaluate()` (STORY-014), which reads no `settings` itself
+    (Section 6.12).
+    """
+    return settings.ACTION_SQL_DIALECT or None
+
+
+def get_max_argument_characters() -> int:
+    """`ACTION_MAX_ARGUMENT_CHARACTERS` (PRD-016 Sections 4, 9.3).
+
+    The ceiling `action_adapters.map_tool_call` checks before `json.loads`.
+    Its `>= 1` check lives in `app/config.py`'s validator. Read at call time,
+    never at import; the caller is `action_policy.evaluate()` (STORY-014).
+    """
+    return settings.ACTION_MAX_ARGUMENT_CHARACTERS
+
+
 # --- The digest ------------------------------------------------------------
 
 
@@ -996,8 +1024,9 @@ def _check_sql_dialect() -> None:
     exactly one of `SQL_DIALECTS`: case-sensitive, no surrounding whitespace,
     and not the `'mysql, normalization_strategy = lowercase'` settings form
     `Dialect.get_or_raise` would also accept, so what is configured is the
-    plain name an auditor reads. The setting is a string, so the value reaches
-    the classifier as an argument (STORY-014); nothing is stored here.
+    plain name an auditor reads. The setting is a string, so the value
+    reaches the classifier through `get_sql_dialect()` (STORY-014); nothing
+    is stored here.
     """
     value = settings.ACTION_SQL_DIALECT
     if value == "":

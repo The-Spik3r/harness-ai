@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Classifiers and the engine"
-status: todo
+status: done
 labels: [backend, security, rbac]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-014-decision-engine.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-014-decision-engine.report.md
+commit: pending
 depends_on: [STORY-004, STORY-008, STORY-013]
 blocks: [STORY-015, STORY-017]
 skills: []
@@ -28,11 +28,11 @@ As the PRD-017 implementer, I want one pure function that takes a tool call and 
 
 ## Acceptance Criteria
 
-- [ ] Given the built-in policy and a `user` identity, when `evaluate` runs on `query` with `DROP TABLE users`, then `decision="deny"`, `rule="sql.ddl"`, `reason="destructive SQL is not permitted: DROP"`, `granted_by=None`; on `SELECT * FROM users WHERE id = 1`, then `allow` / `sql.read`; on an unknown tool, then `deny` / `tool.unknown`.
-- [ ] Given a test RBAC matrix with `dba` holding `action:sql:write`, when `DELETE FROM t WHERE id = 3` is evaluated, then `deny` for `user` and `allow` with `granted_by="action:sql:write"` for `dba`; `DELETE FROM t` is `deny` for both; with `RBAC_ENABLED=false`, then `deny` for `dba` too (D7).
-- [ ] Given `npm test && rm -rf build` with `npm test` allowlisted, when evaluated, then `deny` reported as `shell.destructive` with both segments' classifications kept; given `shell.unlisted: {default: flag}`, then `make release` is `flag`; given `opaque_tools: {todowrite: allow}`, then `todowrite` is `allow` / `tool.opaque` without classification.
-- [ ] Given a classifier monkeypatched to raise, when `evaluate` runs, then it returns `deny` / `tool.malformed` and logs at `ERROR` with the tool name and rule but not the arguments (asserted on the log record).
-- [ ] Given every decision the engine can produce, when its `reason` is checked, then it is the rule's fixed template plus the matched fragment of the call and never contains a configured host, root or allowlist entry; every decision carries `policy_digest()` of the policy in force; `evaluate_all` preserves input order.
+- [x] Given the built-in policy and a `user` identity, when `evaluate` runs on `query` with `DROP TABLE users`, then `decision="deny"`, `rule="sql.ddl"`, `reason="destructive SQL is not permitted: DROP"`, `granted_by=None`; on `SELECT * FROM users WHERE id = 1`, then `allow` / `sql.read`; on an unknown tool, then `deny` / `tool.unknown`.
+- [x] Given a test RBAC matrix with `dba` holding `action:sql:write`, when `DELETE FROM t WHERE id = 3` is evaluated, then `deny` for `user` and `allow` with `granted_by="action:sql:write"` for `dba`; `DELETE FROM t` is `deny` for both; with `RBAC_ENABLED=false` the bypass grants nothing: under the built-in matrix every role gets the rule default (no built-in role holds an action permission), and under the test matrix `dba` keeps exactly its explicit grant because `holds()` ignores the bypass (D7, T4; orchestrator correction of the original wording, STORY-014 plan).
+- [x] Given `npm test && rm -rf build` with `npm test` allowlisted, when evaluated, then `deny` reported as `shell.destructive` with both segments' classifications kept; given `shell.unlisted: {default: flag}`, then `make release` is `flag`; given `opaque_tools: {todowrite: allow}`, then `todowrite` is `allow` / `tool.opaque` without classification.
+- [x] Given a classifier monkeypatched to raise, when `evaluate` runs, then it returns `deny` / `tool.malformed` and logs at `ERROR` with the tool name and rule but not the arguments (asserted on the log record).
+- [x] Given every decision the engine can produce, when its `reason` is checked, then it is the rule's fixed template plus the matched fragment of the call and never contains a configured host, root or allowlist entry; every decision carries `policy_digest()` of the policy in force; `evaluate_all` preserves input order.
 
 ## Technical Notes
 
