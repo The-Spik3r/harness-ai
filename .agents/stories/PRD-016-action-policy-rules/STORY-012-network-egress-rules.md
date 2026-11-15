@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: small
 phase: "3 - Classifiers and the engine"
-status: todo
+status: done
 labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-012-network-egress-rules.report.md
+commit: pending
 depends_on: [STORY-006]
 blocks: [STORY-013]
 skills: []

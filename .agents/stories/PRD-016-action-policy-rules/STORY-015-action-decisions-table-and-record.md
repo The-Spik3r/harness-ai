@@ -36,6 +36,7 @@ As an auditor, I want every action decision, allowed ones included, stored as on
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-012 plan): `Operation.target` for `http` is the whole URL including the query string, which may carry tokens. Store the `action_decisions` target with query and fragment values redacted (keep the keys) and state it in the AC tests.
 - `app/db/models.py`: `CREATE_ACTION_DECISIONS_TABLE`, the two index statements, a frozen `ActionDecisionRow` dataclass; comment block in the `usage_daily` style explaining no foreign key and no added-columns mapping (PRD Section 6.10).
 - `app/db/database.py`: create in `init_db()`; `insert_action_decisions(rows)` in a single transaction; `list_action_decisions`, `count_action_decisions`.
 - New `app/services/action_audit.py`: `record()`; reuse `hash_prompt` and the 500-character preview of `audit_logger`.
