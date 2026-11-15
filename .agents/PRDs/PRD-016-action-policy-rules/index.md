@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-002 | Retarget the six "(PRD-016)" tool-calling runtime strings to "(PRD-017)" | technical | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-002-retarget-tool-calling-runtime-strings.plan.md) | `9f7b379` |
 | STORY-003 | Rule ids, operation kinds, the six action permissions and authz.holds() | feature | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-003-rule-vocabulary-and-action-permissions.plan.md) | `598bb29` |
 | STORY-004 | ToolCall, Operation, the tool mapping layer and built-in OpenCode/Cline/SQL mappings | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-004-tool-call-adapter-layer.plan.md) | `9e277d3` |
-| STORY-005 | Three action settings; strict_yaml with duplicate-key rejection; pattern_config adopts it | technical | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-005-action-settings-and-strict-yaml.plan.md) | `pending` |
+| STORY-005 | Three action settings; strict_yaml with duplicate-key rejection; pattern_config adopts it | technical | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-005-action-settings-and-strict-yaml.plan.md) | `f7824a1` |
 | STORY-006 | action_config, part 1: ActionPolicy model, built-in policy, get_policy(), digest, both lifespans | feature | ⬜ todo | medium | — | — |
 | STORY-007 | action_config, part 2: ACTION_POLICY_FILE load, per-id rule merge, wholesale sections, validation, sample file | feature | ⬜ todo | medium | — | — |
 | STORY-008 | SQL classifier with sqlglot — read, write, unscoped write, DDL, DCL, unparsed | feature | ⬜ todo | medium | — | — |

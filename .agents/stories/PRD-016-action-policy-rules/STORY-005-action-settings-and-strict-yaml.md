@@ -12,7 +12,7 @@ labels: [backend, config]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-005-action-settings-and-strict-yaml.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-005-action-settings-and-strict-yaml.report.md
-commit: pending
+commit: f7824a1
 depends_on: []
 blocks: [STORY-007]
 skills: []
