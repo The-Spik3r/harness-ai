@@ -36,6 +36,7 @@ As a security admin, I want every write classified against the workspace and the
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-006 plan): glob semantics are fixed by `action_config`: `*`, `?`, whole-segment `**`; path globs anchored `(?:^|/)...$` used with `.search()`, IGNORECASE; consume the compiled globs, do not re-translate.
 - New `app/services/action_classifiers/paths.py`: `NormalizedPath`, `normalize_path`, `classify_write(path, policy)`, `classify_read(path, policy)`.
 - `PurePosixPath` after separator rewrite; lowercase the drive letter only; resolve `..` lexically; a relative path that resolves above its start escapes.
 - Containment compares normalized path segments, not string prefixes (so `/projects2` is not under `/projects`).

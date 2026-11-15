@@ -15,11 +15,13 @@ from app.db.errors import DatabaseUnreachableError
 from app.db.models import User
 from app.main import app
 from app.services.identity import hash_token
+import app.services.action_config as action_config
 import app.services.authz as authz
 import app.services.pattern_config as pattern_config
 import app.services.pii_policy as pii_policy
 import app.services.pii_redactor as pii_redactor
 from app.services import pipeline_executor
+from app.services.action_config import ActionConfigError
 from app.services.pattern_config import BUILT_IN_POLICY, PatternConfigError
 from app.services.pii_policy import PiiConfigError
 
@@ -398,3 +400,55 @@ def test_lifespan_pii_policy_reflects_settings(_pattern_startup, monkeypatch):
     with TestClient(app) as test_client:
         assert pii_policy.get_pii_policy("code").output is True
         assert test_client.get("/health").status_code == 200
+
+
+# --------------------------------------------------------------------------
+# PRD-016 STORY-006 -- action_config.load() in app.main's lifespan.
+# --------------------------------------------------------------------------
+
+
+def test_lifespan_runs_action_config_load_after_authz_load(_pattern_startup, monkeypatch):
+    """AC 5, FastAPI path: action_config.load() runs, after authz.load()
+    (PRD-016 Section 6.11)."""
+    calls = []
+
+    def _recording(name, original):
+        def _load():
+            calls.append(name)
+            return original()
+
+        return _load
+
+    monkeypatch.setattr(authz, "load", _recording("authz", authz.load))
+    monkeypatch.setattr(action_config, "load", _recording("action_config", action_config.load))
+
+    with TestClient(app):
+        pass
+
+    assert calls == ["authz", "action_config"]
+
+
+def test_lifespan_keeps_the_built_in_action_policy_when_unset(_pattern_startup, monkeypatch):
+    """AC 1, FastAPI path: no ACTION_POLICY_FILE, the built-in policy in force."""
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
+
+    with TestClient(app) as test_client:
+        assert action_config.get_policy() is action_config.BUILT_IN_POLICY
+        assert test_client.get("/health").status_code == 200
+
+
+def test_lifespan_fails_when_action_policy_file_cannot_be_loaded(
+    _pattern_startup, tmp_path, monkeypatch
+):
+    """No silent fallback (STORY-006 plan, decision 2): a set ACTION_POLICY_FILE
+    that cannot be loaded stops the boot, naming the path. A missing file is
+    unreadable under STORY-007 too, so this holds across both stories."""
+    path = str(tmp_path / "missing.yaml")
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", path)
+
+    with pytest.raises(ActionConfigError) as excinfo:
+        with TestClient(app):
+            pass
+
+    assert path in str(excinfo.value)
+    assert action_config.get_policy() is action_config.BUILT_IN_POLICY

@@ -36,6 +36,7 @@ As a platform operator, I want to set my workspace, allowlists and rollout modes
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-006 plan): `tool.opaque` is `Rule(default=None, grant=None)` (PRD 6.3 "(per entry)"); refuse a `rules: tool.opaque` entry in the file. `protected_paths` is built-in only (no file section). Extend STORY-006's `_validate(source, spec)`; its design decision 8 lists the checks left to this story.
 - Extend `app/services/action_config.py`: read with `strict_yaml.safe_load` (STORY-005); `_fail(path, *parts)` and `_allowed()` message helpers copied in shape from `pattern_config`; `_policy` rebound as the last statement of `load()`.
 - Required versus optional keys: every section is optional; inside a rule both `default` and `grant` are optional (an absent one keeps the built-in value); inside a tool mapping both `kind` and `target` are required.
 - Orchestrator decision (STORY-004 plan): a tool mapping also accepts the optional keys `default`, `format` (`text` | `command` | `patch`) and `extra_targets` defined by `action_adapters.ToolMapping`; the `target` key-path syntax (`[]` arrays, `|` alternative spellings) is STORY-004's. Build each mapping through `ToolMapping(...)` and wrap its `ToolMappingError` in `ActionConfigError` naming the file and the node (same seam as `PatternCompileError`). `examples/action_policy.yaml` writes `apply_patch` with `format: patch`.

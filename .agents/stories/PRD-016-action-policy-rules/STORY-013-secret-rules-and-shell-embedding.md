@@ -37,6 +37,7 @@ As a security admin, I want reads of credentials and secret environment variable
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-006 plan): secret env/file globs come compiled from `action_config` (name globs anchored `^...$`, path globs `(?:^|/)...$`, IGNORECASE); `secrets.env` includes `OPENROUTER_*`. Consume them, do not re-translate.
 - New `app/services/action_classifiers/secrets.py`: `classify_secret_read(target, policy)`, `classify_env_reference(name, policy)`. Env patterns are globs matched case-insensitively against the variable name.
 - Extend `shell.py`: per segment, route embedded targets for heads `psql` (`-c`, `--command`), `mysql` (`-e`, `--execute`), `sqlite3` (second positional), `curl` / `wget` / `http` / `https` (URL arguments), and `cat`, `less`, `more`, `head`, `tail`, `printenv`, `env`, `echo` (paths and `$NAME` / `${NAME}` references). Wire `classify_read`'s secret hook from STORY-011.
 - Ordering inside a segment: embedded classifications first, then the head's rule.

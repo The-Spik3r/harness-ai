@@ -36,6 +36,7 @@ As the PRD-017 implementer, I want one pure function that takes a tool call and 
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-006 plan): `tool.opaque` carries no rule default; the engine takes its decision from `Opaque.decision` (the per-entry `opaque_tools` value).
 - New `app/services/action_policy.py`: `ActionDecision` (PRD Section 6.2), `evaluate(call, identity, policy=None)`, `evaluate_all(calls, identity)`. `policy=None` → `action_config.get_policy()` (a read of in-memory state, not I/O).
 - Pipeline: `map_tool_call` (STORY-004) → per operation, the classifier for its kind (`shell` STORY-009/009/012, `sql` STORY-008, `fs_write` / `fs_read` STORY-011/012, `http` STORY-012) → per classification `allow if holds(identity, rule.grant) else rule.default` → severity `deny > flag > allow`, first at that severity in the PRD Section 6.4 order.
 - Reason templates: one per rule, in this module, reviewed in the story's report.

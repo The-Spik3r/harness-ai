@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Configuration"
-status: todo
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-006-action-config-loader.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-006-action-config-loader.report.md
+commit: pending
 depends_on: [STORY-003, STORY-004]
 blocks: [STORY-007, STORY-009, STORY-011, STORY-012]
 skills: []
@@ -28,11 +28,11 @@ As a security admin, I want a built-in action policy that denies every dangerous
 
 ## Acceptance Criteria
 
-- [ ] Given `ACTION_POLICY_FILE=""`, when `action_config.load()` runs, then no file is opened (asserted with a path that would fail if read) and `get_policy()` returns `BUILT_IN_POLICY`.
-- [ ] Given `BUILT_IN_POLICY`, when inspected, then every one of the 25 rules has the default and grant of PRD Section 6.3, the ten non-grantable rules have no grant, the tool mappings are STORY-004's `BUILT_IN_TOOLS`, the protected-path and secret globs are those of Sections 6.3 and 6.6, and `workspace.roots`, `network.allow` and `shell.allow` are empty.
-- [ ] Given `get_policy()` called before `load()` has ever run, when called, then it returns `BUILT_IN_POLICY` and does not raise (the `pattern_config.get_policy()` contract).
-- [ ] Given `policy_digest()`, when called twice on the same policy, then it returns the same `sha256:<hex>`; given two policies that differ in one rule's default, then the digests differ.
-- [ ] Given `app/main.py` and `chat_ui/chat_ui/chat_ui.py`, when the app boots, then `action_config.load()` runs in both lifespans, after `authz.load()`.
+- [x] Given `ACTION_POLICY_FILE=""`, when `action_config.load()` runs, then no file is opened (asserted with a path that would fail if read) and `get_policy()` returns `BUILT_IN_POLICY`.
+- [x] Given `BUILT_IN_POLICY`, when inspected, then every one of the 25 rules has the default and grant of PRD Section 6.3, the ten non-grantable rules have no grant, the tool mappings are STORY-004's `BUILT_IN_TOOLS`, the protected-path and secret globs are those of Sections 6.3 and 6.6, and `workspace.roots`, `network.allow` and `shell.allow` are empty.
+- [x] Given `get_policy()` called before `load()` has ever run, when called, then it returns `BUILT_IN_POLICY` and does not raise (the `pattern_config.get_policy()` contract).
+- [x] Given `policy_digest()`, when called twice on the same policy, then it returns the same `sha256:<hex>`; given two policies that differ in one rule's default, then the digests differ.
+- [x] Given `app/main.py` and `chat_ui/chat_ui/chat_ui.py`, when the app boots, then `action_config.load()` runs in both lifespans, after `authz.load()`.
 
 ## Technical Notes
 

@@ -83,6 +83,7 @@ import libsql  # noqa: E402  -- after the bootstrap, for symmetry with the rest
 from app.config import settings  # noqa: E402  -- must follow the bootstrap above
 from app.db import database  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
+from app.services import action_config  # noqa: E402
 from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
 
@@ -708,6 +709,21 @@ def _default_pii_policy():
     original = pii_policy._policies
     yield
     pii_policy._policies = original
+
+
+@pytest.fixture(autouse=True)
+def _default_action_policy(monkeypatch):
+    """Every test starts under the built-in action policy (PRD-016 STORY-006).
+
+    `_default_pattern_policy`'s shape and reason: a developer's `.env` with
+    ACTION_POLICY_FILE set must not decide which policy a test runs under,
+    and `load()` rebinds `_policy` with a plain assignment, which
+    `monkeypatch` would not undo.
+    """
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
+    original = action_config._policy
+    yield
+    action_config._policy = original
 
 
 @pytest.fixture
