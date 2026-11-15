@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: 33c5327
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `33c5327`
 
 ## Summary
 
@@ -55,7 +55,7 @@ Orchestrator decisions applied:
 |------|--------|-------|
 | `app/services/action_classifiers/network.py` | CREATE | +240 |
 | `tests/test_action_network.py` | CREATE | +391 |
-| `.agents/plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md` | CREATE (archived) | +230 |
+| `.agents/plans/PRD-016-action-policy-rules/completed/STORY-012-network-egress-rules.plan.md` | CREATE (archived) | +229 |
 | `.agents/reports/PRD-016-action-policy-rules/STORY-012-network-egress-rules.report.md` | CREATE | this file |
 | `.agents/stories/PRD-016-action-policy-rules/STORY-012-network-egress-rules.md` | UPDATE | frontmatter |
 | `.agents/PRDs/PRD-016-action-policy-rules/index.md` | UPDATE | regenerated |
