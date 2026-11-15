@@ -13,9 +13,12 @@ Expected values are written out as literals here rather than imported from
 the module: these tests are about the PRD table, and comparing the module with
 itself would prove nothing.
 
-What it deliberately does **not** cover: the `ACTION_SQL_DIALECT` cross-check
-(STORY-008), and how a classifier uses a glob or a list -- STORY-010 to
-STORY-013.
+STORY-008: the `ACTION_SQL_DIALECT` cross-check `load()` runs first, file or
+no file (PRD-016 Sections 6.9, 9.3).
+
+What it deliberately does **not** cover: how a classifier uses a glob, a list
+or the dialect -- STORY-008's `tests/test_action_sql.py` and STORY-010 to
+STORY-014.
 """
 
 import os
@@ -1111,3 +1114,71 @@ def test_examples_action_policy_yaml_loads(monkeypatch):
     # `OPENROUTER_*` is the one addition to the PRD 6.6 sample (orchestrator decision, STORY-007).
     assert policy.secrets.env.patterns == _PRD_SECRET_ENV
     assert policy.secrets.files.patterns == _PRD_SECRET_FILES
+
+
+# --- STORY-008: the ACTION_SQL_DIALECT cross-check ---------------------------
+#
+# PRD-016 STORY-008: `load()` refuses a dialect sqlglot does not know before it
+# looks at ACTION_POLICY_FILE. The dialect names are literals, not read from
+# `SQL_DIALECTS`.
+
+
+def test_load_accepts_a_known_sql_dialect(monkeypatch):
+    """STORY-008 AC 5: `ACTION_SQL_DIALECT=postgres` loads."""
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "postgres")
+
+    assert load() is None
+    assert get_policy() is BUILT_IN_POLICY
+
+
+def test_empty_sql_dialect_is_the_generic_one(monkeypatch):
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "")
+
+    assert load() is None
+    assert get_policy() is BUILT_IN_POLICY
+
+
+def test_load_refuses_an_unknown_sql_dialect(monkeypatch):
+    """STORY-008 AC 5: the error names the setting and lists the dialects sqlglot knows."""
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "nosuchdb")
+
+    with pytest.raises(ActionConfigError) as excinfo:
+        load()
+
+    message = str(excinfo.value)
+    assert "ACTION_SQL_DIALECT" in message
+    assert "'nosuchdb'" in message
+    for dialect in ("postgres", "mysql", "sqlite", "tsql", "snowflake"):
+        assert dialect in message
+    assert get_policy() is BUILT_IN_POLICY
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["Postgres", " postgres", "postgres ", "mysql, normalization_strategy = lowercase"],
+)
+def test_sql_dialect_check_is_exact(monkeypatch, value):
+    """Exact membership: no case folding, no whitespace, no sqlglot settings suffix."""
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", value)
+
+    with pytest.raises(ActionConfigError) as excinfo:
+        load()
+
+    assert repr(value) in str(excinfo.value)
+
+
+def test_sql_dialect_is_checked_before_the_policy_file(tmp_path, monkeypatch):
+    """A valid file does not get a bad dialect through, and nothing is rebound."""
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", str(_SAMPLE_FILE))
+    monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "nosuchdb")
+
+    with pytest.raises(ActionConfigError) as excinfo:
+        load()
+
+    assert "ACTION_SQL_DIALECT" in str(excinfo.value)
+    assert "ACTION_POLICY_FILE" not in str(excinfo.value)
+    assert get_policy() is BUILT_IN_POLICY

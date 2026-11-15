@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Classifiers and the engine"
-status: todo
+status: done
 labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-008-sql-classifier.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-008-sql-classifier.report.md
+commit: pending
 depends_on: [STORY-007]
 blocks: [STORY-013, STORY-014]
 skills: []

@@ -36,6 +36,7 @@ As a platform operator, I want the action policy documented as shipped, with the
 
 ## Technical Notes
 
+- Orchestrator note (STORY-008): document as stated limitations of the SQL classifier: tautologies the sqlglot simplifier does not fold (e.g. `id = id`) count as scoped writes; side-effecting functions inside a SELECT (`pg_sleep`, `lo_import`) are reads; `SET`/`USE`, `RENAME TABLE`, `CREATE USER/ROLE` and `GRANT role TO u` are `sql.unparsed` (deny, no grant), stricter than the PRD; `EXPLAIN ANALYZE` is `sql.unparsed`; `ACTION_SQL_DIALECT` is not part of `policy_digest`.
 - Orchestrator note (STORY-004): the README/docs state the Cline 4.x argument shapes the built-in mappings do not read and therefore deny as `tool.malformed`: `run_commands` top-level `{command, args?}` / `{command}`, `read_files` with `files` as strings or a string, `paths` as an object, and bare JSON strings/arrays. Two spellings of one target in a call are `tool.malformed` by design.
 - Follow the PRD-011 STORY-013 and PRD-015 STORY-019 doc stories for structure and tone.
 - State plainly in the README that the harness never executes tools, and that `arguments_preview` can hold up to 500 characters of a denied secret read (T10).

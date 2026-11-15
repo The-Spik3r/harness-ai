@@ -13,3 +13,4 @@ spacy==3.8.16
 libsql==0.1.11
 python-frontmatter
 PyYAML
+sqlglot==30.27.0

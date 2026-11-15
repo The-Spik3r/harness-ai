@@ -29,8 +29,10 @@ for (PRD-016 F8).
 STORY-006 covers the built-in policy, the digest, and `load()` with the
 setting empty. STORY-007 adds reading and parsing the file, the per-id
 `rules:` merge, the wholesale sections and Section 9.3's file validation.
-What is deliberately **not** here yet: the `ACTION_SQL_DIALECT` cross-check
-(STORY-008).
+STORY-008 adds the `ACTION_SQL_DIALECT` cross-check (`_check_sql_dialect`),
+which `load()` runs first, file or no file. The list of dialects comes from
+the SQL classifier (`action_classifiers.sql.SQL_DIALECTS`), so sqlglot
+knowledge stays there.
 """
 
 import hashlib
@@ -54,6 +56,7 @@ from app.services.action_classifiers import (
     Decision,
     RuleId,
 )
+from app.services.action_classifiers.sql import SQL_DIALECTS
 from app.services.authz import (
     ACTION_PERMISSIONS,
     PERMISSION_ACTION_FS_WRITE,
@@ -86,8 +89,11 @@ class ActionConfigError(Exception):
     any depth (D13), a document that is not a mapping, an unknown key at any
     level, a missing key inside a present section, a section of the wrong
     type, a `rules: tool.opaque` entry, an empty rule entry, and a tool body
-    the adapter refuses. STORY-008 adds an `ACTION_SQL_DIALECT` outside the
-    supported set.
+    the adapter refuses.
+
+    And for `ACTION_SQL_DIALECT`, file or no file (STORY-008,
+    `_check_sql_dialect`): a value that is not empty and not exactly one of
+    the dialects sqlglot knows.
 
     Startup fails. There is never a silent fallback to the built-in policy --
     a deployment that thinks it is running its own policy and is not is the
@@ -657,7 +663,8 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
     duplicate keys (`strict_yaml`), document and section keys, the per-id
     `rules:` merge, the wholesale sections, building `ToolMapping`s from YAML
     -- is `_parse_document`'s, which runs before this (STORY-007). The
-    `ACTION_SQL_DIALECT` cross-check is STORY-008's.
+    `ACTION_SQL_DIALECT` cross-check is `_check_sql_dialect`'s, which
+    `load()` runs before either (STORY-008).
     """
     keys = set(spec)
     if keys != _SPEC_KEYS:
@@ -978,6 +985,28 @@ def _parse_document(source: str, document: Any) -> dict:
 # --- Loading ---------------------------------------------------------------
 
 
+def _check_sql_dialect() -> None:
+    """Refuse an `ACTION_SQL_DIALECT` sqlglot does not know (PRD-016 Sections 6.9, 9.3; STORY-008).
+
+    Read at call time, never at import (`pattern_config._check_default_profile`'s
+    shape). Empty is sqlglot's generic dialect. Otherwise the value must be
+    exactly one of `SQL_DIALECTS`: case-sensitive, no surrounding whitespace,
+    and not the `'mysql, normalization_strategy = lowercase'` settings form
+    `Dialect.get_or_raise` would also accept, so what is configured is the
+    plain name an auditor reads. The setting is a string, so the value reaches
+    the classifier as an argument (STORY-014); nothing is stored here.
+    """
+    value = settings.ACTION_SQL_DIALECT
+    if value == "":
+        return
+    if value not in SQL_DIALECTS:
+        raise ActionConfigError(
+            f"ACTION_SQL_DIALECT {value!r} is not a dialect sqlglot knows "
+            f"(expected: empty for the generic dialect, or one of: "
+            f"{_allowed(SQL_DIALECTS)})"
+        )
+
+
 def load() -> None:
     """Read `ACTION_POLICY_FILE` and put its policy in force, or keep the built-in one, or fail startup.
 
@@ -1002,10 +1031,15 @@ def load() -> None:
     Sections replace the built-in ones wholesale and `rules:` merges per id
     (D12, `_parse_document`). There is never a silent fallback to the
     built-in policy: an unreadable, unparseable or invalid file stops the
-    boot (PRD-016 Sections 4, 6.12). The `ACTION_SQL_DIALECT` cross-check is
-    STORY-008's.
+    boot (PRD-016 Sections 4, 6.12).
+
+    `ACTION_SQL_DIALECT` is checked first, file or no file
+    (`_check_sql_dialect`, STORY-008). It rebinds nothing, so a bad dialect
+    leaves `_policy` as it was.
     """
     global _policy
+
+    _check_sql_dialect()
 
     path = settings.ACTION_POLICY_FILE
     if not path:
