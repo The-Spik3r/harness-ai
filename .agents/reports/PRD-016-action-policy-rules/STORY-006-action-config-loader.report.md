@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-006-action-config-loader.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: 8648e3a
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-006-action-config-loader.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `8648e3a`
 
 ## Summary
 

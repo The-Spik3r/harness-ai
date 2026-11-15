@@ -12,7 +12,7 @@ labels: [backend, config, security]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-006-action-config-loader.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-006-action-config-loader.report.md
-commit: pending
+commit: 8648e3a
 depends_on: [STORY-003, STORY-004]
 blocks: [STORY-007, STORY-009, STORY-011, STORY-012]
 skills: []
