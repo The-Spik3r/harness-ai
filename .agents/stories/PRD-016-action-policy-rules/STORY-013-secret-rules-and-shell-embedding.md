@@ -37,6 +37,7 @@ As a security admin, I want reads of credentials and secret environment variable
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-011 plan): exempt device targets (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, `NUL`, `CON`) before routing a redirect to `paths.classify_write(target, protected, roots, source_tool=...)`. Fill the `classify_read` secret hook and remove the `xfail(strict=True)` marker on the secret-read test in `tests/test_action_paths.py`.
 - Orchestrator decision (STORY-010 plan): output redirects (`Segment.redirects`, `>`/`>>` targets) are file writes; route each redirect target through the STORY-011 path rules as an `fs_write` (and `<` targets as `fs_read` for the secrets check), so `ls > ~/.bashrc` under an allowlisted head is caught. The STORY-010 hook is the named comment at step 3 of `_segment_rules`.
 - Orchestrator decision (STORY-006 plan): secret env/file globs come compiled from `action_config` (name globs anchored `^...$`, path globs `(?:^|/)...$`, IGNORECASE); `secrets.env` includes `OPENROUTER_*`. Consume them, do not re-translate.
 - New `app/services/action_classifiers/secrets.py`: `classify_secret_read(target, policy)`, `classify_env_reference(name, policy)`. Env patterns are globs matched case-insensitively against the variable name.

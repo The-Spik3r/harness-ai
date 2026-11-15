@@ -36,6 +36,7 @@ As a platform operator, I want the action policy documented as shipped, with the
 
 ## Technical Notes
 
+- Orchestrator note (STORY-011): path checks are lexical only: symlinks, hard links and 8.3 short names are not resolved (PRD Risk 4); containment is case-sensitive except the drive letter (fails closed on Windows).
 - Orchestrator note (STORY-010): document that a segment with a `sudo`/`doas` wrapper or leading `NAME=value` assignments is never `shell.allowlisted` (e.g. `CI=1 npm test` is unlisted), and that `python -m pip install` is `shell.package_install`.
 - Orchestrator note (STORY-009): list the extra `shell.unclassifiable` triggers beyond PRD 6.3: here-documents `<<`, brace expansion, `$'...'`/`$"..."`, heads with glob chars, `(`, `^`, `env -S`, unquoted drive-letter heads (`C:...`, backslashes lost), nesting deeper than 3 `-c` levels; and that wrappers `command builtin exec nice timeout stdbuf setsid` are stripped with strict option tables.
 - Orchestrator note (STORY-008): document as stated limitations of the SQL classifier: tautologies the sqlglot simplifier does not fold (e.g. `id = id`) count as scoped writes; side-effecting functions inside a SELECT (`pg_sleep`, `lo_import`) are reads; `SET`/`USE`, `RENAME TABLE`, `CREATE USER/ROLE` and `GRANT role TO u` are `sql.unparsed` (deny, no grant), stricter than the PRD; `EXPLAIN ANALYZE` is `sql.unparsed`; `ACTION_SQL_DIALECT` is not part of `policy_digest`.

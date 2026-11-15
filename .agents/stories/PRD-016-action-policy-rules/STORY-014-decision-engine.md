@@ -36,6 +36,7 @@ As the PRD-017 implementer, I want one pure function that takes a tool call and 
 
 ## Technical Notes
 
+- Orchestrator note (STORY-011): `classify_sql`/`classify_shell` return tuples; `paths.classify_write`/`classify_read` (and `classify_url`, F5) return a single `Classification`. Normalize in the engine.
 - Orchestrator decision (STORY-008 plan): the engine gets the SQL dialect through a getter in `action_config` (validated setting, not an `ActionPolicy` field, so it is not in the digest) and calls `classify_sql(statement, dialect, source_tool=...)`.
 - Orchestrator decision (STORY-006 plan): `tool.opaque` carries no rule default; the engine takes its decision from `Opaque.decision` (the per-entry `opaque_tools` value).
 - New `app/services/action_policy.py`: `ActionDecision` (PRD Section 6.2), `evaluate(call, identity, policy=None)`, `evaluate_all(calls, identity)`. `policy=None` → `action_config.get_policy()` (a read of in-memory state, not I/O).

@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Classifiers and the engine"
-status: todo
+status: done
 labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-011-filesystem-path-rules.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-011-filesystem-path-rules.report.md
+commit: pending
 depends_on: [STORY-006]
 blocks: [STORY-013]
 skills: []
@@ -28,11 +28,11 @@ As a security admin, I want every write classified against the workspace and the
 
 ## Acceptance Criteria
 
-- [ ] Given `normalize_path`, when called with `src\\a.ts`, `C:\\Repo\\x`, `a//b/./c`, `a/b/../c`, `~/x`, then it returns `src/a.ts`, `c:/Repo/x`, `a/b/c`, `a/c`, and a path whose first segment is the literal `~`; it touches no filesystem.
-- [ ] Given no workspace roots, when `classify_write` runs on `src/a.ts`, then `fs.write_in_workspace`; on `../../etc/passwd`, then `fs.write_outside_workspace`; on `/etc/hosts`, then `fs.write_outside_workspace`; given a root of `/home/dev/projects`, then `/home/dev/projects/app/x.ts` is `fs.write_in_workspace` and `/home/dev/projects2/x` is not.
-- [ ] Given `.env`, `./.env`, `config/../.env`, `.ENV.local`, `/home/dev/projects/app/.env.local`, `.github/workflows/ci.yml`, `.git/config`, `id_rsa`, `x.pem`, when classified as writes, then each is `fs.write_protected`, including inside a workspace root (protection is checked before containment).
-- [ ] Given a read of `src/a.ts`, when `classify_read` runs, then `fs.read`; a read of a secret file glob returns the secret classifier's hook result, which STORY-012 fills in (until then a placeholder that tests mark as pending).
-- [ ] Given the module, when imported, then it reads no settings and performs no I/O.
+- [x] Given `normalize_path`, when called with `src\\a.ts`, `C:\\Repo\\x`, `a//b/./c`, `a/b/../c`, `~/x`, then it returns `src/a.ts`, `c:/Repo/x`, `a/b/c`, `a/c`, and a path whose first segment is the literal `~`; it touches no filesystem.
+- [x] Given no workspace roots, when `classify_write` runs on `src/a.ts`, then `fs.write_in_workspace`; on `../../etc/passwd`, then `fs.write_outside_workspace`; on `/etc/hosts`, then `fs.write_outside_workspace`; given a root of `/home/dev/projects`, then `/home/dev/projects/app/x.ts` is `fs.write_in_workspace` and `/home/dev/projects2/x` is not.
+- [x] Given `.env`, `./.env`, `config/../.env`, `.ENV.local`, `/home/dev/projects/app/.env.local`, `.github/workflows/ci.yml`, `.git/config`, `id_rsa`, `x.pem`, when classified as writes, then each is `fs.write_protected`, including inside a workspace root (protection is checked before containment).
+- [x] Given a read of `src/a.ts`, when `classify_read` runs, then `fs.read`; a read of a secret file glob returns the secret classifier's hook result, which STORY-013 fills in (until then a placeholder that tests mark as pending).
+- [x] Given the module, when imported, then it reads no settings and performs no I/O.
 
 ## Technical Notes
 
