@@ -1,0 +1,77 @@
+# examples/action_policy.yaml
+#
+# A working action policy (PRD-016 Section 6.6). Use it with
+#   ACTION_POLICY_FILE=examples/action_policy.yaml
+# and edit a copy. An invalid file stops startup with the file, the node and
+# the rule that failed; it never falls back to the built-in policy. A key
+# written twice anywhere in the file is an error too.
+#
+# Two replacement rules, and why they differ:
+#
+#   * Every section that is present REPLACES the built-in section wholesale:
+#     workspace, network, shell, tools, opaque_tools, secrets. Nothing is
+#     merged, so an entry deleted here is gone. A section left out of the
+#     file keeps the built-in one. An empty list is valid and means empty
+#     (`shell: {allow: []}` allowlists nothing); `tools: {}` is an error.
+#
+#   * `rules:` is the exception: it is MERGED PER RULE ID. The rule catalogue
+#     is the security floor, so this section lists only deviations from it
+#     (PRD-016 Risk 7). A rule left out keeps its built-in default and grant;
+#     a listed rule overrides only the fields it states, and a field left out
+#     keeps its built-in value. `grant: null` removes a grant explicitly.
+#     Ten rules never take a grant (T5). `tool.opaque` is configured through
+#     `opaque_tools`, not here. Protected paths are built in and have no
+#     section.
+#
+# Settings that interact with this file (defaults in brackets):
+#   ACTION_MAX_ARGUMENT_CHARACTERS [100000] - ceiling on a tool call's
+#                                      arguments; over it is tool.malformed
+#   ACTION_SQL_DIALECT [""]          - dialect for SQL parsing; empty uses
+#                                      sqlglot's generic dialect
+workspace:
+  roots:
+    - /home/dev/projects          # OpenCode and Cline 4.x send absolute paths
+
+network:
+  allow:                          # exact hosts, '*.' wildcards (subdomains, not the apex) or IP literals
+    - registry.npmjs.org
+    - pypi.org
+    - files.pythonhosted.org
+    - "*.githubusercontent.com"
+
+shell:
+  allow:                          # command heads allowed outright (shell.allowlisted)
+    - ls
+    - cat
+    - git
+    - npm test                    # a multi-token head matches the first N tokens
+    - npx tsc
+    - pytest
+    - grep
+    - rg
+
+rules:                            # only the rules you change; the rest keep their built-in default
+  shell.unlisted:
+    default: flag                 # rollout: measure before denying (keeps grant action:shell:exec)
+  sql.write:
+    default: deny
+    grant: action:sql:write
+
+# Replaces the built-in mapping wholesale when present, which also covers the
+# OpenCode glob/grep/lsp and the Cline tools: a tool missing here is
+# tool.unknown (deny).
+tools:
+  bash:          { kind: shell,    target: command }
+  write:         { kind: fs_write, target: filePath }
+  edit:          { kind: fs_write, target: filePath }
+  read:          { kind: fs_read,  target: filePath }
+  webfetch:      { kind: http,     target: url }
+  apply_patch:   { kind: fs_write, target: patchText, format: patch }  # paths are read from the patch headers
+  run_sql:       { kind: sql,      target: query }
+
+opaque_tools:                     # allowed without reading their arguments
+  todowrite: allow
+
+secrets:                          # replaces the built-in lists: keep OPENROUTER_* so the gateway's own key stays a secret
+  env: ["*KEY*", "*SECRET*", "*TOKEN*", "*PASSWORD*", "*CREDENTIAL*", "AWS_*", "OPENROUTER_*"]
+  files: [".env*", "*.pem", "*.key", "id_*", ".aws/**", ".ssh/**", ".npmrc", ".pypirc"]

@@ -27,21 +27,26 @@ go through, so the floor cannot drift into a shape a file would be refused
 for (PRD-016 F8).
 
 STORY-006 covers the built-in policy, the digest, and `load()` with the
-setting empty. What is deliberately **not** here yet: reading and parsing the
-file, the per-id `rules:` merge, the wholesale sections and the rest of
-Section 9.3's file validation (STORY-007), and the `ACTION_SQL_DIALECT`
-cross-check (STORY-008).
+setting empty. STORY-007 adds reading and parsing the file, the per-id
+`rules:` merge, the wholesale sections and Section 9.3's file validation.
+What is deliberately **not** here yet: the `ACTION_SQL_DIALECT` cross-check
+(STORY-008).
 """
 
 import hashlib
+import ipaddress
 import json
 import re
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+import yaml
+
 from app.config import settings
-from app.services.action_adapters import BUILT_IN_TOOLS, ToolMapping
+from app.services import strict_yaml
+from app.services.action_adapters import BUILT_IN_TOOLS, ToolMapping, ToolMappingError
 from app.services.action_classifiers import (
     DECISIONS,
     NON_GRANTABLE_RULES,
@@ -71,11 +76,18 @@ class ActionConfigError(Exception):
     with a bad decision or a name also in `tools`, and a glob that cannot be
     translated.
 
-    Added by STORY-007: `ACTION_POLICY_FILE` unreadable or unparseable, a
-    mapping key written twice (D13), an unknown key at any level, a
-    `workspace.roots` entry that is not absolute, a malformed `network.allow`
-    entry, a `shell.allow` entry with an operator. STORY-008 adds an
-    `ACTION_SQL_DIALECT` outside the supported set.
+    Also checked by `_validate` on every policy (STORY-007): a `workspace.roots`
+    entry that is not absolute, a malformed `network.allow` entry (a
+    single-label `*.` wildcard included), and a `shell.allow` entry that is
+    empty or holds a shell operator.
+
+    And for `ACTION_POLICY_FILE` only (STORY-007, `_parse_document`): the file
+    unreadable or not UTF-8, not valid YAML, a mapping key written twice at
+    any depth (D13), a document that is not a mapping, an unknown key at any
+    level, a missing key inside a present section, a section of the wrong
+    type, a `rules: tool.opaque` entry, an empty rule entry, and a tool body
+    the adapter refuses. STORY-008 adds an `ACTION_SQL_DIALECT` outside the
+    supported set.
 
     Startup fails. There is never a silent fallback to the built-in policy --
     a deployment that thinks it is running its own policy and is not is the
@@ -83,9 +95,9 @@ class ActionConfigError(Exception):
 
     It is also the outer half of a two-exception seam. `ToolMapping(...)`
     raises `action_adapters.ToolMappingError`, which cannot name a file or a
-    tool because `action_adapters` is pure; STORY-007 catches it and re-raises
-    this with the file and the `tools.<name>` node attached -- the error an
-    operator actually reads at startup.
+    tool because `action_adapters` is pure; `_parse_tools` catches it and
+    re-raises this with the file and the `tools: '<name>'` node attached --
+    the error an operator actually reads at startup.
     """
 
 
@@ -506,6 +518,112 @@ def _validate_globs(source: str, node: str, values: Any, compile_one) -> Globs:
     return Globs(patterns=patterns, compiled=tuple(compiled))
 
 
+# --- Content checks on the lists (PRD-016 Section 9.3) -----------------------
+#
+# Run by `_validate` on every policy, so the built-in one passes through them
+# too (F8); its lists are empty, so they cannot fail there. How an entry is
+# then *matched* is the classifiers' (STORY-010 shell heads, STORY-011
+# workspace containment, STORY-012 hosts); these only refuse an entry no
+# matcher could read the way the operator meant it.
+
+#: One RFC 1123 hostname label.
+_HOST_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
+
+#: POSIX shell operators (PRD-016 Section 9.3 "a shell operator"): the
+#: story's `; & | $` and backtick, plus redirections, subshell parentheses and
+#: the line breaks that separate commands like `;` does (orchestrator
+#: decision, STORY-007 plan, decision 11). A `shell.allow` entry is a command
+#: head of one or more words, never a pipeline.
+_SHELL_OPERATORS = frozenset((";", "&", "|", "$", "`", "<", ">", "(", ")", "\n", "\r"))
+
+#: A drive-absolute Windows path, after `\` has become `/`.
+_DRIVE_ABSOLUTE = re.compile(r"[A-Za-z]:/")
+
+
+def _is_hostname(value: str) -> bool:
+    """An RFC 1123 hostname: labels joined by `.`, at most 253 characters, no
+    trailing dot, and a last label that is not all digits -- so `999.1.1.1`
+    and `127.1` are refused rather than read as hostnames."""
+    if not value or len(value) > 253:
+        return False
+    labels = value.split(".")
+    if not all(_HOST_LABEL.fullmatch(label) for label in labels):
+        return False
+    return not labels[-1].isdigit()
+
+
+def _check_network_entry(source: str, entry: str) -> None:
+    """Exactly three shapes (PRD-016 Section 6.5): an IP literal, an exact
+    host, or `*.` and a host of at least two labels.
+
+    A wildcard over one label (`*.com`) is refused (orchestrator decision,
+    STORY-007): it would open egress to a whole top-level domain, which no
+    allowlist entry should do by one character. Case is accepted as written;
+    STORY-012 matches case-insensitively."""
+    try:
+        ipaddress.ip_address(entry)
+        return
+    except ValueError:
+        pass
+    if _is_hostname(entry):
+        return
+    if entry.startswith("*."):
+        host = entry[2:]
+        if _is_hostname(host):
+            if "." not in host:
+                raise _fail(
+                    source,
+                    "network.allow",
+                    f"{entry!r}",
+                    "a '*.' wildcard must name at least two labels after '*.' "
+                    "('*.example.com', not '*.com'): a top-level-domain wildcard "
+                    "opens egress to the whole domain",
+                )
+            return
+    raise _fail(
+        source, "network.allow", f"{entry!r}", "not a host, a '*.' wildcard host or an IP literal"
+    )
+
+
+def _check_workspace_root(source: str, root: str) -> None:
+    """Absolute, judged lexically and the same on every OS: after `\\` -> `/`,
+    a POSIX absolute path (`/...`, which a UNC `//srv/share` also is) or a
+    drive-absolute one (`C:/...`). Not `os.path.isabs`, whose answer would
+    depend on the OS running the gateway, while the agent's OS is a third,
+    unrelated machine (STORY-007 plan, decision 9). A relative root, a `~`
+    root (PRD-016 Section 6.5: no root contains `~`) and a drive-relative
+    `C:x` are refused. Roots are stored as written; STORY-011 normalizes both
+    sides for containment."""
+    slashed = root.replace("\\", "/")
+    if slashed.startswith("/") or _DRIVE_ABSOLUTE.match(slashed):
+        return
+    raise _fail(
+        source,
+        "workspace.roots",
+        f"{root!r}",
+        "must be an absolute path ('/...' or a drive letter 'C:/...'); a relative "
+        "or '~' root contains nothing",
+    )
+
+
+def _check_shell_entry(source: str, entry: str) -> None:
+    """Not empty, and no shell operator (PRD-016 Section 9.3). The first
+    offending character in entry order is reported, as `repr`, so a newline is
+    visible. Multi-token heads (`npm test`) are fine; their matching is
+    STORY-010's."""
+    if not entry.strip():
+        raise _fail(source, "shell.allow", f"{entry!r}", "an entry must not be empty")
+    for char in entry:
+        if char in _SHELL_OPERATORS:
+            raise _fail(
+                source,
+                "shell.allow",
+                f"{entry!r}",
+                f"contains the shell operator {char!r} (an entry is a command head "
+                "of one or more words)",
+            )
+
+
 def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
     """Build and check one `ActionPolicy`, or raise `ActionConfigError`.
 
@@ -528,15 +646,18 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
       neither default nor grant;
     - tools: a non-empty mapping (T7) of non-empty names to `ToolMapping`s;
     - opaque_tools: non-empty names to a `DECISIONS` member, none also in tools;
+    - shell.allow: strings, none empty, none with a shell operator;
+    - network.allow: strings, each an IP literal, an exact host or a `*.`
+      wildcard over at least two labels;
+    - workspace.roots: strings, each absolute;
     - every glob translates (protected paths, then secret env, then secret files).
 
-    Added by STORY-007: reading and parsing the file, document and section key
-    checks, the per-id `rules:` merge and the wholesale sections, building
-    `ToolMapping`s from YAML and wrapping `ToolMappingError`, absolute
-    `workspace.roots`, the syntax of `network.allow` entries, `shell.allow`
-    entries with operators, and duplicate keys (`strict_yaml`). The
-    `ACTION_SQL_DIALECT` cross-check is STORY-008's. The built-in lists are
-    empty, so none of those checks could fail on the built-in policy.
+    The built-in lists are empty, so the three list checks cannot fail on the
+    built-in policy. What only a file can get wrong -- reading and parsing it,
+    duplicate keys (`strict_yaml`), document and section keys, the per-id
+    `rules:` merge, the wholesale sections, building `ToolMapping`s from YAML
+    -- is `_parse_document`'s, which runs before this (STORY-007). The
+    `ACTION_SQL_DIALECT` cross-check is STORY-008's.
     """
     keys = set(spec)
     if keys != _SPEC_KEYS:
@@ -552,8 +673,14 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
     tools = _validate_tools(source, spec["tools"])
     opaque_tools = _validate_opaque_tools(source, spec["opaque_tools"], tools)
     shell_allow = _validate_strings(source, "shell.allow", spec["shell_allow"])
+    for entry in shell_allow:
+        _check_shell_entry(source, entry)
     network_allow = _validate_strings(source, "network.allow", spec["network_allow"])
+    for entry in network_allow:
+        _check_network_entry(source, entry)
     workspace_roots = _validate_strings(source, "workspace.roots", spec["workspace_roots"])
+    for root in workspace_roots:
+        _check_workspace_root(source, root)
     protected_paths = _validate_globs(
         source, "protected_paths", spec["protected_paths"], _compile_path_glob
     )
@@ -659,31 +786,243 @@ def policy_digest(policy: Optional[ActionPolicy] = None) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+# --- The policy file (STORY-007) -------------------------------------------
+#
+# `_parse_document` turns a parsed YAML document into a `_validate` spec. It
+# checks only what a file can get wrong and a built spec cannot: the
+# document's shape, the keys at every level, the per-id `rules:` merge, and
+# turning `tools:` bodies into `ToolMapping`s. Everything else is left to
+# `_validate`, the one gate every policy goes through (F8).
+
+#: The top-level sections, all optional. `protected_paths` is deliberately
+#: absent: it is built-in only (STORY-006 plan, decision 4).
+_FILE_SECTIONS = ("workspace", "network", "shell", "rules", "tools", "opaque_tools", "secrets")
+
+#: A present section states every key it owns (STORY-007 plan, decision 4).
+_SECTION_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "workspace": ("roots",),
+        "network": ("allow",),
+        "shell": ("allow",),
+        "secrets": ("env", "files"),
+    }
+)
+
+_RULE_KEYS = ("default", "grant")
+_TOOL_KEYS = ("kind", "target", "default", "format", "extra_targets")
+_TOOL_REQUIRED = ("kind", "target")
+
+
+def _check_keys(source: str, where: str, body: Mapping, allowed, required) -> None:
+    """Unknown keys, then missing keys (`pattern_config._check_keys`'s shape).
+
+    Unknown-key rejection turns `defualt: flag` into a named error rather than
+    a rule that silently keeps its built-in default. Requiring a present
+    section's keys is the wholesale rule one step further: a `secrets:` that
+    states only `env` must not quietly keep -- or quietly drop -- the file
+    globs, because either way the operator could not read the policy off the
+    file.
+    """
+    unknown = sorted(set(body) - set(allowed), key=str)
+    if unknown:
+        raise _fail(
+            source, where, f"unknown key {unknown[0]!r} (expected one of: {_allowed(allowed)})"
+        )
+    missing = sorted(set(required) - set(body))
+    if missing:
+        raise _fail(source, where, f"missing key {missing[0]!r} (required: {_allowed(required)})")
+
+
+def _mapping(source: str, node: str, value: Any) -> Mapping:
+    if not isinstance(value, Mapping):
+        raise _fail(source, node, f"must be a mapping, got {type(value).__name__}")
+    return value
+
+
+def _parse_rules(source: str, raw: Any) -> dict:
+    """Merge the file's `rules:` over the built-in table, per rule id (D12).
+
+    PRD-016 Section 6.6: the rule catalogue is the security floor, so a file
+    lists only its *deviations*. An omitted rule keeps its built-in default
+    and grant; a present one overrides only the fields it states, and a field
+    left out keeps its built-in value. `grant: null` removes a grant
+    explicitly, so a rule can still be made un-liftable (orchestrator
+    decision, STORY-007 plan, decision 5).
+
+    The base is always `_BUILT_IN_RULES`, never the previously loaded file: a
+    deviation removed from the file is gone on the next load.
+
+    `tool.opaque` is refused by name: its decision is each `opaque_tools`
+    entry's, and even `tool.opaque: {grant: null}` -- a no-op the merge would
+    let through -- is a line that suggests otherwise.
+    """
+    _mapping(source, "rules", raw)
+    merged = dict(_BUILT_IN_RULES)
+    for rule_id, body in raw.items():
+        node = f"rules: {rule_id!r}"
+        if rule_id not in RULE_IDS:
+            raise _fail(
+                source, "rules", f"{rule_id!r}", f"unknown rule (allowed: {_allowed(RULE_IDS)})"
+            )
+        if rule_id == "tool.opaque":
+            raise _fail(
+                source,
+                "rules",
+                f"{rule_id!r}",
+                "not configurable here: its decision is each opaque_tools entry's "
+                "(PRD-016 Section 6.3)",
+            )
+        # `shell.unlisted: flag` is the easy slip; refused by name.
+        _mapping(source, node, body)
+        _check_keys(source, node, body, _RULE_KEYS, ())
+        if not body:
+            raise _fail(source, node, "must set default and/or grant")
+        base_default, base_grant = _BUILT_IN_RULES[rule_id]
+        merged[rule_id] = (
+            body["default"] if "default" in body else base_default,
+            body["grant"] if "grant" in body else base_grant,
+        )
+    return merged
+
+
+def _parse_tools(source: str, raw: Any) -> dict[str, ToolMapping]:
+    """Build each `tools:` entry through `ToolMapping(...)`.
+
+    `ToolMappingError` names the field and the vocabulary; this wraps it with
+    the file and the `tools: '<name>'` node (the `PatternCompileError` seam).
+    `tools: {}` passes through, so `_validate` refuses it as T7.
+    """
+    _mapping(source, "tools", raw)
+    built = {}
+    for name, body in raw.items():
+        if not isinstance(name, str) or not name:
+            raise _fail(source, "tools", f"{name!r}", "a tool name must be a non-empty string")
+        node = f"tools: {name!r}"
+        _mapping(source, node, body)
+        _check_keys(source, node, body, _TOOL_KEYS, _TOOL_REQUIRED)
+        fields = dict(body)
+        if "extra_targets" in fields:
+            extra = fields["extra_targets"]
+            # A bare string is the easy YAML slip (`extra_targets: pattern`);
+            # `ToolMapping`'s "must be a tuple" is not something a YAML author
+            # can act on, so it is refused here by name.
+            if isinstance(extra, str) or not isinstance(extra, list):
+                raise _fail(
+                    source,
+                    node,
+                    f"extra_targets must be a list of target expressions, got {extra!r}",
+                )
+            fields["extra_targets"] = tuple(extra)
+        try:
+            built[name] = ToolMapping(**fields)
+        except ToolMappingError as exc:
+            raise _fail(source, node, str(exc)) from exc
+    return built
+
+
+def _parse_section(source: str, document: Mapping, section: str) -> Optional[Mapping]:
+    """A present list section, key-checked; None when the file omits it."""
+    if section not in document:
+        return None
+    body = _mapping(source, section, document[section])
+    keys = _SECTION_KEYS[section]
+    _check_keys(source, section, body, keys, keys)
+    return body
+
+
+def _parse_document(source: str, document: Any) -> dict:
+    """A parsed `ACTION_POLICY_FILE` as a `_validate` spec.
+
+    In this order: the document is a mapping (an empty file parses to None
+    and is refused, not read as "use the built-in policy": a file named by a
+    setting and left empty is a mistake, not an intent); its keys are
+    `_FILE_SECTIONS`; each present section has the right type and exactly its
+    keys; `rules:` merges per id; `tools:` builds its `ToolMapping`s.
+
+    Two replacement rules (PRD-016 Section 6.6, D12): a present section
+    replaces the built-in one wholesale, so an entry deleted from the file is
+    gone, and an absent section keeps the built-in one. `rules:` is the
+    exception and merges per id (`_parse_rules`). `[]` is valid and means
+    empty ("empty means empty"); `protected_paths` always comes from the
+    built-in policy.
+    """
+    if not isinstance(document, Mapping):
+        raise _fail(
+            source,
+            "document",
+            f"must be a mapping of sections (allowed: {_allowed(_FILE_SECTIONS)}), "
+            f"got {type(document).__name__}",
+        )
+    _check_keys(source, "document", document, _FILE_SECTIONS, ())
+
+    workspace = _parse_section(source, document, "workspace")
+    network = _parse_section(source, document, "network")
+    shell = _parse_section(source, document, "shell")
+    secrets = _parse_section(source, document, "secrets")
+    rules = _parse_rules(source, document["rules"]) if "rules" in document else _BUILT_IN_RULES
+    tools = _parse_tools(source, document["tools"]) if "tools" in document else BUILT_IN_TOOLS
+
+    return {
+        "rules": rules,
+        "tools": tools,
+        "opaque_tools": document["opaque_tools"] if "opaque_tools" in document else {},
+        "shell_allow": shell["allow"] if shell is not None else (),
+        "network_allow": network["allow"] if network is not None else (),
+        "workspace_roots": workspace["roots"] if workspace is not None else (),
+        "protected_paths": _BUILT_IN_PROTECTED_PATHS,
+        "secret_env": secrets["env"] if secrets is not None else _BUILT_IN_SECRET_ENV,
+        "secret_files": secrets["files"] if secrets is not None else _BUILT_IN_SECRET_FILES,
+    }
+
+
 # --- Loading ---------------------------------------------------------------
 
 
 def load() -> None:
-    """Load `ACTION_POLICY_FILE`, or keep the built-in policy, or fail startup.
+    """Read `ACTION_POLICY_FILE` and put its policy in force, or keep the built-in one, or fail startup.
 
     An empty `ACTION_POLICY_FILE` is a no-op: the built-in policy stands and
     **no file is read**. The setting is read here, at call time, never at
     import.
 
-    In STORY-006 a non-empty setting raises `ActionConfigError` naming the
-    path: reading the file is STORY-007's, and ignoring a configured file
-    would be exactly the silent fallback PRD-016 Sections 4 and 6.12 forbid.
-    The message carries the setting and the path, which STORY-007's
-    "unreadable file" error will carry too.
+    Otherwise every check passes before anything is rebound -- `_policy` is
+    assigned as the last statement, so a file that fails, at any rule, leaves
+    the previous policy (and so its digest, which is computed from `_policy`)
+    intact rather than a half-built one (`pattern_config.load()`'s shape).
+    Every message starts with `ACTION_POLICY_FILE '<path>'`, then the node,
+    then the rule.
 
-    The contract STORY-007 must keep: every check passes before anything is
-    rebound -- `_policy` is assigned as the last statement, so a file that
-    fails leaves the previous policy intact (`pattern_config.load()`'s shape).
+    `strict_yaml.safe_load` only (D13): `yaml.safe_load`'s loader, which also
+    refuses the `!!python/...` tags, plus a refusal of a mapping key written
+    twice at any depth -- PyYAML alone would keep the last one silently. A
+    writable `ACTION_POLICY_FILE` is the trust boundary `RBAC_ROLES_FILE` and
+    `PATTERNS_FILE` already sit on; no new mitigation is claimed (PRD-016
+    T13).
+
+    Sections replace the built-in ones wholesale and `rules:` merges per id
+    (D12, `_parse_document`). There is never a silent fallback to the
+    built-in policy: an unreadable, unparseable or invalid file stops the
+    boot (PRD-016 Sections 4, 6.12). The `ACTION_SQL_DIALECT` cross-check is
+    STORY-008's.
     """
+    global _policy
+
     path = settings.ACTION_POLICY_FILE
     if not path:
         return
-    raise ActionConfigError(
-        f"ACTION_POLICY_FILE '{path}': loading a policy file is not available in "
-        "this build (PRD-016 STORY-007); unset ACTION_POLICY_FILE to run the "
-        "built-in policy"
-    )
+
+    source = f"ACTION_POLICY_FILE '{path}'"
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        # `UnicodeDecodeError` is a `ValueError`, not an `OSError`: without it
+        # a non-UTF-8 file would escape as something other than this error.
+        raise _fail(source, "file", f"cannot be read: {exc}") from exc
+
+    try:
+        document = strict_yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise _fail(source, "file", f"is not valid YAML: {exc}") from exc
+
+    policy = _validate(source, _parse_document(source, document))
+    _policy = policy

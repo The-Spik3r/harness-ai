@@ -1,19 +1,21 @@
-"""PRD-016 STORY-006: the built-in action policy, get_policy(), the digest and load()'s empty path.
+"""PRD-016 STORY-006 and STORY-007: the action policy, built in and from ACTION_POLICY_FILE.
 
-This module covers `app/services/action_config.py` as STORY-006 leaves it: the
-policy model, the 25 rules of PRD Section 6.3, the protected-path and secret
-globs of Sections 6.3 and 6.6, the glob match contract, `policy_digest()`, and
-the checks `_validate` applies to every policy, the built-in one included
-(PRD-016 F8).
+STORY-006: the policy model, the 25 rules of PRD Section 6.3, the
+protected-path and secret globs of Sections 6.3 and 6.6, the glob match
+contract, `policy_digest()`, `load()`'s empty path, and the checks `_validate`
+applies to every policy, the built-in one included (PRD-016 F8).
+
+STORY-007: reading `ACTION_POLICY_FILE`, the per-id `rules:` merge (D12), the
+wholesale sections, one test per Section 9.3 validation rule, a failed load
+keeping the previous policy, and `examples/action_policy.yaml`.
 
 Expected values are written out as literals here rather than imported from
 the module: these tests are about the PRD table, and comparing the module with
 itself would prove nothing.
 
-What it deliberately does **not** cover: reading `ACTION_POLICY_FILE`, the
-per-id `rules:` merge, the wholesale sections and the file-level versions of
-the `_validate` cases below (Section 9.3) -- STORY-007. How a classifier uses a
-glob -- STORY-011 (paths) and STORY-013 (secrets).
+What it deliberately does **not** cover: the `ACTION_SQL_DIALECT` cross-check
+(STORY-008), and how a classifier uses a glob or a list -- STORY-010 to
+STORY-013.
 """
 
 import os
@@ -27,6 +29,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from types import MappingProxyType
 
@@ -120,9 +123,10 @@ def _matches(globs, value):
 
 
 def test_load_reads_no_file_when_action_policy_file_unset(monkeypatch):
-    """AC 1. Patches `open` and `pathlib` rather than `action_config.Path`:
-    the module has no `Path` yet (STORY-007 adds it), so any read would have
-    to go through one of these."""
+    """AC 1. Patches `open` and `pathlib.Path`'s readers: `action_config.Path`
+    is `pathlib.Path` (PRD-016 STORY-007 imports it for the loader), so the
+    class-level patches cover the loader's read too, and `action_config.Path`
+    itself is patched as well."""
     monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")
 
     def _no_read(*args, **kwargs):
@@ -132,15 +136,17 @@ def test_load_reads_no_file_when_action_policy_file_unset(monkeypatch):
     monkeypatch.setattr(pathlib.Path, "open", _no_read)
     monkeypatch.setattr(pathlib.Path, "read_text", _no_read)
     monkeypatch.setattr(pathlib.Path, "read_bytes", _no_read)
+    # PRD-016 STORY-007: the module now has a `Path`; constructing one must not happen either.
+    monkeypatch.setattr(action_config, "Path", _no_read)
 
     assert load() is None
     assert get_policy() is BUILT_IN_POLICY
 
 
 def test_load_with_a_policy_file_set_fails_closed(tmp_path, monkeypatch):
-    """No silent fallback (STORY-006 plan, decision 2): a configured file this
-    build cannot read stops the boot. The assertion is the type and the path,
-    which STORY-007's "unreadable file" error for a missing file also holds."""
+    """No silent fallback (STORY-006 plan, decision 2): a configured file that
+    cannot be read stops the boot. A missing file is unreadable (PRD-016
+    STORY-007: the real read path), and the type and the path still hold."""
     path = str(tmp_path / "missing.yaml")
     monkeypatch.setattr(settings, "ACTION_POLICY_FILE", path)
 
@@ -493,3 +499,615 @@ def test_validated_tools_are_copied_not_shared():
     policy = _validate("test", _spec(tools=tools))
     tools["write"] = ToolMapping("fs_write", "filePath")
     assert set(policy.tools) == {"bash"}
+
+
+# --- STORY-007: ACTION_POLICY_FILE ------------------------------------------
+
+_SAMPLE_FILE = REPO_ROOT / "examples" / "action_policy.yaml"
+
+
+def _write_policy(tmp_path, text, name="action_policy.yaml"):
+    path = tmp_path / name
+    path.write_text(textwrap.dedent(text), encoding="utf-8")
+    return str(path)
+
+
+def _load_text(tmp_path, monkeypatch, text, name="action_policy.yaml"):
+    """Write `text` as a policy file, point the setting at it, and load it."""
+    path = _write_policy(tmp_path, text, name)
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", path)
+    load()
+    return path
+
+
+def _expect_file(tmp_path, monkeypatch, text, *fragments):
+    """`load()` refuses `text`: the message names the file first, then every
+    fragment (the node and the rule), and the built-in policy is still in
+    force."""
+    path = _write_policy(tmp_path, text)
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", path)
+    with pytest.raises(ActionConfigError) as excinfo:
+        load()
+    message = str(excinfo.value)
+    assert message.startswith(f"ACTION_POLICY_FILE '{path}': "), message
+    for fragment in fragments:
+        assert fragment in message, message
+    assert get_policy() is BUILT_IN_POLICY
+    return message
+
+
+def _yaml_double_quoted(value):
+    """A YAML double-quoted scalar, so a line break survives as one."""
+    escaped = (
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+    )
+    return '"' + escaped + '"'
+
+
+# --- AC 1: rules: merges per id (D12) ---------------------------------------
+
+
+def test_rules_merge_per_id_keeping_every_other_rule(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, "rules:\n  shell.unlisted: {default: flag}\n")
+    policy = get_policy()
+    assert policy is not BUILT_IN_POLICY
+    assert tuple(policy.rules) == RULE_IDS
+    # A field the entry leaves out keeps its built-in value (orchestrator decision, STORY-007).
+    assert policy.rules["shell.unlisted"] == Rule("flag", "action:shell:exec")
+    for rule_id in RULE_IDS:
+        if rule_id != "shell.unlisted":
+            assert policy.rules[rule_id] == BUILT_IN_POLICY.rules[rule_id], rule_id
+
+
+def test_a_rule_grant_alone_keeps_the_built_in_default(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, "rules:\n  fs.read: {grant: 'action:fs:write'}\n")
+    assert get_policy().rules["fs.read"] == Rule("allow", "action:fs:write")
+
+
+@pytest.mark.parametrize("body", ["{grant: null}", "{grant: }"], ids=["null", "bare"])
+def test_grant_null_removes_a_grant(tmp_path, monkeypatch, body):
+    """Orchestrator decision, STORY-007: `grant: null` removes a grant explicitly."""
+    _load_text(tmp_path, monkeypatch, f"rules:\n  sql.write: {body}\n")
+    assert get_policy().rules["sql.write"] == Rule("deny", None)
+
+
+def test_the_merge_base_is_the_built_in_table_not_the_previous_file(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, "rules:\n  shell.unlisted: {default: flag}\n", "a.yaml")
+    assert get_policy().rules["shell.unlisted"].default == "flag"
+    _load_text(tmp_path, monkeypatch, "rules: {}\n", "b.yaml")
+    assert get_policy().rules["shell.unlisted"] == BUILT_IN_POLICY.rules["shell.unlisted"]
+
+
+# --- AC 2: present sections replace wholesale, absent ones keep -------------
+
+
+@pytest.mark.parametrize(
+    "text, check",
+    [
+        pytest.param(
+            "tools:\n  bash: {kind: shell, target: command}\n",
+            lambda p: set(p.tools) == {"bash"},
+            id="tools",
+        ),
+        pytest.param("shell:\n  allow: [ls]\n", lambda p: p.shell_allow == ("ls",), id="shell"),
+        pytest.param(
+            "network:\n  allow: [pypi.org]\n",
+            lambda p: p.network_allow == ("pypi.org",),
+            id="network",
+        ),
+        pytest.param(
+            "secrets:\n  env: ['X_*']\n  files: [a.txt]\n",
+            lambda p: p.secrets.env.patterns == ("X_*",)
+            and p.secrets.files.patterns == ("a.txt",)
+            and not _matches(p.secrets.files, ".env"),
+            id="secrets",
+        ),
+        pytest.param(
+            "workspace:\n  roots: [/srv/app]\n",
+            lambda p: p.workspace_roots == ("/srv/app",),
+            id="workspace",
+        ),
+    ],
+)
+def test_a_present_section_replaces_the_built_in_one(tmp_path, monkeypatch, text, check):
+    _load_text(tmp_path, monkeypatch, text)
+    assert check(get_policy())
+
+
+def test_an_absent_section_keeps_the_built_in_one(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, "rules: {}\n")
+    policy = get_policy()
+    assert policy is not BUILT_IN_POLICY
+    assert policy == BUILT_IN_POLICY
+    assert policy.tools is BUILT_IN_TOOLS
+    assert policy_digest() == policy_digest(BUILT_IN_POLICY)
+
+
+def test_an_empty_list_means_empty(tmp_path, monkeypatch):
+    """PRD-016 Section 6.6: "empty means empty, never 'use the default'"."""
+    _load_text(tmp_path, monkeypatch, "shell:\n  allow: []\nsecrets:\n  env: []\n  files: []\n")
+    policy = get_policy()
+    assert policy.shell_allow == ()
+    assert policy.secrets.env.patterns == ()
+    assert policy.secrets.files.patterns == ()
+
+
+def test_a_tool_mapping_accepts_default_format_and_extra_targets(tmp_path, monkeypatch):
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        """\
+        tools:
+          glob: {kind: fs_read, target: path, default: ".", extra_targets: [pattern]}
+          apply_patch: {kind: fs_write, target: patchText, format: patch}
+        """,
+    )
+    tools = get_policy().tools
+    assert tools["glob"] == ToolMapping("fs_read", "path", default=".", extra_targets=("pattern",))
+    assert tools["apply_patch"] == ToolMapping("fs_write", "patchText", format="patch")
+
+
+def test_load_ignores_comments_and_key_order_in_the_digest(tmp_path, monkeypatch):
+    """PRD-016 Section 4: the digest is over the policy, not the file bytes."""
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        "shell:\n  allow: [ls]\nrules:\n  sql.write: {default: flag, grant: null}\n",
+        "a.yaml",
+    )
+    first = policy_digest()
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        "# a comment\nrules:\n  sql.write: {grant: null, default: flag}  # same\n"
+        "shell: {allow: [ls]}\n",
+        "b.yaml",
+    )
+    assert policy_digest() == first
+
+
+# --- AC 3: one test per Section 9.3 rule ------------------------------------
+
+
+@pytest.mark.parametrize("key", ["rule", "tool", "protected_paths", "workspaces"])
+def test_file_refuses_an_unknown_top_level_key(tmp_path, monkeypatch, key):
+    """`protected_paths` included: it is built-in only (STORY-006 plan, decision 4)."""
+    _expect_file(
+        tmp_path, monkeypatch, f"{key}: {{}}\n", "document", "unknown key", repr(key), "workspace"
+    )
+
+
+@pytest.mark.parametrize(
+    "text, node, key",
+    [
+        ("workspace: {root: [/a]}\n", "workspace", "root"),
+        ("network: {allowed: []}\n", "network", "allowed"),
+        ("shell: {allowlist: []}\n", "shell", "allowlist"),
+        ("secrets: {envs: [], files: []}\n", "secrets", "envs"),
+    ],
+)
+def test_file_refuses_an_unknown_section_key(tmp_path, monkeypatch, text, node, key):
+    _expect_file(tmp_path, monkeypatch, text, f"{node}: unknown key {key!r}")
+
+
+def test_file_refuses_a_missing_section_key(tmp_path, monkeypatch):
+    """A present `secrets:` states both keys (orchestrator decision, STORY-007)."""
+    _expect_file(tmp_path, monkeypatch, "secrets: {env: []}\n", "secrets", "missing key 'files'")
+
+
+@pytest.mark.parametrize(
+    "text, node",
+    [("tools: [bash]\n", "tools"), ("rules: null\n", "rules"), ("workspace: /a\n", "workspace")],
+)
+def test_file_refuses_a_section_of_the_wrong_type(tmp_path, monkeypatch, text, node):
+    _expect_file(tmp_path, monkeypatch, text, f"{node}: must be a mapping")
+
+
+@pytest.mark.parametrize("text", ["", "- a\n", "just text\n"], ids=["empty", "list", "scalar"])
+def test_file_refuses_a_document_that_is_not_a_mapping(tmp_path, monkeypatch, text):
+    """An empty file is an error, not "use the built-in policy" (orchestrator decision, STORY-007)."""
+    _expect_file(tmp_path, monkeypatch, text, "document", "must be a mapping of sections")
+
+
+def test_file_refuses_a_list_value_that_is_not_a_list(tmp_path, monkeypatch):
+    _expect_file(tmp_path, monkeypatch, "shell:\n  allow:\n", "shell.allow", "must be a list")
+
+
+def test_file_refuses_an_unreadable_file(tmp_path, monkeypatch):
+    """Not UTF-8: `UnicodeDecodeError` must surface as `ActionConfigError`."""
+    path = tmp_path / "bad.yaml"
+    path.write_bytes(b"\xff\xfe\xfa")
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", str(path))
+    with pytest.raises(ActionConfigError) as excinfo:
+        load()
+    message = str(excinfo.value)
+    assert message.startswith(f"ACTION_POLICY_FILE '{path}': file: cannot be read"), message
+    assert get_policy() is BUILT_IN_POLICY
+
+
+def test_file_refuses_a_directory_as_the_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", str(tmp_path))
+    with pytest.raises(ActionConfigError) as excinfo:
+        load()
+    assert "file: cannot be read" in str(excinfo.value)
+    assert get_policy() is BUILT_IN_POLICY
+
+
+def test_file_refuses_invalid_yaml(tmp_path, monkeypatch):
+    _expect_file(tmp_path, monkeypatch, "rules: [\n", "file: is not valid YAML")
+
+
+def test_file_refuses_an_unknown_rule_id(tmp_path, monkeypatch):
+    message = _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  sql.nuke: {default: deny}\n",
+        "rules: 'sql.nuke'",
+        "unknown rule",
+    )
+    assert "sql.read" in message  # the allowed ids are listed
+
+
+def test_file_refuses_an_unknown_rule_key(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  sql.read: {defualt: deny}\n",
+        "rules: 'sql.read'",
+        "unknown key 'defualt'",
+    )
+
+
+def test_file_refuses_a_rule_that_is_not_a_mapping(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  shell.unlisted: flag\n",
+        "rules: 'shell.unlisted'",
+        "must be a mapping",
+    )
+
+
+def test_file_refuses_an_empty_rule_entry(tmp_path, monkeypatch):
+    """Orchestrator decision, STORY-007."""
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  shell.unlisted: {}\n",
+        "rules: 'shell.unlisted'",
+        "default and/or grant",
+    )
+
+
+@pytest.mark.parametrize("body", ["{default: allow}", "{grant: null}"])
+def test_file_refuses_a_tool_opaque_rule_entry(tmp_path, monkeypatch, body):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"rules:\n  tool.opaque: {body}\n",
+        "rules: 'tool.opaque'",
+        "opaque_tools",
+    )
+
+
+def test_file_refuses_a_bad_decision(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  sql.read: {default: block}\n",
+        "rules: 'sql.read'",
+        "'block'",
+        "allow, deny, flag",
+    )
+
+
+def test_file_refuses_a_null_default(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  sql.read: {default: null}\n",
+        "rules: 'sql.read'",
+        "not a decision",
+    )
+
+
+def test_file_refuses_an_unknown_permission(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  sql.write: {grant: 'action:sql:everything'}\n",
+        "rules: 'sql.write'",
+        "not an action permission",
+    )
+
+
+@pytest.mark.parametrize("rule_id", sorted(NON_GRANTABLE_RULES))
+def test_file_refuses_a_grant_on_a_non_grantable_rule(tmp_path, monkeypatch, rule_id):
+    """PRD-016 T5, for each of the ten (`test_the_non_grantable_set_has_ten_rules`)."""
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"rules:\n  {rule_id}: {{grant: 'action:sql:write'}}\n",
+        f"rules: '{rule_id}'",
+        "non-grantable",
+    )
+
+
+def test_file_refuses_empty_tools(tmp_path, monkeypatch):
+    """PRD-016 T7."""
+    _expect_file(tmp_path, monkeypatch, "tools: {}\n", "tools: must not be empty")
+
+
+def test_file_refuses_an_unknown_kind(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "tools:\n  bash: {kind: shel, target: command}\n",
+        "tools: 'bash'",
+        "unknown operation kind 'shel'",
+    )
+
+
+@pytest.mark.parametrize(
+    "missing, body", [("target", "{kind: shell}"), ("kind", "{target: command}")]
+)
+def test_file_refuses_a_missing_target(tmp_path, monkeypatch, missing, body):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"tools:\n  bash: {body}\n",
+        "tools: 'bash'",
+        f"missing key {missing!r}",
+    )
+
+
+def test_file_refuses_an_unknown_tool_key(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "tools:\n  bash: {kind: shell, target: command, targets: [x]}\n",
+        "tools: 'bash'",
+        "unknown key 'targets'",
+    )
+
+
+@pytest.mark.parametrize(
+    "body, fragment",
+    [
+        ("{kind: fs_write, target: patchText, format: diff}", "unknown target format 'diff'"),
+        ("{kind: fs_write, target: 'files['}", "invalid segment"),
+        (
+            "{kind: fs_write, target: patchText, format: patch, default: '.'}",
+            "default is only allowed",
+        ),
+        ("{kind: fs_read, target: path, extra_targets: pattern}", "extra_targets must be a list"),
+    ],
+    ids=["format", "target", "default", "extra_targets_string"],
+)
+def test_file_refuses_a_tool_mapping_the_adapter_rejects(tmp_path, monkeypatch, body, fragment):
+    _expect_file(tmp_path, monkeypatch, f"tools:\n  t1: {body}\n", "tools: 't1'", fragment)
+
+
+def test_file_refuses_a_tool_both_mapped_and_opaque(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "tools:\n  bash: {kind: shell, target: command}\nopaque_tools:\n  bash: allow\n",
+        "opaque_tools: 'bash'",
+        "also mapped under tools",
+    )
+
+
+def test_file_refuses_an_opaque_tool_value_that_is_not_a_decision(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "opaque_tools:\n  todowrite: maybe\n",
+        "opaque_tools: 'todowrite'",
+        "'maybe'",
+    )
+
+
+@pytest.mark.parametrize("root", ["projects", "./x", "~/x", "C:x", "C:", ""])
+def test_file_refuses_a_relative_workspace_root(tmp_path, monkeypatch, root):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"workspace:\n  roots: [{root!r}]\n",
+        f"workspace.roots: {root!r}",
+        "must be an absolute path",
+    )
+
+
+def test_file_accepts_absolute_workspace_roots(tmp_path, monkeypatch):
+    roots = ["/home/dev/projects", "C:/Repo", "C:\\Repo", "d:/x", "\\\\srv\\share"]
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        "workspace:\n  roots: [" + ", ".join(_yaml_double_quoted(r) for r in roots) + "]\n",
+    )
+    assert get_policy().workspace_roots == tuple(roots)
+
+
+def test_file_refuses_a_bad_glob(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "secrets:\n  env: []\n  files: ['a[b']\n",
+        "secrets.files: 'a[b'",
+        "unsupported",
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "https://pypi.org",
+        "pypi.org:443",
+        "pypi.org/simple",
+        "u@pypi.org",
+        "*",
+        "*pypi.org",
+        "a.*.com",
+        "10.0.0.0/8",
+        "[::1]",
+        "*.10.0.0.1",
+        "999.1.1.1",
+        "127.1",
+        "",
+        " pypi.org",
+        "my_host.example.com",
+        "pypi.org.",
+    ],
+)
+def test_file_refuses_a_bad_network_entry(tmp_path, monkeypatch, entry):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"network:\n  allow: [{entry!r}]\n",
+        f"network.allow: {entry!r}",
+        "not a host, a '*.' wildcard host or an IP literal",
+    )
+
+
+@pytest.mark.parametrize("entry", ["*.com", "*.localhost"])
+def test_file_refuses_a_single_label_wildcard(tmp_path, monkeypatch, entry):
+    """Orchestrator decision, STORY-007: a top-level-domain wildcard opens the network rule."""
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"network:\n  allow: [{entry!r}]\n",
+        f"network.allow: {entry!r}",
+        "at least two labels",
+        "top-level-domain wildcard",
+    )
+
+
+def test_file_accepts_each_network_entry_shape(tmp_path, monkeypatch):
+    entries = [
+        "registry.npmjs.org",
+        "*.githubusercontent.com",
+        "*.example.com",
+        "localhost",
+        "Pypi.ORG",
+        "169.254.169.254",
+        "::1",
+    ]
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        "network:\n  allow: [" + ", ".join(repr(e) for e in entries) + "]\n",
+    )
+    assert get_policy().network_allow == tuple(entries)
+
+
+@pytest.mark.parametrize(
+    "entry, operator",
+    [
+        ("ls; rm", ";"),
+        ("a && b", "&"),
+        ("a | b", "|"),
+        ("echo $HOME", "$"),
+        ("echo `id`", "`"),
+        ("a > f", ">"),
+        ("a < f", "<"),
+        ("(ls)", "("),
+        ("a\nb", "\n"),
+        ("a\rb", "\r"),
+    ],
+)
+def test_file_refuses_a_shell_allow_entry_with_an_operator(tmp_path, monkeypatch, entry, operator):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "shell:\n  allow: [" + _yaml_double_quoted(entry) + "]\n",
+        f"shell.allow: {entry!r}",
+        f"contains the shell operator {operator!r}",
+    )
+
+
+@pytest.mark.parametrize("entry", ["", "  "])
+def test_file_refuses_an_empty_shell_allow_entry(tmp_path, monkeypatch, entry):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"shell:\n  allow: [{entry!r}]\n",
+        f"shell.allow: {entry!r}",
+        "must not be empty",
+    )
+
+
+def test_file_accepts_a_multi_token_shell_allow_entry(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, "shell:\n  allow: [npm test, git]\n")
+    assert get_policy().shell_allow == ("npm test", "git")
+
+
+@pytest.mark.parametrize(
+    "text, key",
+    [
+        ("rules: {}\nrules: {}\n", "'rules'"),
+        ("rules:\n  sql.read: {default: allow}\n  sql.read: {default: deny}\n", "'sql.read'"),
+        (
+            "tools:\n  bash: {kind: shell, target: command}\n  bash: {kind: shell, target: cmd}\n",
+            "'bash'",
+        ),
+    ],
+    ids=["section", "rule_id", "tool_name"],
+)
+def test_file_refuses_a_duplicate_key(tmp_path, monkeypatch, text, key):
+    """PRD-016 D13: `strict_yaml` refuses a key written twice, at any depth."""
+    _expect_file(tmp_path, monkeypatch, text, "file: is not valid YAML", f"duplicate key {key}")
+
+
+# --- AC 4: a failed load keeps the previous policy -------------------------
+
+
+def test_a_failed_load_keeps_the_previous_file_policy_and_digest(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, "rules:\n  shell.unlisted: {default: flag}\n", "good.yaml")
+    policy = get_policy()
+    digest = policy_digest()
+    assert policy is not BUILT_IN_POLICY
+    assert digest != policy_digest(BUILT_IN_POLICY)
+
+    # Fails late: rules and tools parse, then `_validate` refuses the network entry.
+    bad = _write_policy(
+        tmp_path,
+        """\
+        rules:
+          shell.unlisted: {default: allow}
+        tools:
+          bash: {kind: shell, target: command}
+        network:
+          allow: ["https://x"]
+        """,
+        "bad.yaml",
+    )
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", bad)
+    with pytest.raises(ActionConfigError):
+        load()
+
+    assert get_policy() is policy
+    assert policy_digest() == digest
+
+
+# --- AC 5: examples/action_policy.yaml --------------------------------------
+
+
+def test_examples_action_policy_yaml_loads(monkeypatch):
+    """PRD-016 Section 11: "`examples/action_policy.yaml` loads in a test"."""
+    monkeypatch.setattr(settings, "ACTION_POLICY_FILE", str(_SAMPLE_FILE))
+    load()
+    policy = get_policy()
+    assert policy is not BUILT_IN_POLICY
+    assert policy_digest() != policy_digest(BUILT_IN_POLICY)
+    assert policy.rules["shell.unlisted"] == Rule("flag", "action:shell:exec")
+    assert policy.rules["sql.write"] == Rule("deny", "action:sql:write")
+    assert policy.tools["apply_patch"] == ToolMapping("fs_write", "patchText", format="patch")
+    assert len(policy.tools) == 7
+    assert dict(policy.opaque_tools) == {"todowrite": "allow"}
+    assert policy.workspace_roots == ("/home/dev/projects",)
+    assert "npm test" in policy.shell_allow
+    assert "*.githubusercontent.com" in policy.network_allow
+    # `OPENROUTER_*` is the one addition to the PRD 6.6 sample (orchestrator decision, STORY-007).
+    assert policy.secrets.env.patterns == _PRD_SECRET_ENV
+    assert policy.secrets.files.patterns == _PRD_SECRET_FILES

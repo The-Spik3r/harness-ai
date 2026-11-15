@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Configuration"
-status: todo
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-007-action-policy-file-load-and-validation.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-007-action-policy-file-load-and-validation.report.md
+commit: pending
 depends_on: [STORY-005, STORY-006]
 blocks: [STORY-008]
 skills: []

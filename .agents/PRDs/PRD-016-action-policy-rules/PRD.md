@@ -315,11 +315,11 @@ opaque_tools:                     # allowed without reading their arguments
   todowrite: allow
 
 secrets:
-  env: ["*KEY*", "*SECRET*", "*TOKEN*", "*PASSWORD*", "*CREDENTIAL*", "AWS_*"]
+  env: ["*KEY*", "*SECRET*", "*TOKEN*", "*PASSWORD*", "*CREDENTIAL*", "AWS_*", "OPENROUTER_*"]
   files: [".env*", "*.pem", "*.key", "id_*", ".aws/**", ".ssh/**", ".npmrc", ".pypirc"]
 ```
 
-**Two replacement rules, and why they differ.** Every *section* that is present replaces the built-in section wholesale — `tools`, `shell.allow`, `network.allow`, `secrets`, `workspace.roots` — for `authz.load()`'s reason: a merge means an operator who deletes an entry still has it in force. **`rules` is the exception: it is merged per rule id.** The rule catalogue is the security floor; a file that wanted to change one default and had to restate twenty-five rules would be a file where a forgotten rule silently fell back to … nothing, because there is no sensible "absent" for a rule. So an omitted rule keeps its built-in default and grant, and a present one replaces both fields. That makes the file's `rules:` section a list of *deviations from the floor*, which is what an auditor wants to read.
+**Two replacement rules, and why they differ.** Every *section* that is present replaces the built-in section wholesale — `tools`, `shell.allow`, `network.allow`, `secrets`, `workspace.roots` — for `authz.load()`'s reason: a merge means an operator who deletes an entry still has it in force. **`rules` is the exception: it is merged per rule id.** The rule catalogue is the security floor; a file that wanted to change one default and had to restate twenty-five rules would be a file where a forgotten rule silently fell back to … nothing, because there is no sensible "absent" for a rule. So an omitted rule keeps its built-in default and grant, and a present one overrides only the fields it states: a field left out keeps its built-in value, and `grant: null` removes a grant explicitly (orchestrator decision, STORY-007 plan). That makes the file's `rules:` section a list of *deviations from the floor*, which is what an auditor wants to read.
 
 **Empty means empty, never "use the default".** `shell.allow: []` is valid and means nothing is allowlisted. `tools: {}` is a startup error — a file that maps no tools denies every call, which must be written as `opaque_tools: {}` plus intent, not arrived at (T7).
 
