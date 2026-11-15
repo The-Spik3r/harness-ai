@@ -12,7 +12,7 @@ labels: [backend, rbac, security]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-003-rule-vocabulary-and-action-permissions.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-003-rule-vocabulary-and-action-permissions.report.md
-commit: pending
+commit: 598bb29
 depends_on: []
 blocks: [STORY-004, STORY-006]
 skills: []
