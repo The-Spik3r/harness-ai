@@ -198,8 +198,10 @@ def test_final_turn_that_is_not_user_is_refused(final):
     ],
     ids=["tool-in-prefix", "tool-as-final-turn"],
 )
-def test_tool_turn_anywhere_is_refused_naming_prd_016(turns):
-    with pytest.raises(ValueError, match="PRD-016"):
+def test_tool_turn_anywhere_is_refused_naming_prd_017(turns):
+    # PRD-016 D14 (STORY-002): tool calling is PRD-017; was PRD-016. This is a
+    # seventh string the PRD's count of six omits, because no client reads it.
+    with pytest.raises(ValueError, match="PRD-017"):
         dedup_key(_JUAN, turns)
 
 

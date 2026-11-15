@@ -460,12 +460,30 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #         test_the_blocked_figures_are_the_three_that_indent
 #   - test_summary.py:
 #       test_the_three_blocks_are_headed -> test_the_four_blocks_are_headed
+#
+# PRD-016 STORY-002 (D14) retargets the tool-calling runtime strings from
+# `(PRD-016)` to `(PRD-017)`: tool calling moved to PRD-017 when the endpoint
+# took PRD-015. Three tests named the old PRD in their names and now assert
+# the new one. The old names would state the wrong PRD, so they were renamed:
+#   - test_openrouter_client.py:
+#       test_null_content_with_tool_calls_names_prd_016 ->
+#         test_null_content_with_tool_calls_names_prd_017
+#       test_null_content_without_tool_calls_omits_prd_016_note ->
+#         test_null_content_without_tool_calls_omits_prd_017_note
+#   - test_dedup_key.py:
+#       test_tool_turn_anywhere_is_refused_naming_prd_016 ->
+#         test_tool_turn_anywhere_is_refused_naming_prd_017
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_admin_state.py": {
         "test_the_sheet_carries_all_nine_stats_response_figures",
         "test_the_blocked_figures_are_the_two_that_indent",
     },
     "tests/test_summary.py": {"test_the_three_blocks_are_headed"},
+    "tests/test_openrouter_client.py": {
+        "test_null_content_with_tool_calls_names_prd_016",
+        "test_null_content_without_tool_calls_omits_prd_016_note",
+    },
+    "tests/test_dedup_key.py": {"test_tool_turn_anywhere_is_refused_naming_prd_016"},
     "tests/test_query_pipeline_multiturn.py": {
         "test_provisional_policy_inspects_last_user_turn_only",
         "test_inspection_target_still_carries_its_provisional_marker",

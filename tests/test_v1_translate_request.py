@@ -630,7 +630,8 @@ def test_tool_use_is_tools_not_supported(key, value):
 
     assert exc.code == TOOLS_NOT_SUPPORTED
     assert exc.param == key
-    assert exc.message == f"{key}: tool calling is not supported (PRD-016)"
+    # PRD-016 D14 (STORY-002): tool calling is PRD-017; was (PRD-016).
+    assert exc.message == f"{key}: tool calling is not supported (PRD-017)"
 
 
 @pytest.mark.parametrize(

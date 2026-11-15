@@ -6,7 +6,7 @@
 
 ## Progress
 
-1/20 stories done — 5%
+2/20 stories done — 10%
 
 ## Stories
 
@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Action threat model and adapter survey (OpenCode, Cline, Aider) with SOURCES.md | spike | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-001-action-threat-model-and-adapter-survey.plan.md) | `322067d` |
-| STORY-002 | Retarget the six "(PRD-016)" tool-calling runtime strings to "(PRD-017)" | technical | ⬜ todo | small | — | — |
+| STORY-002 | Retarget the six "(PRD-016)" tool-calling runtime strings to "(PRD-017)" | technical | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-002-retarget-tool-calling-runtime-strings.plan.md) | — |
 | STORY-003 | Rule ids, operation kinds, the six action permissions and authz.holds() | feature | ⬜ todo | small | — | — |
 | STORY-004 | ToolCall, Operation, the tool mapping layer and built-in OpenCode/Cline/SQL mappings | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Three action settings; strict_yaml with duplicate-key rejection; pattern_config adopts it | technical | ⬜ todo | small | — | — |

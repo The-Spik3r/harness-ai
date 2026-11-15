@@ -318,22 +318,25 @@ def test_null_content_raises_with_finish_reason():
         call_openrouter([Message("user", "hi")], api_key="k", client=client)
 
 
-def test_null_content_with_tool_calls_names_prd_016():
+def test_null_content_with_tool_calls_names_prd_017():
     client = _FakeClient(
         response=_null_content_response(finish_reason="tool_calls", tool_calls=[{"id": "1"}])
     )
 
-    with pytest.raises(OpenRouterError, match=r"tool calls are not supported \(PRD-016\)"):
+    # PRD-016 D14 (STORY-002): tool calling is PRD-017; was (PRD-016).
+    with pytest.raises(OpenRouterError, match=r"tool calls are not supported \(PRD-017\)"):
         call_openrouter([Message("user", "hi")], api_key="k", client=client)
 
 
-def test_null_content_without_tool_calls_omits_prd_016_note():
+def test_null_content_without_tool_calls_omits_prd_017_note():
     client = _FakeClient(response=_null_content_response(finish_reason="stop"))
 
     with pytest.raises(OpenRouterError) as exc_info:
         call_openrouter([Message("user", "hi")], api_key="k", client=client)
 
-    assert "PRD-016" not in str(exc_info.value)
+    # PRD-016 D14 (STORY-002): the note now names PRD-017; asserting the old
+    # token here would pass whatever the code says.
+    assert "PRD-017" not in str(exc_info.value)
 
 
 def test_null_content_error_never_contains_api_key():

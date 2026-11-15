@@ -57,7 +57,7 @@ def dedup_key(user_id: str, turns: Sequence[DedupTurn]) -> str:
     if not turns:
         raise ValueError("dedup_key needs at least one turn")
     if any(t.role not in _KEYED_ROLES for t in turns):
-        raise ValueError("dedup_key has no rule for this role (tool turns: PRD-016)")
+        raise ValueError("dedup_key has no rule for this role (tool turns: PRD-017)")
     *prefix, last = turns
     if last.role != "user":
         raise ValueError("dedup_key keys on a final user turn")

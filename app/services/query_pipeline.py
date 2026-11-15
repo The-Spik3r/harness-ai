@@ -70,7 +70,7 @@ def _validate_conversation(messages: Sequence[Message]) -> None:
     if not messages:
         raise InvalidConversationError("messages must not be empty")
     if any(m.role == "tool" for m in messages):
-        raise InvalidConversationError("tool turns are not supported (PRD-016)")
+        raise InvalidConversationError("tool turns are not supported (PRD-017)")
     if messages[-1].role != "user":
         raise InvalidConversationError("the last message must be a user turn")
 

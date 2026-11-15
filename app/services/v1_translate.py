@@ -117,7 +117,7 @@ REJECTED_UNLESS_DEFAULT: Mapping[str, Tuple[str, Tuple[Any, ...]]] = {
 _STRUCTURAL = frozenset({"model", "messages", "stream", "stream_options"})
 
 _REJECTED_RULES = {
-    TOOLS_NOT_SUPPORTED: "tool calling is not supported (PRD-016)",
+    TOOLS_NOT_SUPPORTED: "tool calling is not supported (PRD-017)",
     UNSUPPORTED_PARAMETER: "only the default value is supported on this endpoint",
 }
 
@@ -215,11 +215,11 @@ def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str
             # would surface as `invalid_messages`, and it accepts `tool`.
             if "tool_calls" in item or "function_call" in item:
                 raise V1RequestError(
-                    TOOLS_NOT_SUPPORTED, f"{location}: tool calls are not supported (PRD-016)", location
+                    TOOLS_NOT_SUPPORTED, f"{location}: tool calls are not supported (PRD-017)", location
                 )
             if item.get("role") == "tool":
                 raise V1RequestError(
-                    TOOLS_NOT_SUPPORTED, f"{location}: tool turns are not supported (PRD-016)", location
+                    TOOLS_NOT_SUPPORTED, f"{location}: tool turns are not supported (PRD-017)", location
                 )
             if "name" in item:
                 ignored.add(IGNORED_MESSAGE_NAME)

@@ -196,7 +196,7 @@ def call_openrouter(
             finish_reason = choice.get("finish_reason")
             error_message = f"OpenRouter returned no text content (finish_reason={finish_reason})"
             if message.get("tool_calls") is not None:
-                error_message += "; tool calls are not supported (PRD-016)"
+                error_message += "; tool calls are not supported (PRD-017)"
             raise OpenRouterError(error_message)
 
         raw_finish_reason = choice.get("finish_reason")

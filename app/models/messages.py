@@ -73,7 +73,7 @@ def normalize_message(raw: Mapping[str, Any]) -> Message:
     # Before content: OpenAI's tool-call assistant turn is `content: null` plus
     # `tool_calls`, which would otherwise normalize silently to "".
     if "tool_calls" in raw:
-        raise MessageNormalizationError("tool_calls are not supported (PRD-016)")
+        raise MessageNormalizationError("tool_calls are not supported (PRD-017)")
     return Message(role, _normalize_content(role, raw.get("content")))
 
 

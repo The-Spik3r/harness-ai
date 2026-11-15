@@ -7,11 +7,11 @@ type: technical
 priority: medium
 complexity: small
 phase: "1 - Threat model and vocabulary"
-status: todo
+status: done
 labels: [backend, v1, docs]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-002-retarget-tool-calling-runtime-strings.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-002-retarget-tool-calling-runtime-strings.report.md
 commit: null
 depends_on: []
 blocks: [STORY-020]
