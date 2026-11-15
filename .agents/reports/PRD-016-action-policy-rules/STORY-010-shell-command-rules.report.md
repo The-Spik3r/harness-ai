@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-010-shell-command-rules.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: 48f74eb
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-010-shell-command-rules.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `48f74eb`
 
 ## Summary
 

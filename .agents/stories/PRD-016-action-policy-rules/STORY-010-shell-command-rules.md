@@ -12,7 +12,7 @@ labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-010-shell-command-rules.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-010-shell-command-rules.report.md
-commit: pending
+commit: 48f74eb
 depends_on: [STORY-009]
 blocks: [STORY-013]
 skills: []
