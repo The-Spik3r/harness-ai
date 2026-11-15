@@ -3,7 +3,7 @@ story: STORY-004
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-004-tool-call-adapter-layer.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: 9e277d3
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-004-tool-call-adapter-layer.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `9e277d3`
 
 ## Summary
 

@@ -12,7 +12,7 @@ labels: [backend, security, adapters]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-004-tool-call-adapter-layer.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-004-tool-call-adapter-layer.report.md
-commit: pending
+commit: 9e277d3
 depends_on: [STORY-001, STORY-003]
 blocks: [STORY-006, STORY-014]
 skills: []
