@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-002-retarget-tool-calling-runtime-strings.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: 9f7b379
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-002-retarget-tool-calling-runtime-strings.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `9f7b379`
 
 ## Summary
 

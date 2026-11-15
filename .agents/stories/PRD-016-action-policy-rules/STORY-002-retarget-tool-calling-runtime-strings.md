@@ -12,7 +12,7 @@ labels: [backend, v1, docs]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-002-retarget-tool-calling-runtime-strings.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-002-retarget-tool-calling-runtime-strings.report.md
-commit: null
+commit: 9f7b379
 depends_on: []
 blocks: [STORY-020]
 skills: []
