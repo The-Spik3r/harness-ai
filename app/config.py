@@ -19,8 +19,8 @@ _SQLITE_SCHEME = "sqlite:"
 # What each setting that bounds a resource controls, quoted by its validator
 # so the message says why 0 or a negative value is rejected, not just that
 # it is. The first three arrived with PRD-010's pipeline sizes; PRD-011 added
-# the fourth, which is why the name no longer says "pipeline", and PRD-012 the
-# fifth.
+# the fourth, which is why the name no longer says "pipeline", PRD-012 the
+# fifth and PRD-016 the sixth.
 _POSITIVE_LIMIT_DESCRIPTIONS = {
     "CONTEXT_MAX_MESSAGES": "the maximum number of messages a conversation may carry into the pipeline",
     "CONTEXT_MAX_CHARACTERS": "the maximum total characters across message contents in a conversation",
@@ -29,6 +29,12 @@ _POSITIVE_LIMIT_DESCRIPTIONS = {
     "PII_MAX_CHARACTERS_CODE": (
         "the analyzable characters per request the code profile's PII redaction "
         "runs over; a longer conversation is refused"
+    ),
+    "ACTION_MAX_ARGUMENT_CHARACTERS": (
+        "the ceiling on characters in a tool call's arguments string, over which "
+        "the call is denied as tool.malformed. 0 does not remove the ceiling -- "
+        "there is no unbounded value; set a positive count instead, e.g. "
+        "ACTION_MAX_ARGUMENT_CHARACTERS=100000 (the default)"
     ),
 }
 
@@ -367,6 +373,31 @@ class Settings(BaseSettings):
     # > 0 and <= 60. Consumed by STORY-013.
     V1_SSE_KEEPALIVE_SECONDS: float = 10.0
 
+    # Action policy (PRD-016 Section 9.3). Nothing reads these yet -- each
+    # field names the story that becomes its consumer.
+
+    # Path to the action policy YAML. Empty means the built-in policy and no
+    # file is read at all -- the RBAC_ROLES_FILE / PATTERNS_FILE shape. Sections
+    # a file provides replace the built-in wholesale, except `rules:`, which
+    # merges per rule id (PRD-016 Section 6.6). Parsed through strict_yaml, so a
+    # key written twice is a startup error (D13). Consumed by STORY-006/007's
+    # action_config.load().
+    ACTION_POLICY_FILE: str = ""
+
+    # Ceiling on the characters of a tool call's `arguments` string. A longer
+    # one is `tool.malformed` (deny) and is never json.loads()ed (T12). It
+    # reaches action_adapters.map_tool_call() as a parameter, because the
+    # adapter is pure. Consumed by STORY-006's action_config and STORY-014's
+    # action_policy.evaluate().
+    ACTION_MAX_ARGUMENT_CHARACTERS: int = 100_000
+
+    # The sqlglot dialect SQL arguments are parsed with; empty is sqlglot's
+    # generic dialect. Here it is only a string: whether sqlglot knows the name
+    # is checked in action_config.load() by STORY-008, where sqlglot is
+    # installed -- the way PATTERN_PROFILE_DEFAULT's membership check lives in
+    # pattern_config.load(). Consumed by STORY-008.
+    ACTION_SQL_DIALECT: str = ""
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -485,10 +516,11 @@ class Settings(BaseSettings):
         "PIPELINE_MAX_WORKERS",
         "PATTERN_MAX_SCAN_CHARACTERS",
         "PII_MAX_CHARACTERS_CODE",
+        "ACTION_MAX_ARGUMENT_CHARACTERS",
     )
     @classmethod
     def _validate_positive_limit(cls, value: int, info) -> int:
-        """Each of these bounds a resource that cannot be 0 or negative (PRD-010, PRD-011, PRD-012)."""
+        """Each of these bounds a resource that cannot be 0 or negative (PRD-010, PRD-011, PRD-012, PRD-016)."""
         if value < 1:
             description = _POSITIVE_LIMIT_DESCRIPTIONS[info.field_name]
             raise ValueError(

@@ -42,6 +42,7 @@ import yaml
 
 from app.config import settings
 from app.models.messages import Role
+from app.services import strict_yaml
 from app.services.pattern_detector import (
     PatternCompileError,
     compile_pattern,
@@ -558,15 +559,18 @@ def load() -> None:
     every pattern is compiled here, so that a request-time match is a
     `re.Pattern.search` and nothing more.
 
-    `yaml.safe_load` only, which also refuses the `!!python/...` tags that make
-    YAML loading dangerous; a writable `PATTERNS_FILE` is the trust boundary
-    `RBAC_ROLES_FILE` already sits on and claims no new mitigation (PRD-011
-    Section 9.2, T7).
+    `strict_yaml.safe_load` only -- `yaml.safe_load`'s loader underneath, which
+    also refuses the `!!python/...` tags that make YAML loading dangerous; a
+    writable `PATTERNS_FILE` is the trust boundary `RBAC_ROLES_FILE` already
+    sits on and claims no new mitigation (PRD-011 Section 9.2, T7).
 
-    One documented limit: PyYAML resolves duplicate mapping keys silently,
-    last one winning, so a file with `lists:` written twice loses one of them
-    with no error. Detecting it needs a custom loader; if a second YAML config
-    arrives (PRD-015), a shared strict loader is the place to fix it once.
+    A mapping key written twice, at any depth, is a startup error (PRD-016
+    D13). PyYAML alone keeps the last one silently, so a file with `lists:`
+    written twice used to lose one of them with no error. `strict_yaml` is the
+    shared strict loader this docstring once asked for, and `action_config`
+    uses it too. A `PATTERNS_FILE` that loaded before because of a hidden
+    duplicate now stops the boot with the key and its line named; that is the
+    one behaviour change PRD-016 makes to PRD-011 (Risk 8).
 
     `PATTERN_PROFILE_DEFAULT` is cross-checked against the profiles about to be
     in force on **both** paths. With a file, after the profiles parse and
@@ -591,7 +595,7 @@ def load() -> None:
         raise PatternConfigError(f"Failed to read PATTERNS_FILE '{path}': {exc}") from exc
 
     try:
-        document = yaml.safe_load(raw)
+        document = strict_yaml.safe_load(raw)
     except yaml.YAMLError as exc:
         raise PatternConfigError(f"Failed to parse PATTERNS_FILE '{path}': {exc}") from exc
 

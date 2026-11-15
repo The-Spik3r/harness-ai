@@ -36,6 +36,7 @@ As a platform operator, I want the action policy documented as shipped, with the
 
 ## Technical Notes
 
+- Orchestrator note (STORY-004): the README/docs state the Cline 4.x argument shapes the built-in mappings do not read and therefore deny as `tool.malformed`: `run_commands` top-level `{command, args?}` / `{command}`, `read_files` with `files` as strings or a string, `paths` as an object, and bare JSON strings/arrays. Two spellings of one target in a call are `tool.malformed` by design.
 - Follow the PRD-011 STORY-013 and PRD-015 STORY-019 doc stories for structure and tone.
 - State plainly in the README that the harness never executes tools, and that `arguments_preview` can hold up to 500 characters of a denied secret read (T10).
 - From STORY-001 (`threat-model.md` S5, S6, S9, S10): tell Cline deployments as well as OpenCode ones to set `workspace.roots` (both send absolute paths); explain that MCP tool names arrive prefixed and must be mapped in `tools:`; state PRD D15 (directory search can return secret contents; keep secrets outside the workspace); map `apply_patch` in the sample.
