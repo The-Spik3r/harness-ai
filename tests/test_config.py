@@ -1338,8 +1338,8 @@ def test_env_example_base_url_comment_states_the_t10_rule():
 # --- PRD-016 STORY-005: action policy settings ---
 #
 # Nothing reads these three yet: action_config (STORY-006/007/008) and
-# action_policy (STORY-014) are the consumers. Their .env.example lines belong
-# to STORY-020, and the check that ACTION_SQL_DIALECT names a dialect sqlglot
+# action_policy (STORY-014) are the consumers. Their .env.example lines are
+# STORY-020's (the last two tests of this section), and the check that ACTION_SQL_DIALECT names a dialect sqlglot
 # knows belongs to STORY-008's action_config.load().
 
 _ACTION_VARS = ("ACTION_POLICY_FILE", "ACTION_MAX_ARGUMENT_CHARACTERS", "ACTION_SQL_DIALECT")
@@ -1387,3 +1387,23 @@ def test_action_policy_file_is_not_read_by_settings(tmp_path):
     missing = str(tmp_path / "missing.yaml")
 
     assert _settings(DATABASE_URL=_LOCAL_URL, ACTION_POLICY_FILE=missing).ACTION_POLICY_FILE == missing
+
+
+def test_env_example_documents_the_action_policy_vars_with_a_comment():
+    """PRD-016 STORY-020 AC 3: all three present, each with a comment line above."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _ACTION_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_action_policy_defaults_match_settings():
+    """The documented values are the defaults, and the vars follow Settings order."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _ACTION_VARS}
+
+    assert _env_example_value(text, "ACTION_POLICY_FILE") == defaults["ACTION_POLICY_FILE"]
+    assert int(_env_example_value(text, "ACTION_MAX_ARGUMENT_CHARACTERS")) == defaults["ACTION_MAX_ARGUMENT_CHARACTERS"]
+    assert _env_example_value(text, "ACTION_SQL_DIALECT") == defaults["ACTION_SQL_DIALECT"]
+    positions = [text.index(f"{var}=") for var in _ACTION_VARS]
+    assert positions == sorted(positions)

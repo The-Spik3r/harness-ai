@@ -211,6 +211,43 @@ Rows written before PRD-013 return `null` for the six nullable fields and `false
 
 It is a hash of text this endpoint's reader can already identify through `user_id` and the previews, and it is not reversible. `GET /audit` does not filter on it; the admin console's Register search does.
 
+### `GET /audit/actions` (requires `audit:read:all` or `audit:read:own`)
+
+The action policy's decisions, newest first, one entry per tool call, allowed ones included. **Empty until PRD-017 calls the engine**: nothing in the request path writes a row yet (see [Action policy rules](features.md#action-policy-rules)). Scoped exactly like `GET /audit`: `audit:read:all` reads every user's rows, `audit:read:own` only the caller's, and neither is a `403` naming `audit:read:own`.
+
+```bash
+curl "http://localhost:8000/audit/actions?decision=deny&limit=1"   -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+```json
+{
+  "entries": [
+    {
+      "id": 41,
+      "timestamp": "2026-11-20T14:02:11Z",
+      "audit_id": null,
+      "user_id": "dev-1",
+      "role": "user",
+      "tool_call_id": "call_9",
+      "tool_name": "query",
+      "operation_kind": "sql",
+      "target_preview": "DROP TABLE users",
+      "decision": "deny",
+      "rule": "sql.ddl",
+      "reason": "destructive SQL is not permitted: DROP",
+      "granted_by": null,
+      "classifications": [{"rule": "sql.ddl", "kind": "sql", "detail": "DROP"}],
+      "policy_digest": "sha256:3f1c…"
+    }
+  ]
+}
+```
+
+- `?limit=` is `1` to `500` (default `100`); `?decision=` is `allow`, `flag` or `deny`, and any other value is a `422`.
+- `classifications` lists everything the classifiers saw, not only the rule that decided; `kind` is `null` for `tool.unknown` and `tool.malformed`. `audit_id` is `null` until PRD-017 links a decision to its `audit_logs` row.
+- `arguments_preview`, `arguments_hash` and `session_id` are on the stored row but deliberately **not** on this entry: the target is what the rule judged. There is no `total`.
+- The Docker Caddyfile routes `/audit/actions` to the API (`tests/test_caddyfile_routes.py`).
+
 ### `GET /stats` (requires `stats:read`)
 
 ```bash
@@ -231,13 +268,18 @@ curl http://localhost:8000/stats \
   "top_pii_entities": ["EMAIL_ADDRESS", "PERSON"],
   "input_tokens": 412880,
   "output_tokens": 96410,
-  "blocked_usage_limits": 4
+  "blocked_usage_limits": 4,
+  "actions_denied": 0,
+  "actions_flagged": 0,
+  "actions_allowed": 0
 }
 ```
 
 `input_tokens` and `output_tokens` are sums over every audit row, with a row that recorded no split counted as `0`, so on a deployment upgraded from before PRD-013 they cover only the rows written since. `blocked_usage_limits` counts usage-limit refusals. Those rows are `success=true`, so they count in `success_rate` the way duplicate blocks do. The admin console's Summary shows the same three figures.
 
-`pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows. Both count what was analyzed: a `code` row's response was not, so it can only be flagged on input. No ingress runs `code` today, so the figures are what they were.
+`actions_denied`, `actions_flagged` and `actions_allowed` count `action_decisions` rows by decision. They are additive, and `0` until PRD-017 calls the action policy.
+
+`pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows. Both count what was analyzed: a `code` row's response was not, so it can only be flagged on input. `/v1` is the one ingress that runs `code`, so its rows can only be flagged on input.
 
 **`blocked_suspicious` counts blocks only.** It used to count every row with a matched pattern, which was the same thing while every hit blocked. A `flag` row matches a pattern without blocking, so counting it would inflate the security figure an admin watches; flags are excluded here and in the admin console's summary. Rows written before this release carry no `pattern_action` and still count — every one of them was a block — so no historical figure moves, and a deployment with no `tool` traffic sees no change at all.
 

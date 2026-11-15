@@ -7,10 +7,10 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Evidence"
-status: todo
+status: in-progress
 labels: [docs, tests]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
+plan: .agents/plans/PRD-016-action-policy-rules/STORY-020-docs-and-promotion.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-018, STORY-019]
