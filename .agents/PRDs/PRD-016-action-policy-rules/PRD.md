@@ -2,7 +2,7 @@
 id: PRD-016
 slug: action-policy-rules
 title: Action Policy Rules — Every Tool Call Classified, Decided per Role and Audited Before It Leaves the Harness
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-016-action-policy-rules
 created: 2026-11-15

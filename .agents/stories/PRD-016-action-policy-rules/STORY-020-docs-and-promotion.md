@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Evidence"
-status: in-progress
+status: done
 labels: [docs, tests]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: .agents/plans/PRD-016-action-policy-rules/STORY-020-docs-and-promotion.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-020-docs-and-promotion.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-020-docs-and-promotion.report.md
+commit: f4cf292
 depends_on: [STORY-002, STORY-018, STORY-019]
 blocks: []
 skills: []
