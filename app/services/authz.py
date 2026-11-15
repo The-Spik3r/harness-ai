@@ -13,18 +13,47 @@ PERMISSION_AUDIT_READ_ALL = "audit:read:all"
 PERMISSION_AUDIT_READ_OWN = "audit:read:own"
 PERMISSION_STATS_READ = "stats:read"
 
+# Action permissions (PRD-016 Section 6.7, D6). Each lifts one or more
+# grantable action rules from their default to `allow` for a role that
+# holds it; the action policy file names these, never a role. Granted
+# only through RBAC_ROLES_FILE -- no built-in role holds one.
+PERMISSION_ACTION_SQL_WRITE = "action:sql:write"
+PERMISSION_ACTION_SQL_DDL = "action:sql:ddl"
+PERMISSION_ACTION_SHELL_EXEC = "action:shell:exec"
+PERMISSION_ACTION_FS_WRITE = "action:fs:write"
+PERMISSION_ACTION_NET_EGRESS = "action:net:egress"
+PERMISSION_ACTION_SECRET_READ = "action:secret:read"
+
+# The closed vocabulary a rule's `grant` is validated against at startup
+# (PRD-016 Section 9.3, STORY-007).
+ACTION_PERMISSIONS = frozenset(
+    {
+        PERMISSION_ACTION_SQL_WRITE,
+        PERMISSION_ACTION_SQL_DDL,
+        PERMISSION_ACTION_SHELL_EXEC,
+        PERMISSION_ACTION_FS_WRITE,
+        PERMISSION_ACTION_NET_EGRESS,
+        PERMISSION_ACTION_SECRET_READ,
+    }
+)
+
 _KNOWN_PERMISSIONS = {
     PERMISSION_QUERY_SUBMIT,
     PERMISSION_QUERY_BYOK,
     PERMISSION_AUDIT_READ_ALL,
     PERMISSION_AUDIT_READ_OWN,
     PERMISSION_STATS_READ,
+    # Known, so RBAC_ROLES_FILE can grant them through load()'s existing
+    # unknown-permission check (PRD-016 F9).
+    *ACTION_PERMISSIONS,
 }
 
 # Role -> permission matrix (PRD-005 Section 7). A policy table, not
 # conditionals -- a role absent here, or a permission absent from a role's
 # set, denies by default. Overridable at startup via RBAC_ROLES_FILE
-# (STORY-007); this is the built-in fallback.
+# (STORY-007); this is the built-in fallback. No built-in role holds an
+# action permission, `admin` included: an agent acting for an admin is not
+# administering the harness (PRD-016 D6).
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {
         PERMISSION_QUERY_SUBMIT,
@@ -134,6 +163,26 @@ def authorize(identity: Identity, permission: str) -> None:
     role_permissions = ROLE_PERMISSIONS.get(identity.role)
     if role_permissions is None or permission not in role_permissions:
         raise PermissionDenied(permission)
+
+
+def holds(identity: Identity, permission: str) -> bool:
+    """Whether the identity's role holds `permission` in the loaded matrix,
+    with **no** RBAC_ENABLED bypass (PRD-016 D7, Section 6.7, T4).
+
+    Not a wrapper over authorize(): authorize() returns at once when
+    RBAC_ENABLED=false (PRD-005's escape hatch for running without users).
+    Reused for action grants, that hatch would hand all six action
+    permissions to every caller and turn every grantable action rule into
+    `allow`. This reads ROLE_PERMISSIONS and nothing else -- not settings.
+    With RBAC off identities still carry a role, and that role holds what
+    the matrix says, which in the built-in matrix is no action permission.
+
+    Deny by default, as authorize(): a role absent from the matrix holds
+    nothing. Returns a bool rather than raising because the caller
+    (action_policy.evaluate(), STORY-014) chooses between a rule's grant and
+    its default; a missing grant is not an error. authorize() is unchanged.
+    """
+    return permission in ROLE_PERMISSIONS.get(identity.role, ())
 
 
 def authorize_model(identity: Identity, model: str) -> None:

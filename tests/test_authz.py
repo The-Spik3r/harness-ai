@@ -11,8 +11,15 @@ import pytest
 import app.services.authz as authz
 from app.config import settings
 from app.services.authz import (
+    ACTION_PERMISSIONS,
     AuthzConfigError,
     MODEL_ALLOWLIST_WILDCARD_ROLES,
+    PERMISSION_ACTION_FS_WRITE,
+    PERMISSION_ACTION_NET_EGRESS,
+    PERMISSION_ACTION_SECRET_READ,
+    PERMISSION_ACTION_SHELL_EXEC,
+    PERMISSION_ACTION_SQL_DDL,
+    PERMISSION_ACTION_SQL_WRITE,
     PERMISSION_AUDIT_READ_ALL,
     PERMISSION_AUDIT_READ_OWN,
     PERMISSION_QUERY_BYOK,
@@ -22,6 +29,7 @@ from app.services.authz import (
     ROLE_PERMISSIONS,
     authorize,
     authorize_model,
+    holds,
     load,
 )
 from app.services.identity import Identity
@@ -247,3 +255,122 @@ def test_rbac_disabled_bypasses_model_check(monkeypatch):
     identity = Identity(user_id="u", role="user")
 
     assert authorize_model(identity, "not-a-real-model") is None
+
+
+# --- PRD-016 STORY-003: action permissions and holds() ---
+
+# Transcribed from PRD-016 Section 6.7, literal on purpose: the test checks
+# the values, not only that six names exist.
+_ACTION_PERMISSION_VALUES = (
+    "action:sql:write",
+    "action:sql:ddl",
+    "action:shell:exec",
+    "action:fs:write",
+    "action:net:egress",
+    "action:secret:read",
+)
+
+
+def test_action_permission_constants_match_prd_016_section_6_7():
+    assert PERMISSION_ACTION_SQL_WRITE == "action:sql:write"
+    assert PERMISSION_ACTION_SQL_DDL == "action:sql:ddl"
+    assert PERMISSION_ACTION_SHELL_EXEC == "action:shell:exec"
+    assert PERMISSION_ACTION_FS_WRITE == "action:fs:write"
+    assert PERMISSION_ACTION_NET_EGRESS == "action:net:egress"
+    assert PERMISSION_ACTION_SECRET_READ == "action:secret:read"
+    assert isinstance(ACTION_PERMISSIONS, frozenset)
+    assert ACTION_PERMISSIONS == frozenset(_ACTION_PERMISSION_VALUES)
+
+
+def test_known_permissions_are_the_original_five_plus_the_six():
+    """PRD-016 F9: the six join the known set, so RBAC_ROLES_FILE can grant
+    them through load()'s existing unknown-permission check."""
+    assert authz._KNOWN_PERMISSIONS == set(ALL_PERMISSIONS) | ACTION_PERMISSIONS
+    assert len(authz._KNOWN_PERMISSIONS) == 11
+
+
+@pytest.mark.parametrize("role", ["admin", "auditor", "user"])
+def test_no_built_in_role_holds_an_action_permission(role):
+    """PRD-016 D6: no built-in role holds an action permission, admin included."""
+    assert ROLE_PERMISSIONS[role].isdisjoint(ACTION_PERMISSIONS)
+
+
+def test_built_in_roles_are_exactly_the_three_parametrized():
+    # Guards the parametrization above: a new built-in role cannot slip past it.
+    assert set(ROLE_PERMISSIONS) == {"admin", "auditor", "user"}
+
+
+def test_load_accepts_an_action_permission_grant(tmp_path, monkeypatch, _reset_role_permissions):
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text(json.dumps({"dba": ["query:submit", "action:sql:write"]}))
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+
+    load()
+
+    assert authz.ROLE_PERMISSIONS == {"dba": {PERMISSION_QUERY_SUBMIT, PERMISSION_ACTION_SQL_WRITE}}
+    assert holds(Identity(user_id="d", role="dba"), PERMISSION_ACTION_SQL_WRITE) is True
+
+
+def test_load_refuses_a_misspelled_action_permission(tmp_path, monkeypatch, _reset_role_permissions):
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text(json.dumps({"dba": ["action:sql:writ"]}))
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+    before = dict(authz.ROLE_PERMISSIONS)
+
+    with pytest.raises(AuthzConfigError) as exc_info:
+        load()
+
+    assert "action:sql:writ" in str(exc_info.value)
+    assert str(roles_file) in str(exc_info.value)
+    assert authz.ROLE_PERMISSIONS == before
+
+
+@pytest.mark.parametrize("rbac_enabled", [False, True])
+@pytest.mark.parametrize("role", ["user", "admin"])
+@pytest.mark.parametrize("permission", sorted(_ACTION_PERMISSION_VALUES))
+def test_holds_is_false_for_a_role_without_the_permission(monkeypatch, rbac_enabled, role, permission):
+    """PRD-016 D7, T4: no bypass, with RBAC off as with RBAC on."""
+    monkeypatch.setattr(settings, "RBAC_ENABLED", rbac_enabled)
+
+    assert holds(Identity(user_id="u", role=role), permission) is False
+
+
+@pytest.mark.parametrize("rbac_enabled", [False, True])
+def test_holds_is_true_for_a_role_with_the_permission(monkeypatch, rbac_enabled):
+    monkeypatch.setattr(settings, "RBAC_ENABLED", rbac_enabled)
+    monkeypatch.setattr(authz, "ROLE_PERMISSIONS", {"dba": {PERMISSION_ACTION_SQL_WRITE}})
+    identity = Identity(user_id="d", role="dba")
+
+    assert holds(identity, "action:sql:write") is True
+    assert holds(identity, "action:sql:ddl") is False
+
+
+@pytest.mark.parametrize("rbac_enabled", [False, True])
+def test_holds_is_false_for_a_role_absent_from_the_matrix(monkeypatch, rbac_enabled):
+    monkeypatch.setattr(settings, "RBAC_ENABLED", rbac_enabled)
+
+    assert holds(Identity(user_id="u", role="superadmin"), "action:sql:write") is False
+
+
+def test_holds_does_not_inherit_authorize_rbac_off_bypass(monkeypatch):
+    """PRD-016 D7, Section 6.7: with RBAC_ENABLED=false, authorize() still
+    returns (PRD-005's escape hatch, unchanged) while holds() says False --
+    the hatch never grants an action permission."""
+    monkeypatch.setattr(settings, "RBAC_ENABLED", False)
+    identity = Identity(user_id="u", role="user")
+
+    assert authorize(identity, PERMISSION_ACTION_SQL_WRITE) is None
+    assert holds(identity, PERMISSION_ACTION_SQL_WRITE) is False
+
+
+def test_holds_reads_the_matrix_load_installed(tmp_path, monkeypatch, _reset_role_permissions):
+    # load() rebinds the module global; holds() must read it at call time.
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text(json.dumps({"dba": ["action:fs:write"]}))
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+    identity = Identity(user_id="d", role="dba")
+    assert holds(identity, PERMISSION_ACTION_FS_WRITE) is False
+
+    load()
+
+    assert holds(identity, PERMISSION_ACTION_FS_WRITE) is True

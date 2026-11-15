@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: small
 phase: "1 - Threat model and vocabulary"
-status: todo
+status: done
 labels: [backend, rbac, security]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-003-rule-vocabulary-and-action-permissions.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-003-rule-vocabulary-and-action-permissions.report.md
+commit: pending
 depends_on: []
 blocks: [STORY-004, STORY-006]
 skills: []
@@ -28,11 +28,11 @@ As a platform operator, I want action permissions to be ordinary RBAC permission
 
 ## Acceptance Criteria
 
-- [ ] Given `app/services/authz.py`, when imported, then it defines the six constants `PERMISSION_ACTION_SQL_WRITE` … `PERMISSION_ACTION_SECRET_READ` with the values in PRD Section 6.7, an `ACTION_PERMISSIONS` frozenset of exactly those six, and `_KNOWN_PERMISSIONS` contains the original five plus the six.
-- [ ] Given the built-in `ROLE_PERMISSIONS`, when inspected, then no role (`admin`, `auditor`, `user`) holds any action permission.
-- [ ] Given an `RBAC_ROLES_FILE` granting `dba` the permission `action:sql:write`, when `authz.load()` runs, then it loads; given one granting `action:sql:writ`, then it raises `AuthzConfigError` naming the permission.
-- [ ] Given `holds(identity, "action:sql:write")` with `RBAC_ENABLED=false` and a role that does not hold it, when called, then it returns `False` (no bypass); with a role that holds it, then `True`; with a role absent from the matrix, then `False`.
-- [ ] Given `app/services/action_classifiers/__init__.py`, when imported, then `RuleId` is a `Literal` of exactly the 25 rule ids in PRD Section 6.3, `OperationKind` is `Literal["shell", "sql", "fs_write", "fs_read", "http"]`, `Decision` is `Literal["allow", "flag", "deny"]`, `Classification` is the frozen dataclass of Section 6.2, and `NON_GRANTABLE_RULES` is exactly the ten deny rules of T5.
+- [x] Given `app/services/authz.py`, when imported, then it defines the six constants `PERMISSION_ACTION_SQL_WRITE` … `PERMISSION_ACTION_SECRET_READ` with the values in PRD Section 6.7, an `ACTION_PERMISSIONS` frozenset of exactly those six, and `_KNOWN_PERMISSIONS` contains the original five plus the six.
+- [x] Given the built-in `ROLE_PERMISSIONS`, when inspected, then no role (`admin`, `auditor`, `user`) holds any action permission.
+- [x] Given an `RBAC_ROLES_FILE` granting `dba` the permission `action:sql:write`, when `authz.load()` runs, then it loads; given one granting `action:sql:writ`, then it raises `AuthzConfigError` naming the permission.
+- [x] Given `holds(identity, "action:sql:write")` with `RBAC_ENABLED=false` and a role that does not hold it, when called, then it returns `False` (no bypass); with a role that holds it, then `True`; with a role absent from the matrix, then `False`.
+- [x] Given `app/services/action_classifiers/__init__.py`, when imported, then `RuleId` is a `Literal` of exactly the 25 rule ids in PRD Section 6.3, `OperationKind` is `Literal["shell", "sql", "fs_write", "fs_read", "http"]`, `Decision` is `Literal["allow", "flag", "deny"]`, `Classification` is the frozen dataclass of Section 6.2, and `NON_GRANTABLE_RULES` is exactly the ten deny rules of T5.
 
 ## Technical Notes
 
