@@ -308,7 +308,7 @@ tools:                            # replaces the built-in mapping wholesale when
   edit:          { kind: fs_write, target: filePath }
   read:          { kind: fs_read,  target: filePath }
   webfetch:      { kind: http,     target: url }
-  apply_patch:   { kind: fs_write, target: patchText }  # paths are read from the patch headers
+  apply_patch:   { kind: fs_write, target: patchText, format: patch }  # paths are read from the patch headers
   run_sql:       { kind: sql,      target: query }
 
 opaque_tools:                     # allowed without reading their arguments

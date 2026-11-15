@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Threat model and vocabulary"
-status: todo
+status: done
 labels: [backend, security, adapters]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-004-tool-call-adapter-layer.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-004-tool-call-adapter-layer.report.md
+commit: pending
 depends_on: [STORY-001, STORY-003]
 blocks: [STORY-006, STORY-014]
 skills: []
@@ -28,11 +28,11 @@ As a security admin, I want every tool call mapped to the operation it performs,
 
 ## Acceptance Criteria
 
-- [ ] Given `ToolCall(id="c1", name="bash", arguments='{"command": "ls"}')` and the built-in mappings, when `map_tool_call` runs, then it returns `Operations((Operation(kind="shell", target="ls", source_tool="bash"),))`.
-- [ ] Given each built-in mapping recorded in `SOURCES.md` (STORY-001), when a call with a realistic argument object is mapped, then it yields the documented kind and target; a tool STORY-001 found to name several paths yields one `fs_write` per path.
-- [ ] Given `arguments` equal to `"not json"`, `"[]"`, `"{}"` (target key missing), `'{"command": 3}'` (non-string target), or a string longer than the `max_argument_characters` argument, when mapped, then the result is `Malformed(detail)`, and for the over-length case `json.loads` is never called.
-- [ ] Given a tool name in no mapping, when mapped, then the result is `Unknown()`; given the name in the `opaque_tools` mapping passed in, then `Opaque(decision)` with the configured decision.
-- [ ] Given the module, when imported, then it imports no `settings` and performs no I/O (asserted with the import-graph test pattern used for `pattern_detector`).
+- [x] Given `ToolCall(id="c1", name="bash", arguments='{"command": "ls"}')` and the built-in mappings, when `map_tool_call` runs, then it returns `Operations((Operation(kind="shell", target="ls", source_tool="bash"),))`.
+- [x] Given each built-in mapping recorded in `SOURCES.md` (STORY-001), when a call with a realistic argument object is mapped, then it yields the documented kind and target; a tool STORY-001 found to name several paths yields one `fs_write` per path.
+- [x] Given `arguments` equal to `"not json"`, `"[]"`, `"{}"` (target key missing), `'{"command": 3}'` (non-string target), or a string longer than the `max_argument_characters` argument, when mapped, then the result is `Malformed(detail)`, and for the over-length case `json.loads` is never called.
+- [x] Given a tool name in no mapping, when mapped, then the result is `Unknown()`; given the name in the `opaque_tools` mapping passed in, then `Opaque(decision)` with the configured decision.
+- [x] Given the module, when imported, then it imports no `settings` and performs no I/O (asserted with the import-graph test pattern used for `pattern_detector`).
 
 ## Technical Notes
 

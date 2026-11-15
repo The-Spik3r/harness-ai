@@ -38,6 +38,7 @@ As a security admin, I want a built-in action policy that denies every dangerous
 
 - New `app/services/action_config.py`, mirroring `pattern_config.py`: `ActionConfigError`, frozen `Rule(default, grant)`, frozen `ActionPolicy` (rules, tools, opaque_tools, shell_allow, network_allow, workspace_roots, secrets), `BUILT_IN_POLICY`, private `_policy`, `get_policy()`, `policy_digest()`, and a `load()` that in this story only handles the empty setting.
 - The built-in policy is built from module data through a `_validate(policy)` function that STORY-007 extends into the full file validator, so the floor cannot drift into a shape a file would be refused for (PRD F8).
+- Orchestrator decision (STORY-004 plan): the built-in `opaque_tools` is **empty**. The `none` tools of SOURCES.md (OpenCode `todowrite`, `task`, ...; Cline `search_codebase`, ...) are `tool.unknown` (deny) until a deployment names them, which is the D1 floor. State this in the AC2 test.
 - Digest: SHA-256 over a canonical JSON of the effective policy (sorted keys), not over file bytes, so comments and key order do not change it.
 - Globs are compiled once here (`**` translated by the module), protected-path globs case-insensitive (T6).
 - Tests: new `tests/test_action_config.py` (built-in and digest cases); extend the lifespan tests that already assert `pattern_config.load()` runs in both lifespans.
