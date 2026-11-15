@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-008 | SQL classifier with sqlglot — read, write, unscoped write, DDL, DCL, unparsed | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-008-sql-classifier.plan.md) | `a45ae85` |
 | STORY-009 | Shell classifier, part 1: reject-scan, shlex tokenization, segments, wrappers and shell.unclassifiable | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-009-shell-tokenizer-and-unclassifiable.plan.md) | `4b220ce` |
 | STORY-010 | Shell classifier, part 2: allowlist, destructive flags, pipe-to-interpreter, inline interpreters, installs, services | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-010-shell-command-rules.plan.md) | `48f74eb` |
-| STORY-011 | Filesystem path rules — normalization, workspace containment, protected paths | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-011-filesystem-path-rules.plan.md) | `pending` |
+| STORY-011 | Filesystem path rules — normalization, workspace containment, protected paths | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-011-filesystem-path-rules.plan.md) | `13a2de4` |
 | STORY-012 | Network egress rules — URL parse, IDNA, allowlist, reserved addresses | feature | ⬜ todo | small | — | — |
 | STORY-013 | Secret access rules, and shell embedding of SQL, URLs and secret reads | feature | ⬜ todo | medium | — | — |
 | STORY-014 | Decision engine: evaluate(), grants via holds(), most-severe-wins, safe reasons, fail closed | feature | ⬜ todo | medium | — | — |
