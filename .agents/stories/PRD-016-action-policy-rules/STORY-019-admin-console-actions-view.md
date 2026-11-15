@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Evidence"
-status: todo
+status: done
 labels: [frontend, admin, audit]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-019-admin-console-actions-view.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-019-admin-console-actions-view.report.md
+commit: pending
 depends_on: [STORY-016]
 blocks: [STORY-020]
 skills: [frontend-design]

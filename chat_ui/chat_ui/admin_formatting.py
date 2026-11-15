@@ -18,13 +18,15 @@ reaches the row.
 
 `to_usage_rows` is the Usage table's counterpart (PRD-013 STORY-016): it turns
 `UsageDay` counters into `UsageRow`s, resolving each budget with the gate's own
-`limits_for`.
+`limits_for`. `to_action_rows` is the Actions view's (PRD-016 STORY-019): it
+names every `ActionDecisionRow` field it copies and reads none of the
+arguments preview, the arguments hash, the session or the classifications.
 """
 
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.db.models import AuditLog, UsageDay
+from app.db.models import ActionDecisionRow, AuditLog, UsageDay
 
 # By name, never the module: `usage_limits` also holds the counter writers
 # (`admit`, `charge`), and the console must not be able to reach them
@@ -37,7 +39,7 @@ from .admin_copy import (
     DETAIL_FLAG_YES_LABEL,
     USAGE_BUDGET_UNLIMITED,
 )
-from .admin_models import AuditRow, UsageRow
+from .admin_models import ActionRow, AuditRow, UsageRow
 from .formatting import humanize_compact
 
 # The register's outcome vocabulary (PRD-006 Section 6). These are values, not
@@ -66,6 +68,14 @@ VERDICT_HELD = "held"
 VERDICT_DENIED = "denied"
 VERDICT_FAULT = "fault"
 VERDICTS = (VERDICT_CLEARED, VERDICT_HELD, VERDICT_DENIED, VERDICT_FAULT)
+
+# The Actions view's decision vocabulary (PRD-016 STORY-019): the `rx.match` keys
+# and the filter values. Deny first, as `VERDICTS` runs its exceptions first;
+# `tests/test_actions_view.py` binds the set to `ACTION_DECISION_VALUES`.
+DECISION_DENY = "deny"
+DECISION_FLAG = "flag"
+DECISION_ALLOW = "allow"
+DECISIONS = (DECISION_DENY, DECISION_FLAG, DECISION_ALLOW)
 
 # What a cell shows when its source column is NULL. One mark for every column,
 # so "no value on this row" reads the same everywhere on the register.
@@ -369,3 +379,40 @@ def to_usage_rows(days: list[UsageDay]) -> list[UsageRow]:
         )
         for day, identity, budget, tokens_today, share in measured
     ]
+
+
+# --- The Actions view (PRD-016 STORY-019) -----------------------------------
+
+
+def to_action_rows(
+    decisions: list[ActionDecisionRow], now: Optional[datetime] = None
+) -> list[ActionRow]:
+    """The stored action decisions as the Actions view's rows, in the order given.
+
+    `list_action_decisions` returns newest first (`ORDER BY id DESC`) and that
+    order stands. Every field is named explicitly; `arguments_preview`,
+    `arguments_hash`, `session_id` and `classifications` are not read. `now` is
+    a parameter so the relative time is deterministic and a window of rows
+    shares one clock read.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    rows = []
+    for decision in decisions:
+        relative, absolute = _format_timestamps(decision.timestamp, now)
+        rows.append(
+            ActionRow(
+                timestamp_relative=relative,
+                timestamp_absolute=absolute,
+                user_id=decision.user_id,
+                role=_text(decision.role),
+                tool_name=decision.tool_name,
+                operation_kind=_text(decision.operation_kind),
+                target=_text(decision.target_preview),
+                rule=_text(decision.rule),
+                reason=_text(decision.reason),
+                decision=decision.decision,
+                allowed_by=_text(decision.granted_by),
+            )
+        )
+    return rows

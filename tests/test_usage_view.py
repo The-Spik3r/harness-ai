@@ -431,6 +431,16 @@ class _Console:
         )
         monkeypatch.setattr(admin_state_mod, "summary_snapshot", self._summary)
         monkeypatch.setattr(admin_state_mod, "usage_snapshot", self._usage)
+        # PRD-016 (STORY-019): `load()` also reads the Actions view; stubbed
+        # empty here (fixture only) so these Usage tests never reach a database.
+        monkeypatch.setattr(
+            admin_state_mod, "list_action_decisions", lambda **_kwargs: []
+        )
+        monkeypatch.setattr(
+            admin_state_mod,
+            "count_action_decisions",
+            lambda: {"allow": 0, "flag": 0, "deny": 0},
+        )
 
     def _summary(self, row_limit, ranked_limit):
         if self.summary_raises is not None:

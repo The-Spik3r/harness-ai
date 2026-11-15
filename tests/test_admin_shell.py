@@ -60,6 +60,9 @@ EXPECTED_ROUTES = {
     "ROUTE_SUMMARY": "/admin/stats",
     # PRD-013 (STORY-016): the Usage view.
     "ROUTE_USAGE": "/admin/usage",
+    # PRD-016 (STORY-019): the Actions view. A pinned set extended, as
+    # PRD-013 STORY-016 extended it for Usage; no existing entry changes.
+    "ROUTE_ACTIONS": "/admin/actions",
 }
 
 # Taken by app/routers/admin.py, tests/test_route_reservations.py and the
@@ -98,6 +101,9 @@ ADMIN_MODULE_PATTERNS = (
     "chat_ui/chat_ui/components/admin_*.py",
     "chat_ui/chat_ui/components/register.py",
     "chat_ui/chat_ui/components/summary.py",
+    # PRD-016 (STORY-019): the Actions view is an admin module too, so the
+    # focus-ring, width-pin and no-auto-refresh guards cover it.
+    "chat_ui/chat_ui/components/actions.py",
 )
 
 # PRD-006 Section 4, out of scope, verbatim: "Auto-refresh, polling, or push
@@ -151,6 +157,8 @@ APP_SOURCE_PATH = REPO_ROOT / "chat_ui" / "chat_ui" / "chat_ui.py"
 # listed here because this census is exhaustive for the whole app.
 EXPECTED_PAGE_KEYS = [
     "admin",
+    # PRD-016 (STORY-019): the Actions view.
+    "admin/actions",
     "admin/audit",
     "admin/stats",
     # PRD-013 (STORY-016): the Usage view.
@@ -164,7 +172,14 @@ EXPECTED_PAGE_KEYS = [
 # The console's own routes -- what the sitemap exclusion below is about. The
 # Reports pages are public and belong in the sitemap, so they are not in here.
 # PRD-013 (STORY-016): "admin/usage" joins them.
-CONSOLE_PAGE_KEYS = ["admin", "admin/audit", "admin/stats", "admin/usage"]
+# PRD-016 (STORY-019): "admin/actions" joins them.
+CONSOLE_PAGE_KEYS = [
+    "admin",
+    "admin/actions",
+    "admin/audit",
+    "admin/stats",
+    "admin/usage",
+]
 
 # Reserved by Reflex >=0.8; restated from tests/test_route_reservations.py, which
 # this story must leave unmodified. Asserting it from the console's side too means
@@ -186,9 +201,11 @@ try:
     import reflex as rx
     from chat_ui import admin_copy
     from chat_ui.components.admin_shell import (
+        ROUTE_ACTIONS,
         ROUTE_REGISTER,
         ROUTE_SUMMARY,
         ROUTE_USAGE,
+        VIEW_ACTIONS,
         VIEW_REGISTER,
         VIEW_SUMMARY,
         VIEW_USAGE,
@@ -223,6 +240,9 @@ factories = [
     # PRD-013 (STORY-016): the third view's masthead and page.
     ("admin_masthead(usage)", lambda: admin_masthead(VIEW_USAGE)),
     ("admin_page(usage)", lambda: admin_page(rx.box("x"), VIEW_USAGE)),
+    # PRD-016 (STORY-019): the fourth view's masthead and page.
+    ("admin_masthead(actions)", lambda: admin_masthead(VIEW_ACTIONS)),
+    ("admin_page(actions)", lambda: admin_page(rx.box("x"), VIEW_ACTIONS)),
     ("refresh_control", lambda: refresh_control()),
     ("refreshed_stamp", lambda: refreshed_stamp()),
     ("fault_panel", lambda: fault_panel()),
@@ -254,6 +274,7 @@ result["page_has_sign_out"] = admin_copy.SIGN_OUT_LABEL in page
 register_masthead = built.get("admin_masthead(register)", "")
 summary_masthead = built.get("admin_masthead(summary)", "")
 usage_masthead = built.get("admin_masthead(usage)", "")
+actions_masthead = built.get("admin_masthead(actions)", "")
 result["masthead_words"] = {
     "register_has_register": admin_copy.CONSOLE_VIEW_REGISTER in register_masthead,
     "register_has_summary_word": admin_copy.CONSOLE_VIEW_SUMMARY in register_masthead,
@@ -271,16 +292,28 @@ result["masthead_words"] = {
     # and every view marks itself current.
     "both_have_switch_labels": all(
         label in masthead
-        for masthead in (register_masthead, summary_masthead, usage_masthead)
+        # PRD-016 (STORY-019): four destinations on every view, Actions included.
+        for masthead in (
+            register_masthead,
+            summary_masthead,
+            usage_masthead,
+            actions_masthead,
+        )
         for label in (
             admin_copy.VIEW_REGISTER_LABEL,
             admin_copy.VIEW_SUMMARY_LABEL,
             admin_copy.VIEW_USAGE_LABEL,
+            admin_copy.VIEW_ACTIONS_LABEL,
         )
     ),
     "both_mark_current": all(
         'aria-current' in masthead
-        for masthead in (register_masthead, summary_masthead, usage_masthead)
+        for masthead in (
+            register_masthead,
+            summary_masthead,
+            usage_masthead,
+            actions_masthead,
+        )
     ),
 }
 
@@ -296,11 +329,13 @@ result["routes"] = {
     "ROUTE_REGISTER": ROUTE_REGISTER,
     "ROUTE_SUMMARY": ROUTE_SUMMARY,
     "ROUTE_USAGE": ROUTE_USAGE,
+    "ROUTE_ACTIONS": ROUTE_ACTIONS,
 }
 result["views"] = {
     "VIEW_REGISTER": VIEW_REGISTER,
     "VIEW_SUMMARY": VIEW_SUMMARY,
     "VIEW_USAGE": VIEW_USAGE,
+    "VIEW_ACTIONS": VIEW_ACTIONS,
 }
 
 print(json.dumps(result))
@@ -437,8 +472,8 @@ def test_console_routes_do_not_collide_with_the_backend(probe):
 def test_view_keys_are_distinct(probe):
     assert not probe["errors"], probe["errors"]
     assert probe["views"]["VIEW_REGISTER"] != probe["views"]["VIEW_SUMMARY"]
-    # PRD-013 (STORY-016): three keys, all distinct.
-    assert len(set(probe["views"].values())) == 3
+    # PRD-013 (STORY-016): three keys, all distinct. PRD-016 (STORY-019): four.
+    assert len(set(probe["views"].values())) == 4
 
 
 # --- The source assertions ------------------------------------------------

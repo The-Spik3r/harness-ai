@@ -280,6 +280,63 @@ EMPTY_USAGE_BODY = (
     "00:00 UTC; Refresh to read them again."
 )
 
+# --- Actions (PRD-016 STORY-019) -----------------------------------------
+# The Actions view: what agents tried to do and what the action policy decided.
+# Plain words for what an operator controls and recognises (frontend-design):
+# "Denied", "Flagged", "Allowed", never the `deny`/`flag`/`allow` enum values.
+VIEW_ACTIONS_LABEL = "Actions"
+
+# Named as the object of "Could not read ___" (FAULT_MESSAGE_TEMPLATE). Not one
+# of the thirteen summary reads: it has its own fault, so a failure here never
+# blanks the Register, the summary or Usage.
+READ_LABEL_ACTIONS = "the action decisions"
+
+# The filter strip's eyebrow and its four chips. The chips re-read the database
+# for the chosen decision (a 500-row window of "all" would hide every old deny
+# once volume arrives), so the strip is named for what it shows, not "Filter".
+ACTIONS_FILTER_LABEL = "Show"
+ACTIONS_FILTER_DENIED_LABEL = "Denied"
+ACTIONS_FILTER_FLAGGED_LABEL = "Flagged"
+ACTIONS_FILTER_ALLOWED_LABEL = "Allowed"
+ACTIONS_FILTER_ALL_LABEL = "All"
+
+# Column heads; "Time", "User" and "Role" are the shared constants above.
+# "Allowed by" is the permission that let the role through the rule.
+COLUMN_TOOL = "Tool"
+COLUMN_OPERATION = "Operation"
+COLUMN_TARGET = "Target"
+COLUMN_RULE = "Rule"
+COLUMN_DECISION = "Decision"
+COLUMN_ALLOWED_BY = "Allowed by"
+COLUMN_OPERATION_TITLE = "What the call does to its target, as the tool reported it"
+COLUMN_RULE_TITLE = "The rule that decided. A rule's own hover gives the reason it recorded."
+COLUMN_ALLOWED_BY_TITLE = (
+    "The permission that lets this role through the rule. Empty when the "
+    "decision did not depend on one."
+)
+
+# One lowercase label per decision, the `VERDICT_*_LABEL` rule: the case is
+# applied by `text_transform` so a tag and a sentence cannot disagree.
+DECISION_DENY_LABEL = "denied"
+DECISION_FLAG_LABEL = "flagged"
+DECISION_ALLOW_LABEL = "allowed"
+
+# The scope line states the window against the true total (PRD-006 Risk 4):
+# "500 most recent of 1,204 denied". "All" reads "of 1,204 recorded".
+ACTIONS_SCOPE_TEMPLATE = "{shown} most recent of {total} {decision}"
+ACTIONS_SCOPE_ALL = "recorded"
+
+# The empty view says what it will contain, why it is empty, and the action.
+EMPTY_ACTIONS_TITLE_TEMPLATE = "No {decision} actions recorded."
+EMPTY_ACTIONS_ALL_TITLE = "No actions recorded."
+# Time-bound by design: PRD-017 connects the engine and must reword this body.
+EMPTY_ACTIONS_BODY = (
+    "This view lists what agents tried to do and what the action policy "
+    "decided, denied first. It is empty because nothing calls the policy "
+    "engine yet: decisions start to appear when PRD-017 connects it. Refresh "
+    "to read again."
+)
+
 # --- Filter and sort controls --------------------------------------------
 FILTER_VERDICT_LABEL = "Verdict"
 FILTER_SEARCH_LABEL = "Find"

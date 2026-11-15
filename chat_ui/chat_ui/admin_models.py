@@ -108,3 +108,33 @@ class UsageRow(pydantic.BaseModel):
     budget: str = ""
     used: str = ""
     denied: str = ""
+
+
+class ActionRow(pydantic.BaseModel):
+    """One row of the Actions view: one tool call and what the policy decided.
+
+    A projection of `app/db/models.py:ActionDecisionRow` (PRD-016 F11), the
+    `AuditRow` rule: every value is a pre-formatted string and the component
+    reads fields and computes nothing. Like `AuditRow` it has **no** field for
+    `arguments_preview`, `arguments_hash`, `session_id` or `classifications`:
+    they are storage aids (`ActionDecisionEntry` omits them for the same
+    reason), and a field here is one binding from the screen.
+    `tests/test_actions_view.py` fails if one comes back.
+    """
+
+    timestamp_relative: str = ""
+    timestamp_absolute: str = ""
+    user_id: str = ""
+    role: str = ""
+    tool_name: str = ""
+    operation_kind: str = ""
+    # As stored: already redacted at write by `action_audit.record`.
+    target: str = ""
+    rule: str = ""
+    reason: str = ""
+    # One of the `admin_formatting.DECISIONS` keys. Defaults to "" rather than
+    # "allow": an unpopulated row must not claim it passed, so the component's
+    # `rx.match` needs a default arm (the `AuditRow.verdict` rule).
+    decision: str = ""
+    # The permission that lifted the rule (`granted_by`), or the absent mark.
+    allowed_by: str = ""

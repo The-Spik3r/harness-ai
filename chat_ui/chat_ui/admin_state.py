@@ -18,7 +18,9 @@ attribute and hand back the write path the named imports deny. The Usage
 table's read (PRD-013 STORY-016) is imported the same way, by name:
 `usage_snapshot` reads `usage_daily`, and neither counter writer
 (`admit_usage`, `charge_usage`) nor `usage_limits.admit`/`charge` is reachable
-from this module.
+from this module. So are the Actions view's two reads (PRD-016 STORY-019),
+`list_action_decisions` and `count_action_decisions`; `insert_action_decisions`
+is not imported.
 
 The gate is **not an oracle**. Every failure — an empty token, a wrong-length
 token, a wrong token of the right length — sets the same message and leaves
@@ -36,6 +38,9 @@ import reflex as rx
 
 from app.config import settings
 from app.db.database import (
+    # PRD-016 STORY-019: the Actions view's two reads, the same functions
+    # `GET /audit/actions` and `/stats` use. `insert_action_decisions` stays out.
+    count_action_decisions,
     count_audit_logs,
     count_blocked_duplicates,
     count_blocked_suspicious,
@@ -43,6 +48,7 @@ from app.db.database import (
     count_pii_detected_queries,
     count_successful_queries,
     count_unique_users,
+    list_action_decisions,
     list_audit_logs,
     sum_input_tokens,
     sum_output_tokens,
@@ -73,6 +79,13 @@ from .admin_copy import (
     FIGURE_TOP_USERS_LABEL,
     FIGURE_TOTAL_LABEL,
     FIGURE_UNIQUE_USERS_LABEL,
+    ACTIONS_SCOPE_ALL,
+    ACTIONS_SCOPE_TEMPLATE,
+    DECISION_ALLOW_LABEL,
+    DECISION_DENY_LABEL,
+    DECISION_FLAG_LABEL,
+    EMPTY_ACTIONS_ALL_TITLE,
+    EMPTY_ACTIONS_TITLE_TEMPLATE,
     FILTER_DESCRIPTION_JOIN,
     FILTER_DESCRIPTION_SEARCH_TEMPLATE,
     FILTER_DESCRIPTION_VERDICT_JOIN,
@@ -90,6 +103,7 @@ from .admin_copy import (
     VERDICT_DENIED_LABEL,
     VERDICT_FAULT_LABEL,
     VERDICT_HELD_LABEL,
+    READ_LABEL_ACTIONS,
     READ_LABEL_BLOCKED_DUPLICATES,
     READ_LABEL_BLOCKED_SUSPICIOUS,
     READ_LABEL_INPUT_TOKENS,
@@ -110,6 +124,9 @@ from .admin_copy import (
     FAULT_MESSAGE_TEMPLATE as LOAD_FAILED_MESSAGE,
 )
 from .admin_formatting import (
+    DECISION_ALLOW,
+    DECISION_DENY,
+    DECISION_FLAG,
     SHARE_UNDEFINED,
     VERDICT_CLEARED,
     VERDICT_DENIED,
@@ -119,10 +136,11 @@ from .admin_formatting import (
     format_count,
     format_refreshed_at,
     format_share,
+    to_action_rows,
     to_audit_row,
     to_usage_rows,
 )
-from .admin_models import AuditRow, SummaryFigure, UsageRow
+from .admin_models import ActionRow, AuditRow, SummaryFigure, UsageRow
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
 # pagination past 100 rows out of scope, and `list_audit_logs` is the only
@@ -201,6 +219,69 @@ USAGE_STATES = (
     USAGE_STATE_EMPTY,
     USAGE_STATE_ROWS,
 )
+
+# The Actions view's window (PRD-016 STORY-019): the newest this many decisions of
+# the chosen kind. Equal to `app.routers.admin.ACTIONS_LIMIT_MAX`, the ceiling
+# `GET /audit/actions` accepts; typed once here because the console imports read
+# functions only, never a router (`tests/test_actions_view.py` asserts the two
+# agree).
+ACTIONS_ROW_LIMIT = 500
+
+# The four filter keys the Actions chips write, and the Actions view's render
+# states in the order `actions_state` resolves them. Keys, not copy. "all" is a
+# key of this view alone (it is no decision); `""` is the unset default and
+# reads as Denied, because the view exists to find denies and every var must
+# default falsy for `sign_out()`'s `reset()`.
+ACTIONS_FILTER_DENY = DECISION_DENY
+ACTIONS_FILTER_FLAG = DECISION_FLAG
+ACTIONS_FILTER_ALLOW = DECISION_ALLOW
+ACTIONS_FILTER_ALL = "all"
+ACTIONS_FILTERS = (
+    ACTIONS_FILTER_DENY,
+    ACTIONS_FILTER_FLAG,
+    ACTIONS_FILTER_ALLOW,
+    ACTIONS_FILTER_ALL,
+)
+ACTIONS_STATE_FAULT = "read_failed"
+ACTIONS_STATE_EMPTY = "no_decisions"
+ACTIONS_STATE_ROWS = "rows"
+ACTIONS_STATES = (
+    ACTIONS_STATE_FAULT,
+    ACTIONS_STATE_EMPTY,
+    ACTIONS_STATE_ROWS,
+)
+
+# The sentence word for each filter key (the scope line and the empty title).
+_ACTIONS_WORDS = {
+    ACTIONS_FILTER_DENY: DECISION_DENY_LABEL,
+    ACTIONS_FILTER_FLAG: DECISION_FLAG_LABEL,
+    ACTIONS_FILTER_ALLOW: DECISION_ALLOW_LABEL,
+}
+
+
+def resolve_actions_filter(key: str) -> str:
+    """The filter a stored key means: `""` and anything unknown read as Denied."""
+    return key if key in ACTIONS_FILTERS else ACTIONS_FILTER_DENY
+
+
+def read_actions(key: str) -> tuple[list[ActionRow], dict[str, int]]:
+    """One Actions read: the newest rows of the chosen kind, and the totals.
+
+    Synchronous and blocking, so callers run it in `asyncio.to_thread`; the
+    formatting is inside it so a failure there is this read's fault too.
+    The totals are the whole table's (`/stats`' `actions_*`), which is what lets
+    the scope line say "500 most recent of 1,204 denied" (PRD-006 Risk 4).
+    "all" reads with no decision filter.
+    """
+    key = resolve_actions_filter(key)
+    decision = None if key == ACTIONS_FILTER_ALL else key
+    # `to_action_rows` takes its own clock, so a window of rows shares one read
+    # and this read does not draw on `load()`'s batch clock.
+    rows = to_action_rows(
+        list_action_decisions(limit=ACTIONS_ROW_LIMIT, decision=decision)
+    )
+    return rows, count_action_decisions()
+
 
 # One label per verdict key, for the sentence that names the filter which
 # emptied the register. The same key/label separation
@@ -528,6 +609,23 @@ class AdminState(rx.State):
     # falsy, so `sign_out()`'s `reset()` clears them with no edit there.
     usage_rows: list[UsageRow] = []
     usage_error: str = ""
+
+    # --- Actions (PRD-016 STORY-019) ---------------------------------------
+    # What agents tried to do and what the policy decided, read by their own
+    # statements and failing under their own label: `actions_error`, never
+    # `error`, so a failed read leaves every other view as it is. All defaults
+    # are falsy, so `sign_out()`'s `reset()` clears them. `actions_filter == ""`
+    # is the default, Denied. Unlike the register's filters this one RE-READS
+    # the database for the chosen decision (PRD-006 Section 6's "filtering never
+    # re-reads" is the Register's rule): a 500-row window of every decision
+    # would hide old denies behind newer allows, and deny is the row this view
+    # exists to find. The three counts mirror `/stats`' `actions_*` fields.
+    action_rows: list[ActionRow] = []
+    actions_error: str = ""
+    actions_filter: str = ""
+    actions_denied: int = 0
+    actions_flagged: int = 0
+    actions_allowed: int = 0
 
     # --- Filter and sort --------------------------------------------------
     # Plain state vars, all four. PRD-006 Section 6: "the visible rows are an
@@ -983,6 +1081,58 @@ class AdminState(rx.State):
             return USAGE_STATE_EMPTY
         return USAGE_STATE_ROWS
 
+    @rx.var
+    def actions_state(self) -> str:
+        """Which of the three states the Actions view is showing.
+
+        The `usage_state` order, for its reason: a *first* read that fails
+        leaves `action_rows == []` with `actions_error` set, and rendering that
+        as "No actions recorded." would present a failure as a fact. The fault
+        arm renders the table, the last good rows under the panel naming the
+        read. Dependencies are read off `self` in this body, per the rule
+        `visible_rows` records.
+        """
+        if self.actions_error:
+            return ACTIONS_STATE_FAULT
+        if not self.action_rows:
+            return ACTIONS_STATE_EMPTY
+        return ACTIONS_STATE_ROWS
+
+    @rx.var
+    def actions_selected(self) -> str:
+        """The filter in force, with the unset `""` resolved to Denied, so the
+        chips compare against a real key."""
+        return resolve_actions_filter(self.actions_filter)
+
+    @rx.var
+    def actions_scope(self) -> str:
+        """The window, stated against the true total: "500 most recent of 1,204
+        denied". Formatted here because a component cannot format a count."""
+        key = resolve_actions_filter(self.actions_filter)
+        if key == ACTIONS_FILTER_ALL:
+            total = self.actions_denied + self.actions_flagged + self.actions_allowed
+            word = ACTIONS_SCOPE_ALL
+        else:
+            total = {
+                ACTIONS_FILTER_DENY: self.actions_denied,
+                ACTIONS_FILTER_FLAG: self.actions_flagged,
+                ACTIONS_FILTER_ALLOW: self.actions_allowed,
+            }[key]
+            word = _ACTIONS_WORDS[key]
+        return ACTIONS_SCOPE_TEMPLATE.format(
+            shown=format_count(len(self.action_rows)),
+            total=format_count(total),
+            decision=word,
+        )
+
+    @rx.var
+    def actions_empty_title(self) -> str:
+        """The empty view's title, naming the filter that is empty."""
+        key = resolve_actions_filter(self.actions_filter)
+        if key == ACTIONS_FILTER_ALL:
+            return EMPTY_ACTIONS_ALL_TITLE
+        return EMPTY_ACTIONS_TITLE_TEMPLATE.format(decision=_ACTIONS_WORDS[key])
+
     @rx.event
     def set_token_input(self, text: str):
         self.token_input = text
@@ -1044,6 +1194,20 @@ class AdminState(rx.State):
         # A newly chosen column starts in its natural order — newest first for
         # timestamp, A-Z for user, exceptions first for verdict.
         self.sort_descending = False
+
+    @rx.event
+    def choose_actions_filter(self, key: str):
+        """Chooses which decisions the Actions view lists, then reads them.
+
+        An unknown key changes nothing. Returns `load_actions`: a background
+        event cannot be called from a handler, only returned, the rule
+        `authenticate()` records. The read is the reason this is not a filter
+        over loaded rows (see the `action_rows` declaration).
+        """
+        if key not in ACTIONS_FILTERS:
+            return
+        self.actions_filter = key
+        return AdminState.load_actions
 
     @rx.event
     def clear_filters(self):
@@ -1118,6 +1282,46 @@ class AdminState(rx.State):
         """
         self.reset()
 
+    def _commit_actions(self, rows: list[ActionRow], counts: dict[str, int]):
+        """Writes one Actions read's result. The caller holds the state lock."""
+        self.action_rows = rows
+        self.actions_denied = counts.get(DECISION_DENY, 0)
+        self.actions_flagged = counts.get(DECISION_FLAG, 0)
+        self.actions_allowed = counts.get(DECISION_ALLOW, 0)
+        self.actions_error = ""
+
+    @rx.event(background=True)
+    async def load_actions(self):
+        """Re-reads only the Actions view, for the chosen filter.
+
+        The `load()` gate, twice (outside and inside the lock), for its reason.
+        It does not touch `loading`, so a chip click never locks Refresh, nor
+        the register, the summary or Usage. It writes only `action_rows`, the
+        counts and `actions_error`; the result is committed only if the filter
+        is still the one it read, so of two quick clicks the later wins.
+        """
+        if not self.authenticated:
+            return
+
+        async with self:
+            if not self.authenticated:
+                return
+            key = self.actions_filter
+
+        try:
+            rows, counts = await asyncio.to_thread(read_actions, key)
+        except Exception as exc:
+            async with self:
+                if self.authenticated and self.actions_filter == key:
+                    self.actions_error = LOAD_FAILED_MESSAGE.format(
+                        read=READ_LABEL_ACTIONS, detail=exc
+                    )
+            return
+
+        async with self:
+            if self.authenticated and self.actions_filter == key:
+                self._commit_actions(rows, counts)
+
     @rx.event(background=True)
     async def load(self):
         """Reads the register and the summary, off the event loop.
@@ -1165,6 +1369,11 @@ class AdminState(rx.State):
         which some fields are new and others old, so a figure that fails eighth of
         ten cannot leave a register that half agrees with its summary.
 
+        **The Actions read is separate too** (PRD-016 STORY-019): its own
+        statements, label and `actions_error`, run after usage and before the
+        summary so a failed summary still refreshes it, and a stale result (the
+        filter changed in flight) is not committed.
+
         **The usage read is separate** (PRD-013 STORY-016, F16). Today's
         per-user usage is not a summary figure, so it is not in `_READS` and
         not in `summary_snapshot()`: it is its own statement, one more round
@@ -1195,6 +1404,8 @@ class AdminState(rx.State):
             self.loading = True
             self.error = ""
             self.usage_error = ""
+            self.actions_error = ""
+            actions_key = self.actions_filter
 
         try:
             # One clock read for the whole batch, so the rows' relative times and
@@ -1215,6 +1426,26 @@ class AdminState(rx.State):
                 async with self:
                     self.usage_rows = usage_rows
                     self.usage_error = ""
+
+            # The Actions view's decisions (PRD-016 STORY-019), for the filter in
+            # force when the read began. Its own `try` and label, so a failure
+            # here is `actions_error` and never `error`, and it precedes the
+            # summary read for the reason the usage read does.
+            try:
+                action_rows, action_counts = await asyncio.to_thread(
+                    read_actions, actions_key
+                )
+            except Exception as exc:
+                async with self:
+                    self.actions_error = LOAD_FAILED_MESSAGE.format(
+                        read=READ_LABEL_ACTIONS, detail=exc
+                    )
+            else:
+                async with self:
+                    # Committed only if the admin has not chosen another filter
+                    # while this read was in flight: `load_actions` serves that.
+                    if self.actions_filter == actions_key:
+                        self._commit_actions(action_rows, action_counts)
 
             # One hop, one statement, all ten figures (STORY-010). The limits are
             # passed rather than left to the function's defaults, for the reason

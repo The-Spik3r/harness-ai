@@ -1,6 +1,6 @@
 """The console's frame: the token gate, the masthead, and the switch between
-the views -- Register and Summary since PRD-006, and Usage since PRD-013
-STORY-016.
+the views -- Register and Summary since PRD-006, Usage since PRD-013
+STORY-016 and Actions since PRD-016 STORY-019.
 
 The counterpart to `shell.py`, and a separate module for the same structural
 reason `admin_copy.py` is separate from `copy.py`. Three properties below are
@@ -62,6 +62,11 @@ ROUTE_SUMMARY = "/admin/stats"
 # and one sheet carrying both windows is the misreading PRD-006 Risk 4 is about.
 # Not a backend path, so the Caddyfile's @backend_routes matcher is untouched.
 ROUTE_USAGE = "/admin/usage"
+# PRD-016 STORY-019: the Actions view. Its own view because it is a log of
+# decisions, not a figure on the all-time summary. Not a backend path (the router
+# owns `/audit/actions`), so it falls through the Caddyfile's static matcher and
+# `@backend_routes` is untouched.
+ROUTE_ACTIONS = "/admin/actions"
 
 # Which of the two views a page is. Passed down from the page rather than read
 # off the router: the masthead's correctness would otherwise depend on a string
@@ -70,6 +75,7 @@ ROUTE_USAGE = "/admin/usage"
 VIEW_REGISTER = "register"
 VIEW_SUMMARY = "summary"
 VIEW_USAGE = "usage"
+VIEW_ACTIONS = "actions"
 
 
 def admin_gate() -> rx.Component:
@@ -411,10 +417,10 @@ def admin_masthead(active: str) -> rx.Component:
     PRD-006 Section 6.1: "one column, no sidebar. The two views are peers
     reached from a rule-separated switch in the header, because there are
     exactly two and a sidebar for two destinations is furniture." PRD-013
-    STORY-016 adds Usage as a third peer. Three is still a switch rather than a
-    sidebar: the destinations are still peers, still read in one glance, and a
-    third rule-separated word costs the header nothing the wrap below does not
-    already absorb.
+    STORY-016 adds Usage as a third peer and PRD-016 STORY-019 Actions as a
+    fourth. Four is still a switch rather than a sidebar: the destinations are
+    still peers, still read in one glance, and a fourth rule-separated word
+    costs the header nothing the wrap below does not already absorb.
 
     Refresh takes the same rule-separated slot the switch and sign out take, so
     the header reads as three clusters rather than as a toolbar. The line it
@@ -490,9 +496,21 @@ def admin_masthead(active: str) -> rx.Component:
                     margin_left="0.75rem",
                     border_left=f"1px solid {theme.RULE}",
                 ),
+                # PRD-016 STORY-019: the fourth peer, separated the same way.
+                rx.box(
+                    _view_link(
+                        VIEW_ACTIONS,
+                        admin_copy.VIEW_ACTIONS_LABEL,
+                        ROUTE_ACTIONS,
+                        active,
+                    ),
+                    padding_left="0.75rem",
+                    margin_left="0.75rem",
+                    border_left=f"1px solid {theme.RULE}",
+                ),
                 align="center",
                 spacing="0",
-                # PRD-013 STORY-016: at phone width the three-view switch takes
+                # PRD-013 STORY-016: at phone width the view switch takes
                 # a row of its own (theme.py's narrow-viewport rule), so the
                 # session controls share the next one instead of sign-out
                 # wrapping alone behind a rule that separates it from nothing.

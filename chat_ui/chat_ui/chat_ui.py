@@ -20,10 +20,13 @@ from app.services import (
 )
 
 from chat_ui import theme
+from chat_ui.components.actions import actions
 from chat_ui.components.admin_shell import (
+    ROUTE_ACTIONS,
     ROUTE_REGISTER,
     ROUTE_SUMMARY,
     ROUTE_USAGE,
+    VIEW_ACTIONS,
     VIEW_REGISTER,
     VIEW_SUMMARY,
     VIEW_USAGE,
@@ -105,6 +108,11 @@ def admin_usage_page() -> rx.Component:
     return admin_page(usage(), VIEW_USAGE)
 
 
+# PRD-016 STORY-019: the fourth view, what the action policy decided.
+def admin_actions_page() -> rx.Component:
+    return admin_page(actions(), VIEW_ACTIONS)
+
+
 # Radix resolves its own colour tokens from the theme's appearance, and this
 # line used to read `appearance="light"`. The reason it did is worth keeping,
 # because it is the same reason it now reads "inherit": on a machine set to dark
@@ -152,7 +160,7 @@ app.add_page(index)
 # the switch pointing at a path nothing is registered at.
 #
 # `context={"sitemap": None}` opts each page out of `SitemapPlugin` (rxconfig.py),
-# which would otherwise write all four admin routes into the `public/sitemap.xml`
+# which would otherwise write every admin route into the `public/sitemap.xml`
 # that Caddy serves publicly. The gate is what protects the data; not advertising
 # the console's paths is the posture PRD-006 Section 9 asks for on top of it.
 app.add_page(
@@ -168,6 +176,11 @@ app.add_page(
 app.add_page(
     admin_usage_page,
     route=ROUTE_USAGE,
+    context={"sitemap": None},
+)
+app.add_page(
+    admin_actions_page,
+    route=ROUTE_ACTIONS,
     context={"sitemap": None},
 )
 # /admin is a landing route, not a third view: it renders the same shell (so an
