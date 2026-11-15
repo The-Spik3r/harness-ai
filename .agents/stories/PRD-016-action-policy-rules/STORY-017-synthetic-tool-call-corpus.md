@@ -12,7 +12,7 @@ labels: [tests, security, corpus]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-017-synthetic-tool-call-corpus.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-017-synthetic-tool-call-corpus.report.md
-commit: pending
+commit: e67fd27
 depends_on: [STORY-014, STORY-015]
 blocks: [STORY-018]
 skills: []

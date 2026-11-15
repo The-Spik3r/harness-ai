@@ -3,7 +3,7 @@ story: STORY-017
 prd: PRD-016
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-017-synthetic-tool-call-corpus.plan.md
 epic_branch: epic/PRD-016-action-policy-rules
-commit: pending
+commit: e67fd27
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-016-action-policy-rules/completed/STORY-017-synthetic-tool-call-corpus.plan.md`
 **Epic Branch**: `epic/PRD-016-action-policy-rules`
-**Commit**: `pending`
+**Commit**: `e67fd27`
 
 ## Summary
 
