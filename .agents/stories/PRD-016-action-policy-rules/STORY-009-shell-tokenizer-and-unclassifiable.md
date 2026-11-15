@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Classifiers and the engine"
-status: todo
+status: done
 labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-009-shell-tokenizer-and-unclassifiable.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-009-shell-tokenizer-and-unclassifiable.report.md
+commit: pending
 depends_on: [STORY-006]
 blocks: [STORY-010]
 skills: []
@@ -28,11 +28,11 @@ As a security admin, I want every shell command split into the commands it actua
 
 ## Acceptance Criteria
 
-- [ ] Given `npm test && rm -rf build; ls | wc -l & echo x` (and the same with a newline), when segmented, then the segments are `npm test`, `rm -rf build`, `ls`, `wc -l`, `echo x`, each with the operator that joined it, in order.
-- [ ] Given `r''m -rf /`, `"rm" -rf /`, `\rm -rf /` and `/usr/bin/rm -rf /`, when tokenized and the head is extracted, then the head is `rm` in every case.
-- [ ] Given `sudo rm x`, `env FOO=1 rm x`, `FOO=1 rm x`, `nohup rm x`, `time rm x`, `xargs rm`, `doas rm x`, when the head is extracted, then the wrappers and assignments are stripped and the head is `rm`.
-- [ ] Given any of `ls $(cat x)`, a backtick substitution, `eval "$C"`, `source x.sh`, `. x.sh`, `diff <(a) <(b)`, `cat <<< x`, `$CMD arg`, an unbalanced quote, or nesting of `bash -c` deeper than three levels, when classified, then the result contains `shell.unclassifiable` and the function never raises.
-- [ ] Given the module, when imported, then it reads no settings and performs no I/O; `classify_shell` exposes the segment list for STORY-010 to apply head rules to.
+- [x] Given `npm test && rm -rf build; ls | wc -l & echo x` (and the same with a newline), when segmented, then the segments are `npm test`, `rm -rf build`, `ls`, `wc -l`, `echo x`, each with the operator that joined it, in order.
+- [x] Given `r''m -rf /`, `"rm" -rf /`, `\rm -rf /` and `/usr/bin/rm -rf /`, when tokenized and the head is extracted, then the head is `rm` in every case.
+- [x] Given `sudo rm x`, `env FOO=1 rm x`, `FOO=1 rm x`, `nohup rm x`, `time rm x`, `xargs rm`, `doas rm x`, when the head is extracted, then the wrappers and assignments are stripped and the head is `rm`.
+- [x] Given any of `ls $(cat x)`, a backtick substitution, `eval "$C"`, `source x.sh`, `. x.sh`, `diff <(a) <(b)`, `cat <<< x`, `$CMD arg`, an unbalanced quote, or nesting of `bash -c` deeper than three levels, when classified, then the result contains `shell.unclassifiable` and the function never raises.
+- [x] Given the module, when imported, then it reads no settings and performs no I/O; `classify_shell` exposes the segment list for STORY-010 to apply head rules to.
 
 ## Technical Notes
 

@@ -37,6 +37,7 @@ As an integrating developer, I want ordinary commands like `npm test` and `git s
 
 ## Technical Notes
 
+- Orchestrator note (STORY-009 plan): consume `shell.parse_shell()` (`ShellParse`/`Segment`, see the STORY-009 plan interface section); `shell_allow` is a plain argument (shell.py cannot import action_config). Replace STORY-009's placeholder `shell.unlisted`. The fork bomb is `shell.unclassifiable` after parsing (its head contains `(`); this AC needs a raw-text check on the normalized command so `shell.destructive` is also emitted. Interpreter strings no shell parse reaches (`awk system()`, `trap`, PowerShell `{}` scriptblocks) stay `shell.unlisted` unless D16 covers them.
 - Extend `app/services/action_classifiers/shell.py`. Flags are parsed into a set (short-flag clusters split, long flags mapped) before matching — "matched after normalization, not as strings" (PRD Section 6.8).
 - Interpreter list: `sh`, `bash`, `zsh`, `dash`, `python`, `python3`, `python3.*`, `node`, `perl`, `ruby`, `php`, `pwsh`. An interpreter given a script file is `shell.inline_interpreter` (contents unreadable, PRD Section 6.8).
 - Multi-token allowlist entries match the first N tokens of the segment after the head.
