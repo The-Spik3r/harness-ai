@@ -38,10 +38,10 @@ substitution must not hide what runs (threat T2). Neither function raises.
    unclassifiable.
 
 Inline interpreters (D3, T12): for a POSIX shell head (`sh`, `bash`, `zsh`,
-`dash`, `ksh`) with `-c`, the script is parsed again at `depth + 1` into
-`Segment.inline`; text at depth > `MAX_DEPTH` (3) is unclassifiable without
-being read. What `-c` *means* (`shell.inline_interpreter`), and `pwsh
--Command`, `cmd /c`, `python -c`, are STORY-010's.
+`dash`, `ksh`, any case) with `-c`, the script is parsed again at `depth + 1`
+into `Segment.inline`; text at depth > `MAX_DEPTH` (3) is unclassifiable
+without being read. What `-c` *means* (`shell.inline_interpreter`), and `pwsh
+-Command`, `cmd /c`, `python -c`, are the head rules' (below).
 
 What the real library forced (shlex, Python 3.12), each one failing closed:
 
@@ -68,18 +68,63 @@ What the real library forced (shlex, Python 3.12), each one failing closed:
 
 The interface STORY-010 (head rules) and STORY-013 (embedded SQL, URLs,
 secret reads) consume is `parse_shell`, `ShellParse`, `Segment` and
-`Redirect` as defined below. Until STORY-010, every readable segment
-classifies as the placeholder `shell.unlisted` (deny by default, grantable):
-nothing here is looser than the head rules will be.
+`Redirect` as defined below.
+
+Head rules (STORY-010; Sections 6.3, 6.6, 6.8, D16). Per segment, left to
+right (`_segment_rules`): the `-c` script's classifications; the
+`shell.destructive` and `iex` found in PowerShell/cmd inner text; STORY-013's
+embedded SQL/URL/secret classifications (a named hook, PRD 6.4); then, for a
+readable segment, every danger rule that fires, non-grantable first:
+`shell.destructive`, `shell.pipe_to_interpreter`, `shell.unclassifiable`
+(`Invoke-Expression`/`iex`, D16), `shell.inline_interpreter`,
+`shell.package_install`, `shell.service_control`. Only when none fires is
+the segment `shell.allowlisted` (6.6: the head and the first N-1 args equal
+a `shell.allow` entry's N whitespace-split tokens, exactly) or the floor
+`shell.unlisted`. So an allowlisted `npm` still makes `npm install x` an
+install, and a chain keeps one result per segment for STORY-014 to fold.
+
+- **Heads** are matched case-folded for the danger rules (folding only adds
+  denies; D16 wants PowerShell and cmd heads matched in any case) and
+  exactly for the allowlist. A segment with `sudo`/`doas` or leading
+  assignments is never allowlisted (`GIT_SSH_COMMAND=... git fetch`).
+- **Flags** are normalized into sets, not matched as strings (6.8): GNU
+  short clusters (`-rf`, `-fr`, `-Rf`), long options and their unambiguous
+  prefixes (`--rec`), cmd switches (`/s/q`) and PowerShell parameter
+  prefixes (`-Rec`, `-fo`, `-Recurse:$true`). An ambiguous prefix counts as
+  all its matches (stricter).
+- **PowerShell/cmd inner text** (`pwsh -Command`, `powershell -c`, `cmd /c`)
+  is not POSIX shell: it is parsed one level down and only its
+  `shell.destructive` and `iex` are kept; its other unclassifiable results
+  are dropped (PowerShell's `$(...)` is not a substitution to hide). The
+  code of `python -c`, `node -e`, `perl -e`, `ruby -e`, `php -r`,
+  `-EncodedCommand` and `-File` is not read: `shell.inline_interpreter`
+  only. `python -m MODULE` is not inline (an installed module, like a head).
+- **Raw-text checks** only ever add `shell.destructive`: the fork bomb
+  (`NAME(){ NAME|NAME& }`) anywhere in the text, appended last; and, for
+  text the tokenizer rejected as a whole (`Remove-Item -Recurse -Force C:\\`
+  ends in a backslash), a whitespace-split best-effort `_destructive` scan
+  after its `shell.unclassifiable`. Both add a non-grantable deny to input
+  that is already denied, so neither can loosen anything.
+
+What the head rules do not read (STORY-018 and STORY-020 list them): code
+in another language (`python -c "os.system(...)"`, `awk 'BEGIN{system()}'`),
+`find -exec`/`-delete`, `git -c alias.x='!...'`, `trap`, PowerShell
+scriptblocks, `Start-Process`, `Invoke-Command`, heads outside the 6.3/D16
+tables (`format`, `diskpart`, `winget`, `dnf`, `halt`), and PowerShell
+`rm -r X` without force (read as POSIX `rm`, 6.3). They stay
+`shell.unlisted` (deny, grantable), or `shell.allowlisted` when a deployment
+allowlists their head: an allowlist entry is trust in the whole head. Output
+redirect targets (`ls > ~/.bashrc`) are STORY-013's, routed through the
+path rules.
 
 Every classification's `operation` is `Operation("shell", command,
 source_tool)` with the **whole input** as the target, as `sql.py` does it.
-The `detail` is the matched fragment of the call (`$(`, `eval`, the head),
-at most 32 characters (T11).
+The `detail` is the matched fragment of the call (`$(`, `eval`, `rm -rf`,
+`| sh`, the head), never a configured value, at most 32 characters (T11).
 
 Pure (PRD-016 Section 6.12): no settings, no I/O. The `shell_allow` list
-STORY-010 needs will arrive as an argument from the caller, never through
-`settings` or `action_config`.
+arrives as an argument from the caller, never through `settings` or
+`action_config`.
 """
 
 import re
@@ -584,11 +629,15 @@ def _head_reason(word: str, head: str) -> Optional[str]:
     return None
 
 
-def _inline_script(argv: tuple[str, ...], head_index: int) -> tuple[Optional[str], Optional[str]]:
-    """For a POSIX shell head: (the `-c` script or None, reason or None) (decision 8)."""
+def _shell_options(argv: tuple[str, ...], head_index: int) -> tuple[int, Optional[str]]:
+    """Walk a POSIX shell head's options: (index of the first word after them, the word that set `-c` or None).
+
+    Without `-c`, a word at that index is the script file the shell runs
+    (`bash x.sh`), which STORY-010 reads as `shell.inline_interpreter`.
+    """
     n = len(argv)
     j = head_index + 1
-    has_c = False
+    c_word: Optional[str] = None
     while j < n:
         word = argv[j]
         if word in ("--", "-"):
@@ -599,14 +648,20 @@ def _inline_script(argv: tuple[str, ...], head_index: int) -> tuple[Optional[str
             continue
         if len(word) > 1 and word[0] in "-+":
             cluster = word[1:]
-            if "c" in cluster:
-                has_c = True
+            if "c" in cluster and c_word is None:
+                c_word = word
             j += 1 + sum(1 for ch in cluster if ch in "oO")
             continue
         break
-    if not has_c:
+    return j, c_word
+
+
+def _inline_script(argv: tuple[str, ...], head_index: int) -> tuple[Optional[str], Optional[str]]:
+    """For a POSIX shell head: (the `-c` script or None, reason or None) (decision 8)."""
+    j, c_word = _shell_options(argv, head_index)
+    if c_word is None:
         return None, None
-    if j >= n:
+    if j >= len(argv):
         return None, "-c"  # `-c` with no script
     return argv[j], None
 
@@ -646,7 +701,8 @@ def _segment(raw: _Raw, depth: int) -> Segment:
         head_index = i
         head = _basename(argv[i])
         reason = _head_reason(argv[i], head)
-        if reason is None and head in _POSIX_SHELLS:
+        # Folded (STORY-010 decision 7): `BASH -c 'rm -rf /'` must be read too.
+        if reason is None and head.lower() in _POSIX_SHELLS:
             script, reason = _inline_script(argv, head_index)
             if script is not None:
                 inline = parse_shell(script, depth + 1)
@@ -695,21 +751,519 @@ def parse_shell(command: str, depth: int = 0) -> ShellParse:
         return ShellParse(text, depth, (), "")
 
 
-def _flatten(parse: ShellParse, op: Operation) -> list[Classification]:
-    """Per segment, left to right: its inline script's classifications, then its own (PRD 6.4)."""
+
+
+# --- Head rules (STORY-010): tables -------------------------------------------
+
+#: `rm`'s recursive and force flags (6.3 `shell.destructive`, 6.8 "matched
+#: after normalization"): `-rf`, `-fr`, `-r -f`, `-Rf`, `--recursive --force`.
+_RM_SHORT = {"r": "recursive", "R": "recursive", "f": "force"}
+_RM_LONG = {"recursive": "recursive", "force": "force"}
+#: `chmod`/`chown -R` (6.3). Lowercase `-r` is chmod's "remove read", not recursive.
+_CH_SHORT = {"R": "recursive"}
+_CH_LONG = {"recursive": "recursive"}
+#: 6.3 `shell.destructive`: `rm -r` on one of `/ ~ * .`. The extras close
+#: trivial spellings of the same targets (`..`, `$HOME`, a bare drive `C:`);
+#: trailing `/`, `\`, `/*` and `\*` are stripped first (`~/`, `/*`, `C:\`).
+_DANGEROUS_TARGETS = frozenset({"~", ".", "..", "*", "$HOME", "${HOME}"})
+#: Heads destructive with any arguments (6.3 `mkfs`, `shred`; D16 `Format-Volume`).
+_ALWAYS_DESTRUCTIVE = frozenset({"mkfs", "shred", "format-volume"})
+#: D16: PowerShell's `Remove-Item` and its alias `ri`, destructive with `-Recurse`.
+_PS_REMOVE = frozenset({"remove-item", "ri"})
+#: D16: cmd's `rd`/`rmdir`/`del`/`erase` with `/s` (in PowerShell they alias
+#: `Remove-Item`, so `-Recurse` counts too). POSIX `rmdir` has neither option.
+_CMD_REMOVE = frozenset({"rd", "rmdir", "del", "erase"})
+
+#: 6.3 `shell.pipe_to_interpreter` / `shell.inline_interpreter`: heads that
+#: run code they read. `powershell` and `cmd` are D16's shells. `python`,
+#: `python3`, `python3.11` match `_PYTHON`.
+_INTERPRETERS = frozenset(_POSIX_SHELLS | {"node", "perl", "ruby", "php", "pwsh", "powershell", "cmd"})
+_PYTHON = re.compile(r"python(\d+(\.\d+)*)?")
+_PIPES = frozenset({"|", "|&"})
+#: Redirections through which an interpreter reads its script (`sh < x.sh`).
+_STDIN_REDIRECTS = frozenset({"<", "<>"})
+#: D16: `pwsh`/`powershell` parameters that take code (a prefix of one binds,
+#: so `-c`, `-Com`, `-f`, `-enc` count), plus the alias `-ec`.
+_PS_INLINE_PARAMS = ("command", "commandwithargs", "encodedcommand", "file")
+#: The ones whose value is readable PowerShell text (scanned, decision 5).
+_PS_TEXT_PARAMS = frozenset({"command", "commandwithargs"})
+#: pwsh parameters that take a value, so the value is not read as a script positional.
+_PS_VALUED_PARAMS = (
+    "executionpolicy", "workingdirectory", "outputformat", "inputformat",
+    "windowstyle", "configurationname", "settingsfile",
+)
+#: D16: `Invoke-Expression` runs a string the classifier cannot see.
+_IEX = frozenset({"invoke-expression", "iex"})
+
+#: 6.3 `shell.package_install`: head -> subcommands, any of which as a
+#: positional (before `--`) is an install; None is any arguments (6.3's
+#: `apt*`). npm's list is npm's own aliases of `install`, typos included.
+_PACKAGE_INSTALL: dict[str, Optional[frozenset]] = {
+    "npm": frozenset({
+        "install", "i", "in", "ins", "inst", "insta", "instal",
+        "isnt", "isnta", "isntal", "isntall", "add",
+    }),
+    "pnpm": frozenset({"add"}),
+    "yarn": frozenset({"add", "global"}),
+    "pip": frozenset({"install"}),
+    "uv": frozenset({"add"}),
+    "apt": None,
+    "apt-get": None,
+    "aptitude": None,
+    "brew": frozenset({"install"}),
+    "gem": frozenset({"install"}),
+    "cargo": frozenset({"install"}),
+    "go": frozenset({"install"}),
+}
+#: `pip3`, `pip3.12` read as `pip`.
+_PIP = re.compile(r"pip(\d+(\.\d+)*)?")
+
+#: 6.3 `shell.service_control`, the same shape as `_PACKAGE_INSTALL`.
+_SERVICE_CONTROL: dict[str, Optional[frozenset]] = {
+    "systemctl": None,
+    "service": None,
+    "launchctl": None,
+    "reboot": None,
+    "shutdown": None,
+    "docker": frozenset({"run", "rm", "kill", "stop"}),
+    "podman": frozenset({"run", "rm", "kill", "stop"}),
+    "kubectl": frozenset({"delete", "apply"}),
+}
+
+#: A segment with one of these wrappers is never `shell.allowlisted`
+#: (STORY-010 decision 5): an allowlist entry vouches for the head, not root.
+_PRIVILEGE_WRAPPERS = frozenset({"sudo", "doas"})
+
+#: The classic fork bomb, any function name (orchestrator note): the parse
+#: reads it as `shell.unclassifiable` only (its head holds `(`). A function
+#: whose body pipes the function into itself: `NAME(){ ... NAME|NAME`. The
+#: lookbehind starts a name only at a word start, and the match ends at the
+#: self-pipe (no trailing `[^}]*}`), so a long body cannot make it quadratic.
+_FORK_BOMB = re.compile(r"(?<![^\s;&|(){}])([^\s(){}|&;<>]+)\s*\(\s*\)\s*\{[^}]*?\1\s*\|\s*\1")
+_FALLBACK_SPLIT = re.compile(r"[;&|\r\n]+")
+
+
+# --- Head rules: flag normalizers (Section 6.8) --------------------------------
+
+
+def _flags(args: tuple[str, ...], short: dict, long: dict) -> dict[str, str]:
+    """GNU-style options as canonical names -> the first word that gave each.
+
+    A `-abc` cluster contributes each letter in `short`. A `--name[=v]`
+    contributes every `long` option that `name` is a prefix of (getopt takes
+    unambiguous prefixes; an ambiguous one counts as all its matches,
+    stricter). Scanning stops at `--`.
+    """
+    found: dict[str, str] = {}
+    for word in args:
+        if word == "--":
+            break
+        if word.startswith("--"):
+            name = word[2:].partition("=")[0]
+            if name:
+                for full, canon in long.items():
+                    if full.startswith(name):
+                        found.setdefault(canon, word)
+        elif word.startswith("-") and len(word) > 1:
+            for ch in word[1:]:
+                if ch in short:
+                    found.setdefault(short[ch], word)
+    return found
+
+
+def _positionals(args: tuple[str, ...], *, after_dashdash: bool = True) -> list[str]:
+    """Words that are not options; everything after `--` too unless `after_dashdash` is False."""
+    out: list[str] = []
+    for k, word in enumerate(args):
+        if word == "--":
+            if after_dashdash:
+                out.extend(args[k + 1:])
+            break
+        if not word.startswith("-"):
+            out.append(word)
+    return out
+
+
+def _cmd_switches(args: tuple[str, ...]) -> dict[str, str]:
+    """cmd `/x` switches, lowercased, -> the word (`/s/q` gives `s` and `q`)."""
+    found: dict[str, str] = {}
+    for word in args:
+        if word.startswith("/"):
+            for piece in word.lower().split("/"):
+                if piece:
+                    found.setdefault(piece, word)
+    return found
+
+
+def _ps_param(word: str, names, *, slash: bool = False) -> list[str]:
+    """The `names` that the PowerShell parameter `word` (`-Rec`, `-Recurse:$true`) is a case-insensitive prefix of."""
+    if word.startswith("--") or not (word.startswith("-") or (slash and word.startswith("/"))):
+        return []
+    name = word[1:].partition(":")[0].lower()
+    if not name:
+        return []
+    return [full for full in names if full.startswith(name)]
+
+
+def _ps_params(args: tuple[str, ...], names, *, slash: bool = False) -> dict[str, str]:
+    """PowerShell parameters bound to `names` (D16: unambiguous prefixes bind; ambiguous count as all) -> word."""
+    found: dict[str, str] = {}
+    for word in args:
+        if word == "--":
+            break
+        for full in _ps_param(word, names, slash=slash):
+            found.setdefault(full, word)
+    return found
+
+
+def _is_dangerous_target(word: str) -> bool:
+    w = word
+    while True:
+        for suffix in ("/*", "\\*", "/", "\\"):
+            if w.endswith(suffix):
+                w = w[: -len(suffix)]
+                break
+        else:
+            break
+    return w == "" or w in _DANGEROUS_TARGETS or bool(_DRIVE.fullmatch(w))
+
+
+def _detail(head: str, args: tuple[str, ...], words) -> str:
+    """The head plus the matched words, in argv order, as written (T11: from the call)."""
+    picked = [w for w in dict.fromkeys(words)]
+    picked.sort(key=lambda w: args.index(w) if w in args else len(args))
+    return _cap(" ".join([head, *picked]))
+
+
+# --- Head rules: the rules -----------------------------------------------------
+
+
+def _destructive(head: str, args: tuple[str, ...]) -> Optional[str]:
+    """`shell.destructive`'s detail when the head and its normalized flags are destructive, else None (6.3, D16)."""
+    low = head.lower()
+    if low == "rm":
+        found = _flags(args, _RM_SHORT, _RM_LONG)
+        # PowerShell's `rm` is `Remove-Item`: `-Recurse -Force` count too.
+        for full, word in _ps_params(args, ("recurse", "force")).items():
+            found.setdefault("recursive" if full == "recurse" else "force", word)
+        if "recursive" not in found:
+            return None
+        if "force" in found:
+            return _detail(head, args, [found["recursive"], found["force"]])
+        targets = [w for w in _positionals(args) if _is_dangerous_target(w)]
+        if targets:
+            return _detail(head, args, [found["recursive"], targets[0]])
+        return None
+    if low in _ALWAYS_DESTRUCTIVE or low.startswith("mkfs."):
+        return _cap(head)
+    if low == "dd":
+        for word in args:
+            if word.lower().startswith("of="):
+                return _detail(head, args, [word])
+        return None
+    if low in ("chmod", "chown"):
+        found = _flags(args, _CH_SHORT, _CH_LONG)
+        if "recursive" in found:
+            targets = [w for w in _positionals(args) if _is_dangerous_target(w)]
+            if targets:
+                return _detail(head, args, [found["recursive"], targets[0]])
+        return None
+    if low in _PS_REMOVE:
+        found = _ps_params(args, ("recurse",))
+        return _detail(head, args, [found["recurse"]]) if found else None
+    if low in _CMD_REMOVE:
+        switches = _cmd_switches(args)
+        if "s" in switches:
+            return _detail(head, args, [switches["s"]])
+        found = _ps_params(args, ("recurse",))
+        return _detail(head, args, [found["recurse"]]) if found else None
+    return None
+
+
+def _is_interpreter(low: str) -> bool:
+    return low in _INTERPRETERS or bool(_PYTHON.fullmatch(low))
+
+
+def _python_inline(args: tuple[str, ...]) -> Optional[str]:
+    """The word that makes `python` run code it was handed: a `-c` cluster or a script file. `-m` does not (decision 9)."""
+    k = 0
+    while k < len(args):
+        word = args[k]
+        if word == "--":
+            return args[k + 1] if k + 1 < len(args) else None
+        if word.startswith("--"):
+            k += 2 if word == "--check-hash-based-pycs" else 1
+            continue
+        if word.startswith("-") and len(word) > 1:
+            step = 1
+            for i, ch in enumerate(word[1:], start=1):
+                if ch == "c":
+                    return word
+                if ch == "m":
+                    return None  # an installed module, like the `pytest` head itself
+                if ch in "WX":
+                    step = 1 if i + 1 < len(word) else 2
+                    break
+            k += step
+            continue
+        return word  # `python x.py`, or `python -` (stdin)
+    return None
+
+
+def _cluster_inline(args: tuple[str, ...], letters: str, extra_flags=()) -> Optional[str]:
+    """A short cluster holding one of `letters` (`perl -ne`), a word in `extra_flags`, or the first positional."""
+    for word in args:
+        if word == "--":
+            break
+        if word in extra_flags:
+            return word
+        if word.startswith("-") and not word.startswith("--") and len(word) > 1:
+            if any(ch in letters for ch in word[1:]):
+                return word
+            continue
+        if word.startswith("--"):
+            continue
+        return word
+    positionals = _positionals(args)
+    return positionals[0] if positionals else None
+
+
+def _ps_inline(args: tuple[str, ...], low: str) -> Optional[tuple[str, Optional[str]]]:
+    """`pwsh`/`powershell`: (the triggering word, readable inner text or None) (D16)."""
+    k = 0
+    while k < len(args):
+        word = args[k]
+        if word.lower() in ("-ec", "/ec"):
+            return word, None
+        hits = _ps_param(word, _PS_INLINE_PARAMS, slash=True)
+        if hits:
+            text = " ".join(args[k + 1:]) if set(hits) & _PS_TEXT_PARAMS else None
+            return word, text
+        if _ps_param(word, _PS_VALUED_PARAMS, slash=True):
+            k += 2
+            continue
+        if word.startswith("-"):
+            k += 1
+            continue
+        # pwsh reads a positional as `-File`; Windows PowerShell as `-Command`.
+        return word, (" ".join(args[k:]) if low == "powershell" else None)
+    return None
+
+
+def _cmd_inline(args: tuple[str, ...]) -> Optional[tuple[str, Optional[str]]]:
+    """`cmd /c` and `/k` (any case, `/cdir` attached): (the word, the inner text)."""
+    for k, word in enumerate(args):
+        low = word.lower()
+        if low.startswith("/c") or low.startswith("/k"):
+            return word, " ".join([word[2:], *args[k + 1:]]).strip()
+    return None
+
+
+def _inline_interpreter(segment: Segment, low: str) -> Optional[tuple[str, Optional[str]]]:
+    """`shell.inline_interpreter`: (detail, PowerShell/cmd inner text or None), else None (6.3, 6.8, D16)."""
+    head, args = segment.head, segment.args
+    word: Optional[str] = None
+    inner: Optional[str] = None
+    if low in _POSIX_SHELLS:
+        j, c_word = _shell_options(segment.argv, segment.head_index)
+        if c_word is not None:
+            word = c_word
+        elif j < len(segment.argv):
+            word = segment.argv[j]  # a script file: its contents are unreadable
+    elif _PYTHON.fullmatch(low):
+        word = _python_inline(args)
+    elif low == "node":
+        word = _cluster_inline(args, "ep", ("--eval", "--print"))
+        if word is None:
+            for w in args:
+                if w.startswith("--eval=") or w.startswith("--print="):
+                    word = w
+                    break
+    elif low == "perl":
+        word = _cluster_inline(args, "eE")
+    elif low == "ruby":
+        word = _cluster_inline(args, "e")
+    elif low == "php":
+        word = _cluster_inline(args, "rf")
+    elif low in ("pwsh", "powershell"):
+        hit = _ps_inline(args, low)
+        if hit is not None:
+            word, inner = hit
+    elif low == "cmd":
+        hit = _cmd_inline(args)
+        if hit is not None:
+            word, inner = hit
+    if word is None and _is_interpreter(low) and any(r.op in _STDIN_REDIRECTS for r in segment.redirects):
+        word = "<"
+    if word is None:
+        return None
+    return _cap(f"{head} {word}"), inner
+
+
+def _subcommand(table: dict, low: str, args: tuple[str, ...]) -> Optional[str]:
+    """The subcommand of `table[low]` found among the positionals before `--`, `""` for any-arguments heads, else None."""
+    if low not in table:
+        return None
+    wanted = table[low]
+    if wanted is None:
+        return ""
+    for word in _positionals(args, after_dashdash=False):
+        if word in wanted:
+            return word
+    return None
+
+
+def _package_install(head: str, low: str, args: tuple[str, ...]) -> Optional[str]:
+    """`shell.package_install`'s detail (6.3), else None."""
+    key = "pip" if _PIP.fullmatch(low) else low
+    sub = _subcommand(_PACKAGE_INSTALL, key, args)
+    if sub is None and low == "uv":
+        positionals = _positionals(args, after_dashdash=False)
+        if "pip" in positionals and "install" in positionals:
+            sub = "pip install"
+    if sub is None and _PYTHON.fullmatch(low):
+        # `python -m pip install x` (decision 9: not inline, but an install).
+        for k, word in enumerate(args):
+            module = args[k + 1] if word == "-m" and k + 1 < len(args) else (word[2:] if word.startswith("-m") else "")
+            if _PIP.fullmatch(module):
+                rest = args[k + 2:] if word == "-m" else args[k + 1:]
+                if "install" in _positionals(rest, after_dashdash=False):
+                    sub = "-m pip install"
+                break
+    if sub is None:
+        return None
+    return _cap(f"{head} {sub}" if sub else head)
+
+
+def _service_control(head: str, low: str, args: tuple[str, ...]) -> Optional[str]:
+    """`shell.service_control`'s detail (6.3), else None."""
+    sub = _subcommand(_SERVICE_CONTROL, low, args)
+    if sub is None:
+        return None
+    return _cap(f"{head} {sub}" if sub else head)
+
+
+def _allowlisted(segment: Segment, allow: tuple[tuple[str, ...], ...]) -> bool:
+    """6.6 `shell.allow`: the head and the first N-1 args equal an entry's tokens, exactly (case-sensitive).
+
+    Never for a segment run through `sudo`/`doas` or with assignments in
+    front (`GIT_SSH_COMMAND=... git fetch`, `LD_PRELOAD=x ls`): those run
+    other code under an allowlisted head (decision 5).
+    """
+    if segment.assignments or _PRIVILEGE_WRAPPERS.intersection(segment.wrappers):
+        return False
+    args = segment.args
+    return any(t[0] == segment.head and args[: len(t) - 1] == t[1:] for t in allow)
+
+
+# --- Flattening ------------------------------------------------------------------
+
+
+def _fallback_destructive(text: str, op: Operation) -> list[Classification]:
+    """Best-effort `shell.destructive` for text the tokenizer rejected as a whole (decision 6).
+
+    Split on `; & |` and newlines, then on whitespace, quotes stripped,
+    leading assignments and wrapper names skipped. Only ever adds a
+    non-grantable deny to input that is already a non-grantable
+    `shell.unclassifiable`, so it cannot loosen anything.
+    """
+    out: list[Classification] = []
+    for piece in _FALLBACK_SPLIT.split(text):
+        words = [w.strip("'\"") for w in piece.split()]
+        k = 0
+        while k < len(words) and (_ASSIGNMENT.match(words[k]) or words[k] in _WRAPPERS):
+            k += 1
+        if k < len(words):
+            detail = _destructive(_basename(words[k]), tuple(words[k + 1:]))
+            if detail is not None:
+                out.append(Classification("shell.destructive", op, detail))
+    return out
+
+
+def _inner_dangers(parse: ShellParse, op: Operation) -> list[Classification]:
+    """PowerShell/cmd inner text, read as shell only for `shell.destructive` and `iex` (decision 5).
+
+    Its other `shell.unclassifiable`s are dropped: PowerShell's `$(...)` and
+    `{ }` are not POSIX, and the outer `shell.inline_interpreter` stands. Text
+    past `MAX_DEPTH` is unread, so that one is kept (D3, T12).
+    """
     if parse.unclassifiable is not None:
-        return [Classification("shell.unclassifiable", op, parse.unclassifiable)]
+        if parse.depth > MAX_DEPTH:
+            return [Classification("shell.unclassifiable", op, parse.unclassifiable)]
+        return _fallback_destructive(parse.text, op)
     out: list[Classification] = []
     for segment in parse.segments:
         if segment.inline is not None:
-            out.extend(_flatten(segment.inline, op))
+            out.extend(_inner_dangers(segment.inline, op))
         if segment.unclassifiable is not None:
-            out.append(Classification("shell.unclassifiable", op, segment.unclassifiable))
-        else:
-            # Placeholder until STORY-010's head rules replace it: the deny-by-
-            # default floor for a head nobody has listed (plan decision 1).
-            rule: RuleId = "shell.unlisted"
-            out.append(Classification(rule, op, _cap(segment.head)))
+            continue
+        low = segment.head.lower()
+        if low in ("pwsh", "powershell", "cmd"):
+            hit = _inline_interpreter(segment, low)
+            if hit is not None and hit[1] is not None:
+                out.extend(_inner_dangers(parse_shell(hit[1], parse.depth + 1), op))
+        detail = _destructive(segment.head, segment.args)
+        if detail is not None:
+            out.append(Classification("shell.destructive", op, detail))
+        if low in _IEX:
+            out.append(Classification("shell.unclassifiable", op, _cap(segment.head)))
+    return out
+
+
+def _segment_rules(
+    segment: Segment, depth: int, op: Operation, allow: tuple[tuple[str, ...], ...]
+) -> list[Classification]:
+    """One segment's classifications, in decision 2's order (PRD 6.4: what is embedded comes first)."""
+    out: list[Classification] = []
+    # 1. The POSIX `-c` script, read by STORY-009's recursion.
+    if segment.inline is not None:
+        out.extend(_flatten(segment.inline, op, allow))
+    if segment.unclassifiable is not None:
+        out.append(Classification("shell.unclassifiable", op, segment.unclassifiable))
+        return out
+    head, args = segment.head, segment.args
+    low = head.lower()
+    inline = _inline_interpreter(segment, low)
+    # 2. PowerShell/cmd inner text (decision 5).
+    if inline is not None and inline[1] is not None:
+        out.extend(_inner_dangers(parse_shell(inline[1], depth + 1), op))
+    # 3. STORY-013's hook: the embedded SQL / URL / secret classifications of
+    #    this segment (head, args, assignments, redirects) go here, before the
+    #    head's own rule (PRD 6.4).
+    # 4. The head's danger rules, non-grantable first (decision 2).
+    dangers: list[Classification] = []
+    detail = _destructive(head, args)
+    if detail is not None:
+        dangers.append(Classification("shell.destructive", op, detail))
+    if segment.joined_by in _PIPES and _is_interpreter(low):
+        dangers.append(Classification("shell.pipe_to_interpreter", op, _cap(f"{segment.joined_by} {head}")))
+    if low in _IEX:
+        dangers.append(Classification("shell.unclassifiable", op, _cap(head)))
+    if inline is not None:
+        dangers.append(Classification("shell.inline_interpreter", op, inline[0]))
+    detail = _package_install(head, low, args)
+    if detail is not None:
+        dangers.append(Classification("shell.package_install", op, detail))
+    detail = _service_control(head, low, args)
+    if detail is not None:
+        dangers.append(Classification("shell.service_control", op, detail))
+    out.extend(dangers)
+    # 5. Only when no other rule fired (PRD 6.3): the allowlist, else the floor.
+    if not dangers:
+        rule: RuleId = "shell.allowlisted" if _allowlisted(segment, allow) else "shell.unlisted"
+        out.append(Classification(rule, op, _cap(head)))
+    return out
+
+
+def _flatten(parse: ShellParse, op: Operation, allow: tuple[tuple[str, ...], ...]) -> list[Classification]:
+    """Per segment, left to right, `_segment_rules`; one `shell.unclassifiable` (plus the fallback) for a parse that failed."""
+    if parse.unclassifiable is not None:
+        return [Classification("shell.unclassifiable", op, parse.unclassifiable)] + (
+            _fallback_destructive(parse.text, op) if parse.depth <= MAX_DEPTH else []
+        )
+    out: list[Classification] = []
+    for segment in parse.segments:
+        out.extend(_segment_rules(segment, parse.depth, op, allow))
     return out
 
 
@@ -720,20 +1274,40 @@ def _first_word(text) -> str:
     return _cap(parts[0]) if parts else ""
 
 
-def classify_shell(command: str, *, source_tool: str = "") -> tuple[Classification, ...]:
+def _allow_tokens(shell_allow) -> tuple[tuple[str, ...], ...]:
+    """Each `shell.allow` entry split on whitespace; a non-`str` or blank entry is skipped."""
+    out = []
+    for entry in shell_allow or ():
+        if isinstance(entry, str) and entry.split():
+            out.append(tuple(entry.split()))
+    return tuple(out)
+
+
+def classify_shell(command: str, shell_allow=(), *, source_tool: str = "") -> tuple[Classification, ...]:
     """Classify every simple command in `command`, in order (PRD-016 F3). Never raises.
 
-    One `shell.unclassifiable` for a line that cannot be read as a whole;
-    otherwise one or more classifications per segment (see `_flatten`).
-    `source_tool` names the tool the command came from, for the audit. Any
-    exception becomes one `shell.unclassifiable` whose detail is the input's
-    first word. `BaseException` (KeyboardInterrupt) is deliberately not caught.
+    One `shell.unclassifiable` for a line that cannot be read as a whole
+    (plus the fallback's `shell.destructive`, decision 6); otherwise one or
+    more classifications per segment (see `_segment_rules`). `shell_allow` is
+    the policy's `shell.allow` entries (6.6); the default `()` allowlists
+    nothing, the built-in policy's value. A fork bomb anywhere in the text
+    adds `shell.destructive` last. `source_tool` names the tool the command
+    came from, for the audit. Any exception becomes one
+    `shell.unclassifiable` whose detail is the input's first word.
+    `BaseException` (KeyboardInterrupt) is deliberately not caught.
     """
     target = command if isinstance(command, str) else ""
     op = Operation(kind="shell", target=target, source_tool=source_tool)
     try:
         if not isinstance(command, str):
             return (Classification("shell.unclassifiable", op, ""),)
-        return tuple(_flatten(parse_shell(command), op))
+        allow = _allow_tokens(shell_allow)
+        out = _flatten(parse_shell(command), op, allow)
+        normalized = command.replace("\r\n", "\n").replace("\r", "\n")
+        if "(" in normalized and "|" in normalized:
+            match = _FORK_BOMB.search(normalized)
+            if match is not None:
+                out.append(Classification("shell.destructive", op, _cap(match.group(0))))
+        return tuple(out)
     except Exception:
         return (Classification("shell.unclassifiable", op, _first_word(command)),)

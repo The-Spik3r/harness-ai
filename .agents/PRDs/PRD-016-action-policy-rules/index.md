@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/20 stories done — 45%
+10/20 stories done — 50%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-007 | action_config, part 2: ACTION_POLICY_FILE load, per-id rule merge, wholesale sections, validation, sample file | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-007-action-policy-file-load-and-validation.plan.md) | `7e765b7` |
 | STORY-008 | SQL classifier with sqlglot — read, write, unscoped write, DDL, DCL, unparsed | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-008-sql-classifier.plan.md) | `a45ae85` |
 | STORY-009 | Shell classifier, part 1: reject-scan, shlex tokenization, segments, wrappers and shell.unclassifiable | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-009-shell-tokenizer-and-unclassifiable.plan.md) | `4b220ce` |
-| STORY-010 | Shell classifier, part 2: allowlist, destructive flags, pipe-to-interpreter, inline interpreters, installs, services | feature | ⬜ todo | medium | — | — |
+| STORY-010 | Shell classifier, part 2: allowlist, destructive flags, pipe-to-interpreter, inline interpreters, installs, services | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-010-shell-command-rules.plan.md) | `pending` |
 | STORY-011 | Filesystem path rules — normalization, workspace containment, protected paths | feature | ⬜ todo | medium | — | — |
 | STORY-012 | Network egress rules — URL parse, IDNA, allowlist, reserved addresses | feature | ⬜ todo | small | — | — |
 | STORY-013 | Secret access rules, and shell embedding of SQL, URLs and secret reads | feature | ⬜ todo | medium | — | — |

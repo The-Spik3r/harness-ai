@@ -35,6 +35,7 @@ As a security admin, I want obfuscated versions of every denied call checked in 
 
 ## Technical Notes
 
+- Orchestrator note (STORY-010): candidate evasion rows the shell head tables do not cover yet: `format`, `diskpart`, `Clear-Disk`, winget/choco/dnf/yum/`npm ci`, PowerShell `rm -r X` (no force), and code no parse reaches (`python -c "os.system(..)"`, `find -exec`, `git -c alias.x=!cmd`, awk `system()`). Record each as caught or as a stated limitation.
 - File shape (PRD F12): `{tool_call, of: <synthetic file>, expect: not_allow, technique: "..."}`.
 - Extend `tests/test_action_corpus.py` with the evasion parametrization; seed from the tokenizer cases in STORY-009 and the URL/path cases in STORY-011/011.
 - Each `technique` value comes from a fixed list mirroring the PRD's groups, so the suite can assert every group is covered.
