@@ -162,7 +162,8 @@ _REALISTIC = {
     ("OpenCode", "read", "filePath"): ({"filePath": "/work/README.md", "offset": 0, "limit": 200}, ("/work/README.md",)),
     ("OpenCode", "webfetch", "url"): ({"url": "https://example.com/docs", "format": "markdown"}, ("https://example.com/docs",)),
     ("OpenCode", "glob", "path?"): ({"pattern": "**/*.ts", "path": "/work/src"}, ("/work/src", "**/*.ts")),
-    ("OpenCode", "grep", "path?"): ({"pattern": "TODO", "path": "/work/src", "include": "*.py"}, ("/work/src",)),
+    # PRD-016 D15 (STORY-013): include/file_pattern is an optional second fs_read
+    ("OpenCode", "grep", "path?"): ({"pattern": "TODO", "path": "/work/src", "include": "*.py"}, ("/work/src", "*.py")),
     ("OpenCode", "lsp", "filePath"): ({"operation": "hover", "filePath": "src/a.ts", "line": 1, "character": 2}, ("src/a.ts",)),
     ("Cline 4.x", "run_commands", "commands[]"): (
         {"commands": ["npm test", {"command": "git", "args": ["commit", "-m", "fix: a; b"]}]},
@@ -188,7 +189,8 @@ _REALISTIC = {
     ("Cline 3.x", "replace_in_file", "path"): ({"path": "a.txt", "diff": "<<<<<<< SEARCH"}, ("a.txt",)),
     ("Cline 3.x", "read_file", "path"): ({"path": "src/a.py", "start_line": 1, "end_line": 50}, ("src/a.py",)),
     ("Cline 3.x", "list_files", "path"): ({"path": "src", "recursive": True}, ("src",)),
-    ("Cline 3.x", "search_files", "path"): ({"path": "src", "regex": "TODO", "file_pattern": "*.py"}, ("src",)),
+    # PRD-016 D15 (STORY-013): include/file_pattern is an optional second fs_read
+    ("Cline 3.x", "search_files", "path"): ({"path": "src", "regex": "TODO", "file_pattern": "*.py"}, ("src", "*.py")),
     ("Cline 3.x", "browser_action", "url?"): ({"action": "launch", "url": "https://example.com"}, ("https://example.com",)),
     ("Cline 3.x", "apply_patch", "input (in patch text)"): ({"input": _PATCH}, _PATCH_TARGETS),
     ("MCP postgres (reference server, archived)", "query", "sql"): ({"sql": "SELECT 1"}, ("SELECT 1",)),
@@ -367,6 +369,37 @@ def test_glob_pattern_is_a_second_operation():
     )
 
 
+@pytest.mark.parametrize(
+    "tool, arguments, expected",
+    [
+        ("grep", {"pattern": "x"}, (".",)),
+        ("grep", {"pattern": "x", "include": ""}, (".",)),
+        ("grep", {"pattern": "x", "include": "  "}, (".",)),
+        ("grep", {"pattern": "x", "path": "src", "include": ".env*"}, ("src", ".env*")),
+        ("search_files", {"path": "src", "regex": "x"}, ("src",)),
+        ("search_files", {"path": "src", "regex": "x", "file_pattern": ""}, ("src",)),
+        ("search_files", {"path": "src", "regex": "x", "file_pattern": "*.pem"}, ("src", "*.pem")),
+    ],
+    ids=["absent", "empty", "blank", "present", "sf-absent", "sf-empty", "sf-present"],
+)
+def test_optional_target_is_read_when_present_and_skipped_when_absent(tool, arguments, expected):
+    """PRD-016 D15 (STORY-013): an absent, empty or blank optional target adds no operation."""
+    assert _targets(_map(tool, _args(arguments))) == expected
+
+
+def test_optional_target_present_but_not_a_string_is_malformed():
+    assert _map("grep", _args({"pattern": "x", "include": None})) == Malformed("target 'include' is not a string")
+    assert _map("search_files", _args({"path": "s", "regex": "x", "file_pattern": 3})) == Malformed(
+        "target 'file_pattern' is not a string"
+    )
+
+
+def test_optional_target_with_a_line_break_is_malformed():
+    assert _map("grep", _args({"pattern": "x", "include": "a\nb"})) == Malformed(
+        "target 'include' contains a line break"
+    )
+
+
 def test_glob_without_pattern_is_malformed():
     assert _map("glob", _args({"path": "."})) == Malformed("missing target key 'pattern'")
 
@@ -523,6 +556,10 @@ def test_mapped_name_wins_over_opaque():
         {"kind": "fs_read", "target": "path", "extra_targets": ("a..b",)},
         {"kind": "fs_read", "target": "path", "extra_targets": ["pattern"]},
         {"kind": "fs_read", "target": "path", "extra_targets": (3,)},
+        # PRD-016 D15 (STORY-013): optional_targets is validated like extra_targets.
+        {"kind": "fs_read", "target": "path", "optional_targets": ("a..b",)},
+        {"kind": "fs_read", "target": "path", "optional_targets": ["x"]},
+        {"kind": "fs_read", "target": "path", "optional_targets": (3,)},
     ],
 )
 def test_tool_mapping_rejects_bad_definitions(kwargs):

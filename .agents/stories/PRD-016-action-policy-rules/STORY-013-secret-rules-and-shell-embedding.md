@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Classifiers and the engine"
-status: todo
+status: done
 labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-013-secret-rules-and-shell-embedding.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-013-secret-rules-and-shell-embedding.report.md
+commit: pending
 depends_on: [STORY-008, STORY-010, STORY-011, STORY-012]
 blocks: [STORY-014]
 skills: []

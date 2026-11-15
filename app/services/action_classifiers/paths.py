@@ -2,8 +2,8 @@
 
 `classify_write(path, protected, workspace_roots)` returns exactly one of
 `fs.write_protected`, `fs.write_in_workspace` or `fs.write_outside_workspace`;
-`classify_read(path, secret_files)` returns `fs.read`, or what STORY-013's
-secret hook returns. Both take the policy's data as plain arguments, the way
+`classify_read(path, secret_files)` returns `secret.read` or `fs.read` (F4,
+STORY-013). Both take the policy's data as plain arguments, the way
 `classify_shell` takes `shell_allow` (STORY-011 plan, decision 1), and each
 returns one `Classification`, as F5's `classify_url` does: a path has one
 outcome. STORY-014 wraps it in a tuple.
@@ -69,9 +69,18 @@ opening sentence), and Win32 traversal oddities in containment (`a/.../b`,
 `.. /x` stay literal names, so they count as relative and inside). STORY-018
 and STORY-020 list these.
 
-STORY-013 fills `_secret_read` (a read of a secret file glob is
-`secret.read`, F4) and routes shell output-redirect targets through
-`classify_write` as `fs_write` operations.
+Secret reads (STORY-013, F4). A read is `secret.read` when a compiled
+`secrets.files` glob matches one of the same three candidates protection
+uses (so a directory target `.ssh` matches `.ssh/**`, and `~/.aws/credentials`
+matches `.aws/**`), or when the path is `/proc/<pid>/environ`: a fixed rule,
+the whole environment of a process (PRD F6 "the whole environment: always
+`secret.read`"), not configurable. A read that cannot be classified (a
+non-`str`, any internal `Exception`) is `secret.read` with detail `""`, the
+strictest read outcome, as the write side's is `fs.write_protected`
+(STORY-013 plan, decision D-M). The shell classifier (STORY-013) routes its
+output-redirect targets through `classify_write` and its `<` targets and
+reader-head arguments through `classify_read`; `secrets.classify_secret_read`
+wraps `classify_read` (the import runs `secrets -> paths`, never back).
 
 Every classification's `operation` is `Operation("fs_write" | "fs_read",
 path, source_tool)` with the **whole input** as the target. The `detail` is
@@ -81,8 +90,9 @@ normalized text, at most 32 characters, keeping the **end**, since the tail
 of a path is what names it.
 
 Never raises: a non-`str` path, a bad glob or root entry and any internal
-`Exception` fail closed (a write becomes `fs.write_protected`, the strictest
-outcome, as there is no `fs.unparsed`). `BaseException` is not caught.
+`Exception` fail closed (a write becomes `fs.write_protected`, a read
+`secret.read`: the strictest outcomes, as there is no `fs.unparsed`).
+`BaseException` is not caught.
 
 Pure (PRD-016 Section 6.12): no settings, no I/O, no filesystem; roots and
 globs are arguments.
@@ -99,6 +109,8 @@ _DETAIL_MAX = 32
 _DRIVE = re.compile(r"([A-Za-z]):(/?)(.*)", re.DOTALL)
 # Candidate 3 above: the path as a directory. NUL never occurs in a target.
 _DIR_PROBE = "/\x00"
+# A process's environment (D-J): `/proc/self/environ`, `/proc/1234/environ`.
+_PROC_ENVIRON = re.compile(r"/proc/[^/]+/environ")
 
 
 @dataclass(frozen=True)
@@ -244,28 +256,42 @@ def classify_write(path: str, protected, workspace_roots=(), *, source_tool: str
 
 
 def _secret_read(p: NormalizedPath, secret_files, op: Operation) -> Optional[Classification]:
-    # STORY-013's hook: classify_secret_read(...) goes here (PRD F4: a read of
-    # a secret glob is secret.read, not fs.read). Until then, nothing is a
-    # secret here and every read is fs.read.
+    """`secret.read` for a process environment or a `secrets.files` match (F4, F6; STORY-013), else None.
+
+    The glob match is `_protected_match`'s, inline here rather than in
+    `secrets.py`, so the import runs `secrets -> paths` only (STORY-013 plan,
+    decision D-D).
+    """
+    if p.anchor == "/" and _PROC_ENVIRON.fullmatch(p.text):
+        return Classification("secret.read", op, _cap_tail(p.text))
+    detail = _protected_match(p, secret_files)
+    if detail is not None:
+        return Classification("secret.read", op, detail)
     return None
 
 
 def classify_read(path: str, secret_files=(), *, source_tool: str = "") -> Classification:
     """Classify a read of `path` (PRD-016 F4). Never raises.
 
-    `secret_files` is `policy.secrets.files.compiled`, passed to STORY-013's
-    secret hook; `fs.read` when the hook returns nothing.
+    `secret_files` is `policy.secrets.files.compiled`. `secret.read` when a
+    glob matches (the three candidates of the module docstring) or the path
+    is `/proc/<pid>/environ`; otherwise `fs.read`. The default `()` matches
+    no glob, so a caller must pass the policy's: STORY-014 calls
+    `classify_read(op.target, policy.secrets.files.compiled,
+    source_tool=op.source_tool)`, and STORY-013's shell embedding the same
+    for each reader-head argument and `<` target. A non-`str` path or any
+    exception is `secret.read` with detail `""` (decision D-M).
     """
     op = Operation(kind="fs_read", target=path if isinstance(path, str) else "", source_tool=source_tool)
     try:
         if not isinstance(path, str):
-            return Classification("fs.read", op, "")
+            return Classification("secret.read", op, "")
         p = normalize_path(path)
         hit = _secret_read(p, secret_files, op)
         if hit is not None:
             return hit
         return Classification("fs.read", op, _cap_tail(p.text))
     except Exception:
-        # Unreachable for a `str` input. STORY-013 decides whether a read that
-        # cannot be classified becomes secret.read.
-        return Classification("fs.read", op, "")
+        # Unreachable for a `str` input. A read nobody can classify might be
+        # of a secret: the strictest read outcome (STORY-013, decision D-M).
+        return Classification("secret.read", op, "")

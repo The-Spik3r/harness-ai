@@ -650,6 +650,20 @@ def test_a_tool_mapping_accepts_default_format_and_extra_targets(tmp_path, monke
     assert tools["apply_patch"] == ToolMapping("fs_write", "patchText", format="patch")
 
 
+def test_a_tool_mapping_accepts_optional_targets(tmp_path, monkeypatch):
+    """PRD-016 D15 (STORY-013): `optional_targets` is a list, read into a tuple like `extra_targets`."""
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        """        tools:
+          grep: {kind: fs_read, target: path, default: ".", optional_targets: [include]}
+        """,
+    )
+    assert get_policy().tools["grep"] == ToolMapping(
+        "fs_read", "path", default=".", optional_targets=("include",)
+    )
+
+
 def test_load_ignores_comments_and_key_order_in_the_digest(tmp_path, monkeypatch):
     """PRD-016 Section 4: the digest is over the policy, not the file bytes."""
     _load_text(
@@ -884,8 +898,10 @@ def test_file_refuses_an_unknown_tool_key(tmp_path, monkeypatch):
             "default is only allowed",
         ),
         ("{kind: fs_read, target: path, extra_targets: pattern}", "extra_targets must be a list"),
+        # PRD-016 D15 (STORY-013): the same YAML slip, refused by name.
+        ("{kind: fs_read, target: path, optional_targets: include}", "optional_targets must be a list"),
     ],
-    ids=["format", "target", "default", "extra_targets_string"],
+    ids=["format", "target", "default", "extra_targets_string", "optional_targets_string"],
 )
 def test_file_refuses_a_tool_mapping_the_adapter_rejects(tmp_path, monkeypatch, body, fragment):
     _expect_file(tmp_path, monkeypatch, f"tools:\n  t1: {body}\n", "tools: 't1'", fragment)

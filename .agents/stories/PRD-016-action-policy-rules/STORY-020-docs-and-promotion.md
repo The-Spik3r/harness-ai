@@ -36,6 +36,7 @@ As a platform operator, I want the action policy documented as shipped, with the
 
 ## Technical Notes
 
+- Orchestrator note (STORY-013): document that embedded SQL uses each client's own dialect (psql=postgres, mysql/mariadb=mysql, sqlite3=sqlite), not `ACTION_SQL_DIALECT`; the reader heads treated as secret reads; and the known over-matches of the built-in globs (`.env.example`, `$KEYBOARD`), which are grantable denies.
 - Orchestrator note (STORY-012): document that network matching is by name only (no DNS): a name under an allowlisted wildcard that resolves to a private address (`*.nip.io`, DNS rebinding) is matched; IP literals match only exact IP entries; wildcards never match `localhost`, `*.localhost` or `metadata.google.internal`; IDNA 2003/2008 deviation characters (ß, ς, ZWJ, ZWNJ) are `net.unparsed`.
 - Orchestrator note (STORY-011): path checks are lexical only: symlinks, hard links and 8.3 short names are not resolved (PRD Risk 4); containment is case-sensitive except the drive letter (fails closed on Windows).
 - Orchestrator note (STORY-010): document that a segment with a `sudo`/`doas` wrapper or leading `NAME=value` assignments is never `shell.allowlisted` (e.g. `CI=1 npm test` is unlisted), and that `python -m pip install` is `shell.package_install`.

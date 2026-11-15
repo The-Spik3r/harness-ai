@@ -67,14 +67,14 @@ What the real library forced (shlex, Python 3.12), each one failing closed:
   cannot be a head or a flag.
 
 The interface STORY-010 (head rules) and STORY-013 (embedded SQL, URLs,
-secret reads) consume is `parse_shell`, `ShellParse`, `Segment` and
+secret reads) consumed is `parse_shell`, `ShellParse`, `Segment` and
 `Redirect` as defined below.
 
 Head rules (STORY-010; Sections 6.3, 6.6, 6.8, D16). Per segment, left to
 right (`_segment_rules`): the `-c` script's classifications; the
-`shell.destructive` and `iex` found in PowerShell/cmd inner text; STORY-013's
-embedded SQL/URL/secret classifications (a named hook, PRD 6.4); then, for a
-readable segment, every danger rule that fires, non-grantable first:
+`shell.destructive` and `iex` found in PowerShell/cmd inner text; the
+embedded SQL/URL/secret/write classifications (STORY-013, below, PRD 6.4);
+then, for a readable segment, every danger rule that fires, non-grantable first:
 `shell.destructive`, `shell.pipe_to_interpreter`, `shell.unclassifiable`
 (`Invoke-Expression`/`iex`, D16), `shell.inline_interpreter`,
 `shell.package_install`, `shell.service_control`. Only when none fires is
@@ -113,18 +113,83 @@ scriptblocks, `Start-Process`, `Invoke-Command`, heads outside the 6.3/D16
 tables (`format`, `diskpart`, `winget`, `dnf`, `halt`), and PowerShell
 `rm -r X` without force (read as POSIX `rm`, 6.3). They stay
 `shell.unlisted` (deny, grantable), or `shell.allowlisted` when a deployment
-allowlists their head: an allowlist entry is trust in the whole head. Output
-redirect targets (`ls > ~/.bashrc`) are STORY-013's, routed through the
-path rules.
+allowlists their head: an allowlist entry is trust in the whole head.
 
-Every classification's `operation` is `Operation("shell", command,
-source_tool)` with the **whole input** as the target, as `sql.py` does it.
-The `detail` is the matched fragment of the call (`$(`, `eval`, `rm -rf`,
-`| sh`, the head), never a configured value, at most 32 characters (T11).
+Embedded targets (STORY-013; PRD 6.4, 6.8 step 5, F3, F6). Step 3 of
+`_segment_rules` (`_embedded`) classifies what a readable segment reaches
+with the classifier that owns it, before the head's rule, in this order
+(PRD 6.4 "SQL, network, secret"; argv order within each group):
 
-Pure (PRD-016 Section 6.12): no settings, no I/O. The `shell_allow` list
-arrives as an argument from the caller, never through `settings` or
-`action_config`.
+1. **SQL** (decision D-H): the text of `psql -c`/`--command`, `mysql` and
+   `mariadb -e`/`--execute`/`--init-command`, and `sqlite3 DB SQL...` /
+   `-cmd SQL`, through `sql.classify_sql` in the client's own dialect
+   (`postgres`, `mysql`, `sqlite`), not `ACTION_SQL_DIALECT`, which
+   describes the SQL tool's database, not the binary on the line. psql
+   meta-commands and sqlite dot-commands are `sql.unparsed`.
+2. **Network** (decision D-L): the URLs of `curl`, `wget`, `http` and
+   `https` (HTTPie), through `network.classify_url`. A small GNU-style
+   option walker over per-head tables finds them: every positional (HTTPie:
+   the one after an optional upper-case METHOD; the rest are request
+   items), and the value of a URL-valued option (`-x`/`--proxy`,
+   `--preproxy`, `--url`). A word with no `scheme://` gets `http://` (curl's
+   default, STORY-012 decision; `https://` for the `https` head, and
+   HTTPie's `:3000/x` is `http://localhost:3000/x`). Options that move the
+   real destination out of sight (`curl --resolve`, `--connect-to`,
+   `-K`/`--config`, `--unix-socket`; `wget -e`/`--execute`,
+   `-i`/`--input-file`, `--config`) are `net.unparsed` with the option as
+   the detail (T8). A `http_proxy` / `https_proxy` / `all_proxy`
+   assignment on the segment is a URL too.
+3. **Secret** (F4, F6; decisions D-I, D-J, D-K): the path arguments of a
+   reader head (`_READ_HEADS`: `cat`, `less`, `more`, `head`, `tail`, and
+   the other content readers an allowlist plausibly holds), every option
+   value of a fetcher together with its text after `@` or `<` (`-d @.env`,
+   `-F f=<.env`, `-T .env`), and `<`/`<>`/`<&` targets, through
+   `paths.classify_read` (only a `secret.read` is kept, so `cat src/a.ts`
+   adds nothing, decision D-G); then every `$NAME`/`${NAME}`/`$env:NAME`/
+   `%NAME%` reference in any word of the segment and its redirect targets,
+   for any head (`curl -d "$OPENROUTER_API_KEY"`), against `secrets.env`;
+   then a whole-environment dump, always `secret.read`: `env` with no
+   command, `printenv` with no names, bare `set`, `export` / `export -p`,
+   `declare`/`typeset` with no names. `printenv NAME` and `declare -p NAME`
+   check each name.
+4. **Writes** (decision D-B): output-redirect targets (`>`, `>>`, `>|`,
+   `&>`, `&>>`, `<>`, and `>&` to a file) and a fetcher's output options
+   (`curl -o`/`-D`/`-c`, `wget -O`/`-o`/`-a`/`-P`), through
+   `paths.classify_write`, every result kept, so `ls > ~/.bashrc` under an
+   allowlisted `ls` is `fs.write_outside_workspace`. Devices are exempt:
+   `/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty` exactly, `NUL` and
+   `CON` in any case, `-` for a fetcher's stdout, and a descriptor target of
+   `>&`/`<&` (`2>&1`, `>&-`).
+
+Embedded results are not dangers: they never stop a head from being
+`shell.allowlisted` (`psql` allowlisted gives `sql.ddl, shell.allowlisted`),
+which STORY-014 folds by severity. Each carries the operation of the
+classifier that produced it (`Operation("sql", text)`, `("http", url)`,
+`("fs_read"|"fs_write", word)`, decision D-E); an env reference or a dump
+carries the shell's own operation. All carry the shell's `source_tool`.
+
+What the embedding does not read (STORY-018 and STORY-020 list them): SQL
+from `-f`, `-init`, `<` or a pipe (the head's rule stands, and an
+allowlisted `psql` is trust in the head); `tee`, `cp` destinations, `dd
+of=` and other heads' own writes; PowerShell/cmd inner text (it is
+`shell.inline_interpreter` anyway) and the PowerShell `Env:` drive
+(`gci env:`); reader heads outside `_READ_HEADS`; shell globs in arguments
+(`cat .e*`) and glob wildcards that could only name a secret; a single-quoted
+`'$X'` cannot be told from `$X` and over-matches; an unknown curl option's
+value is read as a URL (over-blocks); `sqlcmd`, `clickhouse-client` and
+other SQL clients are not read.
+
+Every classification the head rules produce has `operation`
+`Operation("shell", command, source_tool)` with the **whole input** as the
+target, as `sql.py` does it. The `detail` is the matched fragment of the
+call (`$(`, `eval`, `rm -rf`, `| sh`, the head, the variable name), never a
+configured value, at most 32 characters (T11).
+
+Pure (PRD-016 Section 6.12): no settings, no I/O. The policy's data
+(`shell_allow`, `network_allow`, the compiled secret and protected globs,
+the workspace roots) arrives as arguments from the caller, never through
+`settings` or `action_config`; the sibling classifiers (`network`, `paths`,
+`secrets`, `sql`) are the only `app` imports besides the vocabulary.
 """
 
 import re
@@ -133,6 +198,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from app.services.action_classifiers import Classification, Operation, RuleId
+from app.services.action_classifiers import network, paths, secrets, sql
 
 #: Operators that join segments (PRD-016 Section 6.8 step 3). `"\n"` is a newline.
 SEPARATORS: frozenset[str] = frozenset({";", "&&", "||", "|", "|&", "&", "\n"})
@@ -1156,6 +1222,517 @@ def _allowlisted(segment: Segment, allow: tuple[tuple[str, ...], ...]) -> bool:
     return any(t[0] == segment.head and args[: len(t) - 1] == t[1:] for t in allow)
 
 
+# --- Embedded targets (STORY-013): tables ----------------------------------------
+
+
+@dataclass(frozen=True)
+class _Context:
+    """The policy's data for one `classify_shell` call (STORY-013 decision D-A), passed down the recursion."""
+
+    allow: tuple[tuple[str, ...], ...] = ()
+    network_allow: object = ()
+    secret_env: object = ()
+    secret_files: object = ()
+    protected: object = ()
+    workspace_roots: object = ()
+    source_tool: str = ""
+
+
+@dataclass(frozen=True)
+class _Opts:
+    """An embedding head's option table (decision D-L). Names carry their dashes (`-c`, `--command`).
+
+    An option in none of the valued sets is a flag; one outside the table is
+    read as a flag too (for a fetcher, its value then reads as a URL:
+    over-blocking, never under-blocking).
+    """
+
+    #: Options that take a value, attached (`-ofile`, `--output=f`) or as the next word.
+    valued: frozenset = frozenset()
+    #: SQL clients: valued options whose value is SQL text.
+    text: frozenset = frozenset()
+    #: Fetchers: valued options whose value is a URL.
+    url: frozenset = frozenset()
+    #: Fetchers: valued options whose value is a file the head writes.
+    write: frozenset = frozenset()
+    #: Fetchers: options that move the real destination out of sight (`net.unparsed`).
+    route: frozenset = frozenset()
+    #: Options whose value is only ever attached (`mysql -pSECRET`, `--password=x`).
+    optional: frozenset = frozenset()
+    #: getopt_long: an unambiguous prefix of a long option binds (`--comm` is `--command`).
+    prefixes: bool = True
+    #: sqlite3: long options take one dash (`-cmd`); `--cmd` is accepted too.
+    single_dash_long: bool = False
+
+    def takes_value(self, name: str) -> bool:
+        return any(name in table for table in (self.valued, self.text, self.url, self.write, self.route))
+
+    def long_names(self) -> frozenset:
+        everything = self.valued | self.text | self.url | self.write | self.route | self.optional
+        return frozenset(name for name in everything if name.startswith("--") or self.single_dash_long)
+
+
+@dataclass(frozen=True)
+class _SqlClient:
+    """A SQL client head (decision D-H): its dialect, and where its SQL text is."""
+
+    dialect: str
+    opts: _Opts
+    #: sqlite3: the first positional is the database, every further one is SQL.
+    positional_sql: bool = False
+
+
+_PSQL = _SqlClient(
+    "postgres",
+    _Opts(
+        valued=frozenset({
+            "-d", "-f", "-h", "-p", "-U", "-v", "-o", "-L", "-T", "-F", "-R", "-P",
+            "--dbname", "--host", "--port", "--username", "--set", "--variable",
+            "--output", "--log-file", "--file", "--pset", "--table-attr",
+            "--field-separator", "--record-separator",
+        }),
+        text=frozenset({"-c", "--command"}),
+    ),
+)
+_MYSQL = _SqlClient(
+    "mysql",
+    _Opts(
+        valued=frozenset({
+            "-D", "-h", "-P", "-S", "-u", "--database", "--host", "--port", "--socket",
+            "--user", "--defaults-file", "--defaults-extra-file", "--login-path",
+            "--default-character-set", "--protocol", "--tee", "--pager", "--prompt",
+            "--delimiter", "--connect-timeout", "--ssl-ca", "--ssl-cert", "--ssl-key",
+        }),
+        # `--init-command` runs its SQL on connect, like `-e`.
+        text=frozenset({"-e", "--execute", "--init-command"}),
+        optional=frozenset({"-p", "--password"}),
+    ),
+)
+_SQL_CLIENTS: dict[str, _SqlClient] = {
+    "psql": _PSQL,
+    "mysql": _MYSQL,
+    "mariadb": _MYSQL,
+    "sqlite3": _SqlClient(
+        "sqlite",
+        _Opts(
+            valued=frozenset({
+                "-init", "-separator", "-newline", "-nullvalue", "-vfs", "-mmap",
+                "-heap", "-lookaside", "-pagecache", "-maxsize",
+            }),
+            text=frozenset({"-cmd"}),
+            prefixes=False,
+            single_dash_long=True,
+        ),
+        positional_sql=True,
+    ),
+}
+
+
+@dataclass(frozen=True)
+class _Fetcher:
+    """An HTTP client head (decision D-L)."""
+
+    opts: _Opts
+    #: Prepended to a URL word with no `scheme://`.
+    default_scheme: str = "http://"
+    #: HTTPie: an optional upper-case METHOD, one URL, then request items.
+    httpie: bool = False
+
+
+_CURL = _Fetcher(
+    _Opts(
+        valued=frozenset({
+            "-A", "-b", "-C", "-d", "-e", "-E", "-F", "-H", "-m", "-P", "-Q", "-r",
+            "-T", "-t", "-u", "-U", "-w", "-X", "-y", "-Y", "-z",
+            "--user-agent", "--cookie", "--continue-at", "--data", "--data-raw",
+            "--data-binary", "--data-ascii", "--data-urlencode", "--json", "--referer",
+            "--cert", "--cert-type", "--key", "--key-type", "--pass", "--cacert",
+            "--capath", "--form", "--form-string", "--header", "--proxy-header",
+            "--max-time", "--connect-timeout", "--retry", "--retry-delay",
+            "--retry-max-time", "--max-redirs", "--range", "--upload-file", "--user",
+            "--proxy-user", "--write-out", "--request", "--limit-rate",
+            "--max-filesize", "--interface", "--dns-servers", "--oauth2-bearer",
+            "--speed-time", "--speed-limit", "--time-cond", "--noproxy", "--variable",
+            "--url-query", "--proto", "--proto-redir", "--proto-default", "--ciphers",
+            "--aws-sigv4", "--netrc-file", "--quote", "--ftp-port", "--local-port",
+            "--keepalive-time", "--expect100-timeout", "--parallel-max", "--rate",
+            "--mail-from", "--mail-rcpt", "--mail-auth", "--login-options",
+            "--hsts", "--alt-svc", "--etag-compare", "--create-file-mode",
+            "--telnet-option", "--tls-max", "--service-name", "--sasl-authzid",
+        }),
+        url=frozenset({
+            "-x", "--proxy", "--preproxy", "--url", "--doh-url",
+            "--socks4", "--socks4a", "--socks5", "--socks5-hostname",
+        }),
+        write=frozenset({
+            "-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace",
+            "--trace-ascii", "--stderr", "--libcurl", "--etag-save", "--output-dir",
+        }),
+        route=frozenset({
+            "--resolve", "--connect-to", "-K", "--config", "--unix-socket",
+            "--abstract-unix-socket",
+        }),
+        # curl matches long options exactly.
+        prefixes=False,
+    )
+)
+_WGET = _Fetcher(
+    _Opts(
+        valued=frozenset({
+            "-t", "-T", "-w", "-U", "-l", "-A", "-R", "-D", "-X", "-I", "-Q",
+            "--tries", "--timeout", "--dns-timeout", "--connect-timeout",
+            "--read-timeout", "--wait", "--waitretry", "--user-agent", "--level",
+            "--accept", "--reject", "--domains", "--exclude-domains",
+            "--exclude-directories", "--include-directories", "--quota", "--header",
+            "--user", "--password", "--http-user", "--http-password", "--proxy-user",
+            "--proxy-password", "--post-data", "--post-file", "--body-data",
+            "--body-file", "--method", "--referer", "--load-cookies", "--limit-rate",
+            "--bind-address", "--ca-certificate", "--certificate", "--private-key",
+            "--default-page", "--local-encoding", "--remote-encoding",
+            "--restrict-file-names", "--ftp-user", "--ftp-password", "--cut-dirs",
+            "--progress", "--secure-protocol", "--ciphers", "--max-redirect",
+            "--accept-regex", "--reject-regex", "--regex-type", "--backups",
+            "--hsts-file", "--ca-directory",
+        }),
+        url=frozenset({"-B", "--base"}),
+        write=frozenset({
+            "-O", "--output-document", "-o", "--output-file", "-a", "--append-output",
+            "-P", "--directory-prefix", "--save-cookies", "--warc-file", "--rejected-log",
+        }),
+        route=frozenset({"-e", "--execute", "-i", "--input-file", "--config"}),
+    )
+)
+_HTTPIE_OPTS = _Opts(
+    valued=frozenset({
+        "-a", "-A", "-p", "-s", "-P", "--auth", "--auth-type", "--session",
+        "--session-read-only", "--verify", "--cert", "--cert-key", "--cert-key-pass",
+        "--timeout", "--max-redirects", "--max-headers", "--print", "--pretty",
+        "--style", "--format-options", "--response-charset", "--response-mime",
+        "--ssl", "--ciphers", "--boundary", "--raw", "--default-scheme",
+        "--history-print",
+    }),
+    url=frozenset({"--proxy"}),
+    write=frozenset({"-o", "--output"}),
+)
+_FETCHERS: dict[str, _Fetcher] = {
+    "curl": _CURL,
+    "wget": _WGET,
+    "http": _Fetcher(_HTTPIE_OPTS, "http://", httpie=True),
+    "https": _Fetcher(_HTTPIE_OPTS, "https://", httpie=True),
+}
+
+#: Decision D-K: heads whose path arguments are read (STORY-013's five plus
+#: the content readers an allowlist plausibly holds; `cp .env /tmp/x` is
+#: exfiltration). Matched case-folded; `type` is cmd's, `get-content`/`gc`
+#: PowerShell's.
+_READ_HEADS = frozenset({
+    "cat", "less", "more", "head", "tail",
+    "grep", "egrep", "fgrep", "rg", "sed", "awk", "base64", "xxd", "od",
+    "strings", "cp", "type", "get-content", "gc",
+})
+
+#: Decision D-J: heads that print the whole environment with no names.
+_ENV_DUMP_HEADS = frozenset({"env", "printenv", "set", "export", "declare", "typeset"})
+
+#: `http_proxy=...` on a segment routes the head's requests (decision D-L).
+_PROXY_VARIABLES = frozenset({"http_proxy", "https_proxy", "all_proxy"})
+
+#: Decision D-B: redirections that write their target, and those that read it.
+_WRITE_REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>", "<>"})
+_READ_REDIRECTS = frozenset({"<", "<>"})
+#: Exempt from the path rules, exactly; Windows device names in any case.
+_DEVICE_TARGETS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"})
+_WINDOWS_DEVICES = frozenset({"NUL", "CON"})
+#: A descriptor after `>&` / `<&` (`2>&1`, `>&-`, `>&2-`): a duplication, not a file.
+_FD_TARGET = re.compile(r"\d+-?|-")
+
+_URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_HTTP_METHOD = re.compile(r"[A-Z]+")
+#: HTTPie's `--proxy PROTOCOL:URL`.
+_HTTPIE_PROXY = re.compile(r"[A-Za-z]+:(?=[A-Za-z][A-Za-z0-9+.-]*://)")
+
+
+# --- Embedded targets: helpers ----------------------------------------------------
+
+
+def _resolve_long(opts: _Opts, name: str) -> str:
+    """The table option `name` binds to (getopt_long prefixes, decision D-L); `name` when none or not allowed.
+
+    An ambiguous prefix binds to its strictest match: SQL text, routing, URL,
+    write, then any valued option.
+    """
+    known = opts.long_names()
+    if name in known or not opts.prefixes or len(name) < 3:
+        return name
+    matches = sorted(full for full in known if full.startswith(name))
+    if not matches:
+        return name
+    for table in (opts.text, opts.route, opts.url, opts.write, opts.valued):
+        for full in matches:
+            if full in table:
+                return full
+    return matches[0]
+
+
+def _walk_options(opts: _Opts, args: tuple[str, ...]) -> list[tuple[Optional[str], Optional[str]]]:
+    """GNU-style options in argv order: (option, value or None), or (None, positional) (decision D-L).
+
+    Handles clusters (`-sSLo out`, `-qO-`), attached values (`-ofile`,
+    `--output=f`) and `--`. A flag yields (option, None), as does a valued
+    option with no word after it.
+    """
+    out: list[tuple[Optional[str], Optional[str]]] = []
+    n = len(args)
+    k = 0
+    rest = False
+    while k < n:
+        word = args[k]
+        if rest or word == "-" or not word.startswith("-"):
+            out.append((None, word))
+            k += 1
+            continue
+        if word == "--":
+            rest = True
+            k += 1
+            continue
+        if word.startswith("--") or opts.single_dash_long:
+            raw = word[1:] if opts.single_dash_long and word.startswith("--") else word
+            name, eq, attached = raw.partition("=")
+            name = _resolve_long(opts, name)
+            if name in opts.optional or not opts.takes_value(name):
+                out.append((name, attached if eq else None))
+                k += 1
+            elif eq:
+                out.append((name, attached))
+                k += 1
+            else:
+                out.append((name, args[k + 1] if k + 1 < n else None))
+                k += 2
+            continue
+        step = 1
+        for j in range(1, len(word)):
+            opt = "-" + word[j]
+            if opt in opts.optional:
+                out.append((opt, word[j + 1:] or None))
+                break
+            if opts.takes_value(opt):
+                if j + 1 < len(word):
+                    out.append((opt, word[j + 1:]))
+                else:
+                    out.append((opt, args[k + 1] if k + 1 < n else None))
+                    step = 2
+                break
+            out.append((opt, None))
+        k += step
+    return out
+
+
+def _sql_texts(client: _SqlClient, args: tuple[str, ...]) -> list[str]:
+    """The SQL a client head runs from its own argv (decision D-H)."""
+    texts: list[str] = []
+    positionals: list[str] = []
+    for name, value in _walk_options(client.opts, args):
+        if name is None:
+            positionals.append(value)
+        elif name in client.opts.text and value is not None:
+            texts.append(value)
+    if client.positional_sql:
+        texts.extend(positionals[1:])
+    return texts
+
+
+def _with_scheme(word: str, fetcher: _Fetcher) -> str:
+    """A URL word as the head reads it: `http://` for a scheme-less word (STORY-012 decision)."""
+    if _URL_SCHEME.match(word):
+        return word
+    if fetcher.httpie and word.startswith(":"):
+        return fetcher.default_scheme + "localhost" + word  # HTTPie's `:3000/x`
+    return fetcher.default_scheme + word
+
+
+def _fetch_targets(fetcher: _Fetcher, args: tuple[str, ...]):
+    """(network items, values read, values written) of a fetcher's argv, in argv order (decision D-L).
+
+    A network item is ("url", url) or ("route", option).
+    """
+    pairs = _walk_options(fetcher.opts, args)
+    positionals = [value for name, value in pairs if name is None]
+    method_index = -1
+    if fetcher.httpie and len(positionals) >= 2 and _HTTP_METHOD.fullmatch(positionals[0]):
+        method_index = 0
+    url_index = method_index + 1
+    net: list[tuple[str, str]] = []
+    reads: list[str] = []
+    writes: list[str] = []
+    index = -1
+    for name, value in pairs:
+        if name is None:
+            index += 1
+            if index == method_index:
+                continue
+            if fetcher.httpie and index != url_index:
+                reads.append(value)  # an HTTPie request item (`f=@.env`, `h:v`)
+            else:
+                net.append(("url", _with_scheme(value, fetcher)))
+            continue
+        if name in fetcher.opts.route:
+            net.append(("route", name))
+        elif value is None:
+            continue
+        elif name in fetcher.opts.url:
+            if fetcher.httpie:
+                value = _HTTPIE_PROXY.sub("", value, count=1)
+            net.append(("url", _with_scheme(value, fetcher)))
+        elif name in fetcher.opts.write:
+            writes.append(value)
+        else:
+            reads.append(value)
+    return net, reads, writes
+
+
+def _reader_words(args: tuple[str, ...]) -> list[str]:
+    """A reader head's path arguments (decision D-K): positionals, everything after `--`, `--opt=value` values."""
+    out: list[str] = []
+    rest = False
+    for word in args:
+        if rest:
+            out.append(word)
+        elif word == "--":
+            rest = True
+        elif word.startswith("--"):
+            name, eq, value = word.partition("=")
+            if eq and value:
+                out.append(value)
+        elif not (word.startswith("-") and len(word) > 1):
+            out.append(word)
+    return out
+
+
+def _read_candidates(value: str) -> list[str]:
+    """A fetcher option value and the file it names after `@` or `<` (`-d @.env`, `-F f=<.env`)."""
+    out = [value]
+    for mark in ("@", "<"):
+        if mark in value:
+            out.append(value.split(mark, 1)[1])
+    return out
+
+
+def _exempt(target: str) -> bool:
+    return target in _DEVICE_TARGETS or target.upper() in _WINDOWS_DEVICES
+
+
+def _env_dump(segment: Segment, low: str, op: Operation, ctx: _Context) -> list[Classification]:
+    """Decision D-J: the whole environment is always `secret.read`; `printenv NAME`, `declare -p NAME` check NAME."""
+    args = segment.args
+    if low == "env":
+        # Only the wrapper with no command (`env`, `sudo env`, `env -u X`).
+        return [Classification("secret.read", op, _cap(segment.head))] if segment.head_index >= len(segment.argv) else []
+    if segment.head_index >= len(segment.argv):
+        return []
+    names = [w for w in args if not w.startswith("-")]
+    flags = "".join(w[1:] for w in args if w.startswith("-") and not w.startswith("--"))
+    dump = False
+    check: list[str] = []
+    if low == "printenv":
+        dump = not names
+        check = names
+    elif low == "set":
+        dump = not args
+    elif low == "export":
+        dump = all(w == "-p" for w in args)
+    elif low in ("declare", "typeset"):
+        dump = not names
+        if "p" in flags:
+            check = [w.partition("=")[0] for w in names]
+    if dump:
+        return [Classification("secret.read", op, _cap(segment.head))]
+    out: list[Classification] = []
+    for name in check:
+        hit = secrets.classify_env_reference(name, ctx.secret_env, operation=op)
+        if hit is not None:
+            out.append(hit)
+    return out
+
+
+def _embedded(segment: Segment, op: Operation, ctx: _Context) -> list[Classification]:
+    """Step 3 of `_segment_rules`: SQL, network, secret, then writes (PRD 6.4; module docstring)."""
+    low = segment.head.lower()
+    args = segment.args
+    has_command = segment.head_index < len(segment.argv)
+    st = ctx.source_tool
+    sql_out: list[Classification] = []
+    net_out: list[Classification] = []
+    secret_out: list[Classification] = []
+    write_out: list[Classification] = []
+    write_targets: list[str] = []
+
+    def secret_file(word: str) -> bool:
+        hit = secrets.classify_secret_read(word, ctx.secret_files, source_tool=st)
+        if hit is not None:
+            secret_out.append(hit)
+        return hit is not None
+
+    # 1. SQL.
+    client = _SQL_CLIENTS.get(low) if has_command else None
+    if client is not None:
+        for text in _sql_texts(client, args):
+            sql_out.extend(sql.classify_sql(text, client.dialect, source_tool=st))
+
+    # 2. Network: proxy assignments, then the fetcher's argv.
+    if has_command:
+        for assignment in segment.assignments:
+            name, _, value = assignment.partition("=")
+            if name.rstrip("+").lower() in _PROXY_VARIABLES and value.strip():
+                net_out.append(network.classify_url(_with_scheme(value, _CURL), ctx.network_allow, source_tool=st))
+    fetcher = _FETCHERS.get(low) if has_command else None
+    fetch_reads: list[str] = []
+    if fetcher is not None:
+        items, fetch_reads, fetch_writes = _fetch_targets(fetcher, args)
+        for kind, value in items:
+            if kind == "url":
+                net_out.append(network.classify_url(value, ctx.network_allow, source_tool=st))
+            else:
+                net_out.append(Classification("net.unparsed", Operation("http", value, st), _cap(value)))
+        write_targets.extend(w for w in fetch_writes if w != "-")
+
+    # 3. Secret: (a) files a reader or fetcher reads, (b) `<` targets,
+    #    (c) env references in any word, (d) whole-environment dumps.
+    if has_command and low in _READ_HEADS:
+        for word in _reader_words(args):
+            secret_file(word)
+    for value in fetch_reads:
+        for candidate in _read_candidates(value):
+            if secret_file(candidate):
+                break
+    for r in segment.redirects:
+        if r.op in _READ_REDIRECTS or (r.op == "<&" and not _FD_TARGET.fullmatch(r.target)):
+            if not _exempt(r.target):
+                secret_file(r.target)
+    script = segment.inline.text if segment.inline is not None else None
+    words = [w for w in segment.argv if w != script] + [r.target for r in segment.redirects]
+    references: dict[Classification, None] = {}
+    for word in words:
+        for name in secrets.env_references(word):
+            hit = secrets.classify_env_reference(name, ctx.secret_env, operation=op)
+            if hit is not None:
+                references.setdefault(hit)
+    secret_out.extend(references)
+    if low in _ENV_DUMP_HEADS:
+        secret_out.extend(_env_dump(segment, low, op, ctx))
+
+    # 4. Writes: output redirects, then the fetcher's output options.
+    redirect_writes = [
+        r.target
+        for r in segment.redirects
+        if r.op in _WRITE_REDIRECTS or (r.op == ">&" and not _FD_TARGET.fullmatch(r.target))
+    ]
+    for target in redirect_writes + write_targets:
+        if not _exempt(target):
+            write_out.append(paths.classify_write(target, ctx.protected, ctx.workspace_roots, source_tool=st))
+
+    return sql_out + net_out + secret_out + write_out
+
+
 # --- Flattening ------------------------------------------------------------------
 
 
@@ -1210,14 +1787,12 @@ def _inner_dangers(parse: ShellParse, op: Operation) -> list[Classification]:
     return out
 
 
-def _segment_rules(
-    segment: Segment, depth: int, op: Operation, allow: tuple[tuple[str, ...], ...]
-) -> list[Classification]:
+def _segment_rules(segment: Segment, depth: int, op: Operation, ctx: _Context) -> list[Classification]:
     """One segment's classifications, in decision 2's order (PRD 6.4: what is embedded comes first)."""
     out: list[Classification] = []
     # 1. The POSIX `-c` script, read by STORY-009's recursion.
     if segment.inline is not None:
-        out.extend(_flatten(segment.inline, op, allow))
+        out.extend(_flatten(segment.inline, op, ctx))
     if segment.unclassifiable is not None:
         out.append(Classification("shell.unclassifiable", op, segment.unclassifiable))
         return out
@@ -1227,9 +1802,10 @@ def _segment_rules(
     # 2. PowerShell/cmd inner text (decision 5).
     if inline is not None and inline[1] is not None:
         out.extend(_inner_dangers(parse_shell(inline[1], depth + 1), op))
-    # 3. STORY-013's hook: the embedded SQL / URL / secret classifications of
-    #    this segment (head, args, assignments, redirects) go here, before the
-    #    head's own rule (PRD 6.4).
+    # 3. The embedded SQL / URL / secret / write classifications of this
+    #    segment (STORY-013), before the head's own rule (PRD 6.4). They are
+    #    not dangers: the allowlist below still applies (decision D-F).
+    out.extend(_embedded(segment, op, ctx))
     # 4. The head's danger rules, non-grantable first (decision 2).
     dangers: list[Classification] = []
     detail = _destructive(head, args)
@@ -1250,12 +1826,12 @@ def _segment_rules(
     out.extend(dangers)
     # 5. Only when no other rule fired (PRD 6.3): the allowlist, else the floor.
     if not dangers:
-        rule: RuleId = "shell.allowlisted" if _allowlisted(segment, allow) else "shell.unlisted"
+        rule: RuleId = "shell.allowlisted" if _allowlisted(segment, ctx.allow) else "shell.unlisted"
         out.append(Classification(rule, op, _cap(head)))
     return out
 
 
-def _flatten(parse: ShellParse, op: Operation, allow: tuple[tuple[str, ...], ...]) -> list[Classification]:
+def _flatten(parse: ShellParse, op: Operation, ctx: _Context) -> list[Classification]:
     """Per segment, left to right, `_segment_rules`; one `shell.unclassifiable` (plus the fallback) for a parse that failed."""
     if parse.unclassifiable is not None:
         return [Classification("shell.unclassifiable", op, parse.unclassifiable)] + (
@@ -1263,7 +1839,7 @@ def _flatten(parse: ShellParse, op: Operation, allow: tuple[tuple[str, ...], ...
         )
     out: list[Classification] = []
     for segment in parse.segments:
-        out.extend(_segment_rules(segment, parse.depth, op, allow))
+        out.extend(_segment_rules(segment, parse.depth, op, ctx))
     return out
 
 
@@ -1283,14 +1859,39 @@ def _allow_tokens(shell_allow) -> tuple[tuple[str, ...], ...]:
     return tuple(out)
 
 
-def classify_shell(command: str, shell_allow=(), *, source_tool: str = "") -> tuple[Classification, ...]:
+def classify_shell(
+    command: str,
+    shell_allow=(),
+    *,
+    network_allow=(),
+    secret_env=(),
+    secret_files=(),
+    protected=(),
+    workspace_roots=(),
+    source_tool: str = "",
+) -> tuple[Classification, ...]:
     """Classify every simple command in `command`, in order (PRD-016 F3). Never raises.
 
     One `shell.unclassifiable` for a line that cannot be read as a whole
     (plus the fallback's `shell.destructive`, decision 6); otherwise one or
     more classifications per segment (see `_segment_rules`). `shell_allow` is
     the policy's `shell.allow` entries (6.6); the default `()` allowlists
-    nothing, the built-in policy's value. A fork bomb anywhere in the text
+    nothing, the built-in policy's value.
+
+    The keyword arguments feed the embedded targets (STORY-013, decision
+    D-A): `network_allow` is `policy.network_allow`, `secret_env` and
+    `secret_files` are `policy.secrets.env.compiled` and
+    `policy.secrets.files.compiled`, `protected` is
+    `policy.protected_paths.compiled`, `workspace_roots` is
+    `policy.workspace_roots`. Their `()` defaults match no secret and protect
+    no path, so the engine must pass every one: STORY-014 calls
+    `classify_shell(op.target, policy.shell_allow,
+    network_allow=policy.network_allow,
+    secret_env=policy.secrets.env.compiled,
+    secret_files=policy.secrets.files.compiled,
+    protected=policy.protected_paths.compiled,
+    workspace_roots=policy.workspace_roots, source_tool=op.source_tool)`.
+    They are passed to the sibling classifiers as given. A fork bomb anywhere in the text
     adds `shell.destructive` last. `source_tool` names the tool the command
     came from, for the audit. Any exception becomes one
     `shell.unclassifiable` whose detail is the input's first word.
@@ -1301,8 +1902,16 @@ def classify_shell(command: str, shell_allow=(), *, source_tool: str = "") -> tu
     try:
         if not isinstance(command, str):
             return (Classification("shell.unclassifiable", op, ""),)
-        allow = _allow_tokens(shell_allow)
-        out = _flatten(parse_shell(command), op, allow)
+        ctx = _Context(
+            allow=_allow_tokens(shell_allow),
+            network_allow=network_allow,
+            secret_env=secret_env,
+            secret_files=secret_files,
+            protected=protected,
+            workspace_roots=workspace_roots,
+            source_tool=source_tool,
+        )
+        out = _flatten(parse_shell(command), op, ctx)
         normalized = command.replace("\r\n", "\n").replace("\r", "\n")
         if "(" in normalized and "|" in normalized:
             match = _FORK_BOMB.search(normalized)

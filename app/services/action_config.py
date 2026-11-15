@@ -816,7 +816,7 @@ _SECTION_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 )
 
 _RULE_KEYS = ("default", "grant")
-_TOOL_KEYS = ("kind", "target", "default", "format", "extra_targets")
+_TOOL_KEYS = ("kind", "target", "default", "format", "extra_targets", "optional_targets")
 _TOOL_REQUIRED = ("kind", "target")
 
 
@@ -908,18 +908,21 @@ def _parse_tools(source: str, raw: Any) -> dict[str, ToolMapping]:
         _mapping(source, node, body)
         _check_keys(source, node, body, _TOOL_KEYS, _TOOL_REQUIRED)
         fields = dict(body)
-        if "extra_targets" in fields:
-            extra = fields["extra_targets"]
+        for key in ("extra_targets", "optional_targets"):
+            if key not in fields:
+                continue
+            extra = fields[key]
             # A bare string is the easy YAML slip (`extra_targets: pattern`);
             # `ToolMapping`'s "must be a tuple" is not something a YAML author
-            # can act on, so it is refused here by name.
+            # can act on, so it is refused here by name. `optional_targets`
+            # (D15, STORY-013) is read the same way.
             if isinstance(extra, str) or not isinstance(extra, list):
                 raise _fail(
                     source,
                     node,
-                    f"extra_targets must be a list of target expressions, got {extra!r}",
+                    f"{key} must be a list of target expressions, got {extra!r}",
                 )
-            fields["extra_targets"] = tuple(extra)
+            fields[key] = tuple(extra)
         try:
             built[name] = ToolMapping(**fields)
         except ToolMappingError as exc:

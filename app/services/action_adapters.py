@@ -9,8 +9,8 @@ turns `Unknown` into `tool.unknown`, `Malformed` into `tool.malformed` and
 `Opaque` into `tool.opaque`; `Operations` go to the classifiers.
 
 A `ToolMapping` is **data**, not code (PRD F1): a kind, a key-path expression
-into the arguments, and three optional fields (`default`, `format`,
-`extra_targets`). The expression syntax and the four value shapes exist because
+into the arguments, and four optional fields (`default`, `format`,
+`extra_targets`, `optional_targets`). The expression syntax and the four value shapes exist because
 the real tools do not fit "one key, one string": `tests/corpora/actions/SOURCES.md`
 (STORY-001), section *Implications for STORY-004*, lists the shapes, and the
 threat model's findings S1, S2, S4, S6, S7 and S8
@@ -194,6 +194,13 @@ class ToolMapping:
     #: Further expressions in the same call, each required and read as `text`,
     #: each yielding operations of the same kind (OpenCode `glob.pattern`, S7).
     extra_targets: tuple[str, ...] = ()
+    #: Further expressions read as `text` when present and skipped when
+    #: absent, each yielding operations of the same kind (OpenCode
+    #: `grep.include`, Cline 3.x `search_files.file_pattern`; PRD-016 D15,
+    #: STORY-013). A present `null` or non-string is Malformed, like every
+    #: target; a present empty or blank string counts as absent (an empty
+    #: filter searches the whole directory, the target already read).
+    optional_targets: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.kind not in OPERATION_KINDS:
@@ -213,6 +220,12 @@ class ToolMapping:
             )
         for extra in self.extra_targets:
             _parse_target(extra)
+        if not isinstance(self.optional_targets, tuple):
+            raise ToolMappingError(
+                f"optional_targets must be a tuple of target expressions, got {self.optional_targets!r}"
+            )
+        for optional in self.optional_targets:
+            _parse_target(optional)
         if self.default is not None:
             if not isinstance(self.default, str) or not self.default.strip():
                 raise ToolMappingError(f"default must be a non-empty string, got {self.default!r}")
@@ -467,6 +480,14 @@ def map_tool_call(
             for target in _resolve_expression(arguments, expr, fmt, default):
                 _check_target(mapping.kind, target, expr)
                 targets.append((expr, target))
+        # D15 (STORY-013): present -> read; absent, empty or blank -> skipped.
+        for expr in mapping.optional_targets:
+            found = _resolve_object(arguments, list(_parse_target(expr)), "", "text")
+            for target in found or ():
+                if not target.strip():
+                    continue
+                _check_target(mapping.kind, target, expr)
+                targets.append((expr, target))
     except _MalformedArguments as exc:
         return Malformed(exc.detail)
     if not targets:
@@ -498,11 +519,13 @@ BUILT_IN_TOOLS: Mapping[str, ToolMapping] = MappingProxyType(
         "webfetch": ToolMapping("http", "url"),
         # `path?` defaults to the working directory (S8), and `pattern` is
         # itself a path glob that can name `../` or `.env*`, so it is a second
-        # fs_read (S7). How a secret glob matches a glob target is STORY-013's.
+        # fs_read (S7), matched literally against the secret globs (D15).
         "glob": ToolMapping("fs_read", "path", default=".", extra_targets=("pattern",)),
-        # `include` is a filename glob and is not read. A directory search
-        # that returns a secret's contents is S9, deferred to STORY-013.
-        "grep": ToolMapping("fs_read", "path", default="."),
+        # `include?` is a filename glob (`.env*`): an optional second fs_read,
+        # so a secret-naming filter is `secret.read` (PRD-016 D15, STORY-013).
+        # A search over a plain directory that returns a secret's contents
+        # stays `fs.read`: the stated D15 limitation (S9).
+        "grep": ToolMapping("fs_read", "path", default=".", optional_targets=("include",)),
         "lsp": ToolMapping("fs_read", "filePath"),
         # --- Cline 4.x v4.1.26 (`a459f1d0`) ------------------------------------
         # The advertised key plus the documented lenient-union aliases the
@@ -535,7 +558,8 @@ BUILT_IN_TOOLS: Mapping[str, ToolMapping] = MappingProxyType(
         "replace_in_file": ToolMapping("fs_write", "absolutePath|path"),
         "read_file": ToolMapping("fs_read", "path"),
         "list_files": ToolMapping("fs_read", "path"),
-        "search_files": ToolMapping("fs_read", "path"),
+        # `file_pattern?` is read like OpenCode `grep.include` (D15, STORY-013).
+        "search_files": ToolMapping("fs_read", "path", optional_targets=("file_pattern",)),
         # `url?` is recorded optional, but only `launch` carries one and there
         # is no sensible default URL: a `click` / `scroll_*` without `url` is
         # Malformed (deny). Fail closed; Cline 3.x is legacy.

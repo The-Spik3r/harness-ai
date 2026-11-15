@@ -8,9 +8,10 @@ evasion group; the T6 rows name the trick each one closes.
 Real globs: `BUILT_IN_POLICY.protected_paths.compiled` (importing
 `action_config` here is fine; only the module under test must stay pure).
 
-Not covered here: secret reads (STORY-013 fills the hook; the pending test is
-`xfail(strict=True)`), shell output redirects (STORY-013), and how
-`evaluate()` folds the result (STORY-014).
+Secret reads (STORY-013 filled the hook, F4) are checked here at the path
+level; `tests/test_action_secrets.py` covers them end to end, and
+`tests/test_action_shell.py` the shell output redirects (STORY-013). Not
+covered here: how `evaluate()` folds the result (STORY-014).
 """
 
 import os
@@ -295,7 +296,7 @@ def test_write_operation_carries_the_input_as_given():
     assert result == Classification("fs.write_in_workspace", Operation("fs_write", raw, "write"), "c:/Repo/a.ts")
 
 
-# --- AC4: reads and the STORY-013 hook -------------------------------------------
+# --- AC4: reads and the STORY-013 secret hook ------------------------------------
 
 
 def test_read_is_fs_read():
@@ -305,8 +306,14 @@ def test_read_is_fs_read():
     assert classify_read(".").rule == "fs.read"
 
 
-@pytest.mark.xfail(strict=True, reason="PRD-016 STORY-013 fills classify_read's secret hook")
-@pytest.mark.parametrize("path", [".env", "~/.aws/credentials"])
+# PRD-016 STORY-013 (F4): the hook is filled, so the xfail(strict=True) marker
+# is gone; the parametrization is widened to STORY-013 AC1's five paths, the
+# directory probe (`.ssh` matches `.ssh/**`) and the fixed `/proc/*/environ`
+# rule (decision D-J).
+@pytest.mark.parametrize(
+    "path",
+    [".env", "~/.aws/credentials", ".ssh/id_rsa", "x.pem", ".npmrc", ".ssh", "/proc/self/environ"],
+)
 def test_read_of_a_secret_glob_is_secret_read(path):
     assert classify_read(path, SECRET_FILES).rule == "secret.read"
 
@@ -340,14 +347,19 @@ def test_every_rule_produced_is_a_path_rule(path, roots):
 def test_never_raises(value):
     assert isinstance(normalize_path(value), NormalizedPath)
     assert classify_write(value, P, ROOTS).rule in _WRITE_RULES
-    assert classify_read(value, SECRET_FILES).rule == "fs.read"
+    # PRD-016 STORY-013 decision D-M: a read that cannot be classified (a
+    # non-`str`) is secret.read, the strictest read outcome; a `str` still is
+    # fs.read.
+    expected = "fs.read" if isinstance(value, str) else "secret.read"
+    assert classify_read(value, SECRET_FILES).rule == expected
 
 
 def test_non_string_write_is_protected_with_empty_detail():
     assert classify_write(None, P, source_tool="t") == Classification(
         "fs.write_protected", Operation("fs_write", "", "t"), ""
     )
-    assert classify_read(None, source_tool="t") == Classification("fs.read", Operation("fs_read", "", "t"), "")
+    # PRD-016 STORY-013 decision D-M: a non-`str` read is secret.read, not fs.read.
+    assert classify_read(None, source_tool="t") == Classification("secret.read", Operation("fs_read", "", "t"), "")
 
 
 @pytest.mark.parametrize("protected", [[None, "x", 3], None, ()])
@@ -368,7 +380,8 @@ def test_internal_error_fails_closed(monkeypatch):
     assert classify_write("src/a.ts", P) == Classification(
         "fs.write_protected", Operation("fs_write", "src/a.ts", ""), ""
     )
-    assert classify_read("src/a.ts").rule == "fs.read"
+    # PRD-016 STORY-013 decision D-M: an internal error on a read is secret.read.
+    assert classify_read("src/a.ts").rule == "secret.read"
 
 
 # --- AC5: purity -----------------------------------------------------------------
