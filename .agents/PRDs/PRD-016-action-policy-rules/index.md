@@ -32,7 +32,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-016 | GET /audit/actions with audit scoping, and the three action counts on /stats | feature | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-016-audit-actions-endpoint-and-stats.plan.md) | `694a619` |
 | STORY-017 | Synthetic tool-call corpus, its suite end to end through record(), and evaluate() latency | technical | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-017-synthetic-tool-call-corpus.plan.md) | `e67fd27` |
 | STORY-018 | Evasion corpus — obfuscated variants of denied calls, none may produce allow | technical | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-018-evasion-corpus.plan.md) | `5efc769` |
-| STORY-019 | Admin console: the Actions view — recent decisions, deny first, filterable | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-019-admin-console-actions-view.plan.md) | `pending` |
+| STORY-019 | Admin console: the Actions view — recent decisions, deny first, filterable | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-019-admin-console-actions-view.plan.md) | `e70cbc7` |
 | STORY-020 | README, docs/features.md, docs/roadmap.md, .env.example; full regression; brief promotion verified | technical | ⬜ todo | small | — | — |
 
 ## Status Icons
