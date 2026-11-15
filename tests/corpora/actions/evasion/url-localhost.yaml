@@ -1,0 +1,9 @@
+# url_tricks: localhost. Variant of rule-net-metadata-address.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"http://localhost:8080/admin","format":"text"}'
+of: rule-net-metadata-address.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unlisted
+note: 'localhost.'

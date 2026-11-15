@@ -1,0 +1,9 @@
+# sql_comments_casing: A SELECT stacked before a DROP: every statement is classified. Variant of brief-drop-table-users.
+tool_call:
+  name: query
+  arguments: '{"sql":"SELECT 1; DROP TABLE users"}'
+of: brief-drop-table-users.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.ddl
+note: 'A SELECT stacked before a DROP: every statement is classified.'

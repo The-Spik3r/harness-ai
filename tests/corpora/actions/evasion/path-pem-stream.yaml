@@ -1,0 +1,9 @@
+# path_tricks: x.pem::$DATA, the STORY-011 note. Variant of brief-write-dotenv.
+tool_call:
+  name: write
+  arguments: '{"filePath":"keys/server.pem::$DATA","content":"A=1"}'
+of: brief-write-dotenv.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_protected
+note: 'x.pem::$DATA, the STORY-011 note.'

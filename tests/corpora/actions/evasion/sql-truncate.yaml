@@ -1,0 +1,9 @@
+# sql_comments_casing: TRUNCATE is DDL. Variant of brief-drop-table-users.
+tool_call:
+  name: query
+  arguments: '{"sql":"TRUNCATE TABLE users"}'
+of: brief-drop-table-users.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.ddl
+note: 'TRUNCATE is DDL.'

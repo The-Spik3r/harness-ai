@@ -1,0 +1,9 @@
+# sql_comments_casing: OR 1 = 1 voids the scoping predicate. Variant of brief-delete-where-tautology.
+tool_call:
+  name: query
+  arguments: '{"sql":"DELETE FROM t WHERE id = 1 OR 1 = 1"}'
+of: brief-delete-where-tautology.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unscoped_write
+note: 'OR 1 = 1 voids the scoping predicate.'

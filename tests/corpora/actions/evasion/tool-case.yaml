@@ -1,0 +1,9 @@
+# tool_names: Bash with a capital B is not bash. Variant of rule-tool-unknown-prefixed-mcp.
+tool_call:
+  name: "Bash"
+  arguments: '{"command":"rm -rf /"}'
+of: rule-tool-unknown-prefixed-mcp.yaml
+technique: tool_names
+expect: not_allow
+rule: tool.unknown
+note: 'Bash with a capital B is not bash.'

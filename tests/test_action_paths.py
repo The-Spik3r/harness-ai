@@ -203,6 +203,21 @@ def test_normalize_and_classify_touch_no_filesystem(monkeypatch):
         ("\\\\?\\C:\\Repo\\a", ("C:/Repo",), "fs.write_outside_workspace"),
         # A root of `/` is the operator's choice.
         ("/etc/hosts", ("/",), "fs.write_in_workspace"),
+        # PRD-016 STORY-018: a segment of only dots and spaces is outside (Win32 reads it as another name).
+        ("a/.../b", (), "fs.write_outside_workspace"),
+        (".../x", (), "fs.write_outside_workspace"),
+        (". ./x", (), "fs.write_outside_workspace"),
+        (".. /x", (), "fs.write_outside_workspace"),
+        ("/home/dev/projects/.../x", ROOTS, "fs.write_outside_workspace"),
+        ("/home/dev/projects/. ./x", ROOTS, "fs.write_outside_workspace"),
+        # ...and the near misses stay inside.
+        ("src/a.b", (), "fs.write_in_workspace"),
+        ("a.b/c", (), "fs.write_in_workspace"),
+        ("...x/y", (), "fs.write_in_workspace"),
+        ("x../y", (), "fs.write_in_workspace"),
+        ("./a", (), "fs.write_in_workspace"),
+        # Protection still wins over containment.
+        (".../.env", (), "fs.write_protected"),
     ],
 )
 def test_containment(path, roots, rule):

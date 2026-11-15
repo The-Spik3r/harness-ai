@@ -1,0 +1,9 @@
+# sql_comments_casing: EXPLAIN ANALYZE executes the statement; not parseable here, denied. Variant of brief-delete-unscoped.
+tool_call:
+  name: query
+  arguments: '{"sql":"EXPLAIN ANALYZE DELETE FROM t"}'
+of: brief-delete-unscoped.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unparsed
+note: 'EXPLAIN ANALYZE executes the statement; not parseable here, denied.'

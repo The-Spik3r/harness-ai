@@ -1,0 +1,9 @@
+# windows_shell: -Path:env:NAME as one word (the secrets.py fix). Variant of rule-shell-npm-test-then-rm.
+tool_call:
+  name: bash
+  arguments: '{"command":"cat -Path:env:OPENROUTER_API_KEY"}'
+of: rule-shell-npm-test-then-rm.yaml
+technique: windows_shell
+expect: not_allow
+rule: secret.read
+note: '-Path:env:NAME as one word (the secrets.py fix).'

@@ -43,7 +43,10 @@ shell:
   allow:                          # command heads allowed outright (shell.allowlisted)
     - ls
     - cat
-    - git
+    - git status                  # read-only subcommands only (STORY-018): `git clean`, `git reset --hard`,
+    - git diff                    # `git push --force` and `git clone` stay shell.unlisted
+    - git log
+    - git show
     - npm test                    # a multi-token head matches the first N tokens
     - npx tsc
     - pytest

@@ -20,6 +20,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import dataclasses
 import inspect
 import json
 import subprocess
@@ -34,6 +35,7 @@ from app.services.action_adapters import BUILT_IN_TOOLS, Operations, ToolCall, U
 from app.services.action_classifiers import Classification, Operation
 from app.services.action_classifiers.paths import classify_read
 from app.services.action_classifiers.secrets import (
+    ENV_DRIVE,
     INDIRECT,
     classify_env_reference,
     classify_secret_read,
@@ -139,6 +141,14 @@ def test_secret_file_detail_comes_from_the_call():
         "declare -p",
         "typeset -x",
         "declare -p GITHUB_TOKEN",
+        # PRD-016 STORY-018: the PowerShell `Env:` drive.
+        "ls env:",
+        "cat env:AWS_SECRET_ACCESS_KEY",
+        "cat env:*",
+        "gci 'env:'",
+        "Get-Content env:AWS_SECRET",
+        "cat -Path:env:AWS_X",
+        "ls ENV:OPENROUTER_API_KEY",
     ],
 )
 def test_secret_variable_reads_are_secret_read(cmd):
@@ -147,10 +157,21 @@ def test_secret_variable_reads_are_secret_read(cmd):
 
 @pytest.mark.parametrize(
     "cmd",
-    ["echo $HOME", "printenv PATH", "env ls", "echo $1 $? $$ $@", "set -e", "export FOO=1", "declare -p HOME"],
+    ["echo $HOME", "printenv PATH", "env ls", "echo $1 $? $$ $@", "set -e", "export FOO=1", "declare -p HOME",
+     # PRD-016 STORY-018: a named, non-secret `Env:` variable and words that only look like a drive.
+     "ls env:HOME", "ls env:PATH", "git commit -m 'env: add vars'", "ls src/env:x"],
 )
 def test_ordinary_variables_are_not_secret_read(cmd):
     assert "secret.read" not in _rules(cmd)
+
+
+def test_env_drive_is_secret_read_even_through_an_allowlisted_head():
+    # PRD-016 STORY-018: `ls env:` and `cat env:NAME` were `shell.allowlisted` (allow) under an allowlisted ls/cat.
+    policy = dataclasses.replace(BUILT_IN_POLICY, shell_allow=("ls", "cat", "git"))
+    for cmd in ("ls env:", "cat env:AWS_SECRET_ACCESS_KEY"):
+        rules = _rules(cmd, policy)
+        assert "secret.read" in rules and "shell.unlisted" not in rules, cmd
+    assert "secret.read" not in _rules("ls env:HOME", policy)
 
 
 def test_env_reference_detail_and_operation():
@@ -179,6 +200,15 @@ def test_repeated_reference_is_reported_once():
         ("${env:AWS_X}", ("AWS_X",)),
         ("%GITHUB_TOKEN%", ("GITHUB_TOKEN",)),
         ("${!x}", (INDIRECT,)),
+        # PRD-016 STORY-018: the PowerShell `Env:` drive.
+        ("env:", (ENV_DRIVE,)),
+        ("env:*", (ENV_DRIVE,)),
+        ("env:AWS_X", ("AWS_X",)),
+        ("ENV:Path", ("Path",)),
+        ("env:\\AWS_X", ("AWS_X",)),
+        ("-Path:env:AWS_X", ("AWS_X",)),
+        ("env: add vars", ()),
+        ("src/env:x", ()),
         ("a$B${C}", ("B", "C")),
         ("$1 $? $$ $@ $#", ()),
         ("plain", ()),
@@ -197,6 +227,8 @@ def test_classify_env_reference():
     )
     assert classify_env_reference("HOME", SECRET_ENV, operation=OP) is None
     assert classify_env_reference(INDIRECT, (), operation=OP) == Classification("secret.read", OP, INDIRECT)
+    # PRD-016 STORY-018: the whole `Env:` drive is always secret.read, detail from the sentinel.
+    assert classify_env_reference(ENV_DRIVE, (), operation=OP) == Classification("secret.read", OP, "env:")
     assert classify_env_reference(None, SECRET_ENV, operation=OP) is None
     assert classify_env_reference("AWS_X", [None, "AWS_*", 3], operation=OP) is None  # entries without .search
     long_name = "AWS_" + "X" * 100

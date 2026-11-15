@@ -649,6 +649,51 @@ def test_not_inline_interpreter(cmd):
     assert _rules(cmd) == ("shell.unlisted",)
 
 
+# PRD-016 STORY-018: an option that names code to run is `shell.inline_interpreter`, so an
+# allowlisted head cannot vouch for it. The table is closed (`_CODE_OPTION_HEADS`).
+_CODE_OPTIONS = [
+    ("git -c alias.status='!rm -rf /' status", "git -c"),
+    ("git -ccore.pager=x log", "git -ccore.pager=x"),
+    ("git -C sub -c core.sshCommand=x fetch", "git -c"),
+    ("git --config-env=core.pager=VAR log", "git --config-env=core.pager=VAR"),
+    ("git --config-env core.pager=VAR log", "git --config-env"),
+    ("git fetch --upload-pack=x origin", "git --upload-pack=x"),
+    ("git fetch --upload-p x origin", "git --upload-p"),
+    ("git push --receive-pack=x origin", "git --receive-pack=x"),
+    ("git clone -u x https://e.example/r.git", "git -u"),
+    ("git pull -u x", "git -u"),
+    ("git -u x status", "git -u"),
+    ("rg --pre 'rm -rf /' x", "rg --pre"),
+    ("rg --pre=./evil x", "rg --pre=./evil"),
+    ("pytest -p evil_plugin", "pytest -p"),
+    ("pytest -qp evil_plugin", "pytest -qp"),
+    ("npm test --script-shell=./evil.sh", "npm --script-shell=./evil.sh"),
+    ("npm run x --script-shell ./evil.sh", "npm --script-shell"),
+]
+
+
+@pytest.mark.parametrize("cmd,detail", _CODE_OPTIONS, ids=[row[0] for row in _CODE_OPTIONS])
+def test_code_carrying_option_of_an_allowlisted_head_is_inline_interpreter(cmd, detail):
+    allow = (cmd.split()[0],)
+    assert [c.detail for c in classify_shell(cmd, allow) if c.rule == "shell.inline_interpreter"] == [detail]
+    # The allowlist is not consulted once a danger fired.
+    assert "shell.allowlisted" not in _rules(cmd, allow)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git status", "git diff --stat", "git log -n 3", "git show HEAD", "git -C sub status",
+        "git commit -c HEAD", "git log -p", "git diff -U3", "git --no-pager log", "git --exec-path",
+        "git clone --depth 1 x", "git fetch --recurse-submodules",
+        "rg x src", "rg --pre-glob '*.gz' x", "pytest -q tests", "pytest -k part", "pytest --pyargs mod",
+        "npm test", "npm test --silent",
+    ],
+)
+def test_ordinary_options_of_those_heads_are_not_inline_interpreter(cmd):
+    assert "shell.inline_interpreter" not in _rules(cmd, (cmd.split()[0],))
+
+
 def test_python_m_pytest_can_be_allowlisted():
     assert _rules("python -m pytest -q", ("python -m pytest",)) == ("shell.allowlisted",)
 

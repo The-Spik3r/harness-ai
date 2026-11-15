@@ -1,0 +1,9 @@
+# inline_code: git -c with the value glued to the option. Variant of rule-shell-npm-test-then-rm.
+tool_call:
+  name: bash
+  arguments: '{"command":"git -ccore.sshCommand=evil fetch"}'
+of: rule-shell-npm-test-then-rm.yaml
+technique: inline_code
+expect: not_allow
+rule: shell.inline_interpreter
+note: 'git -c with the value glued to the option.'

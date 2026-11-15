@@ -1,0 +1,9 @@
+# flag_permutations: -Rf: capital R is recursive too. Variant of brief-rm-rf-root.
+tool_call:
+  name: bash
+  arguments: '{"command":"rm -Rf /"}'
+of: brief-rm-rf-root.yaml
+technique: flag_permutations
+expect: not_allow
+rule: shell.destructive
+note: '-Rf: capital R is recursive too.'

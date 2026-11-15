@@ -1,0 +1,9 @@
+# tool_names: A trailing space in the tool name. Variant of rule-tool-unknown-prefixed-mcp.
+tool_call:
+  name: "bash "
+  arguments: '{"command":"rm -rf /"}'
+of: rule-tool-unknown-prefixed-mcp.yaml
+technique: tool_names
+expect: not_allow
+rule: tool.unknown
+note: 'A trailing space in the tool name.'

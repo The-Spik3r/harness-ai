@@ -56,9 +56,39 @@ The over-cap `tool.malformed` case is not a corpus file (a 100,000-character
 file would dwarf the corpus, finding 6); it stays in `tests/test_action_policy.py`
 and `tests/test_action_adapters.py`.
 
-STORY-018 extends this module with `tests/corpora/actions/evasion/`, reusing
-`_tool_call()`, `_corpus()`, `CorpusError`, `_POLICIES`, `_IDENTITIES` and
-`_SYNTHETIC_BY_NAME`.
+Evasion corpus (STORY-018, PRD F12). `tests/corpora/actions/evasion/` holds
+obfuscated variants of denied calls. The format is F12's, with `rule` (the
+rule the engine reports, as the synthetic files declare it) and `note` added
+and an optional `decision`::
+
+    tool_call: {name: <str>, arguments: '<JSON text>'}
+    of: <a file in synthetic/ that is itself a deny for every role it names>
+    technique: <_EVASION_TECHNIQUES>
+    expect: not_allow            # the literal string, evaluated for user, dba and admin
+    rule: <the rule id the engine reports for all three roles>
+    decision: deny | flag        # optional, default deny; never allow
+    note: <what the trick is>
+
+A file runs under the policy of its `of:` target. Two tests apply to every
+file: no role gets `allow` (the MVP definition), and the decision and rule are
+the declared ones, so a variant caught only by the `shell.unlisted` floor
+cannot pass as caught by a real rule: such a file is labelled
+`technique: unlisted_head`, and a test pins the two together. A bad `of:` (a
+file that does not exist, or that is not itself a deny) fails collection. The
+only files whose decision is `flag` are heads the example policy does not
+allowlist (`git clean`): its `shell.unlisted` is `flag`, grantable and never
+`allow`.
+
+**Stated limitations**, not corpus rows (decided by STORY-010, 011 and 013, or
+found here and left): a shell glob on a reader head (`cat .e*`); a `SELECT`
+that calls a function with side effects (`pg_terminate_backend`); 8.3 short
+names and symlinks (`GITHUB~1`); SQL from `psql -f` or stdin; data piped into
+`tee` or `xargs`; the PowerShell provider path
+`Microsoft.PowerShell.Core\\Environment::` (POSIX tokenizing eats the
+backslash); `echo env:` is over-blocked as `secret.read`; heads outside the
+tables are `shell.unlisted` and `allow` once a deployment allowlists them. An
+allowlist entry is trust in the whole head, except the code-carrying options
+of `git`, `rg`, `pytest` and `npm` (`shell.inline_interpreter`).
 """
 
 import os
@@ -611,6 +641,241 @@ def test_every_decision_round_trips_through_record_and_the_audit_api(temp_db):
         assert entry["user_id"] == _IDENTITIES[role].user_id, call_id
         assert entry["policy_digest"] == d.policy_digest, call_id
         assert entry["reason"] == d.reason, call_id
+
+
+# --- STORY-018: the evasion corpus ---------------------------------------------
+
+#: PRD Section 11's eleven groups. Each must have at least one file (the URL group is `url_tricks`;
+#: "casing and stacked statements" and "SQL comments" are `sql_comments_casing`).
+_PRD_TECHNIQUES = (
+    "quoting_escapes",
+    "flag_permutations",
+    "wrappers",
+    "chaining",
+    "substitution",
+    "eval_source",
+    "base64_interpreter",
+    "nested_bash_c",
+    "sql_comments_casing",
+    "path_tricks",
+    "url_tricks",
+)
+#: Groups the classifiers earned beyond the PRD's list. `unlisted_head` is a head caught by the
+#: `shell.unlisted` floor and by no rule (it is the only technique allowed to report that rule).
+_EXTRA_TECHNIQUES = ("secret_access", "redirect_write", "windows_shell", "inline_code", "unlisted_head", "tool_names")
+_EVASION_TECHNIQUES = _PRD_TECHNIQUES + _EXTRA_TECHNIQUES
+_EVASION_REQUIRED_KEYS = frozenset({"tool_call", "of", "technique", "expect", "rule", "note"})
+#: `decision` is `deny` unless a file says `flag`: the example policy sets the `shell.unlisted` floor to
+#: `flag`, so a head it does not allowlist (`git clean`) is flagged, never allowed. `allow` is not a value.
+_EVASION_OPTIONAL_KEYS = frozenset({"decision"})
+_EVASION_DECISIONS = ("deny", "flag")
+_EVASION_BATCH = 150
+
+
+@dataclass(frozen=True)
+class _Evasion:
+    """One obfuscated variant: the call, the synthetic file it varies, and the decision and rule it must get."""
+
+    path: Path
+    call: ToolCall
+    of: str
+    target: _Case
+    technique: str
+    rule: str
+    decision: str
+    note: str
+
+
+def _load_evasion(path: Path) -> _Evasion:
+    """Parse and check one evasion file; every violation is a `CorpusError` naming the file and the node."""
+    name = path.name
+    try:
+        document = strict_yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise CorpusError(name, "file", f"not valid YAML: {exc}") from exc
+    if not isinstance(document, dict):
+        raise CorpusError(name, "file", "must be a mapping")
+
+    keys = set(document)
+    unknown = keys - _EVASION_REQUIRED_KEYS - _EVASION_OPTIONAL_KEYS
+    if unknown:
+        raise CorpusError(name, str(sorted(map(str, unknown))[0]), "unknown key")
+    missing = _EVASION_REQUIRED_KEYS - keys
+    if missing:
+        raise CorpusError(name, sorted(missing)[0], "required key is missing")
+
+    call = _tool_call(name, "tool_call", document["tool_call"])
+
+    of = document["of"]
+    if not isinstance(of, str):
+        raise CorpusError(name, "of", "must be a synthetic file name")
+    if of not in _SYNTHETIC_BY_NAME:
+        raise CorpusError(name, "of", f"{of!r} is not a file in synthetic/")
+    target = _SYNTHETIC_BY_NAME[of]
+    if any(expected != "deny" for expected in target.expect.values()):
+        raise CorpusError(name, "of", f"{of} is not itself a deny (it expects {dict(target.expect)})")
+
+    technique = _one_of(name, "technique", document["technique"], _EVASION_TECHNIQUES)
+    if document["expect"] != "not_allow":
+        raise CorpusError(name, "expect", f"must be the string not_allow, got {document['expect']!r}")
+    rule = _one_of(name, "rule", document["rule"], RULE_IDS)
+    decision = _one_of(name, "decision", document.get("decision", "deny"), _EVASION_DECISIONS)
+    note = document["note"]
+    if not isinstance(note, str) or not note.strip():
+        raise CorpusError(name, "note", "must be a non-empty string")
+
+    return _Evasion(path, call, of, target, technique, rule, decision, note)
+
+
+# Loaded at import, like the synthetic files: a bad `of:` fails collection (AC 3).
+_EVASION_FILES = _corpus("evasion")
+_EVASION = [_load_evasion(path) for path in _EVASION_FILES]
+
+
+def _evasion_ids() -> list[str]:
+    return [case.path.name for case in _EVASION]
+
+
+def _evaluate_evasion(case: _Evasion, role: str) -> ActionDecision:
+    """The decision for `case` as `role`, under the policy of the synthetic file it varies."""
+    call = dataclasses.replace(case.call, id=f"{case.path.stem}:{role}")
+    return evaluate(call, _IDENTITIES[role], _POLICIES[case.target.policy])
+
+
+def _describe_evasion(case: _Evasion, role: str, d: ActionDecision) -> str:
+    return f"{case.path.name} (of {case.of}) as {role} under {case.target.policy}: {d.decision} / {d.rule} -- {d.reason!r}"
+
+
+def test_every_evasion_file_loads():
+    assert _EVASION_FILES, "tests/corpora/actions/evasion/ is empty"
+    assert [case.path for case in _EVASION] == _EVASION_FILES
+    assert all(path.suffix == ".yaml" for path in _EVASION_FILES)
+    assert len({path.stem for path in _EVASION_FILES}) == len(_EVASION_FILES)
+
+
+def test_the_evasion_corpus_holds_at_least_30_files():
+    assert len(_EVASION) >= 30, f"{len(_EVASION)} files"
+
+
+def test_every_prd_technique_group_has_a_file(record_property):
+    counts = Counter(case.technique for case in _EVASION)
+    record_property("technique_counts", dict(sorted(counts.items())))
+
+    missing = set(_PRD_TECHNIQUES) - set(counts)
+    assert not missing, f"no evasion file for {sorted(missing)}"
+
+
+@pytest.mark.parametrize("case", _EVASION, ids=_evasion_ids())
+def test_no_evasion_variant_is_ever_allowed(case):
+    """AC 2: whatever the role (`dba` holds the SQL write grant, `admin` is the top role), never `allow`."""
+    for role in _ROLES:
+        d = _evaluate_evasion(case, role)
+
+        assert d.decision != "allow", _describe_evasion(case, role, d)
+
+
+@pytest.mark.parametrize("case", _EVASION, ids=_evasion_ids())
+def test_an_evasion_variant_is_decided_by_its_declared_rule(case):
+    """Not only "not allow": the rule is the one the file says, so a floor-only denial cannot pass for a real one."""
+    for role in _ROLES:
+        d = _evaluate_evasion(case, role)
+
+        assert (d.decision, d.rule) == (case.decision, case.rule), _describe_evasion(case, role, d)
+
+
+def test_only_the_floor_rows_rely_on_shell_unlisted():
+    """A row the floor alone catches is labelled `unlisted_head`, so reliance on the floor stays visible."""
+    floor = {case.path.name for case in _EVASION if case.rule == "shell.unlisted"}
+    labelled = {case.path.name for case in _EVASION if case.technique == "unlisted_head"}
+
+    assert floor == labelled
+
+
+_VALID_EVASION = {
+    "tool_call": {"name": "bash", "arguments": '{"command":"r\'\'m -rf /"}'},
+    "of": "brief-rm-rf-root.yaml",
+    "technique": "quoting_escapes",
+    "expect": "not_allow",
+    "rule": "shell.destructive",
+    "note": "a valid file",
+}
+
+
+def _with_evasion(**changes):
+    """`_VALID_EVASION` with `changes` applied: one violation per bad document."""
+    document = {**_VALID_EVASION, **changes}
+    return {key: value for key, value in document.items() if value is not _DROP}
+
+
+_BAD_EVASIONS = [
+    ("of-missing", yaml.safe_dump(_with_evasion(of=_DROP)), "of"),
+    ("of-does-not-exist", yaml.safe_dump(_with_evasion(of="no-such-file.yaml")), "of"),
+    ("of-is-an-allow", yaml.safe_dump(_with_evasion(of="brief-select-scoped.yaml")), "of"),
+    ("of-is-a-dba-allow", yaml.safe_dump(_with_evasion(of="brief-delete-where-granted.yaml")), "of"),
+    ("of-not-a-string", yaml.safe_dump(_with_evasion(of=3)), "of"),
+    ("expect-deny", yaml.safe_dump(_with_evasion(expect="deny")), "expect"),
+    ("unknown-technique", yaml.safe_dump(_with_evasion(technique="magic")), "technique"),
+    ("unknown-rule", yaml.safe_dump(_with_evasion(rule="shell.nope")), "rule"),
+    ("allow-decision", yaml.safe_dump(_with_evasion(decision="allow")), "decision"),
+    ("unknown-top-level-key", yaml.safe_dump(_with_evasion(verdict="deny")), "verdict"),
+    ("missing-rule", yaml.safe_dump(_with_evasion(rule=_DROP)), "rule"),
+    (
+        "arguments-as-mapping",
+        yaml.safe_dump(_with_evasion(tool_call={"name": "bash", "arguments": {"command": "ls"}})),
+        "tool_call.arguments",
+    ),
+    ("empty-note", yaml.safe_dump(_with_evasion(note=" ")), "note"),
+    ("duplicate-key", yaml.safe_dump(_VALID_EVASION) + "rule: shell.unlisted\n", "file"),
+]
+
+
+@pytest.mark.parametrize("stem, text, node", _BAD_EVASIONS, ids=[row[0] for row in _BAD_EVASIONS])
+def test_a_malformed_evasion_file_is_a_corpus_error_naming_the_file_and_the_node(tmp_path, stem, text, node):
+    path = tmp_path / f"{stem}.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(CorpusError, match=rf"^{re.escape(path.name)}: {node}: "):
+        _load_evasion(path)
+
+
+def test_the_valid_evasion_template_loads(tmp_path):
+    path = tmp_path / "ok.yaml"
+    path.write_text(yaml.safe_dump(_VALID_EVASION), encoding="utf-8")
+
+    case = _load_evasion(path)
+
+    assert case.call == ToolCall("ok", "bash", '{"command":"r\'\'m -rf /"}')
+    assert (case.of, case.technique, case.rule, case.decision) == (
+        "brief-rm-rf-root.yaml",
+        "quoting_escapes",
+        "shell.destructive",
+        "deny",
+    )
+
+
+def test_every_evasion_decision_round_trips_through_record_and_the_audit_api(temp_db):
+    """T9 for the evasion corpus. 3 roles x the files exceed the endpoint's cap, so record and read back in batches."""
+    seen: set[str] = set()
+    for role in _ROLES:
+        decisions = [_evaluate_evasion(case, role) for case in _EVASION]
+        for start in range(0, len(decisions), _EVASION_BATCH):
+            batch = decisions[start : start + _EVASION_BATCH]
+            record(batch, _IDENTITIES[role])
+            # The newest rows come first, so the batch just recorded is inside the limit.
+            entries = _entries(
+                client.get("/audit/actions", params={"limit": admin.ACTIONS_LIMIT_MAX}, headers=_ADMIN_HEADERS)
+            )
+            by_id = {entry["tool_call_id"]: entry for entry in entries}
+            for d in batch:
+                entry = by_id[d.tool_call_id]
+                assert (entry["decision"], entry["rule"], entry["granted_by"]) == (d.decision, d.rule, d.granted_by), d.tool_call_id
+                assert entry["role"] == role, d.tool_call_id
+                assert entry["user_id"] == _IDENTITIES[role].user_id, d.tool_call_id
+                assert entry["policy_digest"] == d.policy_digest, d.tool_call_id
+                assert entry["reason"] == d.reason, d.tool_call_id
+                seen.add(d.tool_call_id)
+
+    assert len(seen) == len(_EVASION) * len(_ROLES)
 
 
 # --- AC 5: evaluate() latency -------------------------------------------------

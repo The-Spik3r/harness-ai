@@ -1,0 +1,9 @@
+# windows_shell: Remove-Item -Recurse -Force C:\ ends in a backslash; unclassifiable, and read as destructive. Variant of brief-rm-rf-root.
+tool_call:
+  name: bash
+  arguments: '{"command":"Remove-Item -Recurse -Force C:\\"}'
+of: brief-rm-rf-root.yaml
+technique: windows_shell
+expect: not_allow
+rule: shell.unclassifiable
+note: 'Remove-Item -Recurse -Force C:\ ends in a backslash; unclassifiable, and read as destructive.'

@@ -1,0 +1,9 @@
+# path_tricks: The \\?\ extended-length prefix is not under any root. Variant of rule-fs-write-etc-hosts.
+tool_call:
+  name: write
+  arguments: '{"filePath":"\\\\?\\C:\\Windows\\x","content":"A=1"}'
+of: rule-fs-write-etc-hosts.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_outside_workspace
+note: 'The \\?\ extended-length prefix is not under any root.'

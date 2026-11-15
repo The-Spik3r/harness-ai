@@ -1,0 +1,9 @@
+# tool_names: A hashed MCP tool name. Variant of rule-tool-unknown-prefixed-mcp.
+tool_call:
+  name: "srv0mcp0query"
+  arguments: '{"sql":"DROP TABLE users"}'
+of: rule-tool-unknown-prefixed-mcp.yaml
+technique: tool_names
+expect: not_allow
+rule: tool.unknown
+note: 'A hashed MCP tool name.'

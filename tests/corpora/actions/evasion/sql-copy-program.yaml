@@ -1,0 +1,9 @@
+# sql_comments_casing: COPY ... TO PROGRAM is not parseable here; denied. Variant of brief-delete-unscoped.
+tool_call:
+  name: query
+  arguments: '{"sql":"COPY users TO PROGRAM ''rm -rf /''"}'
+of: brief-delete-unscoped.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unparsed
+note: 'COPY ... TO PROGRAM is not parseable here; denied.'

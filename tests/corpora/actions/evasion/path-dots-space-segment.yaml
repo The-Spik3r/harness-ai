@@ -1,0 +1,9 @@
+# path_tricks: '. ./x': a segment of dots and spaces is outside the workspace (the paths.py fix). Variant of rule-fs-editor-escapes-workspace.
+tool_call:
+  name: write
+  arguments: '{"filePath":". ./x","content":"A=1"}'
+of: rule-fs-editor-escapes-workspace.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_outside_workspace
+note: '''. ./x'': a segment of dots and spaces is outside the workspace (the paths.py fix).'

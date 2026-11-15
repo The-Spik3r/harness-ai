@@ -1,0 +1,9 @@
+# unlisted_head: choco install: not in the package_install table; only the floor catches it. Variant of rule-shell-make-release-built-in.
+tool_call:
+  name: bash
+  arguments: '{"command":"choco install evil"}'
+of: rule-shell-make-release-built-in.yaml
+technique: unlisted_head
+expect: not_allow
+rule: shell.unlisted
+note: 'choco install: not in the package_install table; only the floor catches it.'

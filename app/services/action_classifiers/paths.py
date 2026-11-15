@@ -45,6 +45,9 @@ Containment (Section 6.5 items 2-4, D11), only when nothing is protected:
 
 - a relative path that does not escape is inside (the agent runs in the
   repository); one that escapes is outside;
+- a path with a segment of only dots and spaces (`...`, `. .`, `.. `) is
+  outside, relative or under a root: Win32 reads it as a name that can
+  traverse (STORY-018);
 - a `~` path is outside (no root contains `~`), and so is a drive-relative
   `c:x`, whose meaning depends on a per-drive directory nobody here sees;
 - an absolute path is inside only when, for some root normalized the same
@@ -65,9 +68,9 @@ the grantable `fs.write_outside_workspace`, so it fails closed.
 **Symlinks are not resolved** (PRD-016 Risk 4), and neither is anything else
 that needs the client's disk: hard links, 8.3 short names (`GITHUB~1`), a
 mount point under a root, the agent's working directory (Section 6.5's
-opening sentence), and Win32 traversal oddities in containment (`a/.../b`,
-`.. /x` stay literal names, so they count as relative and inside). STORY-018
-and STORY-020 list these.
+opening sentence). STORY-018 and STORY-020 list these. A Win32 traversal
+oddity, a segment of only dots and spaces (`a/.../b`, `. ./x`, `.. /x`), is
+not one of them: it is outside the workspace (STORY-018).
 
 Secret reads (STORY-013, F4). A read is `secret.read` when a compiled
 `secrets.files` glob matches one of the same three candidates protection
@@ -216,6 +219,10 @@ def _protected_match(p: NormalizedPath, protected: Iterable) -> Optional[str]:
 
 def _contained(p: NormalizedPath, workspace_roots: Iterable) -> bool:
     """Section 6.5 items 2-4 (module docstring): segment-wise, exact except the drive letter."""
+    # PRD-016 STORY-018: Win32 opens `...`, `. .` and `.. ` as names that can traverse, which
+    # the lexical rewrite cannot follow. A segment of only dots and spaces is outside.
+    if any(part.strip(". ") == "" for part in p.parts):
+        return False
     if not p.is_absolute:
         return p.anchor == "" and not p.escapes and not p.home
     for root in workspace_roots or ():

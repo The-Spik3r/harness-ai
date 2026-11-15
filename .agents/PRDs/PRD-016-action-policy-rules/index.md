@@ -6,7 +6,7 @@
 
 ## Progress
 
-17/20 stories done — 85%
+18/20 stories done — 90%
 
 ## Stories
 
@@ -31,7 +31,7 @@ All stories commit on the epic branch `epic/PRD-016-action-policy-rules`. No per
 | STORY-015 | action_decisions table, indexes, record() and read functions | feature | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-015-action-decisions-table-and-record.plan.md) | `0ceb250` |
 | STORY-016 | GET /audit/actions with audit scoping, and the three action counts on /stats | feature | ✅ done | small | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-016-audit-actions-endpoint-and-stats.plan.md) | `694a619` |
 | STORY-017 | Synthetic tool-call corpus, its suite end to end through record(), and evaluate() latency | technical | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-017-synthetic-tool-call-corpus.plan.md) | `e67fd27` |
-| STORY-018 | Evasion corpus — obfuscated variants of denied calls, none may produce allow | technical | ⬜ todo | medium | — | — |
+| STORY-018 | Evasion corpus — obfuscated variants of denied calls, none may produce allow | technical | ✅ done | medium | [plan](../../plans/PRD-016-action-policy-rules/completed/STORY-018-evasion-corpus.plan.md) | `pending` |
 | STORY-019 | Admin console: the Actions view — recent decisions, deny first, filterable | feature | ⬜ todo | medium | — | — |
 | STORY-020 | README, docs/features.md, docs/roadmap.md, .env.example; full regression; brief promotion verified | technical | ⬜ todo | small | — | — |
 

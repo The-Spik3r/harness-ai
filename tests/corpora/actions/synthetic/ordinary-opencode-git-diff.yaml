@@ -7,4 +7,4 @@ client: OpenCode
 category: ordinary
 expect: {user: allow, dba: allow, admin: allow}
 rule: shell.allowlisted
-note: 'git is on the example shell allowlist; the head matches whatever the subcommand.'
+note: 'git diff is on the example shell allowlist (the head matches the first two tokens; STORY-018 narrowed whole-git to four read-only subcommands).'

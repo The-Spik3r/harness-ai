@@ -1,0 +1,9 @@
+# secret_access: grep include .env* is matched against the secret globs. Variant of rule-secret-read-dotenv.
+tool_call:
+  name: grep
+  arguments: '{"pattern":"KEY=","include":".env*"}'
+of: rule-secret-read-dotenv.yaml
+technique: secret_access
+expect: not_allow
+rule: secret.read
+note: 'grep include .env* is matched against the secret globs.'

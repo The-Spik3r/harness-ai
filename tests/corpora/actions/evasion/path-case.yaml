@@ -1,0 +1,9 @@
+# path_tricks: .ENV: protected globs match case-insensitively. Variant of brief-write-dotenv.
+tool_call:
+  name: write
+  arguments: '{"filePath":".ENV","content":"A=1"}'
+of: brief-write-dotenv.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_protected
+note: '.ENV: protected globs match case-insensitively.'

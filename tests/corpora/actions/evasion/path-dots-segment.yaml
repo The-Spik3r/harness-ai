@@ -1,0 +1,9 @@
+# path_tricks: A leading ... segment: Win32 may read it as a parent (STORY-011 note; the paths.py fix). Variant of rule-fs-editor-escapes-workspace.
+tool_call:
+  name: write
+  arguments: '{"filePath":".../../../outside.txt","content":"A=1"}'
+of: rule-fs-editor-escapes-workspace.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_outside_workspace
+note: 'A leading ... segment: Win32 may read it as a parent (STORY-011 note; the paths.py fix).'

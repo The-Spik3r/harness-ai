@@ -1,0 +1,9 @@
+# url_tricks: An encoded @ in the host. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://registry.npmjs.org%40evil.example/","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unparsed
+note: 'An encoded @ in the host.'

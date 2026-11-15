@@ -1,0 +1,9 @@
+# sql_comments_casing: SELECT ... INTO creates a table, which is DDL. Variant of brief-delete-unscoped.
+tool_call:
+  name: query
+  arguments: '{"sql":"SELECT * INTO backup FROM users"}'
+of: brief-delete-unscoped.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.ddl
+note: 'SELECT ... INTO creates a table, which is DDL.'

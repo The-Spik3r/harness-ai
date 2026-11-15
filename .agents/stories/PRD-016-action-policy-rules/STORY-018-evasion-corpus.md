@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Evidence"
-status: todo
+status: done
 labels: [tests, security, corpus]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-018-evasion-corpus.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-018-evasion-corpus.report.md
+commit: pending
 depends_on: [STORY-017]
 blocks: [STORY-020]
 skills: []
@@ -28,10 +28,10 @@ As a security admin, I want obfuscated versions of every denied call checked in 
 
 ## Acceptance Criteria
 
-- [ ] Given `tests/corpora/actions/evasion/`, when counted, then it holds at least 30 files, each naming the synthetic file it is a variant of (`of:`), covering every group listed in PRD Section 11 (Corpus criteria): quoting and escapes, flag permutations, wrappers, chaining, substitution, `eval`/`source`, base64-to-interpreter, nested `bash -c`, SQL comments, casing and stacked statements, path tricks, URL tricks.
-- [ ] Given each evasion file, when evaluated for every role in the test matrix (including `dba`), then the decision is never `allow`; the assertion message names the file, the decision and the rule.
-- [ ] Given an evasion file whose `of:` target does not exist or is not itself a `deny`, when the suite collects, then it fails collection.
-- [ ] Given a variant that the classifiers allow while the story is being written, when it is found, then the classifier is fixed in the same commit and the fix is recorded in the story report as a finding; the corpus is never edited to pass.
+- [x] Given `tests/corpora/actions/evasion/`, when counted, then it holds at least 30 files, each naming the synthetic file it is a variant of (`of:`), covering every group listed in PRD Section 11 (Corpus criteria): quoting and escapes, flag permutations, wrappers, chaining, substitution, `eval`/`source`, base64-to-interpreter, nested `bash -c`, SQL comments, casing and stacked statements, path tricks, URL tricks.
+- [x] Given each evasion file, when evaluated for every role in the test matrix (including `dba`), then the decision is never `allow`; the assertion message names the file, the decision and the rule.
+- [x] Given an evasion file whose `of:` target does not exist or is not itself a `deny`, when the suite collects, then it fails collection.
+- [x] Given a variant that the classifiers allow while the story is being written, when it is found, then the classifier is fixed in the same commit and the fix is recorded in the story report as a finding; the corpus is never edited to pass.
 
 ## Technical Notes
 

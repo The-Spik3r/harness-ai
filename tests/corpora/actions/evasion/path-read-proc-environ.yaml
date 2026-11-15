@@ -1,0 +1,9 @@
+# secret_access: /proc/self/environ is the whole environment. Variant of rule-secret-read-dotenv.
+tool_call:
+  name: read
+  arguments: '{"filePath":"/proc/self/environ"}'
+of: rule-secret-read-dotenv.yaml
+technique: secret_access
+expect: not_allow
+rule: secret.read
+note: '/proc/self/environ is the whole environment.'

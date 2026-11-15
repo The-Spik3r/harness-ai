@@ -151,7 +151,8 @@ with the classifier that owns it, before the head's rule, in this order
    then a whole-environment dump, always `secret.read`: `env` with no
    command, `printenv` with no names, bare `set`, `export` / `export -p`,
    `declare`/`typeset` with no names. `printenv NAME` and `declare -p NAME`
-   check each name.
+   check each name. A PowerShell `env:NAME` / `env:` word is an environment
+   reference too (STORY-018; `secrets.env_references`).
 4. **Writes** (decision D-B): output-redirect targets (`>`, `>>`, `>|`,
    `&>`, `&>>`, `<>`, and `>&` to a file) and a fetcher's output options
    (`curl -o`/`-D`/`-c`, `wget -O`/`-o`/`-a`/`-P`), through
@@ -172,8 +173,7 @@ What the embedding does not read (STORY-018 and STORY-020 list them): SQL
 from `-f`, `-init`, `<` or a pipe (the head's rule stands, and an
 allowlisted `psql` is trust in the head); `tee`, `cp` destinations, `dd
 of=` and other heads' own writes; PowerShell/cmd inner text (it is
-`shell.inline_interpreter` anyway) and the PowerShell `Env:` drive
-(`gci env:`); reader heads outside `_READ_HEADS`; shell globs in arguments
+`shell.inline_interpreter` anyway); reader heads outside `_READ_HEADS`; shell globs in arguments
 (`cat .e*`) and glob wildcards that could only name a secret; a single-quoted
 `'$X'` cannot be told from `$X` and over-matches; an unknown curl option's
 value is read as a URL (over-blocks); `sqlcmd`, `clickhouse-client` and
@@ -858,6 +858,21 @@ _PS_VALUED_PARAMS = (
     "executionpolicy", "workingdirectory", "outputformat", "inputformat",
     "windowstyle", "configurationname", "settingsfile",
 )
+#: STORY-018: heads an allowlist plausibly holds that run code named in one of
+#: their OWN options (the corpus found `git -c alias.x='!cmd' x`, `rg --pre cmd`,
+#: `pytest -p plugin` and `npm test --script-shell=cmd` all `shell.allowlisted`).
+#: `_code_option` reads the options below as `shell.inline_interpreter`, before
+#: the allowlist is consulted, so an allowlist entry can no longer vouch for
+#: them. Deny-only: it can only add a rule. Every other option of these heads
+#: stays trust in the head (6.6). Closed on purpose; a new head is a new row.
+_CODE_OPTION_HEADS = frozenset({"git", "rg", "pytest", "npm", "npx"})
+#: `git` subcommands whose `-u` is `--upload-pack` (`git clone -u CMD`).
+_GIT_UPLOAD_PACK_SUBCOMMANDS = frozenset({"clone", "fetch", "pull"})
+#: Global `git` options whose value is the next word, so it is not the subcommand.
+_GIT_GLOBAL_VALUED = frozenset({"-C", "--git-dir", "--work-tree", "--namespace"})
+#: `git` long options that name a program, matched by an unambiguous prefix
+#: (`--upload-p`, as getopt matches) down to three letters.
+_GIT_PROGRAM_OPTIONS = ("upload-pack", "receive-pack", "exec")
 #: D16: `Invoke-Expression` runs a string the classifier cannot see.
 _IEX = frozenset({"invoke-expression", "iex"})
 
@@ -1125,6 +1140,55 @@ def _cmd_inline(args: tuple[str, ...]) -> Optional[tuple[str, Optional[str]]]:
     return None
 
 
+def _git_code_option(args: tuple[str, ...]) -> Optional[str]:
+    """`git -c k=v`, `--config-env`, `-u`/`--upload-pack`/`--receive-pack`/`--exec`: the word, else None (STORY-018)."""
+    subcommand: Optional[str] = None
+    k = 0
+    while k < len(args):
+        word = args[k]
+        k += 1
+        if word == "--":
+            break
+        if word.startswith("--"):
+            name = word[2:].split("=", 1)[0]
+            if len(name) >= 3 and any(full.startswith(name) for full in _GIT_PROGRAM_OPTIONS):
+                return word
+            if subcommand is None:
+                if "--config-env".startswith(word.split("=", 1)[0]) and len(name) >= 3:
+                    return word
+                if word in _GIT_GLOBAL_VALUED:
+                    k += 1
+            continue
+        if word.startswith("-") and len(word) > 1:
+            if subcommand is None:
+                if word == "-C":
+                    k += 1
+                elif word.startswith("-c") or "u" in word[1:]:
+                    return word
+            elif subcommand in _GIT_UPLOAD_PACK_SUBCOMMANDS and "u" in word[1:]:
+                return word
+            continue
+        if subcommand is None:
+            subcommand = word
+    return None
+
+
+def _code_option(low: str, args: tuple[str, ...]) -> Optional[str]:
+    """An option of an allowlistable head that names code to run (`_CODE_OPTION_HEADS`), else None (STORY-018)."""
+    if low == "git":
+        return _git_code_option(args)
+    for word in args:
+        if word == "--":
+            break
+        if low == "rg" and (word == "--pre" or word.startswith("--pre=")):
+            return word
+        if low == "pytest" and word.startswith("-") and not word.startswith("--") and "p" in word[1:]:
+            return word
+        if low in ("npm", "npx") and (word == "--script-shell" or word.startswith("--script-shell=")):
+            return word
+    return None
+
+
 def _inline_interpreter(segment: Segment, low: str) -> Optional[tuple[str, Optional[str]]]:
     """`shell.inline_interpreter`: (detail, PowerShell/cmd inner text or None), else None (6.3, 6.8, D16)."""
     head, args = segment.head, segment.args
@@ -1159,6 +1223,8 @@ def _inline_interpreter(segment: Segment, low: str) -> Optional[tuple[str, Optio
         hit = _cmd_inline(args)
         if hit is not None:
             word, inner = hit
+    elif low in _CODE_OPTION_HEADS:
+        word = _code_option(low, args)  # STORY-018
     if word is None and _is_interpreter(low) and any(r.op in _STDIN_REDIRECTS for r in segment.redirects):
         word = "<"
     if word is None:

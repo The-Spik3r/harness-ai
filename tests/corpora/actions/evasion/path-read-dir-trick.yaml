@@ -1,0 +1,9 @@
+# secret_access: read of config/../.env. Variant of rule-secret-read-dotenv.
+tool_call:
+  name: read
+  arguments: '{"filePath":"config/../.env"}'
+of: rule-secret-read-dotenv.yaml
+technique: secret_access
+expect: not_allow
+rule: secret.read
+note: 'read of config/../.env.'

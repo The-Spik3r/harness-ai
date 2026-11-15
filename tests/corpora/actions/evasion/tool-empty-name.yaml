@@ -1,0 +1,9 @@
+# tool_names: An empty tool name. Variant of rule-tool-unknown-prefixed-mcp.
+tool_call:
+  name: ''
+  arguments: '{"command":"rm -rf /"}'
+of: rule-tool-unknown-prefixed-mcp.yaml
+technique: tool_names
+expect: not_allow
+rule: tool.unknown
+note: 'An empty tool name.'

@@ -22,7 +22,11 @@ Section 6.3's secret row has one rule, `secret.read` (deny, grantable through
   indirect expansion `${!x}` names a variable nobody can see, so it is
   always `secret.read` (detail `${!`). The shell classifier scans every
   word of a readable segment (decision D-I): the exfiltration is `curl -d
-  "$OPENROUTER_API_KEY" ...`, not only `echo`.
+  "$OPENROUTER_API_KEY" ...`, not only `echo`. The PowerShell `Env:` drive
+  is a reference too (STORY-018): `env:NAME` is the variable `NAME`, and
+  `env:` or `env:*` (`gci env:`, `ls env:`) is the whole environment, always
+  `secret.read` (detail `env:`). `Microsoft.PowerShell.Core\\Environment::`
+  is not read: POSIX tokenizing eats its backslash.
 - **The whole environment** (F6: "always `secret.read`", whatever
   `secrets.env` says): `env` / `printenv` with no names and their relatives
   are recognized by the shell classifier (decision D-J); `/proc/*/environ`
@@ -55,6 +59,11 @@ from app.services.action_classifiers import Classification, Operation, paths
 _DETAIL_MAX = 32
 #: The sentinel `env_references` returns for an indirect expansion `${!x}`.
 INDIRECT = "${!"
+#: The sentinel `env_references` returns for a PowerShell `Env:` drive that names no single variable
+#: (`gci env:`, `cat env:*`): the whole environment, always `secret.read` (STORY-018; PRD F6).
+ENV_DRIVE = "env:"
+# A whole word: `env:`, `env:NAME`, `env:\NAME`, `-Path:env:NAME`, any case. `env: add vars` is not a drive.
+_DRIVE = re.compile(r"(?:-\w+[:=])?env:[\\/]?(?P<name>[A-Za-z_][A-Za-z0-9_]*)?(?P<rest>\S*)", re.IGNORECASE)
 
 # One pass over a word, in order: `${!` (indirection), `${#NAME` / `${NAME` /
 # `${env:NAME`, `$env:NAME` / `$NAME`, `%NAME%`. Special parameters (`$1`,
@@ -75,6 +84,12 @@ def env_references(word: str) -> tuple[str, ...]:
     -> `("Path",)`; `"%GITHUB_TOKEN%"` -> `("GITHUB_TOKEN",)`; `"$1 $$"` ->
     `()`. A non-`str` has no references.
     """
+    if isinstance(word, str):
+        drive = _DRIVE.fullmatch(word)
+        if drive is not None:
+            # `env:NAME` is the variable NAME; `env:` or `env:AWS_*` names no single variable.
+            name, rest = drive.group("name"), drive.group("rest")
+            return (name,) if name and not rest else (ENV_DRIVE,)
     if not isinstance(word, str) or ("$" not in word and "%" not in word):
         return ()
     out: list[str] = []
@@ -100,8 +115,8 @@ def classify_env_reference(
     try:
         if not isinstance(name, str):
             return None
-        if name == INDIRECT:
-            return Classification("secret.read", operation, INDIRECT)
+        if name in (INDIRECT, ENV_DRIVE):
+            return Classification("secret.read", operation, name)
         for pattern in secret_env or ():
             if hasattr(pattern, "search") and pattern.search(name) is not None:
                 return Classification("secret.read", operation, name[:_DETAIL_MAX])

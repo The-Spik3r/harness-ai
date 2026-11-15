@@ -1,0 +1,9 @@
+# path_tricks: A drive-letter path with forward slashes. Variant of brief-write-dotenv.
+tool_call:
+  name: write
+  arguments: '{"filePath":"C:/work/.env","content":"A=1"}'
+of: brief-write-dotenv.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_protected
+note: 'A drive-letter path with forward slashes.'

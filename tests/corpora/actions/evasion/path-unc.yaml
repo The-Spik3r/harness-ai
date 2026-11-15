@@ -1,0 +1,9 @@
+# path_tricks: A UNC path is not under any root. Variant of rule-fs-write-etc-hosts.
+tool_call:
+  name: write
+  arguments: '{"filePath":"\\\\server\\share\\x","content":"A=1"}'
+of: rule-fs-write-etc-hosts.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_outside_workspace
+note: 'A UNC path is not under any root.'

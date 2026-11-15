@@ -1,0 +1,9 @@
+# path_tricks: Backslash separators. Variant of brief-write-dotenv.
+tool_call:
+  name: write
+  arguments: '{"filePath":"config\\..\\.env","content":"A=1"}'
+of: brief-write-dotenv.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_protected
+note: 'Backslash separators.'

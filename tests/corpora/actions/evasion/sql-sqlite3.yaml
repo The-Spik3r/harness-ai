@@ -1,0 +1,9 @@
+# wrappers: sqlite3 DB SQL carries SQL too. Variant of rule-shell-psql-drop.
+tool_call:
+  name: bash
+  arguments: '{"command":"sqlite3 app.db ''DROP TABLE t''"}'
+of: rule-shell-psql-drop.yaml
+technique: wrappers
+expect: not_allow
+rule: sql.ddl
+note: 'sqlite3 DB SQL carries SQL too.'

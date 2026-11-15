@@ -1,0 +1,9 @@
+# url_tricks: The apex of a wildcard entry: *.githubusercontent.com does not match githubusercontent.com. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://githubusercontent.com/x","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unlisted
+note: 'The apex of a wildcard entry: *.githubusercontent.com does not match githubusercontent.com.'
