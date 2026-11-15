@@ -308,11 +308,11 @@ tools:                            # replaces the built-in mapping wholesale when
   edit:          { kind: fs_write, target: filePath }
   read:          { kind: fs_read,  target: filePath }
   webfetch:      { kind: http,     target: url }
-  run_sql:       { kind: sql,      target: statement }
+  apply_patch:   { kind: fs_write, target: patchText }  # paths are read from the patch headers
+  run_sql:       { kind: sql,      target: query }
 
 opaque_tools:                     # allowed without reading their arguments
   todowrite: allow
-  todoread: allow
 
 secrets:
   env: ["*KEY*", "*SECRET*", "*TOKEN*", "*PASSWORD*", "*CREDENTIAL*", "AWS_*"]
@@ -479,7 +479,7 @@ tests/
 ## 7. Tools/Features
 
 ### F1 — Tool mapping and adapters
-`map_tool_call(tool_call, policy) -> MappingResult` returns `Operations(tuple[Operation, ...])`, `Opaque(decision)`, `Unknown()` or `Malformed(detail)`. `arguments` is parsed with `json.loads` after the length check; a non-object, a missing target key or a non-string target is `Malformed`. A `fs_write` tool with `edit`/`patch` semantics yields one `fs_write` per path it names (OpenCode's `patch` can name several). Built-in mappings are data in `action_config`, not code, so the deployment's `tools:` replaces them cleanly.
+`map_tool_call(tool_call, policy) -> MappingResult` returns `Operations(tuple[Operation, ...])`, `Opaque(decision)`, `Unknown()` or `Malformed(detail)`. `arguments` is parsed with `json.loads` after the length check; a non-object, a missing target key or a non-string target is `Malformed`. A tool whose target is patch text (OpenCode and Cline `apply_patch`) yields one `fs_write` per `*** Add/Update/Delete File:` and `*** Move to:` path it names; a patch with no parseable header is `Malformed`, never zero operations (STORY-001 S1). Array targets (Cline 4.x `commands[]`, `files[].path`, `requests[].url`) yield one operation per element; an optional target that is absent defaults to the working directory `.` (S8). Built-in mappings are data in `action_config`, not code, so the deployment's `tools:` replaces them cleanly.
 
 ### F2 — SQL classifier
 `classify_sql(statement, dialect) -> tuple[Classification, ...]`, one per parsed statement (Section 6.9).
@@ -704,7 +704,7 @@ Every file in `tests/corpora/actions/synthetic/` produces its declared decision 
 |---|---|---|---|
 | 1 | **Classifiers are evadable** — a shell or SQL construct nobody thought of produces `allow` | Medium / High | Deny on uncertainty: anything the tokenizer or parser cannot fully read is a no-grant deny (D5). The evasion corpus is checked in and grows with every finding; an `allow` in it is a red build |
 | 2 | **Over-blocking makes agents unusable** — `shell.unlisted: deny` stops `make`, `cargo build`, `go test` | High / Medium | `flag` per rule for rollout; the sample file ships a realistic `shell.allow`; the Actions view shows what fires; relative in-repository writes allowed with no configuration (Section 6.5) |
-| 3 | **Windows agents** — Cline on Windows runs PowerShell, which the POSIX tokenizer misreads | Medium / Medium | Misreads that the tokenizer rejects are `shell.unclassifiable` (deny), never `allow`; documented as a limitation; a PowerShell classifier is a Future Consideration |
+| 3 | **Windows agents** — Cline's `run_commands` runs the user's shell and OpenCode's `bash` can run `pwsh`, `powershell` or `cmd`; PowerShell often tokenizes cleanly under POSIX `shlex` | Medium / Medium | Misreads the tokenizer rejects are `shell.unclassifiable`. Clean-tokenizing PowerShell/cmd would otherwise fall to the grantable `shell.unlisted`, so the common destructive heads (`Remove-Item` with `-Recurse`, `rd`/`rmdir /s`, `del /s`, `Format-Volume`) are `shell.destructive`, `pwsh`/`powershell -Command` and `cmd /c` are inline interpreters, and `Invoke-Expression`/`iex` is unclassifiable (D16, STORY-001 S3). A full PowerShell classifier stays a Future Consideration |
 | 4 | **Symlinks** — `ln -s /etc x` then write `x/hosts` passes the workspace check | Medium / Medium | `ln` is not on the sample `shell.allow`, so the first step is `shell.unlisted` (deny by default). The harness cannot resolve links on a client's disk; stated in the README rather than claimed |
 | 5 | **Adapters drift** — OpenCode or Cline renames a tool or an argument | Medium / Medium | A renamed tool is `tool.unknown` (deny), not a bypass; a renamed argument is `tool.malformed` (deny). Provenance in `SOURCES.md` makes the drift diagnosable; the deployment's `tools:` fixes it without a release |
 | 6 | **`sqlglot` mis-parses** a statement into a safer type | Low / High | Mapping is from expression class to rule with `exp.Command` and anything unnamed → `sql.unparsed`; the evasion corpus includes dialect and comment tricks; version pinned |
@@ -735,6 +735,8 @@ Every file in `tests/corpora/actions/synthetic/` produces its declared decision 
 | D12 | *(new)* Replacement semantics | **Sections wholesale, `rules:` merged per id** (Section 6.6) |
 | D13 | *(new)* Duplicate YAML keys | **Rejected**, by a shared `strict_yaml` loader that `pattern_config` adopts too |
 | D14 | *(new)* Runtime strings saying `(PRD-016)` for tool calling | **Retargeted to `(PRD-017)`** in the six runtime strings and their tests; comments read through the numbering note |
+| D15 | *(new, STORY-001 S9)* Directory-scoped search (`grep`, `search_codebase`, `search_files`) can return the contents of a secret file under the searched directory | **Stated limitation.** A search whose path or include/glob pattern itself matches a secret glob is `secret.read`; a search over a directory is `fs.read`. Denying every directory search would make agents unusable; the README tells deployments to keep secrets outside the workspace. Revisit with Actions-view data |
+| D16 | *(new, STORY-001 S3)* PowerShell and cmd text in a shell call | **Common destructive heads are `shell.destructive`** (non-grantable), PowerShell/cmd inline execution is `shell.inline_interpreter`, `Invoke-Expression`/`iex` is `shell.unclassifiable`, so a role holding `action:shell:exec` is still denied them (Risk 3) |
 
 ### Assumptions to verify in STORY-001
 - OpenCode's and Cline's current tool names and argument keys are those listed in Section 4; STORY-001 records the exact schema source for each and corrects the built-in mapping before STORY-004 ships it.

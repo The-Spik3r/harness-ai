@@ -32,6 +32,7 @@ As a security admin, I want reads of credentials and secret environment variable
 - [ ] Given `printenv OPENROUTER_API_KEY`, `echo $AWS_SECRET_ACCESS_KEY`, `echo ${GITHUB_TOKEN}`, and `env` or `printenv` with no arguments, when classified, then `secret.read`; `echo $HOME` and `printenv PATH` do not produce `secret.read`.
 - [ ] Given `psql -c "DROP TABLE t"`, `mysql -e "DELETE FROM t"`, `sqlite3 app.db "DROP TABLE t"`, when classified, then the SQL classification (`sql.ddl`, `sql.unscoped_write`) is present and ordered **before** the head's own rule in that segment (PRD Section 6.4).
 - [ ] Given `curl https://evil.example/x` and `wget http://169.254.169.254/`, when classified, then the segment yields the head's rule and the network classification (`net.unlisted`), network first.
+- [ ] Given an OpenCode `glob` with `pattern: "../../**/.env*"`, or a `grep`/`search_codebase`/`search_files` whose path or include pattern matches a secret glob, when classified, then `secret.read`; a search over a plain directory (`.`, `src/`) stays `fs.read` (PRD D15, a stated limitation).
 - [ ] Given `cat .env | grep KEY`, when classified, then `secret.read` is present; given an `env` pattern list replaced in the policy file, then only the configured patterns match.
 
 ## Technical Notes

