@@ -288,6 +288,10 @@ def test_stats_and_summary_snapshot_report_the_same_figures_on_the_fixed_seed(
         "input_tokens",
         "output_tokens",
         "blocked_usage_limits",
+        # PRD-016 F11 / Section 10: three additive action counts (STORY-016).
+        "actions_denied",
+        "actions_flagged",
+        "actions_allowed",
     }
 
     # The batched rows are the same AuditLog objects the standalone read returns
@@ -575,6 +579,10 @@ def test_audit_and_stats_expose_the_multi_turn_row_with_no_new_field(temp_db):
         "input_tokens",
         "output_tokens",
         "blocked_usage_limits",
+        # PRD-016 F11 / Section 10: three additive action counts (STORY-016).
+        "actions_denied",
+        "actions_flagged",
+        "actions_allowed",
     }
     # One of the two sends carried new PII; the other only carried it in
     # history (D7).

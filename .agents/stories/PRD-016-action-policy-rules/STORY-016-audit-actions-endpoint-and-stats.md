@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: small
 phase: "4 - Evidence"
-status: todo
+status: done
 labels: [backend, api, audit, rbac]
 epic_branch: epic/PRD-016-action-policy-rules
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-016-audit-actions-endpoint-and-stats.plan.md
+report: .agents/reports/PRD-016-action-policy-rules/STORY-016-audit-actions-endpoint-and-stats.report.md
+commit: pending
 depends_on: [STORY-015]
 blocks: [STORY-019]
 skills: []

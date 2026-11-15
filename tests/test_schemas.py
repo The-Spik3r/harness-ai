@@ -4,6 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.schemas import (
+    ActionClassificationEntry,
+    ActionDecisionEntry,
+    ActionsResponse,
     AuditQueryEntry,
     AuditResponse,
     QueryBlockedContextLimitResponse,
@@ -180,6 +183,57 @@ def test_audit_response_shape():
     }
 
 
+def test_actions_response_shape():
+    """PRD-016 Section 10 (STORY-016): the example entry, field for field, and
+    `entries` as the only key -- no `total`, no `arguments_*`, no `session_id`."""
+    entry = ActionDecisionEntry(
+        id=41,
+        timestamp="2026-11-20T14:02:11Z",
+        user_id="dev-1",
+        role="user",
+        tool_call_id="call_9",
+        tool_name="query",
+        operation_kind="sql",
+        target_preview="DROP TABLE users",
+        decision="deny",
+        rule="sql.ddl",
+        reason="destructive SQL is not permitted: DROP",
+        classifications=[
+            ActionClassificationEntry(rule="sql.ddl", kind="sql", detail="DROP")
+        ],
+        policy_digest="sha256:3f1c",
+    )
+    assert ActionsResponse(entries=[entry]).model_dump() == {
+        "entries": [
+            {
+                "id": 41,
+                "timestamp": "2026-11-20T14:02:11Z",
+                # Constructed without either, so `None` is the default asserted.
+                "audit_id": None,
+                "user_id": "dev-1",
+                "role": "user",
+                "tool_call_id": "call_9",
+                "tool_name": "query",
+                "operation_kind": "sql",
+                "target_preview": "DROP TABLE users",
+                "decision": "deny",
+                "rule": "sql.ddl",
+                "reason": "destructive SQL is not permitted: DROP",
+                "granted_by": None,
+                "classifications": [
+                    {"rule": "sql.ddl", "kind": "sql", "detail": "DROP"}
+                ],
+                "policy_digest": "sha256:3f1c",
+            }
+        ]
+    }
+
+
+def test_action_classification_entry_kind_defaults_to_none():
+    """PRD-016 6.10: `tool.unknown` / `tool.malformed` carry no operation kind."""
+    assert ActionClassificationEntry(rule="tool.unknown", detail="x").kind is None
+
+
 def test_audit_query_entry_session_id_is_optional_with_a_none_default():
     """STORY-011 AC 6, asserted on the field rather than on a serialized row.
 
@@ -219,6 +273,10 @@ def test_stats_response_shape():
         "input_tokens": 0,
         "output_tokens": 0,
         "blocked_usage_limits": 0,
+        # PRD-016 F11 / Section 10 (STORY-016): additive, defaulted to 0.
+        "actions_denied": 0,
+        "actions_flagged": 0,
+        "actions_allowed": 0,
     }
 
 
