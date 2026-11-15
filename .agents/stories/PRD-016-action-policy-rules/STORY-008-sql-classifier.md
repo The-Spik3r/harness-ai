@@ -12,7 +12,7 @@ labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-008-sql-classifier.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-008-sql-classifier.report.md
-commit: pending
+commit: a45ae85
 depends_on: [STORY-007]
 blocks: [STORY-013, STORY-014]
 skills: []
