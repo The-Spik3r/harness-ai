@@ -12,7 +12,7 @@ labels: [security, research, docs]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-001-action-threat-model-and-adapter-survey.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-001-action-threat-model-and-adapter-survey.report.md
-commit: pending
+commit: 322067d
 depends_on: []
 blocks: [STORY-004]
 skills: []
