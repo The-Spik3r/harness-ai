@@ -12,7 +12,7 @@ labels: [backend, audit, db]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-015-action-decisions-table-and-record.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-015-action-decisions-table-and-record.report.md
-commit: pending
+commit: 0ceb250
 depends_on: [STORY-014]
 blocks: [STORY-016, STORY-017]
 skills: []
