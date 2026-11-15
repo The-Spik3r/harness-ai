@@ -12,7 +12,7 @@ labels: [backend, security, classifier]
 epic_branch: epic/PRD-016-action-policy-rules
 plan: .agents/plans/PRD-016-action-policy-rules/completed/STORY-009-shell-tokenizer-and-unclassifiable.plan.md
 report: .agents/reports/PRD-016-action-policy-rules/STORY-009-shell-tokenizer-and-unclassifiable.report.md
-commit: pending
+commit: 4b220ce
 depends_on: [STORY-006]
 blocks: [STORY-010]
 skills: []
