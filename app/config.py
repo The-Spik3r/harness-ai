@@ -391,8 +391,10 @@ class Settings(BaseSettings):
     # (validated at startup). Read through v1_tool_models_list.
     V1_TOOL_MODELS: str = ""
 
-    # Action policy (PRD-016 Section 9.3). Nothing reads these yet -- each
-    # field names the story that becomes its consumer.
+    # Action policy (PRD-016 Section 9.3). Read by action_config.load() at
+    # startup (PRD-016 STORY-006/007/008), and called on every /v1 tool call
+    # while V1_TOOLS_ENABLED is on (PRD-017 STORY-010). Each field names the
+    # story that became its consumer.
 
     # Path to the action policy YAML. Empty means the built-in policy and no
     # file is read at all -- the RBAC_ROLES_FILE / PATTERNS_FILE shape. Sections

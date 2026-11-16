@@ -32,8 +32,8 @@ Estimated total: ~98–117 stories.
 - **Serial:** 009 → 010. Everything else depends on the message model 010 defines.
 - **Parallel:** 011, 012 and 013 once 010 is done. 015 can start as soon as 011 lands (configurable lists are its prerequisite, per the README).
 - **Milestone 1** — PRD-014 done: usable from the OpenAI SDKs, Aider and Continue. **Reached 2026-10-30**: the brief became [PRD-015](../.agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md), whose 19 stories are done and merged to `main` (PR #20); the endpoint is described in the [roadmap](../docs/roadmap.md#openai-compatible-endpoint).
-- **PRD-016 done** (reached 2026-11-15): the action policy engine and its audit are built (20 stories) and merged to `main` (PR #21), not yet called by `/v1`; PRD-017 wires it. See [Action policy rules](../docs/features.md#action-policy-rules).
-- **Milestone 2** — PRD-017 done (brief 016): drop-in for OpenCode and Cline in agent mode.
+- **PRD-016 done** (reached 2026-11-15): the action policy engine and its audit are built (20 stories) and merged to `main` (PR #21), called by `/v1` since PRD-017. See [Action policy rules](../docs/features.md#action-policy-rules).
+- **Milestone 2** — PRD-017 done (brief 016): drop-in for OpenCode and Cline in agent mode. **Reached 2026-11-16**: the brief became [PRD-017](../.agents/PRDs/PRD-017-tool-calling/PRD.md), whose 18 stories are done on `epic/PRD-017-tool-calling` (not yet merged to `main`); OpenCode 2.0.10 and the Cline CLI 3.0.74 each completed the scripted E2E task with a denied `DROP TABLE`. See [Tool calling](../docs/features.md#tool-calling).
 
 **Shortcut (explicit debt):** 009 → 010 → 014 with conservative defaults (patterns on `user` turns only, PII on input only, audit unchanged). ~38–46 stories. Do not start 016 until 011–013 and 015 are closed.
 

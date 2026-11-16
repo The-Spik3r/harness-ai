@@ -192,12 +192,12 @@ Eight fields describe the request itself (PRD-013):
 
 | Field | Meaning |
 |---|---|
-| `ingress` | The door the request came through: `query` (`POST /query`), `chat` (the chat UI) or `v1` (the OpenAI-compatible endpoint, once it exists). `null` on a direct call that named none |
+| `ingress` | The door the request came through: `query` (`POST /query`), `chat` (the chat UI) or `v1` (the OpenAI-compatible endpoint). `null` on a direct call that named none |
 | `message_count` | Messages in the conversation as received, before redaction: `1` on `POST /query`, the whole history plus the new turn in the chat |
 | `input_tokens` | Prompt tokens the provider reported (`usage.prompt_tokens`). `null` when no upstream call was made or the provider reported no split |
 | `output_tokens` | Completion tokens the provider reported (`usage.completion_tokens`), under the same rule. `tokens_used` is unchanged: still the provider's total |
 | `streamed` | The response was delivered as a stream. Always `false` until the OpenAI-compatible endpoint exists |
-| `has_tool_calls` | The request or response carried tool calls. Always `false` until tool calling exists |
+| `has_tool_calls` | The request carried an assistant `tool_calls` or a `tool` turn, or the upstream response carried tool calls (counted before the action policy decides them). `false` on every row while `V1_TOOLS_ENABLED=false` |
 | `conversation_key` | A grouping key for the conversation the row belongs to; see below |
 | `limit_exceeded` | `requests` or `tokens` on a [usage-limit refusal](#post-query--blocked-usage-limit); `null` on every other row |
 
