@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Optional, Sequence, get_args
 
 # `tool` is valid on purpose, so PRD-017 (tool calling) does not have to widen
-# the type. Tool turns now normalize (D5); the pipeline still refuses them at
-# step 0 until STORY-005, as `dedup_key` already does.
+# the type. Tool turns normalize (D5), and the pipeline accepts them under the
+# D6 shape rules (`conversation_shape_violation`).
 Role = Literal["system", "user", "assistant", "tool"]
 
 _ROLES = frozenset(get_args(Role))
@@ -42,13 +42,64 @@ class Message:
     Deliberately unvalidated: `run_query` builds `Message("user", prompt)` for
     any prompt `/query` accepts. Validation lives at the edge, in the normalizer.
     The tool fields (PRD-017 D5) are unvalidated here too: per-message shape is
-    the normalizer's job, cross-message shape (D6) is STORY-005's.
+    the normalizer's job, cross-message shape (D6) is `conversation_shape_violation`'s.
     """
 
     role: Role
     content: str
     tool_calls: tuple[ToolCallSpec, ...] = ()  # assistant only
     tool_call_id: Optional[str] = None  # tool only
+
+
+_TOOL_FOLLOWS = "a tool turn must follow an assistant turn with tool_calls, with only tool turns between"
+_TOOL_ID_UNKNOWN = "tool_call_id is not an id of the preceding assistant turn's tool_calls"
+_TOOL_ID_REPEATED = "tool_call_id answers a call that was already answered"
+_LAST_TURN = "the last message must be a user or tool turn"
+_NEEDS_USER = "the conversation must contain a user turn"
+
+
+def conversation_shape_violation(messages: Sequence[Message]) -> Optional[tuple[int, str]]:
+    """The first cross-message shape violation as `(index, rule)`, or None (PRD-017 D6, Section 6.3).
+
+    Shared by step 0 (`InvalidConversationError`) and the `/v1` edge (STORY-008,
+    `V1RequestError`) so the two cannot drift. The caller formats
+    `messages[{index}]: {rule}`. The rule names the rule only, never a turn's
+    content or an id (PRD-015 T6). Non-empty is the caller's check (its location
+    is `messages`, not `messages[i]`), so `[]` returns None.
+
+    Rules: a `tool` turn answers a call of the nearest preceding assistant turn
+    with `tool_calls`, with only `tool` turns between; its `tool_call_id` is one
+    of that turn's ids and is answered once; the last turn is `user` or `tool`;
+    and the conversation contains a `user` turn (the dedup and conversation keys
+    anchor on one). Not every call need be answered.
+    """
+    open_ids: Optional[frozenset[str]] = None
+    answered: set[str] = set()
+    for index, message in enumerate(messages):
+        if message.role == "tool":
+            if open_ids is None:
+                return index, _TOOL_FOLLOWS
+            if message.tool_call_id not in open_ids:
+                return index, _TOOL_ID_UNKNOWN
+            # "Answered once" is scoped to its assistant turn: some providers
+            # reuse ids like `call_0` every round, and a later round may answer
+            # `call_0` again.
+            if message.tool_call_id in answered:
+                return index, _TOOL_ID_REPEATED
+            answered.add(message.tool_call_id)
+        elif message.role == "assistant" and message.tool_calls:
+            open_ids = frozenset(call.id for call in message.tool_calls)
+            answered = set()
+        else:
+            open_ids = None
+    if not messages:
+        return None
+    last = len(messages) - 1
+    if messages[last].role not in ("user", "tool"):
+        return last, _LAST_TURN
+    if not any(m.role == "user" for m in messages):
+        return last, _NEEDS_USER
+    return None
 
 
 class MessageNormalizationError(Exception):
@@ -120,7 +171,7 @@ def _normalize_tool_calls(calls: Any) -> tuple[ToolCallSpec, ...]:
 def normalize_message(raw: Mapping[str, Any]) -> Message:
     """Normalize one raw OpenAI-shaped message (PRD-010 6.2; tool fields PRD-017 D5).
 
-    Per-message shape only; cross-message rules (D6) are STORY-005's. `tool_calls`
+    Per-message shape only; cross-message rules (D6) are `conversation_shape_violation`'s. `tool_calls`
     is assistant-only and `tool_call_id` is tool-only (required there, non-empty).
     `tool_calls: null` on any role, and `tool_call_id: null` on a non-tool role,
     count as absent (orchestrator decision STORY-003: OpenAI SDK `model_dump()`
@@ -159,8 +210,9 @@ def normalize_message(raw: Mapping[str, Any]) -> Message:
 
 
 def normalize_messages(raw: Sequence[Mapping[str, Any]]) -> list[Message]:
-    # Structure across messages (non-empty, last turn is user) is the pipeline's
-    # to check (STORY-007): PRD-014 may accept an assistant prefill later.
+    # Structure across messages (non-empty, D6) is the pipeline's to check, and
+    # the `/v1` edge's via `conversation_shape_violation`: PRD-014 may accept an
+    # assistant prefill later.
     if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
         raise MessageNormalizationError("messages must be a list")
     messages = []

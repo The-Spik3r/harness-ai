@@ -839,6 +839,7 @@ def test_internal_error_arm_writes_exactly_one_row(temp_db, monkeypatch):
         pytest.param(
             [Message("user", "hi"), Message("assistant", "hello")], id="final-assistant-turn"
         ),
+        # PRD-017 D6: still refused, now because a tool turn comes first (it answers no assistant tool_calls turn), not because tool turns are unsupported.
         pytest.param(
             [Message("tool", "{}"), Message("user", "hi")], id="tool-turn"
         ),

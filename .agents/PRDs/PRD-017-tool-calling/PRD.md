@@ -192,6 +192,9 @@ Checked at the `/v1` edge (400 `invalid_messages`) and again at step 0 (`Invalid
 1. The last turn is `user` or `tool`.
 2. A `tool` turn's `tool_call_id` is one of the ids of the nearest preceding `assistant` turn that has `tool_calls`, with only `tool` turns between them.
 3. An id is answered at most once.
+4. The conversation contains at least one `user` turn. *Added by orchestrator decision (STORY-005 plan):* `conversation_key` and the dedup anchor (Section 6.4) both key on a user turn, so `[assistant(tool_calls), tool]` would otherwise pass rules 1–3 and fail at step 1.
+
+Rule 3 is counted per assistant turn: some providers reuse `call_0` on every round (STORY-005 plan).
 
 Not required: that every call is answered (the upstream decides that; OpenRouter and the providers vary), or that the turn before the last `tool` turn is anything in particular. The rules are OpenAI's own message validation, so a conversation the harness accepts is one the upstream accepts.
 

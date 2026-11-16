@@ -2,7 +2,7 @@ import logging
 from typing import Callable, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
-from app.models.messages import Message
+from app.models.messages import Message, conversation_shape_violation
 from app.models.schemas import (
     QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
@@ -59,20 +59,23 @@ class InvalidConversationError(Exception):
     """The conversation is structurally malformed: a programming error.
 
     Unreachable from any ingress in this PRD (Section 9.2 invariants) --
-    run_query always builds one well-formed user turn, and ChatState's
-    history is built only from stored, already-answered exchanges (D4).
+    run_query always builds one well-formed user turn, ChatState's history
+    is built only from stored, already-answered exchanges (D4), and `/v1`
+    checks the same D6 rules at its edge first (PRD-017 STORY-008).
     Raised before dedup_key, authorization, or any log_query call, so it
     writes no audit row. Neither the router nor ChatState catches it.
     """
 
 
 def _validate_conversation(messages: Sequence[Message]) -> None:
+    # PRD-017 D6, Section 6.3: the same helper as the `/v1` edge, so step 0 is
+    # the programming-error guard behind it (PRD-010 Section 6.1).
     if not messages:
         raise InvalidConversationError("messages must not be empty")
-    if any(m.role == "tool" for m in messages):
-        raise InvalidConversationError("tool turns are not supported (PRD-017)")
-    if messages[-1].role != "user":
-        raise InvalidConversationError("the last message must be a user turn")
+    violation = conversation_shape_violation(messages)
+    if violation is not None:
+        index, rule = violation
+        raise InvalidConversationError(f"messages[{index}]: {rule}")
 
 
 def _context_limit_exceeded(
@@ -280,7 +283,8 @@ def run_conversation(
     # can run -- a malformed conversation is a programming error, not an
     # outcome, so it writes no audit row.
     _validate_conversation(messages)
-    # Guaranteed by validation: the last message is always role == "user".
+    # PRD-017 D7: the audit prompt is the final turn, user or tool -- what this
+    # request added. Validation guarantees it is one of the two.
     prompt = messages[-1].content
 
     # The profile name, resolved once, here, because every row this function
@@ -553,8 +557,8 @@ def run_conversation(
     # returned, so a flag followed by a block leaves only the block row.
     # `chat` has no flag cell. `code` flags `assistant` turns (PRD-015 D9),
     # which `/v1` reaches once its router is mounted (STORY-009) -- until then
-    # only tests do. Its `tool` cell stays unreachable: step 0 refuses `tool`
-    # turns until PRD-016.
+    # only tests do. Its `tool` cell becomes reachable once `/v1` forwards tool
+    # turns (PRD-017 STORY-008); until then only tests reach it.
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
@@ -624,19 +628,19 @@ def run_conversation(
     # D5): history must never leave the process unmasked, whatever its
     # source -- under `code` too, because a /v1 caller writes its own
     # `assistant` turns (PRD-012 T7). `chat` covers every role, so it is
-    # today's "redact every message". Only the last user turn's entities
+    # today's "redact every message". Only the final turn's entities
     # count toward the audit's PII fields (PRD-010 D7): re-redacting history
     # that already passed once is not a new PII event, or every later row of
-    # a session would misreport one. The last message is always a `user`
-    # turn (step 0), and both policies cover `user`.
+    # a session would misreport one. The final turn is `user` or `tool` (step
+    # 0, PRD-017 D7), and both policies cover both roles.
     redacted_messages: list[Message] = []
     input_entities: list[str] = []
     last_index = len(messages) - 1
     for index, message in enumerate(messages):
         if message.role not in policy.input_roles:
             # The same object, so it reaches upstream byte-identical: `code`'s
-            # `system` turn, the client's own prompt (PRD-012 D3). A `tool`
-            # turn cannot get here; step 0 refuses it until PRD-016.
+            # `system` turn, the client's own prompt (PRD-012 D3). Every
+            # policy covers `tool`, so a `tool` turn never takes this branch.
             redacted_messages.append(message)
             continue
         try:
@@ -772,9 +776,8 @@ def run_conversation(
         tokens_used=openrouter_result.tokens_used,
         input_tokens=openrouter_result.input_tokens,
         output_tokens=openrouter_result.output_tokens,
-        # PRD-016 sets this from the request and the response. Until then no
-        # row can carry tool calls -- step 0 refuses `tool` turns -- and this
-        # is the one place it is passed (PRD-013 F5); every other row takes the
+        # PRD-017 STORY-010 sets this from the request and the response. Until
+        # then it is False, and this is the one place it is passed (PRD-013 F5); every other row takes the
         # column's default, which is equally true.
         has_tool_calls=False,
         success=True,

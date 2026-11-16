@@ -145,6 +145,7 @@ def test_run_query_delegates_to_run_conversation_with_one_user_message(monkeypat
         pytest.param(
             [Message("user", "hi"), Message("assistant", "hey")], id="non-user-final",
         ),
+        # PRD-017 D6: still refused, now because a tool turn comes first (it answers no assistant tool_calls turn), not because tool turns are unsupported.
         pytest.param(
             [Message("tool", "x"), Message("user", "hi")], id="tool-turn-present",
         ),

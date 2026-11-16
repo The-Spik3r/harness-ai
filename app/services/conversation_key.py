@@ -39,7 +39,7 @@ CONVERSATION_KEY_VERSION = "c1"
 
 def conversation_key(user_id: str, messages: Sequence[Message]) -> str:
     first_system = next((m.content for m in messages if m.role == "system"), "")
-    # No default: _validate_conversation (query_pipeline) runs first and
-    # guarantees the last message is a user turn, so one always exists.
+    # No default: step 0 (`conversation_shape_violation`, PRD-017 D6)
+    # guarantees the conversation contains a user turn.
     first_user = next(m.content for m in messages if m.role == "user")
     return _sha256_json([CONVERSATION_KEY_VERSION, user_id, first_system, first_user])

@@ -27,6 +27,7 @@ import pytest
 import app.models.messages as messages_module
 from app.models.messages import (
     Message,
+    conversation_shape_violation,
     MessageNormalizationError,
     Role,
     ToolCallSpec,
@@ -625,3 +626,93 @@ def test_is_pure():
     names |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
 
     assert not names & {"settings", "open", "httpx", "pydantic", "log_query", "redact"}
+
+
+# --- PRD-017 STORY-005: conversation shape (D6, Section 6.3) -------------------
+
+_FOLLOWS = "a tool turn must follow an assistant turn with tool_calls, with only tool turns between"
+_ID_RULE = "tool_call_id is not an id of the preceding assistant turn's tool_calls"
+_ANSWERED = "tool_call_id answers a call that was already answered"
+_LAST = "the last message must be a user or tool turn"
+_NEEDS_USER = "the conversation must contain a user turn"
+
+
+def _u(text="hi"):
+    return Message("user", text)
+
+
+def _a(text, *ids):
+    return Message("assistant", text, tuple(ToolCallSpec(i, "ls", "{}") for i in ids))
+
+
+def _t(call_id, text="out"):
+    return Message("tool", text, tool_call_id=call_id)
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        pytest.param([_u()], id="user-only"),
+        pytest.param(
+            [Message("system", "s"), _u(), Message("assistant", "a"), _u()], id="text-history"
+        ),
+        pytest.param([_u(), _a("", "c1", "c2"), _t("c1"), _t("c2")], id="two-calls-answered"),
+        pytest.param([_u(), _a("", "c1", "c2"), _t("c2")], id="partial-answer"),
+        pytest.param([_u(), _a("", "c1"), _t("c1"), _a("", "c2"), _t("c2")], id="two-rounds"),
+        pytest.param([_u(), _a("", "c1"), _t("c1"), _a("", "c1"), _t("c1")], id="id-reused-across-rounds"),
+        pytest.param([_u(), _a("", "c1"), _t("c1"), _a("done"), _u()], id="loop-then-user"),
+        # Non-empty is the caller's check (location `messages`, not `messages[i]`).
+        pytest.param([], id="empty-is-the-callers"),
+    ],
+)
+def test_shape_accepts(messages):
+    assert conversation_shape_violation(messages) is None
+
+
+_SHAPE_REFUSALS = [
+    pytest.param([_u(), Message("assistant", "a")], (1, _LAST), id="last-assistant"),
+    pytest.param([_u(), Message("system", "s")], (1, _LAST), id="last-system"),
+    pytest.param([_a("", "c1"), _t("c1"), Message("assistant", "a")], (2, _LAST), id="last-assistant-after-tools"),
+    pytest.param([_t("c1"), _u()], (0, _FOLLOWS), id="tool-first"),
+    pytest.param([_u(), _a("", "c1"), _t("c9")], (2, _ID_RULE), id="unknown-id"),
+    pytest.param([_u(), _a("", "c1"), _u(), _t("c1")], (3, _FOLLOWS), id="separated-by-user"),
+    pytest.param(
+        [_u(), _a("", "c1"), Message("assistant", "x"), _t("c1")], (3, _FOLLOWS),
+        id="separated-by-callless-assistant",
+    ),
+    pytest.param([_u(), _a("", "c1"), _t("c1"), _t("c1")], (3, _ANSWERED), id="answered-twice"),
+    pytest.param(
+        [_u(), _a("", "c1"), Message("tool", "o", tool_call_id=None)], (2, _ID_RULE), id="tool-call-id-none"
+    ),
+    # R1 (PRD-017 Section 6.3): no user turn anywhere.
+    pytest.param([_a("", "c1"), _t("c1")], (1, _NEEDS_USER), id="no-user-turn"),
+    pytest.param([_t("c1"), _u(), Message("assistant", "x")], (0, _FOLLOWS), id="first-violation-wins"),
+]
+
+
+@pytest.mark.parametrize("messages, expected", _SHAPE_REFUSALS)
+def test_shape_refuses(messages, expected):
+    assert conversation_shape_violation(messages) == expected
+
+
+@pytest.mark.parametrize("messages, expected", _SHAPE_REFUSALS)
+def test_shape_rule_never_echoes_values(messages, expected):
+    canary = "SECRET-7f3a"
+    # Same structure, canary-bearing content and ids: the verdict is unchanged.
+    swapped = [
+        Message(
+            m.role,
+            canary,
+            tuple(ToolCallSpec(canary + c.id, c.name, canary) for c in m.tool_calls),
+            canary + m.tool_call_id if m.tool_call_id is not None else None,
+        )
+        for m in messages
+    ]
+    violation = conversation_shape_violation(swapped)
+    assert violation is not None
+    assert violation[0] == expected[0]
+    assert canary not in violation[1]
+
+
+def test_shape_helper_signature():
+    assert list(inspect.signature(conversation_shape_violation).parameters) == ["messages"]
