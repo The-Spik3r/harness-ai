@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Real clients and docs"
-status: todo
+status: done
 labels: [tests, e2e, tooling]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
-report: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-014-stub-upstream-tool-calls.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-014-stub-upstream-tool-calls.report.md
 commit: null
 depends_on: [STORY-004]
 blocks: [STORY-016, STORY-017]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-014: Stub upstream: scripted tool_calls replies, rules matching on any last turn

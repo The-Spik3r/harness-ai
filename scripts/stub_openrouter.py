@@ -31,8 +31,9 @@ Script format (JSON):
     }
 
 Each rule has exactly one matcher, `contains` (substring) or `regex`
-(`re.search`), tested against the **last `user` message**. The first match
-wins; no match uses `default` (or a built-in one when the script has none).
+(`re.search`), tested against the **last message of its `role`** (default
+`user`; `""` when there is no user message). The first match wins; no match
+uses `default` (or a built-in one when the script has none).
 A reply sets `content`, `finish_reason` and `usage`, or `fail_status`
 (400-599) instead of a body; either may be preceded by `delay_seconds`.
 `usage` fields default to 1 prompt + 1 completion token, and `total_tokens`
@@ -40,9 +41,33 @@ to their sum. A rule with `times: N` answers its first N matches and is then
 skipped as if it did not match, so "fail once, then answer" is two rules with
 the same matcher; the count is per stub process.
 
+Tool calls (PRD-017 STORY-014). A reply may carry `tool_calls`, a non-empty
+list of `{"name": str, "arguments": str, "id"?: str}`. The body then has
+`content: null` (unless the script sets `content`), every call has `type:
+"function"`, an omitted id is generated as `call_<n>` from a per-server
+counter, and `finish_reason` defaults to `"tool_calls"`. `arguments` must be a
+string and is emitted as given (PRD-017 D13): an object is refused, never
+serialized. A scripted id may not look like `call_<digits>`, so a generated id
+never collides with one.
+
+A rule may add qualifiers, all ANDed with its matcher (`default` rejects them):
+`role` (`system|user|assistant|tool`: the matcher tests the last message of
+that role, and the rule does not match when there is none), `last_role` (the
+conversation must end on that role), `after_call` (the last assistant turn
+called a tool of this name; independent of ids, arguments and tool-result text,
+which clients rewrite) and `advertises` (the request's `tools` list offers a
+function of this name, so one script can serve OpenCode and Cline). `{"regex":
+""}` is the "any content" matcher. To end a loop, answer with text (OpenCode
+stops on it) or, for Cline, with a `submit_and_exit` call gated by `advertises`.
+
+The stub never streams: `call_openrouter` never sends `stream` upstream, so a
+`stream` key is only another parameter key in the log.
+
 Each request is logged as one ASCII line on stderr: the model, the message
-count, the request's other parameter keys and the rule that answered. Message
-content and request headers -- `Authorization` above all -- are never logged.
+count, the request's other parameter keys, the rule that answered, and the
+counts `tools=<n>` (tools offered) and `calls=<n>` (calls answered). Message
+content, tool names, arguments and request headers -- `Authorization` above
+all -- are never logged.
 """
 
 import argparse
@@ -59,10 +84,16 @@ from typing import Any, Optional, Sequence, TextIO
 _PREFIX = "stub_openrouter"
 
 _SCRIPT_KEYS = frozenset({"rules", "default"})
-_REPLY_KEYS = frozenset({"content", "finish_reason", "usage", "delay_seconds", "fail_status"})
-_BODY_KEYS = frozenset({"content", "finish_reason", "usage"})
+_REPLY_KEYS = frozenset(
+    {"content", "finish_reason", "usage", "delay_seconds", "fail_status", "tool_calls"}
+)
+_BODY_KEYS = frozenset({"content", "finish_reason", "usage", "tool_calls"})
 _MATCHER_KEYS = frozenset({"contains", "regex"})
 _RULE_KEYS = frozenset({"times"})  # rule only: `default` rejects it as unknown
+_ROLES = frozenset({"system", "user", "assistant", "tool"})
+_QUALIFIER_KEYS = frozenset({"role", "last_role", "after_call", "advertises"})  # rule only
+_TOOL_CALL_KEYS = frozenset({"id", "name", "arguments"})
+_GENERATED_ID = re.compile(r"call_\d+")
 _USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "total_tokens"})
 
 _BUILT_IN_DEFAULT_CONTENT = f"{_PREFIX}: no rule matched"
@@ -77,12 +108,76 @@ class ScriptError(ValueError):
 
 
 @dataclass(frozen=True)
+class ScriptedCall:
+    name: str
+    arguments: str  # a string, emitted as given (PRD-017 D13)
+    id: Optional[str] = None  # None: generated as call_<n> per answer
+
+
+@dataclass(frozen=True)
 class Reply:
-    content: str = ""
+    content: Optional[str] = ""
     finish_reason: Optional[str] = "stop"
     usage: Optional[dict] = None
     delay_seconds: float = 0.0
     fail_status: Optional[int] = None
+    tool_calls: tuple = ()
+
+
+@dataclass(frozen=True)
+class Request:
+    """The parsed view of a request that a rule is tested against."""
+
+    messages: tuple
+    tool_names: frozenset
+
+    @classmethod
+    def from_body(cls, body: dict) -> "Request":
+        tools = body.get("tools")
+        names = set()
+        if isinstance(tools, list):  # not validated: a malformed entry just has no name
+            for tool in tools:
+                function = tool.get("function") if isinstance(tool, dict) else None
+                if isinstance(function, dict) and isinstance(function.get("name"), str):
+                    names.add(function["name"])
+        return cls(messages=tuple(body["messages"]), tool_names=frozenset(names))
+
+
+def _role(message: Any) -> Optional[str]:
+    return message.get("role") if isinstance(message, dict) else None
+
+
+def _text(message: dict) -> str:
+    """A message's content; a parts list is joined from its text parts, null reads as ""."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    return ""
+
+
+def _last_text(messages: Sequence, role: str) -> Optional[str]:
+    """The content of the last message of `role`, or None when there is none."""
+    for message in reversed(messages):
+        if _role(message) == role:
+            return _text(message)
+    return None
+
+
+def _called_names(message: dict) -> "set[str]":
+    names = set()
+    calls = message.get("tool_calls")
+    if isinstance(calls, list):
+        for call in calls:
+            function = call.get("function") if isinstance(call, dict) else None
+            if isinstance(function, dict) and isinstance(function.get("name"), str):
+                names.add(function["name"])
+    return names
 
 
 @dataclass(frozen=True)
@@ -91,8 +186,26 @@ class Rule:
     contains: Optional[str] = None
     pattern: Optional["re.Pattern[str]"] = None
     times: Optional[int] = None
+    role: Optional[str] = None
+    last_role: Optional[str] = None
+    after_call: Optional[str] = None
+    advertises: Optional[str] = None
 
-    def matches(self, subject: str) -> bool:
+    def matches(self, request: Request) -> bool:
+        messages = request.messages
+        if self.last_role is not None and (not messages or _role(messages[-1]) != self.last_role):
+            return False
+        if self.advertises is not None and self.advertises not in request.tool_names:
+            return False
+        if self.after_call is not None:
+            last_assistant = next((m for m in reversed(messages) if _role(m) == "assistant"), None)
+            if last_assistant is None or self.after_call not in _called_names(last_assistant):
+                return False
+        subject = _last_text(messages, self.role or "user")
+        if subject is None:
+            if self.role is not None:
+                return False  # no message of that role
+            subject = ""  # today's behaviour: no user message reads as ""
         if self.contains is not None:
             return self.contains in subject
         return self.pattern.search(subject) is not None
@@ -104,13 +217,18 @@ class Script:
     default: Reply
 
     def select(self, subject: str, hits: Optional[dict] = None) -> "tuple[str, Reply]":
+        """select_request for a conversation of one user message."""
+        request = Request(messages=({"role": "user", "content": subject},), tool_names=frozenset())
+        return self.select_request(request, hits)
+
+    def select_request(self, request: Request, hits: Optional[dict] = None) -> "tuple[str, Reply]":
         """(label, reply): the first matching rule's index, or "default".
 
         `hits` is the caller's {rule index: answers so far}, which a rule with
         `times` is checked against and charged to. Without it no rule is capped.
         """
         for index, rule in enumerate(self.rules):
-            if not rule.matches(subject):
+            if not rule.matches(request):
                 continue
             if rule.times is not None and hits is not None:
                 if hits.get(index, 0) >= rule.times:
@@ -143,6 +261,37 @@ def _parse_usage(raw: Any, where: str) -> dict:
     }
 
 
+def _parse_tool_calls(raw: Any, where: str) -> tuple:
+    if not isinstance(raw, list) or not raw:
+        raise ScriptError(f"{where}: tool_calls must be a non-empty list")
+    calls = []
+    seen = set()
+    for index, entry in enumerate(raw):
+        at = f"{where}.tool_calls[{index}]"
+        if not isinstance(entry, dict):
+            raise ScriptError(f"{at}: must be an object")
+        unknown = sorted(set(entry) - _TOOL_CALL_KEYS)
+        if unknown:
+            raise ScriptError(f"{at}: unknown key(s): {', '.join(unknown)}")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            raise ScriptError(f"{at}: name must be a non-empty string")
+        # No value is echoed: arguments is model output (PRD-017 D13).
+        if not isinstance(entry.get("arguments"), str):
+            raise ScriptError(f"{at}: arguments must be a string (emitted as given, never serialized)")
+        call_id = entry.get("id")
+        if "id" in entry:
+            if not isinstance(call_id, str) or not call_id:
+                raise ScriptError(f"{at}: id must be a non-empty string")
+            if _GENERATED_ID.fullmatch(call_id):
+                raise ScriptError(f"{at}: id must not look like a generated id (call_<digits>)")
+            if call_id in seen:
+                raise ScriptError(f"{at}: id repeats an earlier call's id")
+            seen.add(call_id)
+        calls.append(ScriptedCall(name=name, arguments=entry["arguments"], id=call_id))
+    return tuple(calls)
+
+
 def _parse_reply(raw: dict, where: str) -> Reply:
     delay = raw.get("delay_seconds", 0)
     if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
@@ -159,10 +308,12 @@ def _parse_reply(raw: dict, where: str) -> Reply:
             )
         return Reply(delay_seconds=float(delay), fail_status=status)
 
-    content = raw.get("content", "")
-    if not isinstance(content, str):
+    calls = _parse_tool_calls(raw["tool_calls"], where) if "tool_calls" in raw else ()
+    # With calls, content defaults to null and finish_reason to "tool_calls".
+    content = raw.get("content", None if calls else "")
+    if not (isinstance(content, str) or (content is None and calls)):
         raise ScriptError(f"{where}: content must be a string, got {content!r}")
-    finish_reason = raw.get("finish_reason", "stop")
+    finish_reason = raw.get("finish_reason", "tool_calls" if calls else "stop")
     if finish_reason is not None and not isinstance(finish_reason, str):
         raise ScriptError(f"{where}: finish_reason must be a string or null, got {finish_reason!r}")
     return Reply(
@@ -170,6 +321,7 @@ def _parse_reply(raw: dict, where: str) -> Reply:
         finish_reason=finish_reason,
         usage=_parse_usage(raw.get("usage", {}), where),
         delay_seconds=float(delay),
+        tool_calls=calls,
     )
 
 
@@ -177,7 +329,7 @@ def _parse_rule(raw: Any, index: int) -> Rule:
     where = f"rules[{index}]"
     if not isinstance(raw, dict):
         raise ScriptError(f"{where}: must be an object, got {raw!r}")
-    unknown = sorted(set(raw) - _REPLY_KEYS - _MATCHER_KEYS - _RULE_KEYS)
+    unknown = sorted(set(raw) - _REPLY_KEYS - _MATCHER_KEYS - _RULE_KEYS - _QUALIFIER_KEYS)
     if unknown:
         raise ScriptError(f"{where}: unknown key(s): {', '.join(unknown)}")
     matchers = sorted(_MATCHER_KEYS & set(raw))
@@ -186,18 +338,27 @@ def _parse_rule(raw: Any, index: int) -> Rule:
     times = raw.get("times")
     if "times" in raw and not (_is_count(times) and times >= 1):
         raise ScriptError(f"{where}: times must be an integer >= 1, got {times!r}")
+    for key in ("role", "last_role"):
+        if key in raw and not (isinstance(raw[key], str) and raw[key] in _ROLES):
+            raise ScriptError(
+                f"{where}: {key} must be one of {', '.join(sorted(_ROLES))}, got {raw[key]!r}"
+            )
+    for key in ("after_call", "advertises"):
+        if key in raw and not (isinstance(raw[key], str) and raw[key]):
+            raise ScriptError(f"{where}: {key} must be a non-empty string, got {raw[key]!r}")
     reply = _parse_reply(raw, where)
+    qualifiers = {key: raw.get(key) for key in _QUALIFIER_KEYS}
     if "contains" in raw:
         if not isinstance(raw["contains"], str):
             raise ScriptError(f"{where}: contains must be a string, got {raw['contains']!r}")
-        return Rule(reply=reply, contains=raw["contains"], times=times)
+        return Rule(reply=reply, contains=raw["contains"], times=times, **qualifiers)
     if not isinstance(raw["regex"], str):
         raise ScriptError(f"{where}: regex must be a string, got {raw['regex']!r}")
     try:
         pattern = re.compile(raw["regex"])
     except re.error as exc:
         raise ScriptError(f"{where}: regex does not compile: {exc}") from exc
-    return Rule(reply=reply, pattern=pattern, times=times)
+    return Rule(reply=reply, pattern=pattern, times=times, **qualifiers)
 
 
 def parse_script(raw: Any) -> Script:
@@ -234,29 +395,13 @@ def load_script(path: str) -> Script:
     return parse_script(raw)
 
 
-def _last_user_text(messages: list) -> str:
-    """The content of the last `user` message; a parts list is joined from its text parts."""
-    for message in reversed(messages):
-        if isinstance(message, dict) and message.get("role") == "user":
-            content = message.get("content")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                return "".join(
-                    part.get("text", "")
-                    for part in content
-                    if isinstance(part, dict) and isinstance(part.get("text"), str)
-                )
-            return ""
-    return ""
-
-
 class _StubHandler(BaseHTTPRequestHandler):
     # Bound per server by make_server's subclass, so two stubs in one process stay apart.
     script: Script
     log_stream: TextIO
     log_lock: threading.Lock
     ids: "itertools.count"
+    call_ids: "itertools.count"
     hits: dict
     hits_lock: threading.Lock
 
@@ -310,13 +455,17 @@ class _StubHandler(BaseHTTPRequestHandler):
         messages = body["messages"]
         model = body.get("model")
         params = sorted(str(key) for key in body if key not in ("model", "messages"))
+        tools = body.get("tools")
+        offered = len(tools) if isinstance(tools, list) else 0
         # Under the lock, so two concurrent requests cannot both take a capped rule's last answer.
         with self.hits_lock:
-            label, reply = self.script.select(_last_user_text(messages), self.hits)
+            label, reply = self.script.select_request(Request.from_body(body), self.hits)
         status = reply.fail_status or 200
+        # Counts only: never a tool name, argument or content (PRD-017 D13, PRD-015 T6).
         self._log(
             f"{_PREFIX}: POST {ascii(self.path)} model={ascii(model)} messages={len(messages)} "
-            f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} -> {status}"
+            f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} "
+            f"tools={offered} calls={len(reply.tool_calls)} -> {status}"
         )
 
         if reply.delay_seconds:
@@ -324,6 +473,17 @@ class _StubHandler(BaseHTTPRequestHandler):
         if reply.fail_status is not None:
             self._send_error_body(reply.fail_status, "scripted failure")
             return
+        message: dict = {"role": "assistant", "content": reply.content}
+        if reply.tool_calls:
+            # Ids are generated per answer, so a rule answering twice yields fresh ones.
+            message["tool_calls"] = [
+                {
+                    "id": call.id or f"call_{next(self.call_ids)}",
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                }
+                for call in reply.tool_calls
+            ]
         self._send_json(
             200,
             {
@@ -334,7 +494,7 @@ class _StubHandler(BaseHTTPRequestHandler):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": reply.content},
+                        "message": message,
                         "finish_reason": reply.finish_reason,
                     }
                 ],
@@ -363,6 +523,7 @@ def make_server(
             "log_stream": log if log is not None else sys.stderr,
             "log_lock": threading.Lock(),
             "ids": itertools.count(1),
+            "call_ids": itertools.count(1),
             "hits": {},
             "hits_lock": threading.Lock(),
         },

@@ -1,0 +1,48 @@
+{
+  "default": {"content": "stub_openrouter: tool_loop.json matched no rule, stopping."},
+  "rules": [
+    {
+      "regex": "TOOL-LOOP",
+      "last_role": "user",
+      "tool_calls": [
+        {"id": "call_read_math", "name": "read", "arguments": "{\"path\":\"src/math.js\"}"}
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "read",
+      "contains": "function add",
+      "tool_calls": [
+        {
+          "name": "edit",
+          "arguments": "{\"path\":\"src/math.js\",\"old\":\"a - b\",\"new\":\"a + b\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "edit",
+      "regex": "",
+      "tool_calls": [
+        {"name": "shell", "arguments": "{\"command\":\"npm test\"}"}
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "shell",
+      "contains": "passing",
+      "content": "Done: fixed add() in src/math.js and npm test passes.",
+      "finish_reason": "stop"
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "shell",
+      "regex": "",
+      "content": "The tests failed; stopping here."
+    }
+  ]
+}
