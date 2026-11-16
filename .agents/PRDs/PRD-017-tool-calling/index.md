@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/18 stories done — 67%
+13/18 stories done — 72%
 
 ## Stories
 
@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-017-tool-calling`. No per-story 
 | STORY-010 | Step 7c: evaluate every call, release, record() with audit_id, fail closed, has_tool_calls | feature | ✅ done | large | [plan](../../plans/PRD-017-tool-calling/completed/STORY-010-step-7c-action-evaluation.plan.md) | `73f8860` |
 | STORY-011 | Completion shape: tool_calls, content null, finish_reason tool_calls, harness.actions | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-011-completion-shape.plan.md) | `9a98b52` |
 | STORY-012 | Buffered SSE tool_calls deltas in one burst | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-012-sse-tool-call-deltas.plan.md) | `0865708` |
-| STORY-013 | GET /audit/actions?audit_id= and the Actions view's empty-state copy | enhancement | 🟡 in-progress | small | [plan](../../plans/PRD-017-tool-calling/STORY-013-audit-actions-by-request-and-copy.plan.md) | — |
+| STORY-013 | GET /audit/actions?audit_id= and the Actions view's empty-state copy | enhancement | ✅ done | small | [plan](../../plans/PRD-017-tool-calling/completed/STORY-013-audit-actions-by-request-and-copy.plan.md) | `ff12cc4` |
 | STORY-014 | Stub upstream: scripted tool_calls replies, rules matching on any last turn | technical | ⬜ todo | small | — | — |
 | STORY-015 | In-process success-criteria suite for tool calling; step 7c latency measured | technical | ⬜ todo | medium | — | — |
 | STORY-016 | E2E: OpenCode completes a scripted multi-file task; a scripted DROP TABLE is denied and reported | technical | ⬜ todo | large | — | — |

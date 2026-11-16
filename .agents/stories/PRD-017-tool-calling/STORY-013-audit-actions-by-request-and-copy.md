@@ -7,12 +7,12 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "3 - Decide and release"
-status: in-progress
+status: done
 labels: [backend, api, admin, ui]
 epic_branch: epic/PRD-017-tool-calling
-plan: .agents/plans/PRD-017-tool-calling/STORY-013-audit-actions-by-request-and-copy.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-013-audit-actions-by-request-and-copy.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-013-audit-actions-by-request-and-copy.report.md
+commit: ff12cc4
 depends_on: [STORY-010]
 blocks: [STORY-015, STORY-018]
 skills: [frontend-design]

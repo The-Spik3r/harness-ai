@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-013-audit-actions-by-request-and-copy.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: ff12cc4
 status: COMPLETE
 completed: 2026-11-16
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-16
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-013-audit-actions-by-request-and-copy.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `ff12cc4`
 
 ## Summary
 
