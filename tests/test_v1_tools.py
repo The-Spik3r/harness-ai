@@ -9,9 +9,10 @@ their shape (location and rule, never a value, T6), checks D6 with the shared
 PRD-015's, byte for byte (D10).
 
 Two layers: the pure translator (no DB), then the router and pipeline through `TestClient`.
-Since STORY-010 the pipeline decides and records every call (step 7c); the body still carries
-`response` only (content plus denial notes), so no call is sent until STORY-011, and
-`test_interim_*` pin that (T1). The STORY-010 section at the end covers the decision and its audit.
+Since STORY-010 the pipeline decides and records every call (step 7c). STORY-011 releases the
+allowed calls on the non-streamed body, and STORY-012 streams them; until then
+`test_interim_streamed_*` pins that no call data leaks into a stream (T1). The STORY-010 section
+at the end covers the decision and its audit.
 """
 
 import os
@@ -837,7 +838,7 @@ def test_streamed_opencode_shape_is_accepted(temp_db, monkeypatch):
     assert [m.role for m in stub.calls[0]["messages"]] == ["user", "assistant", "tool"]
 
 
-# --- Interim T1 pin ----------------------------------------------------------------------------
+# --- STORY-011: the release on the wire --------------------------------------------------------
 
 
 def _calling_upstream():
@@ -851,8 +852,9 @@ def _calling_upstream():
 def _assert_no_call_released(text):
     # PRD-017 STORY-010 (D2, T1): the denial note legitimately names the tool, the id and the
     # reason ("bash", "call_2", "rm -rf"), so those are no longer leaks. What must not appear is
-    # the arguments string (raw and JSON-escaped), an arguments key or a tool_calls key.
-    for leaked in ('{"command":"rm -rf /"}', '{\\"command\\":\\"rm -rf /\\"}', '"arguments"', '"tool_calls"'):
+    # the arguments string (raw and JSON-escaped) or an arguments key. PRD-017 Section 10,
+    # STORY-011: `tool_calls: null` is kept on an all-denied JSON body, so that key is no leak.
+    for leaked in ('{"command":"rm -rf /"}', '{\\"command\\":\\"rm -rf /\\"}', '"arguments"'):
         assert leaked not in text
 
 
@@ -863,30 +865,36 @@ def _denial_note(name, call_id, arguments):
     return tool_release.DENIAL_NOTE_TEMPLATE.format(name=name, id=call_id, reason=decision.reason)
 
 
-def test_interim_upstream_tool_calls_are_dropped_not_released(temp_db, monkeypatch):
-    """Interim (STORY-008): until STORY-010/011, the result translator reads `response` only,
-    so no undecided call is released (T1). The client gets an empty text completion.
-    STORY-011 replaces this test with the release shapes."""
+def test_denied_call_is_the_note_with_tool_calls_null_and_stop(temp_db, monkeypatch):
+    """AC2, AC3: every call denied: the note as content, `tool_calls: null` (key kept), finish
+    `stop`, one `deny` action carrying the recorded rule and reason."""
     monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
     stub = _use(monkeypatch, _calling_upstream())
 
     response = client.post(_PATH, json=_router_body(tools=[_TOOL]))
 
     assert response.status_code == 200
-    choice = response.json()["choices"][0]
-    # PRD-017 STORY-010 (D2): the upstream's `bash` / `rm -rf /` call is now decided (deny), so
-    # the client gets the denial note as content instead of an empty string.
-    assert choice["message"]["content"] == _denial_note("bash", "call_2", '{"command":"rm -rf /"}')
+    body = response.json()
+    choice = body["choices"][0]
+    with get_connection() as conn:
+        row = dict(conn.execute("SELECT * FROM action_decisions").fetchone())
+    assert choice["message"] == {
+        "role": "assistant",
+        "content": _denial_note("bash", "call_2", '{"command":"rm -rf /"}'),
+        "tool_calls": None,
+    }
     assert choice["finish_reason"] == "stop"
-    assert "tool_calls" not in choice["message"]
+    assert body["harness"]["actions"] == [
+        {"tool_call_id": "call_2", "tool_name": "bash", "decision": "deny", "rule": row["rule"], "reason": row["reason"]}
+    ]
     _assert_no_call_released(response.text)
     assert len(stub.calls) == 1
-    with get_connection() as conn:
-        assert [r["decision"] for r in conn.execute("SELECT decision FROM action_decisions")] == ["deny"]
+    assert row["decision"] == "deny"
 
 
-def test_interim_streamed_tool_calls_are_dropped_not_released(temp_db, monkeypatch):
-    """Interim (STORY-008): the streamed twin of the pin above; STORY-011 replaces it."""
+def test_streamed_denied_call_is_the_note_and_stop(temp_db, monkeypatch):
+    """The streamed twin: the note as content, finish `stop`, no tool-call key, no harness object
+    (PRD-017 Section 6.6: the stream carries neither)."""
     monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
     _use(monkeypatch, _calling_upstream())
 
@@ -894,16 +902,17 @@ def test_interim_streamed_tool_calls_are_dropped_not_released(temp_db, monkeypat
 
     assert response.status_code == 200
     _assert_no_call_released(response.text)
-    # PRD-017 STORY-010 (D2): the streamed content is the denial note.
-    streamed = "".join(
-        c["choices"][0]["delta"].get("content") or "" for c in _data_events(response.text) if c["choices"]
-    )
+    assert '"tool_calls"' not in response.text
+    chunks = _data_events(response.text)
+    streamed = "".join(c["choices"][0]["delta"].get("content") or "" for c in chunks if c["choices"])
     assert streamed == _denial_note("bash", "call_2", '{"command":"rm -rf /"}')
+    assert [c["choices"][0]["finish_reason"] for c in chunks if c["choices"]][-1] == "stop"
+    assert all("harness" not in c for c in chunks)
 
 
-def test_interim_allowed_call_is_decided_but_not_yet_released(temp_db, monkeypatch):
-    """Interim (STORY-010): an allowed call is decided and recorded, but the body still carries
-    `response` only, so it is not released yet (T1). STORY-011 replaces this test."""
+def test_allowed_call_is_released_with_content_null_and_finish_tool_calls(temp_db, monkeypatch):
+    """AC1, AC3: the allowed call leaves byte for byte, content null, finish `tool_calls`, one
+    `allow` action, and the decision row is recorded against the audit row."""
     monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
     _use(monkeypatch, _ToolUpstream(
         response="", tool_calls=(ToolCallSpec("call_r", "read", '{"path":"src/a.py"}'),), finish_reason="tool_calls",
@@ -912,13 +921,97 @@ def test_interim_allowed_call_is_decided_but_not_yet_released(temp_db, monkeypat
     response = client.post(_PATH, json=_router_body(tools=[_TOOL]))
 
     assert response.status_code == 200
-    choice = response.json()["choices"][0]
-    assert choice["message"]["content"] == ""
-    assert choice["finish_reason"] == "stop"
-    assert "tool_calls" not in choice["message"]
+    body = response.json()
+    choice = body["choices"][0]
+    assert choice["message"] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "call_r", "type": "function", "function": {"name": "read", "arguments": '{"path":"src/a.py"}'}}
+        ],
+    }
+    assert choice["finish_reason"] == "tool_calls"
+    assert json.dumps('{"path":"src/a.py"}') in response.text
     with get_connection() as conn:
-        rows = conn.execute("SELECT decision, audit_id FROM action_decisions").fetchall()
+        rows = conn.execute("SELECT decision, audit_id, rule, reason FROM action_decisions").fetchall()
     assert [(r["decision"], r["audit_id"]) for r in rows] == [("allow", _only_row().id)]
+    assert body["harness"]["actions"] == [
+        {"tool_call_id": "call_r", "tool_name": "read", "decision": "allow", "rule": rows[0]["rule"], "reason": rows[0]["reason"]}
+    ]
+
+
+def test_interim_streamed_allowed_call_is_not_yet_streamed(temp_db, monkeypatch):
+    """Interim (STORY-011): the call is decided and recorded and the finish reason is the
+    release's, but the tool-call deltas are STORY-012's; no call data may leak into the stream
+    (T1). STORY-012 replaces this test with the streamed shape."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(
+        response="", tool_calls=(_READ_CALL,), finish_reason="tool_calls",
+    ))
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL], stream=True))
+
+    assert response.status_code == 200
+    assert '{"path":"src/a.py"}' not in response.text
+    assert '"arguments"' not in response.text
+    assert response.text.rstrip().endswith("data: [DONE]")
+    with get_connection() as conn:
+        assert [r["decision"] for r in conn.execute("SELECT decision FROM action_decisions")] == ["allow"]
+
+
+def test_mixed_response_releases_the_allowed_call_and_notes_the_denied_one(temp_db, monkeypatch):
+    """AC2, AC3: text, a note for the deny, the allowed call, finish `tool_calls`, actions in model order."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(
+        response="Reading.", tool_calls=(_READ_CALL, _DROP_TABLE), finish_reason="tool_calls",
+    ))
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL]))
+
+    assert response.status_code == 200
+    body = response.json()
+    choice = body["choices"][0]
+    rows = _decision_table()
+    note = tool_release.DENIAL_NOTE_TEMPLATE.format(name="shell", id="call_1", reason=rows[1]["reason"])
+    assert choice["message"]["content"] == "Reading.\n\n" + note
+    assert [c["id"] for c in choice["message"]["tool_calls"]] == ["call_r"]
+    assert choice["finish_reason"] == "tool_calls"
+    assert [(a["tool_call_id"], a["decision"]) for a in body["harness"]["actions"]] == [
+        ("call_r", "allow"), ("call_1", "deny"),
+    ]
+
+
+def test_flag_on_text_only_body_is_the_flag_off_body(temp_db, monkeypatch):
+    """AC5 (DD-1): a text-only answer has the same body with the flag on as off: no `tool_calls`,
+    no `actions`. Only the per-request values differ."""
+    bodies = []
+    for enabled, prompt in ((False, "first prompt"), (True, "second prompt")):
+        monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", enabled)
+        _use(monkeypatch, _ToolUpstream())
+        response = client.post(_PATH, json=_router_body(messages=[{"role": "user", "content": prompt}]))
+        assert response.status_code == 200
+        body = response.json()
+        for key in ("id", "created"):
+            body.pop(key)
+        body["harness"].pop("audit_id")
+        bodies.append(body)
+
+    assert bodies[0] == bodies[1]
+    assert "tool_calls" not in bodies[1]["choices"][0]["message"]
+    assert "actions" not in bodies[1]["harness"]
+
+
+def test_router_sdk_round_trip(temp_db, monkeypatch):
+    """AC4: the OpenAI SDK parses the router's released-call body, arguments equal."""
+    openai = pytest.importorskip("openai")
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(response="", tool_calls=(_READ_CALL,), finish_reason="tool_calls"))
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL]))
+
+    parsed = openai.types.chat.ChatCompletion.model_validate(response.json())
+    assert parsed.choices[0].finish_reason == "tool_calls"
+    assert parsed.choices[0].message.tool_calls[0].function.arguments == _READ_CALL.arguments
 
 
 # --- STORY-010: decide and record ----------------------------------------------------------
@@ -952,7 +1045,12 @@ def test_drop_table_via_shell_is_denied_and_recorded_with_the_audit_id(temp_db, 
     assert (row["decision"], row["rule"], row["tool_name"]) == ("deny", "sql.ddl", "shell")
     assert row["audit_id"] == audit.id
     assert audit.has_tool_calls is True
-    assert '"tool_calls"' not in response.text
+    assert "arguments" not in response.text
+    if stream:
+        assert '"tool_calls"' not in response.text
+    else:
+        # PRD-017 Section 10 (STORY-011): the JSON body keeps tool_calls: null when every call is denied; no call data appears.
+        assert response.json()["choices"][0]["message"]["tool_calls"] is None
     note = tool_release.DENIAL_NOTE_TEMPLATE.format(name="shell", id="call_1", reason=row["reason"])
     if stream:
         content = "".join(

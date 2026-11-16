@@ -13,7 +13,8 @@ PRD-017 STORY-008: with `tools_enabled` the request may carry `tools`,
 `tool_choice`, `parallel_tool_calls` and tool turns (Sections 4, 6.3, 10); the
 router reads `V1_TOOLS_ENABLED` and `V1_TOOL_MODELS` per request and passes
 them in, because this module reads no settings. The defaults are the flag-off
-values, so PRD-015's behaviour is unchanged byte for byte (D10).
+values, so PRD-015's behaviour is unchanged byte for byte (D10). STORY-011
+builds the non-streamed release shape from the pipeline's `tool_outcome`.
 """
 
 from dataclasses import dataclass
@@ -49,7 +50,10 @@ from app.models.v1_schemas import (
     ChatCompletion,
     ChatCompletionRequest,
     Choice,
+    CompletionToolCall,
+    HarnessAction,
     HarnessCompletionInfo,
+    ToolCallFunction,
     Usage,
     chat_completion_id,
 )
@@ -100,8 +104,10 @@ IGNORED_MESSAGE_NAME = "messages[].name"
 DEVICE_HEADER = "X-Harness-Device"
 MAX_DEVICE_LENGTH = 128
 
-# The values `FinishReason` accepts (v1_schemas). Anything else the upstream
-# reports, None included, is sent as "stop".
+# The values `FinishReason` accepts from an upstream (v1_schemas). Anything else
+# it reports, None included, is sent as "stop". "tool_calls" comes only from the
+# release (PRD-017 DD-2), so an upstream `tool_calls` with nothing evaluated is
+# still "stop".
 _FINISH_REASONS = frozenset({"stop", "length", "content_filter"})
 
 # PRD-015 Section 7.3 (D3): every key a client sends is in exactly one of three
@@ -566,21 +572,53 @@ def translate_result(
     with the reported total, so clients that compute cost from the keys keep
     working; the audit row keeps NULL, which stays the truth. `model` is the
     requested name, as `model_used` records it.
+
+    PRD-017 Section 6.6, D2, D14, T1: the tool calls come from
+    `result.tool_outcome` (step 7c's release), never from `upstream`. When
+    calls were evaluated, `finish_reason` is the release's, `harness.actions`
+    lists every decision in model order, `tool_calls` carries the released
+    calls (`null` when every call was denied) and `content` is `null` when
+    calls are released and there is no text or note. With no outcome the
+    completion is PRD-015's, byte for byte (D10): neither new key is present.
+    Streamed deltas are STORY-012's.
     """
+    outcome = result.tool_outcome
     reported = upstream.finish_reason
     finish_reason = reported if reported in _FINISH_REASONS else "stop"
+    message = AssistantMessage(content=result.response)  # no tool_calls kwarg: key absent
+    actions = None
+    if outcome is not None:
+        release = outcome.release
+        if release.finish_reason is not None:
+            finish_reason = release.finish_reason
+        # `arguments` is the model's string, passed through untouched (D13).
+        released = [
+            CompletionToolCall(
+                id=call.id,
+                function=ToolCallFunction(name=call.name, arguments=call.arguments),
+            )
+            for call in release.tool_calls
+        ]
+        content = None if released and not result.response else result.response
+        # An explicit `None` keeps `tool_calls: null` (all denied, Section 10).
+        message = AssistantMessage(content=content, tool_calls=released or None)
+        actions = [
+            HarnessAction(
+                tool_call_id=d.tool_call_id,
+                tool_name=d.tool_name,
+                decision=d.decision,
+                rule=d.rule,
+                reason=d.reason,
+            )
+            for d in outcome.decisions
+        ]
     prompt_tokens = 0 if upstream.input_tokens is None else upstream.input_tokens
     completion_tokens = 0 if upstream.output_tokens is None else upstream.output_tokens
     return ChatCompletion(
         id=chat_completion_id(result.audit_id),
         created=created,
         model=result.model_used,
-        choices=[
-            Choice(
-                message=AssistantMessage(content=result.response),
-                finish_reason=finish_reason,
-            )
-        ],
+        choices=[Choice(message=message, finish_reason=finish_reason)],
         usage=Usage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
@@ -590,6 +628,7 @@ def translate_result(
             audit_id=result.audit_id,
             pii_redacted=result.pii_redacted,
             pii_entities_masked=result.pii_entities_masked,
+            actions=actions,
         ),
     )
 

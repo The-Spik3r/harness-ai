@@ -9,7 +9,9 @@ mapping rules live there, not here. `/query`'s shapes stay in `schemas.py`.
 Serialize with `model_dump(mode="json")` or `model_dump_json()`, never with
 `exclude_none=True`: the PRD examples carry `null`s (`logprobs`,
 `finish_reason`, `param`, `harness`) that clients read, and the only keys that
-disappear are the two Section 7.6 omits, dropped by their own serializers.
+disappear are the two Section 7.6 omits plus, under PRD-017 (D10, D14),
+`message.tool_calls` and `harness.actions` on a response where no tool call was
+evaluated, each dropped by its own serializer.
 """
 
 from typing import Any, Dict, List, Literal, Optional
@@ -80,7 +82,9 @@ class ChatCompletionRequest(BaseModel):
 
 # The values Section 7.4 names, each one the OpenAI SDK's own Literal accepts.
 # Anything else the upstream reports is the translator's to map to "stop".
-FinishReason = Literal["stop", "length", "content_filter"]
+# "tool_calls" is the release's (PRD-017 Section 6.6, DD-2), never an upstream
+# value passed through.
+FinishReason = Literal["stop", "length", "content_filter", "tool_calls"]
 
 
 class Usage(BaseModel):
@@ -97,9 +101,42 @@ class Usage(BaseModel):
     total_tokens: int
 
 
+class ToolCallFunction(BaseModel):
+    name: str
+    # The model's string, byte for byte, never parsed or re-serialized (D13).
+    arguments: str
+
+
+class CompletionToolCall(BaseModel):
+    """One released tool call (PRD-017 Sections 6.6, 10).
+
+    The OpenAI SDK's `ChatCompletionMessageFunctionToolCall` shape.
+    """
+
+    id: str
+    type: Literal["function"] = "function"
+    function: ToolCallFunction
+
+
 class AssistantMessage(BaseModel):
+    """The completion's message (Section 7.4, PRD-017 Section 6.6).
+
+    `tool_calls` is absent when no call was evaluated (PRD-015's body, D10). An
+    explicit `None` is kept as `null`, as when every call was denied (PRD-017
+    Section 10, DD-1). `content` is `null` only when calls are released and
+    there is neither text nor a denial note.
+    """
+
     role: Literal["assistant"] = "assistant"
-    content: str
+    content: Optional[str]
+    tool_calls: Optional[List[CompletionToolCall]] = None
+
+    @model_serializer(mode="wrap")
+    def _drop_unset_tool_calls(self, handler):
+        data = handler(self)
+        if "tool_calls" not in self.model_fields_set:
+            data.pop("tool_calls", None)
+        return data
 
 
 class Choice(BaseModel):
@@ -109,16 +146,39 @@ class Choice(BaseModel):
     finish_reason: FinishReason
 
 
+class HarnessAction(BaseModel):
+    """One decision on one tool call (PRD-017 D14)."""
+
+    tool_call_id: str
+    tool_name: str
+    # Written out because this module imports nothing from `app`; a test pins it
+    # to `action_classifiers.DECISIONS`. `rule` is a string: the rule vocabulary
+    # is PRD-016's, the wire schema only carries it.
+    decision: Literal["allow", "flag", "deny"]
+    rule: str
+    reason: str
+
+
 class HarnessCompletionInfo(BaseModel):
     """The `harness` extension object on a success (Section 7.4).
 
     The OpenAI SDK keeps unknown fields (`model_extra`), so clients that do not
-    know it ignore it. The fields are `QuerySuccessResponse`'s.
+    know it ignore it. The fields are `QuerySuccessResponse`'s. `actions` has
+    one entry per evaluated call, released or not, in model order (PRD-017
+    D14); it is absent when no call was evaluated (DD-1).
     """
 
     audit_id: int
     pii_redacted: bool = False
     pii_entities_masked: List[str] = []
+    actions: Optional[List[HarnessAction]] = None
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_actions(self, handler):
+        data = handler(self)
+        if data.get("actions") is None:
+            data.pop("actions", None)
+        return data
 
 
 class ChatCompletion(BaseModel):

@@ -407,7 +407,7 @@ Response when the model's next call is denied:
                 "reason": "destructive SQL is not permitted: DROP"}]}}
 ```
 
-`tool_calls` is `null` when none is released (the key kept, as `logprobs` is; PRD-015's serialization rule). New refusals, all 400 before the pipeline, no row:
+`tool_calls` is `null` when none is released (the key kept, as `logprobs` is; PRD-015's serialization rule). *Orchestrator decision (STORY-011 plan):* a response with no evaluated calls — every text-only response, flag on or off — carries neither `tool_calls` nor `harness.actions`, so its body is PRD-015's byte for byte; both keys appear only once calls were evaluated. New refusals, all 400 before the pipeline, no row:
 
 | Condition | `code` | `param` |
 |---|---|---|

@@ -20,10 +20,10 @@ runs there) and writes no row (Section 7.7). STORY-013 added the buffered
 stream: a `stream: true` request is committed to SSE only once the upstream
 call has started (Section 6.4), so every verdict keeps its real status.
 PRD-017 STORY-008 passes the tool request through under `V1_TOOLS_ENABLED`;
-STORY-010 decides and records every call in the pipeline (step 7c). The
-response is still built from `response` (content plus denial notes) until
-STORY-011 releases the allowed calls from the pipeline result's
-`tool_outcome`, never from `upstream.result` (T1).
+STORY-010 decides and records every call in the pipeline (step 7c).
+STORY-011 releases the allowed calls on the non-streamed body:
+`translate_result` reads them from the pipeline result's `tool_outcome`,
+never from `upstream.result` (T1). STORY-012 streams them.
 """
 
 import asyncio

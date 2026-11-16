@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Decide and release"
-status: todo
+status: in-progress
 labels: [backend, api, v1]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
+plan: .agents/plans/PRD-017-tool-calling/STORY-011-completion-shape.plan.md
 report: null
 commit: null
 depends_on: [STORY-010]
 blocks: [STORY-012]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-011: Completion shape: tool_calls, content null, finish_reason tool_calls, harness.actions
