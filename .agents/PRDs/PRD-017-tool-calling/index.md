@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-017-tool-calling` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
-17/18 stories done — 94%
+18/18 stories done — 100%
 
 ## Stories
 
@@ -31,7 +31,7 @@ All stories commit on the epic branch `epic/PRD-017-tool-calling`. No per-story 
 | STORY-015 | In-process success-criteria suite for tool calling; step 7c latency measured | technical | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-015-success-criteria-suite-and-latency.plan.md) | `e36ecee` |
 | STORY-016 | E2E: OpenCode completes a scripted multi-file task; a scripted DROP TABLE is denied and reported | technical | ✅ done | large | [plan](../../plans/PRD-017-tool-calling/completed/STORY-016-e2e-opencode.plan.md) | `d11067c` |
 | STORY-017 | E2E: Cline completes the same task through the harness | technical | ✅ done | large | [plan](../../plans/PRD-017-tool-calling/completed/STORY-017-e2e-cline.plan.md) | `70d0fc5` |
-| STORY-018 | README, docs/features.md, docs/roadmap.md, .env.example; brief promotion verified | technical | 🟡 in-progress | small | [plan](../../plans/PRD-017-tool-calling/STORY-018-docs-and-promotion.plan.md) | — |
+| STORY-018 | README, docs/features.md, docs/roadmap.md, .env.example; brief promotion verified | technical | ✅ done | small | [plan](../../plans/PRD-017-tool-calling/completed/STORY-018-docs-and-promotion.plan.md) | `a990e96` |
 
 ## Status Icons
 - ⬜ todo

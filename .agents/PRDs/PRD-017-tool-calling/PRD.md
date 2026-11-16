@@ -2,11 +2,11 @@
 id: PRD-017
 slug: tool-calling
 title: Tool Calling on the OpenAI-Compatible Endpoint — Every Tool Call Decided by the Action Policy Before the Client Sees It
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-017-tool-calling
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 > **Numbering.** The brief is [PRE-PRD-016](../../../pre-prds/PRE-PRD-016-tool-calling.md), and the track's briefs and older code comments call tool calling **"PRD-016"**. PRD-016 is the action policy engine ([PRD-016](../PRD-016-action-policy-rules/PRD.md)), so this is PRD-017. A comment that says "until PRD-016 admits `tool` turns" (`query_pipeline`, `pii_policy`, `pattern_config`, `audit_logger`, `messages`) means this document. Comments this PRD's stories touch are reworded; the rest read through this note. The runtime strings already say `(PRD-017)` (PRD-016 D14).

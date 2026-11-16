@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Real clients and docs"
-status: in-progress
+status: done
 labels: [docs]
 epic_branch: epic/PRD-017-tool-calling
-plan: .agents/plans/PRD-017-tool-calling/STORY-018-docs-and-promotion.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-018-docs-and-promotion.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-018-docs-and-promotion.report.md
+commit: a990e96
 depends_on: [STORY-013, STORY-015, STORY-016, STORY-017]
 blocks: []
 skills: []
