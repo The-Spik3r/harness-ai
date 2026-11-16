@@ -12,7 +12,7 @@ labels: [tests, e2e, clients]
 epic_branch: epic/PRD-017-tool-calling
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-017-e2e-cline.plan.md
 report: .agents/reports/PRD-017-tool-calling/STORY-017-e2e-cline.report.md
-commit: pending
+commit: 70d0fc5
 depends_on: [STORY-001, STORY-014, STORY-016]
 blocks: [STORY-018]
 skills: []

@@ -3,7 +3,7 @@ story: STORY-017
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-017-e2e-cline.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: 70d0fc5
 status: COMPLETE
 completed: 2026-11-16
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-16
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-017-e2e-cline.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `70d0fc5`
 
 ## Summary
 
