@@ -2330,6 +2330,7 @@ def list_action_decisions(
     limit: int = 100,
     user_id: Optional[str] = None,
     decision: Optional[str] = None,
+    audit_id: Optional[int] = None,
 ) -> list[ActionDecisionRow]:
     """The most recent action decisions, newest first (PRD-016 F10).
 
@@ -2338,10 +2339,13 @@ def list_action_decisions(
     one, so ordering by it ties arbitrarily (PRD-006 Section 13, as
     `list_chat_messages` documents). `AUTOINCREMENT` is the order.
 
-    `user_id` and `decision` filter when given and combine with AND. The
-    clauses are fixed strings and only the values are bound, so no caller text
-    reaches the SQL. `decision` is not validated here: STORY-016's router
-    rejects an unknown value with 422, and here one simply matches no row.
+    `user_id`, `decision` and `audit_id` filter when given and combine with
+    AND. The clauses are fixed strings and only the values are bound, so no
+    caller text reaches the SQL. `decision` is not validated here: STORY-016's
+    router rejects an unknown value with 422, and here one simply matches no
+    row. `audit_id` (PRD-017 Section 10) is one request's decisions, by its
+    `audit_logs.id`; `idx_action_decisions_audit` serves it, and the router
+    rejects a non-integer, zero or negative value with 422.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -2351,6 +2355,9 @@ def list_action_decisions(
     if decision is not None:
         clauses.append("decision = ?")
         params.append(decision)
+    if audit_id is not None:
+        clauses.append("audit_id = ?")
+        params.append(audit_id)
     where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     params.append(limit)
     with _session() as conn:

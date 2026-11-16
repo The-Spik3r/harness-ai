@@ -521,6 +521,19 @@ def test_list_filters_by_user_and_by_decision(temp_db):
     assert list_action_decisions(100, decision="nonsense") == []
 
 
+def test_list_filters_by_audit_id(temp_db):
+    """PRD-017 STORY-013 (Section 10): one request's decisions, ANDed with the rest."""
+    ids = _seed_two_users()
+
+    assert [r.id for r in list_action_decisions(100, audit_id=1)] == list(
+        reversed(ids[:3])
+    )
+    only = list_action_decisions(100, audit_id=2, decision="deny")
+    assert [r.tool_call_id for r in only] == ["c4"]
+    assert list_action_decisions(100, user_id="u", audit_id=2) == []
+    assert list_action_decisions(100, audit_id=999) == []
+
+
 def test_list_limit_returns_the_newest(temp_db):
     ids = _seed_two_users()
 

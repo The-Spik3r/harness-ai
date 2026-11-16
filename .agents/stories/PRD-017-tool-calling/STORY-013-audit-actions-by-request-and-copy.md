@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "3 - Decide and release"
-status: todo
+status: in-progress
 labels: [backend, api, admin, ui]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
+plan: .agents/plans/PRD-017-tool-calling/STORY-013-audit-actions-by-request-and-copy.plan.md
 report: null
 commit: null
 depends_on: [STORY-010]
 blocks: [STORY-015, STORY-018]
 skills: [frontend-design]
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-013: GET /audit/actions?audit_id= and the Actions view's empty-state copy

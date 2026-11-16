@@ -213,7 +213,7 @@ It is a hash of text this endpoint's reader can already identify through `user_i
 
 ### `GET /audit/actions` (requires `audit:read:all` or `audit:read:own`)
 
-The action policy's decisions, newest first, one entry per tool call, allowed ones included. **Empty until PRD-017 calls the engine**: nothing in the request path writes a row yet (see [Action policy rules](features.md#action-policy-rules)). Scoped exactly like `GET /audit`: `audit:read:all` reads every user's rows, `audit:read:own` only the caller's, and neither is a `403` naming `audit:read:own`.
+The action policy's decisions, newest first, one entry per tool call, allowed ones included. Rows are written when `V1_TOOLS_ENABLED=true` and a `/v1` response carries tool calls (see [Action policy rules](features.md#action-policy-rules)); with the flag off the list stays empty. Scoped exactly like `GET /audit`: `audit:read:all` reads every user's rows, `audit:read:own` only the caller's, and neither is a `403` naming `audit:read:own`.
 
 ```bash
 curl "http://localhost:8000/audit/actions?decision=deny&limit=1"   -H "Authorization: Bearer $ADMIN_TOKEN"
@@ -243,8 +243,8 @@ curl "http://localhost:8000/audit/actions?decision=deny&limit=1"   -H "Authoriza
 }
 ```
 
-- `?limit=` is `1` to `500` (default `100`); `?decision=` is `allow`, `flag` or `deny`, and any other value is a `422`.
-- `classifications` lists everything the classifiers saw, not only the rule that decided; `kind` is `null` for `tool.unknown` and `tool.malformed`. `audit_id` is `null` until PRD-017 links a decision to its `audit_logs` row.
+- `?limit=` is `1` to `500` (default `100`); `?decision=` is `allow`, `flag` or `deny`, and any other value is a `422`. `?audit_id=` (a positive integer, the request's `audit_logs.id`) lists one request's decisions; it combines with `?decision=` and with the scoping, so under `audit:read:own` another user's request is `[]`, and a non-integer, zero or negative value is a `422`.
+- `classifications` lists everything the classifiers saw, not only the rule that decided; `kind` is `null` for `tool.unknown` and `tool.malformed`. `audit_id` is the request's `audit_logs` row; `null` only for a decision recorded outside a request.
 - `arguments_preview`, `arguments_hash` and `session_id` are on the stored row but deliberately **not** on this entry: the target is what the rule judged. There is no `total`.
 - The Docker Caddyfile routes `/audit/actions` to the API (`tests/test_caddyfile_routes.py`).
 
@@ -277,7 +277,7 @@ curl http://localhost:8000/stats \
 
 `input_tokens` and `output_tokens` are sums over every audit row, with a row that recorded no split counted as `0`, so on a deployment upgraded from before PRD-013 they cover only the rows written since. `blocked_usage_limits` counts usage-limit refusals. Those rows are `success=true`, so they count in `success_rate` the way duplicate blocks do. The admin console's Summary shows the same three figures.
 
-`actions_denied`, `actions_flagged` and `actions_allowed` count `action_decisions` rows by decision. They are additive, and `0` until PRD-017 calls the action policy.
+`actions_denied`, `actions_flagged` and `actions_allowed` count `action_decisions` rows by decision. They are additive, and `0` until a `/v1` tool call is decided (`V1_TOOLS_ENABLED=true`).
 
 `pii_detected_queries` counts audit rows flagged on input **or** output; `top_pii_entities` ranks individual entity types by frequency across rows. Both count what was analyzed: a `code` row's response was not, so it can only be flagged on input. `/v1` is the one ingress that runs `code`, so its rows can only be flagged on input.
 

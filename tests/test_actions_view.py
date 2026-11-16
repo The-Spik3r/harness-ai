@@ -803,11 +803,17 @@ def test_the_filter_chips_are_single_select_buttons(probe, actions_source):
 
 
 def test_the_empty_state_says_what_why_and_what_next(probe, actions_source):
-    """AC 3: a sentence naming PRD-017 and Refresh, no grid."""
+    """AC 3: what the view lists, how rows appear, and Refresh; no grid."""
     assert not probe["errors"], probe["errors"]
     body = admin_copy.EMPTY_ACTIONS_BODY
-    assert "PRD-017" in body
-    assert "nothing calls the policy engine yet" in body
+    # PRD-017 STORY-013 (Section 4, F10): tool calls are decided live, so the body
+    # no longer names PRD-017 or says nothing calls the engine (was: "PRD-017" in
+    # body, "nothing calls the policy engine yet" in body).
+    assert "PRD-017" not in body
+    assert "nothing calls" not in body
+    assert "/v1" in body
+    assert "denied first" in body
+    assert "V1_TOOLS_ENABLED" in body
     assert body.endswith(admin_copy.REFRESH_LABEL + " to read again.")
     assert "actions_empty_title" in probe["empty"]
     assert body in probe["empty"]
