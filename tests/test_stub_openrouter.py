@@ -13,9 +13,20 @@ declares storage, so the module runs under `-m "not db"` with Docker off.
     AC 3  call_openrouter's result; a delay past OPENROUTER_TIMEOUT_SECONDS is
           retryable; fail_status 400 is not (503 and 429 are)
     AC 4  the Authorization value is never logged, on any path
+
+PRD-017 STORY-014 (the tests from "scripted tool_calls" down; no PRD-015 test
+above was edited):
+
+    AC 1  a tool_calls reply: content null, type function, string arguments,
+          call_<n> ids, finish_reason tool_calls; parsed by call_openrouter
+    AC 2  role / last_role / after_call / advertises; role-less rules keep
+          matching the last user message
+    AC 3  the log adds tools=<n> calls=<n> and never names a tool or argument
+    AC 4  tests/e2e/scripts/tool_loop.json (read, edit, npm test, final text)
 """
 
 import io
+import json
 import os
 import subprocess
 import sys
@@ -30,8 +41,13 @@ import httpx
 import pytest
 
 from app.config import settings
-from app.models.messages import Message
-from app.services.openrouter_client import GenerationParams, OpenRouterError, call_openrouter
+from app.models.messages import Message, ToolCallSpec
+from app.services.openrouter_client import (
+    GenerationParams,
+    OpenRouterError,
+    ToolParams,
+    call_openrouter,
+)
 from scripts import stub_openrouter
 from scripts.stub_openrouter import ScriptError, load_script, make_server, parse_script
 
@@ -457,3 +473,277 @@ def test_nothing_under_app_mentions_the_stub():
         if "stub_openrouter" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+# --------------------------------------------------------------------------
+# PRD-017 STORY-014: scripted tool_calls, role / last_role / after_call / advertises
+# --------------------------------------------------------------------------
+
+_TOOL_LOOP = _REPO_ROOT / "tests" / "e2e" / "scripts" / "tool_loop.json"
+_BASH_ARGS = '{"command":"npm test"}'
+_TOOLS = ToolParams(
+    tools=[
+        {"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}},
+        {"type": "function", "function": {"name": "shell", "parameters": {"type": "object"}}},
+    ]
+)
+
+
+def _post(messages, tools=None):
+    body = {"model": "m", "messages": messages}
+    if tools is not None:
+        body["tools"] = tools
+    resp = httpx.post(f"{settings.OPENROUTER_BASE_URL}/chat/completions", json=body)
+    assert resp.status_code == 200
+    return resp.json()["choices"][0]
+
+
+def _asst(name, call_id="toolu_x", arguments="{}"):
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+        ],
+    }
+
+
+def _answer(choice):
+    return choice["message"]["content"]
+
+
+def test_tool_calls_reply_parses_through_call_openrouter(stub):
+    # AC 1: the story's exact reply, through the real client's D18 parsing rules.
+    stub({"rules": [{"contains": "go", "tool_calls": [{"name": "bash", "arguments": _BASH_ARGS}]}]})
+    result = _call("go", tools=_TOOLS)
+    assert [(c.id, c.name, c.arguments) for c in result.tool_calls] == [("call_1", "bash", _BASH_ARGS)]
+    assert result.finish_reason == "tool_calls"
+    assert result.response == ""
+
+
+def test_tool_calls_body_has_content_null_type_function_and_string_arguments(stub):
+    stub(
+        {
+            "rules": [
+                {"contains": "a", "tool_calls": [{"name": "bash", "arguments": _BASH_ARGS}]},
+                {
+                    "contains": "b",
+                    "tool_calls": [{"name": "bash", "arguments": "{}"}],
+                    "finish_reason": "stop",
+                },
+                {
+                    "contains": "c",
+                    "tool_calls": [{"name": "bash", "arguments": "{}"}],
+                    "content": "text beside the call",
+                },
+            ]
+        }
+    )
+    first = _post([{"role": "user", "content": "a"}])
+    assert first["message"]["content"] is None
+    call = first["message"]["tool_calls"][0]
+    assert call["type"] == "function" and call["function"]["arguments"] == _BASH_ARGS
+    assert isinstance(call["function"]["arguments"], str)
+    assert first["finish_reason"] == "tool_calls"
+    assert _post([{"role": "user", "content": "b"}])["finish_reason"] == "stop"
+    third = _post([{"role": "user", "content": "c"}])
+    assert third["message"]["content"] == "text beside the call"
+    # A reply without calls keeps today's body: no tool_calls key at all.
+    stub({"rules": [{"contains": "a", "content": "plain"}]})
+    assert "tool_calls" not in _post([{"role": "user", "content": "a"}])["message"]
+
+
+def test_generated_ids_are_unique_across_answers_and_explicit_ids_are_kept(stub):
+    stub(
+        {
+            "rules": [
+                {
+                    "contains": "go",
+                    "tool_calls": [
+                        {"name": "a", "arguments": "{}"},
+                        {"name": "b", "arguments": "{}", "id": "toolu_scripted"},
+                        {"name": "c", "arguments": "{}"},
+                    ],
+                }
+            ]
+        }
+    )
+    first = [c["id"] for c in _post([{"role": "user", "content": "go"}])["message"]["tool_calls"]]
+    second = [c["id"] for c in _post([{"role": "user", "content": "go"}])["message"]["tool_calls"]]
+    assert first == ["call_1", "toolu_scripted", "call_2"]
+    assert second == ["call_3", "toolu_scripted", "call_4"]
+
+
+def _history():
+    return [
+        {"role": "user", "content": "start"},
+        _asst("read", "id1"),
+        {"role": "tool", "tool_call_id": "id1", "content": "marker-A"},
+        _asst("edit", "id2"),
+        {"role": "tool", "tool_call_id": "id2", "content": "marker-B"},
+    ]
+
+
+def test_role_tool_matches_the_last_tool_message(stub):
+    stub(
+        {
+            "rules": [
+                {"role": "tool", "contains": "marker-A", "content": "saw A"},
+                {"role": "tool", "contains": "marker-B", "content": "saw B"},
+            ]
+        }
+    )
+    assert _answer(_post(_history())) == "saw B"
+    # Only the first tool turn present: the A rule answers.
+    assert _answer(_post(_history()[:3])) == "saw A"
+
+
+def test_role_without_a_message_of_that_role_does_not_match(stub):
+    stub({"rules": [{"role": "tool", "regex": "", "content": "tool"}], "default": {"content": "dflt"}})
+    assert _answer(_post([{"role": "user", "content": "hi"}])) == "dflt"
+    assert _answer(_post(_history())) == "tool"
+
+
+def test_last_role_requires_the_final_turn(stub):
+    stub({"rules": [{"last_role": "tool", "regex": "", "content": "ends on tool"}], "default": {"content": "dflt"}})
+    assert _answer(_post(_history())) == "ends on tool"
+    assert _answer(_post(_history() + [{"role": "user", "content": "more"}])) == "dflt"
+    assert _answer(_post([])) == "dflt"
+
+
+def test_after_call_and_advertises_qualify_a_rule(stub):
+    stub(
+        {
+            "rules": [
+                {"after_call": "edit", "advertises": "submit_and_exit", "regex": "", "content": "cline"},
+                {"after_call": "edit", "regex": "", "content": "opencode"},
+            ],
+            "default": {"content": "dflt"},
+        }
+    )
+    submit = {"type": "function", "function": {"name": "submit_and_exit"}}
+    other = {"type": "function", "function": {"name": "shell"}}
+    history = _history()  # the last assistant turn called "edit"
+    assert _answer(_post(history, [other, submit])) == "cline"
+    assert _answer(_post(history, [other])) == "opencode"
+    assert _answer(_post(history)) == "opencode"  # no tools: advertises fails, after_call holds
+    # The last assistant turn called "read", not "edit": neither rule applies.
+    assert _answer(_post(history[:3], [submit])) == "dflt"
+    # A malformed tools list is not validated; it just offers no names.
+    assert _answer(_post(history, ["junk", {"function": 3}])) == "opencode"
+
+
+def test_rules_without_role_keep_matching_the_last_user_message(stub):
+    # AC 2: a role-less rule still tests the last user message when the conversation ends on a tool turn.
+    stub({"rules": [{"contains": "start", "content": "user rule"}, {"regex": "marker", "content": "never"}]})
+    assert _answer(_post(_history())) == "user rule"
+
+
+def test_tool_loop_script_runs_read_edit_test_then_final_text(stub):
+    # AC 4: the example loop through the real call_openrouter; client-style ids prove
+    # that matching does not depend on ids, and each call passes the client's parsing.
+    stub(json.loads(_TOOL_LOOP.read_text(encoding="utf-8")))
+    messages = [Message("user", "TOOL-LOOP fix add()")]
+    names = []
+    reasons = []
+    for result_text in ["function add(a, b) { return a - b; }", "edited", "3 passing"]:
+        result = call_openrouter(messages, api_key=_SECRET, tools=_TOOLS)
+        reasons.append(result.finish_reason)
+        assert len(result.tool_calls) == 1
+        call = result.tool_calls[0]
+        names.append(call.name)
+        assert call.id and isinstance(call.arguments, str)
+        # The client rewrites the id; the next reply must not depend on it.
+        rewritten = ToolCallSpec(id=f"toolu_{len(names)}", name=call.name, arguments=call.arguments)
+        messages += [
+            Message("assistant", "", tool_calls=(rewritten,)),
+            Message("tool", result_text, tool_call_id=rewritten.id),
+        ]
+    final = call_openrouter(messages, api_key=_SECRET, tools=_TOOLS)
+    assert names == ["read", "edit", "shell"]
+    assert reasons == ["tool_calls"] * 3
+    assert final.tool_calls == () and final.finish_reason == "stop"
+    assert final.response == "Done: fixed add() in src/math.js and npm test passes."
+
+    # The failure branch still ends the loop.
+    messages[-1] = Message("tool", "1 failing", tool_call_id="toolu_3")
+    failed = call_openrouter(messages, api_key=_SECRET, tools=_TOOLS)
+    assert failed.tool_calls == () and failed.response == "The tests failed; stopping here."
+
+
+def test_tool_loop_log_names_counts_never_arguments_or_tool_content(stub):
+    _, log = stub(json.loads(_TOOL_LOOP.read_text(encoding="utf-8")))
+    messages = [Message("user", "TOOL-LOOP fix add()")]
+    first = call_openrouter(messages, api_key=_SECRET, tools=_TOOLS)
+    spec = first.tool_calls[0]
+    messages += [
+        Message("assistant", "", tool_calls=(spec,)),
+        Message("tool", "secret-tool-output-xyz function add", tool_call_id=spec.id),
+    ]
+    call_openrouter(messages, api_key=_SECRET, tools=_TOOLS)
+    text = log.getvalue()
+    lines = _lines(log)
+    assert text.isascii()
+    assert lines[0].endswith("tools=2 calls=1 -> 200")
+    assert "params=[tools]" in lines[0] and "rule=0 " in lines[0]
+    assert "calls=1" in lines[1]
+    for leaked in ("src/math.js", "npm test", "read", "secret-tool-output-xyz", "path", _SECRET, "Bearer"):
+        assert leaked not in text, leaked
+
+
+def test_a_failed_answer_logs_zero_calls(stub):
+    _, log = stub({"rules": [{"contains": "x", "fail_status": 503}]})
+    httpx.post(
+        f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+    )
+    assert _lines(log)[0].endswith("tools=0 calls=0 -> 503")
+
+
+_CALL = {"name": "bash", "arguments": "{}"}
+
+
+@pytest.mark.parametrize(
+    "script,names",
+    [
+        ({"rules": [{"contains": "a", "tool_calls": []}]}, "rules[0]: tool_calls must be a non-empty list"),
+        ({"rules": [{"contains": "a", "tool_calls": "bash"}]}, "tool_calls must be a non-empty list"),
+        ({"rules": [{"contains": "a", "tool_calls": ["bash"]}]}, "rules[0].tool_calls[0]: must be an object"),
+        ({"rules": [{"contains": "a", "tool_calls": [{**_CALL, "type": "function"}]}]}, "tool_calls[0]: unknown key(s): type"),
+        ({"rules": [{"contains": "a", "tool_calls": [{"arguments": "{}"}]}]}, "tool_calls[0]: name must be a non-empty string"),
+        ({"rules": [{"contains": "a", "tool_calls": [{"name": "", "arguments": "{}"}]}]}, "name must be a non-empty string"),
+        ({"rules": [{"contains": "a", "tool_calls": [{"name": "bash", "arguments": {"a": 1}}]}]}, "tool_calls[0]: arguments must be a string"),
+        ({"rules": [{"contains": "a", "tool_calls": [{"name": "bash"}]}]}, "arguments must be a string"),
+        ({"rules": [{"contains": "a", "tool_calls": [{**_CALL, "id": ""}]}]}, "tool_calls[0]: id must be a non-empty string"),
+        ({"rules": [{"contains": "a", "tool_calls": [{**_CALL, "id": "call_7"}]}]}, "must not look like a generated id"),
+        ({"rules": [{"contains": "a", "tool_calls": [{**_CALL, "id": "x"}, {**_CALL, "id": "x"}]}]}, "tool_calls[1]: id repeats"),
+        ({"rules": [{"contains": "a", "fail_status": 503, "tool_calls": [_CALL]}]}, "remove tool_calls"),
+        ({"rules": [{"contains": "a", "content": None}]}, "content must be a string"),
+        ({"rules": [{"contains": "a", "role": "robot"}]}, "rules[0]: role must be one of"),
+        ({"rules": [{"contains": "a", "last_role": 3}]}, "rules[0]: last_role must be one of"),
+        ({"rules": [{"contains": "a", "after_call": ""}]}, "rules[0]: after_call must be a non-empty string"),
+        ({"rules": [{"contains": "a", "advertises": 1}]}, "rules[0]: advertises must be a non-empty string"),
+        ({"default": {"content": "x", "role": "user"}}, "default: unknown key(s): role"),
+        ({"default": {"tool_calls": [{**_CALL, "arguments": 5}]}}, "default.tool_calls[0]: arguments must be a string"),
+    ],
+)
+def test_bad_tool_scripts_are_rejected_naming_the_field(script, names):
+    with pytest.raises(ScriptError) as info:
+        parse_script(script)
+    assert names in str(info.value)
+
+
+def test_a_rejected_arguments_value_is_never_echoed():
+    with pytest.raises(ScriptError) as info:
+        parse_script({"rules": [{"contains": "a", "tool_calls": [{"name": "b", "arguments": {"k": "s3cret-arg"}}]}]})
+    assert "s3cret-arg" not in str(info.value)
+
+
+def test_the_tool_loop_script_loads():
+    script = load_script(str(_TOOL_LOOP))
+    replies = [rule.reply for rule in script.rules]
+    assert [len(r.tool_calls) for r in replies] == [1, 1, 1, 0, 0]
+    assert any(rule.after_call for rule in script.rules)
+    assert any(rule.role == "tool" for rule in script.rules)
+    ids = [call.id for r in replies for call in r.tool_calls]
+    assert None in ids and any(i for i in ids)

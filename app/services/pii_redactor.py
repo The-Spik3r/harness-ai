@@ -520,14 +520,12 @@ def redact_for_policy(text: str, policy: PiiPolicy) -> RedactionResult:
     span that is dropped entirely was not masked, so it is not reported. (For
     `chat` it is redact()'s list.)
 
-    **Tool-call arguments are never redacted.** In this PRD that holds by
-    construction: `Message` has no `tool_calls` field, `normalize_message`
-    refuses `tool_calls` (PRD-010), and `redact_for_policy` takes a string.
-    The rule is written here, and repeated in the `redact_for_policy`
-    docstring, as the contract PRD-016 must keep when it widens `Message`:
-    arguments go upstream untouched, and only `content` goes through policy.
-    This PRD's JSON-aware mode is what makes a `tool` turn's *result* safe to
-    redact once PRD-016 admits it.
+    **Tool-call arguments are never redacted** (PRD-012 Section 6.5, PRD-017
+    D13). `Message` carries them (`tool_calls`, PRD-017 D5), but this function
+    takes a string, and step 6 hands it a turn's `content` only. It then
+    rebuilds the turn with `dataclasses.replace`, so the calls go upstream
+    byte-identical. JSON-aware mode is what makes a `tool` turn's *result* safe
+    to redact.
 
     Raises PiiRedactorError when analysis fails and on the JSON post-condition.
     """

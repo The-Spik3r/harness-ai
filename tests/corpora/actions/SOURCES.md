@@ -14,6 +14,11 @@ pinned to a full commit SHA, either a release tag's commit or a named commit.
 None points at a branch. Downloads were read and grepped only. Nothing was
 executed or checked in.
 
+PRD-017 STORY-001 re-surveyed **OpenCode 2.0.10** and the **Cline CLI 3.0.74** on
+2026-11-15 by the same method, and also read the installed binaries (OpenCode on
+the dev machine, and the pinned Cline CLI binary). The new sections are *OpenCode
+2.x*, *Cline CLI 3.0.74* and *Differences from the PRD-016 survey*.
+
 Table conventions, fixed so a test can parse them:
 
 - `Operation kind` is one of `shell`, `sql`, `fs_write`, `fs_read`, `http`,
@@ -74,6 +79,46 @@ Notes:
 - **No `todoread`.** PRD Section 6.6's sample `opaque_tools` names `todoread`, but v1.19.5 registers only `todowrite`.
 - **MCP tools arrive prefixed.** An MCP tool is exposed as `sanitize(server) + "_" + sanitize(tool)`, where `sanitize` replaces anything outside `[a-zA-Z0-9_-]` with `_` ([`mcp/catalog.ts#L117-L119`](https://github.com/anomalyco/opencode/blob/810c0eba1a7348036f8bdf61e6632d0c36c6876c/packages/opencode/src/mcp/catalog.ts#L117-L119), used at [`mcp/index.ts#L684`](https://github.com/anomalyco/opencode/blob/810c0eba1a7348036f8bdf61e6632d0c36c6876c/packages/opencode/src/mcp/index.ts#L684)). A Postgres server named `postgres` sends `postgres_query`, never a bare `query`.
 
+## OpenCode 2.x
+
+OpenCode 2.0 is a rewrite, and it renamed tools and keys. PRD-017 STORY-001 surveyed **2.0.10**, the version installed on the dev machine, on **2026-11-15**, because PRD-017 drives it end to end.
+
+- **Upstream**: `anomalyco/opencode`, `packages/core/src/tool/plugin/` (one file per tool). The request protocol is `packages/ai/src/protocols/openai-chat.ts`
+- **Tag**: `v2.0.10`. The commit date is 2026-09-19. It is **not** the latest tag: `v2.0.11` (`9eb6902a`) and `v2.0.12` (`2670273f`) exist
+- **Commit**: `b8cedc1a7a5e2916bbb65dc1d4b620729c261638` (lightweight tag on a commit)
+- **License**: MIT
+- **Installed binary** (ground truth for the version the dev machine runs): `@opencode/cli/bin/opencode.exe`, a Bun single-file executable that embeds its bundle as text, sha256 prefix `0c621cb01093d575aed7`. `opencode --version` prints `v2.0.10`. Each tool name, key and description below was found in the binary and matches the source at the tag (for example `Rp="shell"`, `Wj="edit"`, `Rj="patch"`, `Ip="subagent"`, `SL="read"`, `WE="write"`, with `path` / `command` / `patchText` / `agent` as their first keys). Nothing in the bundle was executed.
+- **Schema location**: each tool is a plugin `{id: "opencode.tool.<x>", effect: ...}` that calls `ctx.tool.transform(editor => editor.add({name, options: {codemode: false, ...}, input: <Input>}))`. `Input` is the `Schema.Struct` in the same file. The registry is `packages/core/src/tool.ts`.
+
+| Client | Tool | Operation kind | Target key | Multi-target | Paths | Version | Commit | Schema |
+|---|---|---|---|---|---|---|---|---|
+| OpenCode 2.x | `shell` | `shell` | `command` | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/shell.ts#L47-60 |
+| OpenCode 2.x | `read` | `fs_read` | `path` | no | either | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/read.ts#L17-25 |
+| OpenCode 2.x | `write` | `fs_write` | `path` | no | either | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/write.ts#L23-28 |
+| OpenCode 2.x | `edit` | `fs_write` | `path` | no | either | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/edit.ts#L24-34 |
+| OpenCode 2.x | `patch` | `fs_write` | `patchText` (in patch text) | yes | either | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/patch.ts#L21-25 |
+| OpenCode 2.x | `webfetch` | `http` | `url` | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/webfetch.ts#L23-31 |
+| OpenCode 2.x | `glob` | `fs_read` | `path?` | no | relative | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/glob.ts#L17-28 |
+| OpenCode 2.x | `grep` | `fs_read` | `path?` | no | relative | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/grep.ts#L17-38 |
+| OpenCode 2.x | `websearch` | `none` | — | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/websearch.ts#L24-26 |
+| OpenCode 2.x | `subagent` | `none` | — | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/subagent.ts#L29-48 |
+| OpenCode 2.x | `skill` | `none` | — | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/skill.ts#L12-14 |
+| OpenCode 2.x | `question` | `none` | — | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/question.ts#L23-25 |
+| OpenCode 2.x | `execute` | `none` | — | no | n/a | v2.0.10 | `b8cedc1a` | https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/codemode/tool.ts#L73-108 |
+
+Notes:
+
+- **What changed from v1.19.5** is in *Differences from the PRD-016 survey* below. `bash` is now `shell`, `apply_patch` is now `patch`, `task` is now `subagent` (with a new `agent` key), `read` / `write` / `edit` take `path` instead of `filePath`, and `lsp`, `todowrite`, `plan_exit`, `invalid` and `list` are gone from the direct tool set (the string `opencode.tool.lsp` and its siblings occur 0 times in the binary).
+- **`execute` is the CodeMode tool, and it is advertised by default.** The snapshot in `tool.ts` splits the registered tools into `direct` (`options.codemode === false`) and CodeMode tools. It adds `execute` to the definitions whenever the permission rules do not wholly disable it, **even with no CodeMode tools registered** ([`tool.ts#L225-L260`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool.ts#L225-L260)). The built-in tools are all `codemode: false`. The `opencode` namespace tools (`session_rename`, `session_move`, `models`) are `codemode: true` ([`plugin/opencode.ts#L85-L140`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/opencode.ts#L85-L140)), so `execute` is advertised in every ordinary session. Its one key is `code`, JavaScript run in a confined interpreter. The description says `fetch` is available, and that other external access goes through `tools.<namespace>.<name>(...)` ([`codemode/tool.ts#L60-L108`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/codemode/tool.ts#L60-L108)). So one `execute` call can make HTTP requests and call MCP tools without a single `tool_calls` entry naming them. **`execute` is `none` here on purpose: it stays `tool.unknown`, and it must never be listed in `opaque_tools`.** `execute.code` is not inspected (future work).
+- **MCP tools are CodeMode tools by default.** `mcp.ts` registers each one with `codemode: tool.codemode !== false` ([`tool/mcp.ts#L45`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/mcp.ts#L45)), so they are called inside `execute.code` and do not arrive as their own `tool_calls`. Only a server configured with `codemode: false` gets a direct tool, exposed as `<namespace with "." replaced by "_">_<name>`, the same `<server>_<tool>` shape as v1.19.5 (`exposedToolName` in the binary at offset 161283646: `options.namespace === undefined ? name : namespace.replaceAll(".", "_") + "_" + name`; the namespace is `server.replace(/[^a-zA-Z0-9_-]/g, "_")`, [`tool/mcp.ts#L16-L17`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/mcp.ts#L16-L17)).
+- **`patch` replaces `edit` and `write` for some models, as `apply_patch` did.** The plugin's session hook deletes `edit` and `write` and keeps `patch` when the model id contains `gpt-` and contains neither `oss` nor `gpt-4`, and deletes `patch` otherwise ([`plugin/patch.ts#L296-L305`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/patch.ts#L296-L305)).
+- **`patch` carries its paths inside `patchText`** with the v1.19.5 grammar: `*** Begin Patch` ... `*** End Patch`, and `*** Add File: <path>`, `*** Update File: <path>` (optionally `*** Move to: <path>`) and `*** Delete File: <path>` ([`packages/util/src/patch.ts#L48-L110`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/util/src/patch.ts#L48-L110)). 2.0 adds one thing: an optional **`*** Environment ID: <id>`** line directly after `*** Begin Patch`, which the parser skips ([`patch.ts#L63-L70`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/util/src/patch.ts#L63-L70)). It names no file, and the adapter's header scan ignores it, so it is not a target. What the id selects is not read here. The patch tool resolves each header path against the session `Location` directory (`FileAccess.resolvePath(location.directory, hunk.path)`, [`plugin/patch.ts#L88-L93`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/patch.ts#L88-L93)).
+- **`read` lists directories.** `path` is "File or directory to read", with `offset` and `limit` counting lines or directory entries ([`plugin/read.ts#L17-L25`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/read.ts#L17-L25)). It is still one `fs_read` of `path`.
+- **`glob` and `grep` keep their keys.** `path?` is a `RelativePath` that defaults to the working directory, `glob.pattern` is the other half of the target, and `grep` has `include?` and a new `literal?` (plain text instead of a regex). The mapping is unchanged.
+- **`shell` is the new `bash`.** `command`, `workdir?`, `timeout?` (milliseconds, 0 disables) and `background?`. The description says "Commands run on <OS> using <shell>", so on Windows the text may be PowerShell or cmd, as in v1.19.5 (PRD Risk 3: the POSIX classifier must fail closed as `shell.unclassifiable`) ([`plugin/shell.ts#L25-L60`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/shell.ts#L25-L60)).
+- **`websearch`, `subagent`, `skill`, `question`** perform no operation the engine classifies. `subagent` takes `agent`, `description`, `prompt`, `model?`, `sessionID?` and `background?`.
+- `write` carries a source TODO about whether model-facing mutation schemas should "prefer absolute `filePath` naming for trained-in compatibility" ([`plugin/write.ts#L22`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/write.ts#L21)). So a later 2.0.x release may go back to `filePath` for `write`. That is why the built-in mapping reads both spellings.
+
 ## Cline
 
 Cline has two tool sets. **Cline 4.x is the current client**, and its VS Code extension runs the SDK tool set. The 3.x tool names, which PRD Section 4 lists, are recorded second as additional candidates.
@@ -113,6 +158,16 @@ Notes:
 - **`apply_patch` uses the same grammar as OpenCode's**: `*** Add File: `, `*** Update File: `, `*** Delete File: `, `*** Move to: ` ([`executors/apply-patch-parser.ts#L8-L15`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/tools/executors/apply-patch-parser.ts#L8-L15)).
 - **`search_codebase`** takes `queries[]`, which are regexes run over the workspace with no path argument. It reads the workspace but names no target, so it is listed as `none`.
 - **MCP tools arrive as `<server>__<tool>`.** If that raw name has a character outside `[a-zA-Z0-9_-]` or is longer than 64 characters, it is sanitized, truncated and given an 8-character SHA-1 suffix ([`mcp/name-transform.ts#L20-L35`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/mcp/name-transform.ts#L20-L35), applied in [`mcp/tools.ts#L21-L30`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/mcp/tools.ts#L21-L30), wired into the extension at [`vscode-runtime-builder.ts#L68-L94`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/apps/vscode/src/sdk/vscode-runtime-builder.ts#L68-L94)). There is no `use_mcp_tool` or `access_mcp_resource` in 4.x. These names are `tool.unknown` unless a deployment maps them.
+
+### Cline CLI 3.0.74 (the headless client PRD-017 drives)
+
+PRD-017 STORY-001 re-surveyed the Cline command-line client on **2026-11-15**, because PRD-017's end-to-end test drives it headlessly.
+
+- **Package**: npm `cline@3.0.74` (the `latest` dist-tag, published 2026-10-26). Its dependencies are `@cline/{sdk,core,agents,llms,shared}@0.2.0`, and its platform binary is `@cline/cli-windows-x64@3.0.74` (`bin/cline.exe`, a compiled bundle). Apache-2.0. npm records no `gitHead`
+- **Source**: `apps/cli/package.json` at the Cline 4.x commit `a459f1d04dea030833b558be645011ab739c463b` says `"name": "@cline/cli", "version": "3.0.74"`, and `sdk/packages/{core,llms}/package.json` there say `0.2.0`. So the CLI is built from **the same commit PRD-016 surveyed**, and the table above applies to it. The SDK pins `@ai-sdk/openai-compatible@3.0.67` in `bun.lock` at that commit
+- **Tool set: no drift in names or keys.** `sdk/packages/core/src/extensions/tools/constants.ts#L12-L22` lists the same nine names as the Cline 4.x table, and the installed `cline.exe` contains all nine. The CLI adds no tool of its own: `apps/cli/src/runtime/tools.ts` only calls `getCoreBuiltinToolCatalog({ clientType: "cli", ... })`.
+- **Which tools a run advertises** depends on the preset. The `yolo` preset (`-y/--yolo`) enables `read_files`, `run_commands`, `editor` and `submit_and_exit` only ([`presets.ts#L96-L110`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/tools/presets.ts#L96-L110)). A live run of `cline@3.0.74 --yolo` against a local OpenAI-compatible responder sent `tools` with exactly those four names. The `act` and `plan` presets also enable `search_codebase`, `fetch_web_content`, `skills`, `ask_question`, **`spawn_agent`** and the **`team_*`** tools (17 names, `team/team-tools.ts#L197-L215`), which are new since PRD-016 and carry no file, shell or URL target. `web_search` is added only when the provider's model supports a native search tool. None of these is mapped: `spawn_agent`, `team_*` and `web_search` stay `tool.unknown` (deny), as `search_codebase` is `none`.
+- The nine names are not repeated as table rows: duplicate `Cline 4.x` rows would change no mapping. `spawn_agent`, `team_*` and `web_search` are not rows either, because the `--yolo` mode the E2E uses does not advertise them.
 
 ### Cline 3.x (legacy, the names PRD Section 4 lists)
 
@@ -200,11 +255,30 @@ PRD Section 4 names `query`, `execute_sql` and `run_sql` as common database tool
 - `run_sql`: Timeplus (`timeplus-io/mcp-timeplus`, Apache-2.0) defines `@mcp.tool() def run_sql(query: str)`. FastMCP derives the argument key from the parameter name, so the key is `query`. The default branch is `timeplus`, and its head `20c52f41b6b530152aa3458f4702fe2f30efd000` (2025-07-24) is pinned above. Neon's `neondatabase/mcp-server-neon` also exposes a `run_sql` (`mcp/tools/mcp-tool-names.json#L112` maps it to the operation `sql.run`), but its input schema is generated from an operations spec that was not traced here, so **Neon's key is not recorded**. Searches: `gh search code '"run_sql"'` (mostly unrelated code, no MCP definition in the first 30 hits), and a web search "MCP server run_sql tool", which pointed at Timeplus, Neon, Databricks, Dune and Preset listings on glama.ai and policylayer.com.
 - **These names arrive prefixed** through both agents: OpenCode sends `<server>_<tool>` (`postgres_query`), and Cline 4.x sends `<server>__<tool>` (`supabase__execute_sql`). So a bare-name mapping matches only a caller that sends MCP tools unprefixed, or a name the deployment writes into its own `tools:`. The same key is not even consistent across servers for one name: `query` → `sql`, `execute_sql` → `query`, `run_sql` → `query`.
 
+## Differences from the PRD-016 survey
+
+PRD-016's survey read OpenCode v1.19.5 and Cline 4.1.26 (and 3.89.2). PRD-017 STORY-001 re-read both, plus OpenCode 2.0.10 and the Cline CLI 3.0.74.
+
+| Client | v1.19.5 / 4.1.26 | 2.0.10 / 3.0.74 | Built-in mapping | Evidence |
+|---|---|---|---|---|
+| OpenCode | `bash` (`command`) | **`shell`** (`command`, `workdir?`, `timeout?`, `background?`) | `shell` added, `bash` kept | [`plugin/shell.ts#L25-L60`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/shell.ts#L25-L60) |
+| OpenCode | `apply_patch` (`patchText`) | **`patch`** (`patchText`), plus an optional `*** Environment ID:` line | `patch` added, `apply_patch` kept | [`plugin/patch.ts#L21-L25`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/patch.ts#L21-L25) |
+| OpenCode | `read` / `write` / `edit` take `filePath` | take **`path`** (`read` also lists directories) | `filePath\|path` | [`read.ts#L17-L25`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/read.ts#L17-L25), [`write.ts#L23-L28`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/write.ts#L23-L28), [`edit.ts#L24-L34`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/edit.ts#L24-L34) |
+| OpenCode | `task` | **`subagent`** (new `agent` key) | `none`, unmapped | [`plugin/subagent.ts#L29-L48`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/subagent.ts#L29-L48) |
+| OpenCode | `skill` (`name`) | `skill` (**`id`**) | `none`, unmapped | [`plugin/skill.ts#L12-L14`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool/plugin/skill.ts#L12-L14) |
+| OpenCode | none | **`execute`** (CodeMode, `code`), advertised in every session | `none`, **never `opaque_tools`** | [`tool.ts#L225-L260`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/tool.ts#L225-L260), [`codemode/tool.ts#L60-L108`](https://github.com/anomalyco/opencode/blob/b8cedc1a7a5e2916bbb65dc1d4b620729c261638/packages/core/src/codemode/tool.ts#L60-L108) |
+| OpenCode | `lsp`, `todowrite`, `plan_exit`, `invalid` | absent from the direct tool set | v1.19.5 rows and the `lsp` mapping kept | 0 occurrences of `opencode.tool.<name>` in the installed binary |
+| OpenCode | `glob`, `grep`, `webfetch`, `websearch`, `question` | same names and target keys (`grep` gains `literal?`) | unchanged | the plugin files above |
+| Cline | `run_commands`, `read_files`, `editor`, `apply_patch`, `fetch_web_content`, `search_codebase`, `skills`, `ask_question`, `submit_and_exit` | **no drift.** The CLI is built from the same commit. It also offers `spawn_agent`, `team_*` and (model-dependent) `web_search` outside `--yolo` | unchanged | *Cline CLI 3.0.74* above |
+
+Keys are also not settled inside OpenCode 2.x: `write.ts` carries a source TODO about going back to `filePath` naming. A re-survey is due whenever the pinned version changes.
+
 ## Absolute and relative paths
 
 This backs PRD D11 (Section 6.5) and the README's setup step.
 
 - **OpenCode v1.19.5**: `write`, `edit` and `read` describe `filePath` as absolute ("must be absolute, not relative" for `write`). Every executor also accepts a relative path and joins it onto the instance directory: [`write.ts#L41-L43`](https://github.com/anomalyco/opencode/blob/810c0eba1a7348036f8bdf61e6632d0c36c6876c/packages/opencode/src/tool/write.ts#L41-L43), [`edit.ts#L80-L82`](https://github.com/anomalyco/opencode/blob/810c0eba1a7348036f8bdf61e6632d0c36c6876c/packages/opencode/src/tool/edit.ts#L80-L82), [`read.ts#L235-L236`](https://github.com/anomalyco/opencode/blob/810c0eba1a7348036f8bdf61e6632d0c36c6876c/packages/opencode/src/tool/read.ts#L235-L236). `apply_patch` resolves each header path against the instance directory ([`apply_patch.ts#L73`](https://github.com/anomalyco/opencode/blob/810c0eba1a7348036f8bdf61e6632d0c36c6876c/packages/opencode/src/tool/apply_patch.ts#L73)), and the grammar's own example uses relative paths. `lsp` says "absolute or relative". **Expect absolute paths, and handle relative ones.**
+- **OpenCode 2.0.10**: `read`, `write` and `edit` take `path` ("File or directory to read", "Path to the file to write to", "File to edit"), with no absolute-path wording. `glob` and `grep` take a `RelativePath`. The executors resolve a path against the session directory (`FileAccess.resolvePath(location.directory, ...)` in `plugin/patch.ts#L90`), so relative paths work.
 - **Cline 4.x**: `read_files` (`AbsolutePath`: "The absolute path of a text file to read content from") and `editor` ("The absolute path for the action to be performed on") ask for absolute paths. The SDK executors also resolve a relative path against `cwd`: [`executors/editor.ts#L47-L61`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/tools/executors/editor.ts#L47-L61), [`apply-patch.ts#L64-L73`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/tools/executors/apply-patch.ts#L64-L73), [`file-read.ts#L231-L233`](https://github.com/cline/cline/blob/a459f1d04dea030833b558be645011ab739c463b/sdk/packages/core/src/extensions/tools/executors/file-read.ts#L231-L233). **Expect absolute paths, the same as OpenCode.** This contradicts PRD 6.5 item 2's original "Cline's tools send relative paths".
 - **Cline 3.x**: the `GENERIC` specs ask for paths "relative to the current working directory". The `NATIVE_GPT_5` and `NATIVE_NEXT_GEN` specs of `write_to_file` and `replace_in_file` ask for `absolutePath`, and native `execute_command` says "Always use absolute paths". **Both forms arrive as `tool_calls`** (see the fallback note above).
 - **Aider**: n/a (no `tool_calls`).
@@ -218,19 +292,21 @@ This backs PRD F1 ("one `fs_write` per path") and the evasion corpus.
 | Client | Tool | Where the targets are |
 |---|---|---|
 | OpenCode | `apply_patch` | every `*** Add File:`, `*** Update File:`, `*** Move to:` and `*** Delete File:` line in `patchText` |
+| OpenCode 2.x | `patch` | the same headers in `patchText` (an optional `*** Environment ID:` line is not a target) |
 | Cline 4.x | `apply_patch` | the same headers in `input` |
 | Cline 4.x | `run_commands` | each element of `commands[]`, a string or `{command, args[]}` |
 | Cline 4.x | `read_files` | `files[].path` (and the aliases listed under Cline 4.x) |
 | Cline 4.x | `fetch_web_content` | `requests[].url` |
 | Cline 3.x | `apply_patch` | the headers in `input` |
 
-`edit` (OpenCode), `editor` (Cline 4.x) and `replace_in_file` / `write_to_file` (Cline 3.x) each name exactly one path.
+`edit` (OpenCode, both versions), `read` of a directory (OpenCode 2.x: still one path), `editor` (Cline 4.x) and `replace_in_file` / `write_to_file` (Cline 3.x) each name exactly one path.
 
 ## Corrections to PRD Section 4
 
 - OpenCode `patch` **does not exist** at v1.19.5. It is `apply_patch`, the target is `patchText`, and the paths are inside the patch text, several per call. It also **replaces** `edit` and `write` for `gpt-` models (not `oss`, not `gpt-4`).
 - OpenCode `list` **was removed** (2026-04-15).
 - OpenCode has `lsp` (read, `filePath`), plus `websearch`, `task`, `todowrite`, `question`, `skill`, `plan_exit` and `invalid`, which the PRD does not list. There is no `todoread` (PRD 6.6 sample).
+- **OpenCode 2.x renamed more** (PRD-017 STORY-001): `bash` to `shell`, `apply_patch` to `patch`, `filePath` to `path` on `read` / `write` / `edit`. See *Differences from the PRD-016 survey*.
 - OpenCode `bash` keeps its name, but on Windows the command may be for `pwsh`, `powershell` or `cmd`.
 - **Every Cline name in Section 4 is a 3.x name.** Cline 4.x, the current client, uses `run_commands` (`commands[]`), `read_files` (`files[].path`), `editor` (`path`), `apply_patch` (`input`), `fetch_web_content` (`requests[].url`), `search_codebase` (`queries[]`, no path), `skills`, `ask_question` and `submit_and_exit`.
 - Cline 4.x targets are **arrays or patch text**, not single string keys, and its executors accept alias shapes (`cmd`, `command`, `file_paths`, `paths`, `file_path`, `filePath`, bare strings).
@@ -259,8 +335,9 @@ This story records the shapes. It does not choose the model.
 
 ## What this survey shows, and what it does not
 
-- It shows each client's tool surface at **one pinned version**: OpenCode v1.19.5, Cline v4.1.26 and v3.89.2, and Aider v0.86.0 plus `main` @ `5dc9490`. Clients rename tools: between January and April 2026, OpenCode replaced `patch` and dropped `list`, and Cline 4.x renamed its whole tool set. A renamed tool is `tool.unknown` and a renamed key is `tool.malformed`, both deny (PRD Risk 5). This file is where to look when a client upgrade starts denying ordinary calls. Re-pin and re-read it then.
+- It shows each client's tool surface at **one pinned version**: OpenCode v1.19.5 and 2.0.10, Cline v4.1.26 (the Cline CLI 3.0.74 is built from it) and v3.89.2, and Aider v0.86.0 plus `main` @ `5dc9490`. Clients rename tools: between January and April 2026, OpenCode replaced `patch` and dropped `list`, and Cline 4.x renamed its whole tool set. A renamed tool is `tool.unknown` and a renamed key is `tool.malformed`, both deny (PRD Risk 5). This file is where to look when a client upgrade starts denying ordinary calls. Re-pin and re-read it then.
 - It records what the **schema advertises** and what the **executor accepts**. It does not record what a given model actually emits. Models send relative paths to tools that ask for absolute ones, and Cline's lenient unions exist because models send odd shapes.
 - It does not cover the VS Code extension's own executors for `editor`, `applyPatch` and `readFile` in Cline 4.x, beyond confirming that the tool names and schemas are the SDK's. Their path handling may differ from the SDK executors cited above.
 - OpenCode's `bash` can carry PowerShell or cmd text on Windows (`shell/id.ts`). The POSIX classifier will misread that, and PRD Risk 3 says it must fail closed as `shell.unclassifiable`.
 - The MCP servers in *Generic SQL tools* are examples, not a census. `run_sql` has at least one more implementation (Neon) whose key was not traced.
+- OpenCode 2.x's `execute` tool runs JavaScript (`code`) that can call `fetch` and MCP tools. **Its code is not inspected.** The built-in policy denies `execute` as `tool.unknown`, and it must not be put in `opaque_tools`.

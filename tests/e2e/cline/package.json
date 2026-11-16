@@ -1,0 +1,8 @@
+{
+  "name": "harness-e2e-cline",
+  "private": true,
+  "description": "Cline CLI for the PRD-017 STORY-017 E2E (tests/e2e/test_cline.py). Installed into the git-ignored tests/e2e/.clients/cline, never globally: npm install --prefix tests/e2e/.clients/cline --save-exact --no-audit --no-fund cline@3.0.74",
+  "dependencies": {
+    "cline": "3.0.74"
+  }
+}

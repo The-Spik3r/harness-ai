@@ -2,8 +2,8 @@
 target_prd: PRD-017
 slug: tool-calling
 title: Tool calling on the OpenAI-compatible endpoint
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-017-tool-calling/PRD.md
 depends_on: [PRD-015, PRD-016]
 blocks: []
 estimated_stories: 10-12
@@ -56,7 +56,7 @@ Notes carried from the PRD-016 stories:
 
 - **The admin console's Actions empty-state copy names PRD-017 and must be reworded when tool calls go live.** The console is gated by `ADMIN_TOKEN` only (no per-permission check), and a truncated target shows its full text through a `title` tooltip only, which a touch device cannot read.
 - S9 (a directory search can return a secret file's contents) is a stated limitation, not a rule. S6 (MCP tool names arrive prefixed) means an agent deployment must map its MCP tools in `tools:`. `examples/action_policy.yaml` maps OpenCode and SQL tools only, so a Cline deployment writes its own `tools:` and `shell.allow`.
-- `depends_on: [PRD-015, PRD-016]` is correct under the final numbering; `status` stays `draft` until this brief is promoted.
+- `depends_on: [PRD-015, PRD-016]` is correct under the final numbering. Promoted to [PRD-017](../.agents/PRDs/PRD-017-tool-calling/PRD.md) on 2026-11-15; the open decisions below are resolved there (Appendix, D1–D4, with D16 recording where D3's capability flag lives).
 
 ## Open decisions
 

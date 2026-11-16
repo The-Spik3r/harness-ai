@@ -19,6 +19,11 @@ fault is transient (D7). STORY-012 added `GET /v1/models`, which lists
 runs there) and writes no row (Section 7.7). STORY-013 added the buffered
 stream: a `stream: true` request is committed to SSE only once the upstream
 call has started (Section 6.4), so every verdict keeps its real status.
+PRD-017 STORY-008 passes the tool request through under `V1_TOOLS_ENABLED`;
+STORY-010 decides and records every call in the pipeline (step 7c).
+STORY-011 releases the allowed calls on the non-streamed body:
+`translate_result` reads them from the pipeline result's `tool_outcome`,
+never from `upstream.result` (T1). STORY-012 streams them.
 """
 
 import asyncio
@@ -55,7 +60,7 @@ from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
-from app.services.query_pipeline import run_conversation
+from app.services.query_pipeline import ActionAuditError, run_conversation
 from app.services.usage_limits import UsageLimitError
 from app.services.v1_translate import (
     BREAK_GLASS_NOT_PERMITTED,
@@ -101,8 +106,15 @@ _SERVER_ERROR = ("api_error", INTERNAL_ERROR)
 
 # What `run_conversation` raises (PRD-015 Section 7.5): `/query`'s chain in
 # app/routers/query.py minus `ChatSessionError`, which needs a session and
-# `/v1` passes none. Anything else is a bug and stays Starlette's 500.
-_PIPELINE_FAULTS = (OpenRouterError, DuplicateCheckError, UsageLimitError, PiiRedactorError)
+# `/v1` passes none, plus `ActionAuditError`, which only a tools request
+# reaches (PRD-017 D8). Anything else is a bug and stays Starlette's 500.
+_PIPELINE_FAULTS = (
+    OpenRouterError,
+    DuplicateCheckError,
+    UsageLimitError,
+    PiiRedactorError,
+    ActionAuditError,
+)
 
 
 class _Upstream:
@@ -121,6 +133,9 @@ class _Upstream:
     `called` is set on the pipeline thread before any result can exist, which
     makes it the deterministic answer to "commit or not"; `started` wakes the
     event loop for it.
+
+    `result.tool_calls` are the raw upstream calls, decided only inside the
+    pipeline: they are never read to build a response (PRD-017 T1).
     """
 
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -190,7 +205,7 @@ def _fault_code(exc: Exception) -> str:
     """
     if isinstance(exc, OpenRouterError):
         return UPSTREAM_UNAVAILABLE if exc.retryable else UPSTREAM_ERROR
-    if isinstance(exc, (DuplicateCheckError, UsageLimitError)):
+    if isinstance(exc, (DuplicateCheckError, UsageLimitError, ActionAuditError)):
         return INTERNAL_ERROR
     if isinstance(exc, PiiRedactorError):
         return REDACTION_FAILED
@@ -275,7 +290,14 @@ async def chat_completions(
     # Both refusals come before the pipeline, so neither writes a row (T9).
     try:
         device = translate_device(x_harness_device)
-        call = translate_request(body)
+        # Read per request, so a flipped flag takes effect without a restart
+        # and tests monkeypatch it (PRD-017 Section 6.7). The translator reads
+        # no settings.
+        call = translate_request(
+            body,
+            tools_enabled=settings.V1_TOOLS_ENABLED,
+            tool_models=settings.v1_tool_models_list,
+        )
     except V1RequestError as exc:
         # T9: who and which rule, never the message, param value or body.
         logger.info("v1 request refused: user_id=%s code=%s", identity.user_id, exc.code)
@@ -299,6 +321,9 @@ async def chat_completions(
         # False would mislabel an SSE refusal (PRD-013 Section 6.9).
         streamed=call.stream,
         ignored_params=call.ignored_params,
+        # None unless the flag is on and tools were sent; run_conversation
+        # forwards it to step 7 only when set (PRD-017 STORY-008).
+        tools=call.tools,
     ))
     # Whatever happens to this request, the pipeline finishes and its outcome
     # is retrieved.

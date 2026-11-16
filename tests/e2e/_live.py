@@ -16,6 +16,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -40,6 +41,15 @@ DUMP = (
     "import dataclasses, json, sys\n"
     "from app.db.database import list_audit_logs\n"
     "rows = list_audit_logs(limit=1000, user_id=sys.argv[1])\n"
+    "print(json.dumps([dataclasses.asdict(row) for row in rows]))\n"
+)
+
+# The same for one user's action decisions (PRD-017 STORY-016): the rows the
+# release step writes per tool call, joined to the audit rows by `audit_id`.
+DUMP_ACTIONS = (
+    "import dataclasses, json, sys\n"
+    "from app.db.database import list_action_decisions\n"
+    "rows = list_action_decisions(limit=1000, user_id=sys.argv[1])\n"
     "print(json.dumps([dataclasses.asdict(row) for row in rows]))\n"
 )
 
@@ -88,6 +98,60 @@ def stop(proc: subprocess.Popen, timeout: float) -> None:
         proc.wait()
 
 
+def git(repo: Path, *args: str) -> str:
+    """`git <args>` in `repo`, stdout. Moved here from `test_opencode.py` (PRD-017 STORY-016), shared by STORY-017."""
+    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout
+
+
+def write_lf(path: Path, text: str) -> None:
+    """Write `text` as UTF-8 with LF endings, creating parents (PRD-017 STORY-016, shared by STORY-017)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
+def kill_tree(proc: subprocess.Popen) -> None:
+    """Stop `proc` and everything it started. PRD-017 STORY-016, shared by STORY-017.
+
+    Windows: `taskkill /T`. POSIX: the whole process group, which `run_tree` makes
+    the child lead (`start_new_session`); `proc.kill()` alone orphans grandchildren
+    (the CI failure that added the group kill).
+    """
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=30)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def run_tree(command: list, cwd: Path, env: dict, timeout: int):
+    """`subprocess.run` that closes stdin and, whatever happens, leaves no process of the tree behind.
+
+    Returns `(returncode, stdout, stderr)`. PRD-017 STORY-016 (origin), STORY-017 (shared).
+    """
+    proc = subprocess.Popen(
+        command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+        # POSIX: its own process group, so kill_tree can stop grandchildren too.
+        start_new_session=os.name != "nt",
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except BaseException:
+        kill_tree(proc)
+        raise
+    finally:
+        if proc.poll() is None:
+            kill_tree(proc)
+    return proc.returncode, out, err
+
+
 def resolve_e2e_db_url(recipe: str) -> str:
     """`HARNESS_E2E_LIBSQL_URL`, or fail with `recipe`. Never another database."""
     url = os.environ.get("HARNESS_E2E_LIBSQL_URL", "").strip()
@@ -133,6 +197,16 @@ def dump_rows(run, user_id: str) -> list:
     """That user's audit rows, oldest first."""
     proc = run("-c", DUMP, user_id)
     assert proc.returncode == 0, f"audit dump exited {proc.returncode}: {proc.stderr}"
+    return sorted(json.loads(proc.stdout), key=lambda row: row["id"])
+
+
+def dump_action_decisions(run, user_id: str) -> list:
+    """That user's `action_decisions` rows, oldest first (PRD-017 STORY-016).
+
+    A child, like `dump_rows`: storage is only reached against `HARNESS_E2E_LIBSQL_URL`.
+    """
+    proc = run("-c", DUMP_ACTIONS, user_id)
+    assert proc.returncode == 0, f"action-decisions dump exited {proc.returncode}: {proc.stderr}"
     return sorted(json.loads(proc.stdout), key=lambda row: row["id"])
 
 
@@ -267,6 +341,21 @@ def _shape(value) -> str:
     return "non-empty"
 
 
+def tool_names(raw: bytes) -> list:
+    """The sorted `tools[].function.name` strings of a request body. Nothing else of a tool is kept."""
+    try:
+        tools = json.loads(raw).get("tools")
+    except (ValueError, AttributeError):
+        return []
+    names = {
+        tool["function"]["name"]
+        for tool in (tools if isinstance(tools, list) else [])
+        if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+        and isinstance(tool["function"].get("name"), str)
+    }
+    return sorted(names)
+
+
 def request_shape(body: dict) -> dict:
     """What `Recorder` keeps of one request: names, roles and the model. Never content."""
     messages = body.get("messages") if isinstance(body.get("messages"), list) else []
@@ -330,6 +419,8 @@ class _RecordingHandler(BaseHTTPRequestHandler):
             shape = request_shape(json.loads(raw))
         except (ValueError, AttributeError):
             shape = {"keys": None}
+        if self.recorder.keep_tool_names:
+            shape["tool_names"] = tool_names(raw)
         self._relay("POST", raw, self._record("POST", shape))
 
     def do_GET(self) -> None:
@@ -347,10 +438,16 @@ class Recorder:
     `status` (the harness's answer), `keepalives` (SSE comment lines relayed
     to the client) and `device_header` (whether `X-Harness-Device` was sent,
     never its value).
+
+    `keep_tool_names` (PRD-017 STORY-016) adds `tool_names`: the function names
+    of the request's `tools`, sorted. A tool name is a name the client defines,
+    not content (OpenCode's are public), and it is opt-in because the default
+    shape keeps no tool name.
     """
 
-    def __init__(self, upstream: str) -> None:
+    def __init__(self, upstream: str, keep_tool_names: bool = False) -> None:
         self.upstream = upstream
+        self.keep_tool_names = keep_tool_names
         self.log: list = []
         self.lock = threading.Lock()
         handler = type("Handler", (_RecordingHandler,), {"recorder": self})

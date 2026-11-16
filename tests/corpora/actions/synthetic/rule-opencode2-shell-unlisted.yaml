@@ -1,0 +1,10 @@
+# Floor: an OpenCode 2.x shell call under the built-in policy. OpenCode 2.x `shell` (SOURCES.md: OpenCode 2.0.10; target `command`).
+tool_call:
+  name: shell
+  arguments: '{"command":"npm test","workdir":"/work","timeout":120000}'
+policy: built_in
+client: OpenCode 2.x
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.unlisted
+note: 'bash was renamed shell in 2.0. The built-in shell allowlist is empty, so even npm test is shell.unlisted, as for bash (rule-shell-execute-command-floor).'

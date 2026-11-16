@@ -410,3 +410,157 @@ def test_every_fault_type_fits_the_error_schema():
     for code, _status, _retryable in _FAULT_CASES:
         error = translate_fault(code, "probe")
         ErrorDetail(message=error.message, type=error.type, code=error.code, harness=error.harness)
+
+
+# --- PRD-017 STORY-011: the release on the completion --------------------------
+#
+# `translate_result` reads `result.tool_outcome` (step 7c) and never the upstream's
+# own `tool_calls` (T1). Decisions are stand-ins with the five fields it reads;
+# `apply_decisions` needs only `tool_call_id` and `decision`.
+
+import json
+import types
+
+from app.models.messages import ToolCallSpec
+from app.services import tool_release
+
+_ARGS_1 = '{"path": "src/a.py",  "n": 1}'  # spacing kept: bytes the model wrote (D13)
+_ARGS_2 = '{"command":"ls"}'
+_READ = ToolCallSpec("call_1", "read", _ARGS_1)
+_BASH = ToolCallSpec("call_2", "bash", _ARGS_2)
+_NOTE = "[harness] tool call bash (call_2) was denied: no."
+
+
+def _decision(call, decision, rule="r", reason="why"):
+    return types.SimpleNamespace(
+        tool_call_id=call.id, tool_name=call.name, decision=decision, rule=rule, reason=reason
+    )
+
+
+def _with_outcome(result, calls, decisions):
+    result._tool_outcome = tool_release.ToolOutcome(
+        tool_release.apply_decisions(calls, decisions), tuple(decisions)
+    )
+    return result
+
+
+def _released_dump(response, calls, decisions, finish_reason="tool_calls"):
+    result = _with_outcome(_success(response=response), calls, decisions)
+    return translate_result(result, _upstream(finish_reason=finish_reason), _CREATED)
+
+
+def test_two_released_calls_and_no_text():
+    """AC1: content null, both calls, arguments the very same strings, finish tool_calls."""
+    completion = _released_dump("", [_READ, _BASH], [_decision(_READ, "allow"), _decision(_BASH, "allow")])
+    dumped = completion.model_dump(mode="json")
+    choice = dumped["choices"][0]
+
+    assert choice["message"] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {"name": "read", "arguments": _ARGS_1}},
+            {"id": "call_2", "type": "function", "function": {"name": "bash", "arguments": _ARGS_2}},
+        ],
+    }
+    assert choice["finish_reason"] == "tool_calls"
+    sent = completion.choices[0].message.tool_calls
+    assert sent[0].function.arguments is _READ.arguments
+    assert sent[1].function.arguments is _BASH.arguments
+
+
+def test_every_call_denied_is_the_notes_with_tool_calls_null():
+    """AC2: tool_calls is null (key kept), content the note, finish stop even if the upstream said tool_calls."""
+    dumped = _released_dump(_NOTE, [_BASH], [_decision(_BASH, "deny")]).model_dump(mode="json")
+    choice = dumped["choices"][0]
+
+    assert "tool_calls" in choice["message"] and choice["message"]["tool_calls"] is None
+    assert choice["message"]["content"] == _NOTE
+    assert choice["finish_reason"] == "stop"
+
+
+def test_text_plus_released_calls_carries_both():
+    dumped = _released_dump("Reading it.", [_READ], [_decision(_READ, "allow")]).model_dump(mode="json")
+    choice = dumped["choices"][0]
+
+    assert choice["message"]["content"] == "Reading it."
+    assert [c["id"] for c in choice["message"]["tool_calls"]] == ["call_1"]
+    assert choice["finish_reason"] == "tool_calls"
+
+
+def test_mixed_release_keeps_the_note_and_the_allowed_call():
+    dumped = _released_dump(
+        _NOTE, [_READ, _BASH], [_decision(_READ, "allow"), _decision(_BASH, "deny")]
+    ).model_dump(mode="json")
+    choice = dumped["choices"][0]
+
+    assert choice["message"]["content"] == _NOTE
+    assert [c["id"] for c in choice["message"]["tool_calls"]] == ["call_1"]
+    assert choice["finish_reason"] == "tool_calls"
+
+
+def test_harness_actions_list_every_decision_in_model_order():
+    """AC3: one entry per evaluated call, released or not (D14)."""
+    third = ToolCallSpec("call_3", "write", "{}")
+    decisions = [
+        _decision(_READ, "allow", "a.rule", "ok"),
+        _decision(_BASH, "flag", "f.rule", "watch"),
+        _decision(third, "deny", "d.rule", "no"),
+    ]
+
+    dumped = _released_dump(_NOTE, [_READ, _BASH, third], decisions).model_dump(mode="json")
+
+    assert dumped["harness"]["actions"] == [
+        {"tool_call_id": "call_1", "tool_name": "read", "decision": "allow", "rule": "a.rule", "reason": "ok"},
+        {"tool_call_id": "call_2", "tool_name": "bash", "decision": "flag", "rule": "f.rule", "reason": "watch"},
+        {"tool_call_id": "call_3", "tool_name": "write", "decision": "deny", "rule": "d.rule", "reason": "no"},
+    ]
+    # allow and flag are released, the deny is not.
+    assert [c["id"] for c in dumped["choices"][0]["message"]["tool_calls"]] == ["call_1", "call_2"]
+
+
+def test_release_finish_reason_wins_over_the_upstream():
+    released = _released_dump("", [_READ], [_decision(_READ, "allow")], finish_reason="length")
+    denied = _released_dump(_NOTE, [_BASH], [_decision(_BASH, "deny")], finish_reason="length")
+
+    assert released.choices[0].finish_reason == "tool_calls"
+    assert denied.choices[0].finish_reason == "stop"
+
+
+@pytest.mark.parametrize("response", ["Hello from the model.", ""], ids=["text", "empty"])
+def test_without_an_outcome_the_body_is_prd_015s(response):
+    """AC5 (DD-1): no call evaluated, so neither new key exists; an empty text stays ""."""
+    dumped = _dump(result=_success(response=response))
+
+    assert dumped["choices"][0]["message"] == {"role": "assistant", "content": response}
+    assert set(dumped["harness"]) == {"audit_id", "pii_redacted", "pii_entities_masked"}
+    assert "tool_calls" not in json.dumps(dumped) and "actions" not in json.dumps(dumped)
+
+
+def test_translate_result_never_reads_upstream_tool_calls():
+    """T1: no `upstream.tool_calls` in the translator; calls come from the pipeline's outcome."""
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(translate_result)))
+    reads = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "tool_calls"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "upstream"
+    ]
+
+    assert reads == []
+
+
+def test_completion_with_calls_parses_in_the_openai_sdk():
+    openai = pytest.importorskip("openai")
+    completion = _released_dump("", [_READ, _BASH], [_decision(_READ, "allow"), _decision(_BASH, "allow")])
+
+    parsed = openai.types.chat.ChatCompletion.model_validate(json.loads(completion.model_dump_json()))
+
+    assert parsed.choices[0].finish_reason == "tool_calls"
+    assert [c.function.arguments for c in parsed.choices[0].message.tool_calls] == [_ARGS_1, _ARGS_2]

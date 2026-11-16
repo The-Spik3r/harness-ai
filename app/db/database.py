@@ -899,6 +899,24 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
         return row["timestamp"] if row is not None else None
 
 
+def mark_audit_log_failed(audit_id: int, error_message: str) -> None:
+    """Flip one audit row to `success = 0` with `error_message` (PRD-017 D8).
+
+    The caller is `query_pipeline` after `action_audit.record()` failed: the
+    success row was written first (`record()` needs its id), so a retry would
+    be held as a duplicate. `find_duplicate_timestamp` counts only `success = 1`
+    rows, so this restores the retry. It touches those two columns of that one
+    row and nothing else; an unknown id updates nothing and raises nothing.
+    Raises `StorageError` like every function here; the caller treats it as
+    best effort.
+    """
+    with _session() as conn:
+        conn.execute(
+            "UPDATE audit_logs SET success = 0, error_message = ? WHERE id = ?",
+            (error_message, audit_id),
+        )
+
+
 def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
     """Map one audit row onto `AuditLog`, by column name.
 
@@ -2312,6 +2330,7 @@ def list_action_decisions(
     limit: int = 100,
     user_id: Optional[str] = None,
     decision: Optional[str] = None,
+    audit_id: Optional[int] = None,
 ) -> list[ActionDecisionRow]:
     """The most recent action decisions, newest first (PRD-016 F10).
 
@@ -2320,10 +2339,13 @@ def list_action_decisions(
     one, so ordering by it ties arbitrarily (PRD-006 Section 13, as
     `list_chat_messages` documents). `AUTOINCREMENT` is the order.
 
-    `user_id` and `decision` filter when given and combine with AND. The
-    clauses are fixed strings and only the values are bound, so no caller text
-    reaches the SQL. `decision` is not validated here: STORY-016's router
-    rejects an unknown value with 422, and here one simply matches no row.
+    `user_id`, `decision` and `audit_id` filter when given and combine with
+    AND. The clauses are fixed strings and only the values are bound, so no
+    caller text reaches the SQL. `decision` is not validated here: STORY-016's
+    router rejects an unknown value with 422, and here one simply matches no
+    row. `audit_id` (PRD-017 Section 10) is one request's decisions, by its
+    `audit_logs.id`; `idx_action_decisions_audit` serves it, and the router
+    rejects a non-integer, zero or negative value with 422.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -2333,6 +2355,9 @@ def list_action_decisions(
     if decision is not None:
         clauses.append("decision = ?")
         params.append(decision)
+    if audit_id is not None:
+        clauses.append("audit_id = ?")
+        params.append(audit_id)
     where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     params.append(limit)
     with _session() as conn:

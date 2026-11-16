@@ -1,7 +1,10 @@
 import uuid
-from typing import List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Union
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, PrivateAttr, field_validator
+
+if TYPE_CHECKING:
+    from app.services.tool_release import ToolOutcome
 
 
 class QueryRequest(BaseModel):
@@ -79,6 +82,19 @@ class QuerySuccessResponse(BaseModel):
     tokens_used: int
     pii_redacted: bool = False
     pii_entities_masked: List[str] = []
+
+    # PRD-017 STORY-010 DD-1: step 7c's `tool_release.ToolOutcome`, set by the
+    # pipeline only when the upstream returned tool calls; `None` means no call
+    # was evaluated. A private attribute, not a field: never serialized and
+    # absent from the JSON schema, so `/query`'s body and OpenAPI do not move
+    # (D17). Typed `Any` so this module imports nothing from `app`. Pydantic's
+    # `__eq__` compares private attributes too, so two results are equal only
+    # when both carry the same outcome (or neither does).
+    _tool_outcome: Any = PrivateAttr(default=None)
+
+    @property
+    def tool_outcome(self) -> "Optional[ToolOutcome]":
+        return self._tool_outcome
 
 
 class QueryBlockedDuplicateResponse(BaseModel):

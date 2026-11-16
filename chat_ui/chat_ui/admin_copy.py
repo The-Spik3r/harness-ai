@@ -329,12 +329,13 @@ ACTIONS_SCOPE_ALL = "recorded"
 # The empty view says what it will contain, why it is empty, and the action.
 EMPTY_ACTIONS_TITLE_TEMPLATE = "No {decision} actions recorded."
 EMPTY_ACTIONS_ALL_TITLE = "No actions recorded."
-# Time-bound by design: PRD-017 connects the engine and must reword this body.
+# PRD-017 STORY-013: reworded now that `/v1` tool calls are decided live.
+# It names `V1_TOOLS_ENABLED`, so renaming that setting must reword it.
 EMPTY_ACTIONS_BODY = (
-    "This view lists what agents tried to do and what the action policy "
-    "decided, denied first. It is empty because nothing calls the policy "
-    "engine yet: decisions start to appear when PRD-017 connects it. Refresh "
-    "to read again."
+    "This view lists the decisions the action policy made on tool calls "
+    "that models sent through /v1, denied first. Decisions are recorded "
+    "only while tool calling is on (V1_TOOLS_ENABLED=true); each tool "
+    "call a model makes then adds a row here. Refresh to read again."
 )
 
 # --- Filter and sort controls --------------------------------------------
