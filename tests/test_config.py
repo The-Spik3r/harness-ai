@@ -1407,3 +1407,61 @@ def test_env_example_action_policy_defaults_match_settings():
     assert _env_example_value(text, "ACTION_SQL_DIALECT") == defaults["ACTION_SQL_DIALECT"]
     positions = [text.index(f"{var}=") for var in _ACTION_VARS]
     assert positions == sorted(positions)
+
+
+# --- PRD-017 STORY-002: V1_TOOLS_ENABLED and V1_TOOL_MODELS -------------------
+# Nothing reads these yet (STORY-008 and STORY-010 do); .env.example is
+# STORY-018's.
+
+
+def test_tool_settings_available_with_documented_defaults(monkeypatch):
+    for var in ("V1_TOOLS_ENABLED", "V1_TOOL_MODELS"):
+        monkeypatch.delenv(var, raising=False)
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.V1_TOOLS_ENABLED is False
+    assert result.V1_TOOL_MODELS == ""
+    assert result.v1_tool_models_list == []
+
+
+def test_v1_tools_enabled_parses_the_string_true():
+    assert _settings(DATABASE_URL=_LOCAL_URL, V1_TOOLS_ENABLED="true").V1_TOOLS_ENABLED is True
+
+
+def test_v1_tool_models_list_returns_stripped_names_in_order():
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        MODEL_ALLOWLIST="gpt-4,openai/gpt-4o,anthropic/claude-3.5-sonnet",
+        V1_TOOL_MODELS="openai/gpt-4o, anthropic/claude-3.5-sonnet",
+    )
+
+    assert result.v1_tool_models_list == ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"]
+
+
+@pytest.mark.parametrize(
+    ("allowlist", "tool_models", "offending"),
+    [
+        ("gpt-4,openai/gpt-4o", "openai/gpt-4o, mistral/x", "mistral/x"),
+        ("gpt-4,openai/gpt-4o", "OpenAI/GPT-4o", "OpenAI/GPT-4o"),
+        ("", "openai/gpt-4o", "openai/gpt-4o"),
+    ],
+    ids=["one-bad-among-good", "case-mismatch", "empty-allowlist"],
+)
+def test_v1_tool_models_entry_outside_model_allowlist_is_a_startup_error(allowlist, tool_models, offending):
+    """The list has no admin exemption: admin's any-model allowance is not
+    consulted at startup, so the empty-allowlist case fails too (PRD-017 D3)."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, MODEL_ALLOWLIST=allowlist, V1_TOOL_MODELS=tool_models)
+
+    message = str(exc_info.value)
+    for fragment in ("V1_TOOL_MODELS", "MODEL_ALLOWLIST", "Example", offending):
+        assert fragment in message, fragment
+    # The good entry is not reported as offending.
+    assert "not in MODEL_ALLOWLIST: openai/gpt-4o, " not in message
+
+
+@pytest.mark.parametrize("value", ["   ", " , ,"])
+def test_v1_tool_models_blank_parses_to_no_restriction(value):
+    result = _settings(DATABASE_URL=_LOCAL_URL, MODEL_ALLOWLIST="gpt-4", V1_TOOL_MODELS=value)
+
+    assert result.v1_tool_models_list == []

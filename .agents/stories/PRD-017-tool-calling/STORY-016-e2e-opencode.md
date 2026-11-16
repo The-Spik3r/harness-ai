@@ -35,6 +35,7 @@ As an integrating developer using OpenCode, I want it to run a real agent task t
 
 ## Technical Notes
 
+- Orchestrator note (STORY-001): the survey's live OpenCode capture failed: `opencode run --standalone --auto` with a custom provider in `OPENCODE_CONFIG_CONTENT` and HOME/XDG redirected sent no request in 100 s. Diagnose this first (provider/model config shape, a model-catalogue fetch blocking offline, `--print-logs`), and record the working invocation. `opencode --version` writes to `~/.local/share/opencode/log` — acceptable, but write no config there.
 - Orchestrator note (STORY-001 plan): OpenCode 2.0.10 renamed tools (`bash`→`shell`, `apply_patch`→`patch`, `task`→`subagent`; `read`/`write`/`edit` take `path`); STORY-001 adds them to `BUILT_IN_TOOLS` and `examples/action_policy.yaml`. Its CodeMode tool `execute {code}` stays `tool.unknown` (deny) and must never go in `opaque_tools`; if OpenCode routes calls through `execute` by default, find the config that disables CodeMode and record it.
 - Follow PRD-015's E2E stories for structure: `tests/e2e/test_aider.py`, `tests/e2e/_live.py` (live harness, recording proxy, DB guard), marker `e2e`, opt-in with `--run-e2e`.
 - OpenCode is installed globally (v2.0.10); do not upgrade it. Its config can live in the throwaway repository (`opencode.json`) or `OPENCODE_CONFIG`; write it there, never in the user's home config. STORY-001's survey note says how it talks to an OpenAI-compatible base URL and which tool names it uses.

@@ -36,6 +36,7 @@ As a security admin, I want the brief's success criteria proven in the everyday 
 
 ## Technical Notes
 
+- Orchestrator note (STORY-001): Cline re-stringifies history `arguments` with `JSON.stringify`, so a history string may differ in whitespace from what the upstream sent earlier. "Not modified by any check" is a harness property: assert the harness forwards exactly the bytes it received, in each direction, not that a client round-trip is stable.
 - Reuse the fixtures of `tests/test_v1_router.py` / `tests/test_v1_tools.py` (identity, DB isolation from PRD-014, `app.routers.v1.call_openrouter` replacement).
 - Corpus: `tests/corpora/actions/synthetic/`; loader in `tests/test_action_corpus.py`.
 - Map each test to the brief's success criterion it proves in its docstring (PRE-PRD-016 "Success criteria"; PRD-017 Section 11).

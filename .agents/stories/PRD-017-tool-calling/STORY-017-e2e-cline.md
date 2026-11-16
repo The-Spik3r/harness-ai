@@ -35,6 +35,7 @@ As an integrating developer using Cline, I want it to run the same agent task th
 
 ## Technical Notes
 
+- Orchestrator note (STORY-001): Cline CLI 3.0.74 headless is verified: `cline auth --data-dir <d> --provider openai-compatible --apikey .. --modelid .. --baseurl http://127.0.0.1:<port>/v1`, then `cline --data-dir <d> --yolo --json -c <dir> -P openai-compatible -m .. -t N "<prompt>"`. Its agent loop never stops on its own (2,000+ requests in two minutes in the survey): the script must end with `submit_and_exit` and the run must pass `-t`. `--yolo` advertises only `read_files`, `run_commands`, `editor`, `submit_and_exit`. Installed at `tests/e2e/.clients/cline` (git-ignored).
 - Install Cline into a git-ignored directory (STORY-001's choice), pinned; never `npm -g`, never into the user's VS Code.
 - PRD-016's note: `examples/action_policy.yaml` maps OpenCode and SQL tools only; a Cline deployment writes its own `tools:` and `shell.allow` (with the built-in policy no Cline shell call is allowed). Put the Cline policy under `tests/e2e/` and reference it from the docs (STORY-018).
 - Reuse STORY-016's fixtures and stub script.

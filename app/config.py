@@ -373,6 +373,24 @@ class Settings(BaseSettings):
     # > 0 and <= 60. Consumed by STORY-013.
     V1_SSE_KEEPALIVE_SECONDS: float = 10.0
 
+    # Tool calling on /v1 (PRD-017 Section 4, 9.3). Nothing reads these yet --
+    # STORY-008 (translation) and STORY-010 (step 7c) read them per request, the
+    # _context_limit_exceeded rule (Section 6.7), so tests flip them with
+    # monkeypatch.
+
+    # Off: PRD-015 byte for byte. `tools` is refused as `tools_not_supported`
+    # exactly as today; `functions`/`function_call` are refused whatever the
+    # flag (D10).
+    V1_TOOLS_ENABLED: bool = False
+
+    # Comma list of the models a `tools` request may name, exact match. Empty
+    # means no extra restriction: every model the caller may already use, so any
+    # model for `admin` (D3, D16). When set, the list applies to every caller,
+    # `admin` and RBAC-off included, because it describes a model's capability,
+    # not a caller's permission. Each entry must be in MODEL_ALLOWLIST
+    # (validated at startup). Read through v1_tool_models_list.
+    V1_TOOL_MODELS: str = ""
+
     # Action policy (PRD-016 Section 9.3). Nothing reads these yet -- each
     # field names the story that becomes its consumer.
 
@@ -660,6 +678,34 @@ class Settings(BaseSettings):
             )
         return value
 
+    @model_validator(mode="after")
+    def _validate_v1_tool_models(self) -> "Settings":
+        """Every entry in MODEL_ALLOWLIST, or a startup error (PRD-017 Section 9.3, D3, D16).
+
+        Both fields are needed, so this cannot be a field validator, the way
+        `_require_token_for_remote_endpoint` is not.
+
+        V1_TOOL_MODELS is a capability list (which models can take `tools`), not
+        an authorization list. Empty means no extra restriction. Non-empty, it
+        applies to every role, `admin` included, and with RBAC off: because of
+        this check, `admin`'s any-model allowance
+        (authz.MODEL_ALLOWLIST_WILDCARD_ROLES) does not reach `tools` requests
+        once the list is set; to allow another model, list it in both settings.
+        The request-time check is STORY-008's. Empty or whitespace-only parses
+        to [] and passes. Duplicates are harmless. The value is not rewritten;
+        v1_tool_models_list does the parsing.
+        """
+        allowed = self.model_allowlist_list
+        unknown = [m for m in _split_comma_list(self.V1_TOOL_MODELS) if m not in allowed]
+        if unknown:
+            raise ValueError(
+                f"V1_TOOL_MODELS names model(s) not in MODEL_ALLOWLIST: {', '.join(unknown)}. "
+                "Each entry must also be listed in MODEL_ALLOWLIST (exact, "
+                "case-sensitive match); leave V1_TOOL_MODELS empty for no extra "
+                "restriction. Example: V1_TOOL_MODELS=openai/gpt-4o,anthropic/claude-3.5-sonnet."
+            )
+        return self
+
     @property
     def pii_entities_list(self) -> list[str]:
         return [item.strip() for item in self.PII_ENTITIES.split(",") if item.strip()]
@@ -683,6 +729,10 @@ class Settings(BaseSettings):
     @property
     def model_allowlist_list(self) -> list[str]:
         return [item.strip() for item in self.MODEL_ALLOWLIST.split(",") if item.strip()]
+
+    @property
+    def v1_tool_models_list(self) -> list[str]:
+        return _split_comma_list(self.V1_TOOL_MODELS)
 
 
 settings = Settings()
