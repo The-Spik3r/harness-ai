@@ -36,6 +36,7 @@ As an integrating developer, I want `/v1` to accept my agent's tool definitions 
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-004 plan): with the flag on, `tools: []` (OpenCode's shape when history has calls but no tool is active) becomes `V1Call.tools = None` — nothing tool-related is forwarded, because some upstreams reject an empty `tools` array and none can return a call without one; tool history is still admitted. A `tool_choice` other than absent/`none` alongside `tools: []` is `invalid_parameter`. `call_openrouter(tools=ToolParams([]))` stays legal at the client level (STORY-004) but the translator never builds it.
 - Orchestrator decision (STORY-003): the normalizer treats `tool_calls: null` and a null `tool_call_id` as absent (OpenAI SDK `model_dump()` echoes send them on text turns). With the flag on, the translator must do the same; with the flag off, PRD-015's key-presence refusal stays as it is.
 - Orchestrator decision (STORY-002 plan): `V1_TOOL_MODELS` is a capability list, not a grant. Request-time check: when `settings.v1_tool_models_list` is non-empty, `model in v1_tool_models_list` for **every** caller (admin and RBAC-off included), without reading `identity.role`; empty means no extra check.
 - Orchestrator note (STORY-001): Cline writes history `arguments` via `JSON.stringify` (whitespace may differ from the upstream's); forward whatever arrives, unchanged. Both clients send `content: null` on a tool-call-only assistant turn and neither sends `parallel_tool_calls`; OpenCode always sends `stream_options`.
