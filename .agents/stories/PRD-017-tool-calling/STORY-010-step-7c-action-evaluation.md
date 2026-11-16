@@ -12,7 +12,7 @@ labels: [backend, pipeline, action-policy, audit]
 epic_branch: epic/PRD-017-tool-calling
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-010-step-7c-action-evaluation.plan.md
 report: .agents/reports/PRD-017-tool-calling/STORY-010-step-7c-action-evaluation.report.md
-commit: pending
+commit: 73f8860
 depends_on: [STORY-001, STORY-002, STORY-008, STORY-009]
 blocks: [STORY-011, STORY-013]
 skills: []
