@@ -93,9 +93,11 @@ def _alternatives(expr):
 
 
 def test_sources_parser_reads_every_row():
-    # 16 OpenCode + 9 Cline 4.x + 12 Cline 3.x + 4 SQL; a broken parser fails here.
-    assert len(_ROWS) == 41
+    # 16 OpenCode + 13 OpenCode 2.x + 9 Cline 4.x + 12 Cline 3.x + 4 SQL; a broken parser fails here.
+    # PRD-017 STORY-001: the OpenCode 2.0.10 rows were added (SOURCES.md "OpenCode 2.x"): 41 -> 54.
+    assert len(_ROWS) == 54
     assert [row[0] for row in _ROWS].count("OpenCode") == 16
+    assert [row[0] for row in _ROWS].count("OpenCode 2.x") == 13
     assert [row[0] for row in _ROWS].count("Cline 4.x") == 9
     assert [row[0] for row in _ROWS].count("Cline 3.x") == 12
 
@@ -126,7 +128,8 @@ def test_every_sources_row_is_mapped_as_recorded(row):
 
 def test_built_in_tools_are_exactly_the_sources_rows():
     assert set(BUILT_IN_TOOLS) == {row[1] for row in _MAPPED_ROWS}
-    assert len(BUILT_IN_TOOLS) == 24
+    # PRD-017 STORY-001: 24 -> 26, OpenCode 2.0 added `shell` (was `bash`) and `patch` (was `apply_patch`).
+    assert len(BUILT_IN_TOOLS) == 26
 
 
 _PATCH = (
@@ -165,6 +168,18 @@ _REALISTIC = {
     # PRD-016 D15 (STORY-013): include/file_pattern is an optional second fs_read
     ("OpenCode", "grep", "path?"): ({"pattern": "TODO", "path": "/work/src", "include": "*.py"}, ("/work/src", "*.py")),
     ("OpenCode", "lsp", "filePath"): ({"operation": "hover", "filePath": "src/a.ts", "line": 1, "character": 2}, ("src/a.ts",)),
+    # PRD-017 STORY-001: OpenCode 2.0.10 (SOURCES.md "OpenCode 2.x"); sibling keys copied from its schemas.
+    ("OpenCode 2.x", "shell", "command"): ({"command": "npm test", "workdir": "/work", "timeout": 120000}, ("npm test",)),
+    ("OpenCode 2.x", "read", "path"): ({"path": "/work/README.md", "offset": 1, "limit": 200}, ("/work/README.md",)),
+    ("OpenCode 2.x", "write", "path"): ({"path": "/work/app/main.py", "content": "print(1)\n"}, ("/work/app/main.py",)),
+    ("OpenCode 2.x", "edit", "path"): (
+        {"path": "/work/app/main.py", "oldString": "1", "newString": "2", "replaceAll": False},
+        ("/work/app/main.py",),
+    ),
+    ("OpenCode 2.x", "patch", "patchText (in patch text)"): ({"patchText": _PATCH}, _PATCH_TARGETS),
+    ("OpenCode 2.x", "webfetch", "url"): ({"url": "https://example.com/docs", "format": "markdown"}, ("https://example.com/docs",)),
+    ("OpenCode 2.x", "glob", "path?"): ({"pattern": "**/*.ts", "path": "src", "hidden": False}, ("src", "**/*.ts")),
+    ("OpenCode 2.x", "grep", "path?"): ({"pattern": "TODO", "path": "src", "include": "*.py", "literal": True}, ("src", "*.py")),
     ("Cline 4.x", "run_commands", "commands[]"): (
         {"commands": ["npm test", {"command": "git", "args": ["commit", "-m", "fix: a; b"]}]},
         ("npm test", "git commit -m 'fix: a; b'"),
@@ -268,6 +283,51 @@ def test_two_spellings_of_one_key_are_malformed(tool, arguments):
     result = _map(tool, _args(arguments))
     assert isinstance(result, Malformed)
     assert result.detail.startswith("more than one spelling of the target is present")
+
+
+# --- PRD-017 STORY-001: OpenCode 2.0 (SOURCES.md "OpenCode 2.x") ---------------
+
+
+@pytest.mark.parametrize("tool", ["read", "write", "edit"])
+def test_opencode_filepath_and_path_together_are_malformed(tool):
+    # OpenCode 2.0 renamed `filePath` to `path`; v1.19.5 still sends `filePath`.
+    # A client sends one spelling, so both present is Malformed (S2): an
+    # executor's preference is undocumented, so neither choice is safe.
+    result = _map(tool, _args({"filePath": "/work/a.txt", "path": "/x/.env", "content": ""}))
+    assert isinstance(result, Malformed)
+    assert result.detail.startswith("more than one spelling of the target is present")
+
+
+@pytest.mark.parametrize("tool", ["read", "write", "edit"])
+@pytest.mark.parametrize("key", ["filePath", "path"])
+def test_opencode_both_key_spellings_are_one_operation(tool, key):
+    kind = "fs_read" if tool == "read" else "fs_write"
+    assert _map(tool, _args({key: "/work/a.txt"})) == Operations((Operation(kind, "/work/a.txt", tool),))
+
+
+def test_opencode_2_read_of_a_directory_is_one_fs_read():
+    # 2.0 `read` lists a directory: still one fs_read of `path` (SOURCES.md, OpenCode 2.x notes).
+    assert _map("read", _args({"path": "/work/src", "offset": 1, "limit": 50})) == Operations(
+        (Operation("fs_read", "/work/src", "read"),)
+    )
+
+
+def test_opencode_2_patch_ignores_the_environment_id_line():
+    # 2.0 allows `*** Environment ID: <id>` right after `*** Begin Patch`; it names no file.
+    text = "*** Begin Patch\n*** Environment ID: env-1\n*** Add File: src/new.ts\n+x\n*** End Patch\n"
+    assert _targets(_map("patch", _args({"patchText": text}))) == ("src/new.ts",)
+
+
+def test_opencode_2_patch_does_not_read_the_cline_input_key():
+    # `patch` is OpenCode 2.0 only (`patchText`); `input` stays `apply_patch`'s (Cline).
+    assert isinstance(_map("patch", _args({"input": _PATCH})), Malformed)
+
+
+@pytest.mark.parametrize("name", ["execute", "subagent"])
+def test_opencode_2_codemode_and_subagent_are_unknown(name):
+    # `execute` runs JavaScript that can `fetch` and call MCP tools (CodeMode), so it
+    # is `tool.unknown` and never `opaque_tools`; `subagent` is a `none` row.
+    assert _map(name, _args({"code": "await fetch('https://x')", "agent": "general", "prompt": "p"})) == Unknown()
 
 
 @pytest.mark.parametrize(

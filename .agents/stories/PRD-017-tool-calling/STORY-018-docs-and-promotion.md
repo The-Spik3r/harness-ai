@@ -36,6 +36,7 @@ As a platform operator, I want tool calling documented as shipped — how to tur
 
 ## Technical Notes
 
+- Orchestrator note (STORY-001): `docs/features.md` (around line 279) lists only OpenCode v1.19.5 tool names; add the 2.0.10 names (`shell`, `patch`, `path` keys), the `execute` CodeMode tool (always denied), and the Cline CLI 3.0.74 headless setup from the survey note.
 - Read every PRD-017 story report's Deviations for doc items, and the orchestrator notes added to this story's Technical Notes during the run.
 - Follow PRD-016 STORY-020 and PRD-015 STORY-019 for structure and tone; `docs/roadmap.md:37, 43-52, 78-82` are the paragraphs named above.
 - Skills: none applicable. No UI.

@@ -35,6 +35,7 @@ As an integrating developer whose agent streams by default, I want a streamed `/
 
 ## Technical Notes
 
+- Orchestrator note (STORY-001 plan): OpenCode 2.0.10 raises an error if anything arrives after the finish chunk, and sends `stream_options` only when the provider supports usage. Check against the survey note whether the `include_usage` chunk after the finish chunk (OpenAI's own order) is a problem for OpenCode; if it is, record it for STORY-016 rather than reordering the PRD-015 sequence.
 - `app/services/v1_sse.py:362-387` (`completion_events`), `app/models/v1_schemas.py:134-172` (`ChunkDelta` drops `None` keys via its serializer; add `tool_calls`; `FinishReason` already widened by STORY-011). The role chunk's `content: null` must survive `_drop_unset` — check the serializer and adjust deliberately, keeping the finish chunk's `delta: {}`.
 - Streamed responses carry no `harness` object (PRD-015); the audit holds the decisions (D14).
 - The commit rule is unchanged (`app/routers/v1.py:307-331`): 7c runs after the upstream call, so a streamed request is already committed when calls are decided — buffering is what keeps calls from leaving early (T1).

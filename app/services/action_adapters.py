@@ -508,14 +508,27 @@ def map_tool_call(
 
 BUILT_IN_TOOLS: Mapping[str, ToolMapping] = MappingProxyType(
     {
-        # --- OpenCode v1.19.5 (`810c0eba`) -------------------------------------
+        # --- OpenCode v1.19.5 (`810c0eba`) and 2.0.10 (`b8cedc1a`) -------------
+        # PRD-017 STORY-001 re-surveyed OpenCode: 2.0 renamed `bash` to `shell`
+        # and `apply_patch` to `patch`, and renamed the `filePath` key of
+        # `read` / `write` / `edit` to `path`. v1.19.5 is still a supported
+        # release, so its names stay as candidates beside the 2.0 ones.
         "bash": ToolMapping("shell", "command"),
-        "write": ToolMapping("fs_write", "filePath"),
-        "edit": ToolMapping("fs_write", "filePath"),
+        "shell": ToolMapping("shell", "command"),
+        # `filePath` is v1.19.5, `path` is 2.0. A client sends one spelling,
+        # so both present is Malformed (S2). Cline 4.x `editor` also reads
+        # `path`, under a different tool name, so nothing collides.
+        "write": ToolMapping("fs_write", "filePath|path"),
+        "edit": ToolMapping("fs_write", "filePath|path"),
         # Shared name: OpenCode sends `patchText`, Cline 4.x and 3.x send
         # `input`. One fs_write per header (S1); both keys present is Malformed.
         "apply_patch": ToolMapping("fs_write", "patchText|input", format="patch"),
-        "read": ToolMapping("fs_read", "filePath"),
+        # OpenCode 2.0 `patch`: the same `patchText` grammar as `apply_patch`.
+        # An optional `*** Environment ID:` line after `Begin Patch` is not a
+        # file header, so it is not a target.
+        "patch": ToolMapping("fs_write", "patchText", format="patch"),
+        # 2.0 `read` also lists a directory, still one fs_read of `path`.
+        "read": ToolMapping("fs_read", "filePath|path"),
         "webfetch": ToolMapping("http", "url"),
         # `path?` defaults to the working directory (S8), and `pattern` is
         # itself a path glob that can name `../` or `.env*`, so it is a second

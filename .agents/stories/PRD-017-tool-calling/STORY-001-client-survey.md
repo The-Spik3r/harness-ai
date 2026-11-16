@@ -7,12 +7,12 @@ type: spike
 priority: high
 complexity: medium
 phase: "1 - Survey and foundations"
-status: todo
+status: done
 labels: [research, clients, action-policy]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-001-client-survey.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-001-client-survey.report.md
+commit: pending
 depends_on: []
 blocks: [STORY-008, STORY-010, STORY-016, STORY-017]
 skills: []

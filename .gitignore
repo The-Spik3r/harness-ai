@@ -5,3 +5,6 @@ venv/
 .env
 *.db
 .pytest_cache/
+
+# PRD-017 STORY-001: pinned client installs for the E2E (never npm -g)
+tests/e2e/.clients/
