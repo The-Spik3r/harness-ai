@@ -1,5 +1,5 @@
 ---
-description: Take one PRD end-to-end — stories, per-story plan + implement via subagents, one final suite, push and PR
+description: Take one PRD end-to-end — stories, per-story plan + implement via subagents, GitHub CI as the full suite on a draft PR, PR marked ready
 argument-hint: <PRD-ID | path/to/PRD.md>
 ---
 
@@ -9,9 +9,9 @@ argument-hint: <PRD-ID | path/to/PRD.md>
 
 ## Mission
 
-Deliver a whole PRD on its epic branch. You are the **orchestrator**: you create the stories yourself, then for each story launch a **plan subagent** (`plan.md`) and an **implement subagent** (`implement.md`), and verify each subagent did exactly what it should before moving on. At the end you run the full suite **once**, fix anything carried over, push the epic branch and open the PR. You never merge.
+Deliver a whole PRD on its epic branch. You are the **orchestrator**: you create the stories yourself, then for each story launch a **plan subagent** (`plan.md`) and an **implement subagent** (`implement.md`), and verify each subagent did exactly what it should before moving on. The full suite runs in **GitHub CI** on every push of the epic branch (a draft PR opened in Phase 1); you read each run, fix what it finds while the story that caused it is fresh, and mark the PR ready at the end. You never merge.
 
-**Core Philosophy**: Subagents do the work and the orchestrator checks it. You have the context of the whole PRD, so you catch errors that cross stories and you fix them at the end. Subagents never re-run the full suite.
+**Core Philosophy**: Subagents do the work and the orchestrator checks it. You have the context of the whole PRD, so you catch errors that cross stories, and CI tells you which story introduced one. Nobody runs the full suite locally: it takes ~1.5 h on the Windows dev machine and ~5–7 min in CI (the repo is public, so Actions minutes are free).
 
 **Golden Rule — autonomy with one exception**: run start to finish without pausing to report progress. Stop and ask the user (AskUserQuestion) **only** for a genuine ambiguity: a decision that is the user's to make, that neither the PRD, the code nor a sensible default resolves, and where a wrong guess would mean redoing work. Everything else, decide yourself and record it (see "Orchestrator decisions"). Never stop just to inform.
 
@@ -40,7 +40,7 @@ Read the full PRD. Extract `id`, `slug`, `title`, `status`, `base_branch`, `epic
 | PRD state | Action |
 |-----------|--------|
 | `status: done` and every story `done` | STOP: "Nothing to orchestrate" |
-| Stories exist under `.agents/stories/{PRD-ID}/` | **Resume**: skip Phase 1, continue from the first story not `done` |
+| Stories exist under `.agents/stories/{PRD-ID}/` | **Resume**: skip Phase 1 except its push and draft PR (`gh pr view {epic_branch}`; push and create it if missing), continue from the first story not `done` |
 | No stories | Full run |
 
 ### 0.2 Git state
@@ -59,15 +59,23 @@ git status --short
 
 After this phase, **nobody switches branches**: not you and not any subagent.
 
-### 0.3 Baseline suite (background)
+### 0.3 Baseline (from CI, not local)
 
-Start the full suite on the epic branch **before** any story lands, in the background (`run_in_background`), logging to the scratchpad:
+The baseline is the latest CI run of `{base_branch}`; every merge runs it, so it already exists:
+
+```bash
+gh run list --branch {base_branch} --workflow CI --limit 1 --json databaseId,conclusion,headSha,createdAt
+# conclusion != success:
+gh run view {id} --log-failed
+```
+
+Its failures (if any) are the **pre-existing failures**: list them in the brief so no subagent tries to "fix" them, and use them to tell carried-over errors from old ones. If its `headSha` is not the commit the epic branch starts from, or no run exists, note it; the first CI run on the draft PR (Phase 1) is then the effective baseline for anything the stories commit has not touched.
+
+**Fallback (CI unavailable):** run the suite locally in the background and never at the same time as any other pytest — every DB test shares the one libSQL dev server, and two concurrent runs fail each other:
 
 ```bash
 docker restart harness-libsql-dev >/dev/null && PYTHONUTF8=1 .venv/Scripts/python -m pytest -q -p no:cacheprovider > "{scratchpad}/baseline_suite.log" 2>&1
 ```
-
-It runs while you create the stories, so it costs no wall-clock time. Its failures are the **pre-existing failures**: list them in the brief so no subagent tries to "fix" them, and use them in Phase 4 to tell carried-over errors from old ones.
 
 ---
 
@@ -85,6 +93,15 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python .agents/scripts/gen_index.py {PRD-ID
 
 It must print `errors: none`. Commit the stories, the index and any PRD amendments:
 `docs({PRD-ID}): stories + index`.
+
+Then push the epic branch and open a **draft** PR, so every later push runs CI:
+
+```bash
+git push -u origin {epic_branch}
+gh pr create --draft --base {base_branch} --head {epic_branch} --title "Epic/{PRD-ID} {PRD title}" --body-file {scratchpad}/pr_body.md
+```
+
+The draft body is short: the PRD summary, a link to the PRD and board, and "in progress — orchestrated; CI is the full suite". Phase 5 replaces it. The repo is public, so the work in progress is visible from here on.
 
 Do not pause for review here; continue to Phase 2.
 
@@ -111,14 +128,14 @@ You are one subagent in an orchestrated run. An orchestrator verifies your outpu
   - Validation for this repo: there is no `frontend/` and no npm lint. Use:
     - `.venv/Scripts/python -c "from app.main import app; print('OK')"`
     - Only if you touched `chat_ui/`: the probe form from `tests/test_chat_ui_startup_guard.py` (cwd `chat_ui/`, `PYTHONPATH="<repo>/chat_ui;<repo>"`, env `DATABASE_URL`, `OPENROUTER_API_KEY`, `ADMIN_TOKEN` set, then `import chat_ui.chat_ui`). Running that test file is usually enough.
-  - **Do NOT run the full suite** (user decision: the orchestrator runs it once at the end). Wherever implement.md or the plan says "full suite", this rule wins. Run instead, in one pytest call: every new or modified test file, the existing `tests/test_<module>.py` of every pre-existing module you changed, the tests the plan names, and the guard tests (`test_pii_redaction_integration.py` when you rename or remove a test; `test_untouched_app.py` when you touch app files). Do not add every file that merely imports a changed module. Aim for under ~10 minutes. Record the exact pass/fail/skip counts. In the report write "Full suite: deferred to orchestrator (user decision)".
+  - **Do NOT run the full suite** (user decision: it runs in GitHub CI on every push; the orchestrator reads it). Wherever implement.md or the plan says "full suite", this rule wins. **Never run two pytest processes at once**: every DB test shares the one libSQL server, and concurrent runs fail each other with `no such table`. Leave no background process or timer behind when you finish. Run instead, in one pytest call: every new or modified test file, the existing `tests/test_<module>.py` of every pre-existing module you changed, the tests the plan names, and the guard tests (`test_pii_redaction_integration.py` when you rename or remove a test; `test_untouched_app.py` when you touch app files). Do not add every file that merely imports a changed module. Aim for under ~10 minutes. Record the exact pass/fail/skip counts. In the report write "Full suite: GitHub CI on push (user decision)".
   - Renaming or removing a pre-existing test function: register the old name in `_DELIBERATELY_SUPERSEDED_TESTS` in `tests/test_pii_redaction_integration.py`.
 - **Always prefix pytest with `PYTHONUTF8=1`** (the Spanish Windows locale breaks `test_db_isolation_harness.py` otherwise).
 - DB tests need the libSQL dev server `harness-libsql-dev` on :8080. If many `db` tests error at fixture setup, run `docker restart harness-libsql-dev` and rerun before suspecting the code. Do not start a second one.
 - Pre-existing failures (from the orchestrator's baseline; ignore them, do not fix them): {list from baseline_suite.log, or "none"}.
 
 ## Commits (implement subagent)
-- Stage files explicitly; never `git add -A` / `git add .`. Never `--no-verify`; if a hook fails, fix the cause and make a new commit.
+- Stage files explicitly; never `git add -A` / `git add .`. Never `--no-verify`; if a hook fails, fix the cause and make a new commit. Never push: the orchestrator pushes after it verifies the story.
 - End every commit message with exactly: `{trailer}`
 - Order: commit code + tests + archived plan + report (with `commit: pending`) as `<type>({PRD-ID}): {STORY-ID} <summary>`. Capture the SHA. Then make one small follow-up `chore({PRD-ID}): {STORY-ID} report; update status + index` that fills the SHA into the report and story frontmatter.
 
@@ -196,15 +213,34 @@ Do not trust the report; check the repository:
 - [ ] The report exists, with exact targeted-test counts and every AC marked with its proving test
 - [ ] Read the core of the diff: it implements the ACs and the conventions in the brief (docstrings citing the PRD, comments on modified assertions)
 - [ ] **Spot-check** one or two key behaviours yourself with a small script in the scratchpad (written with Write, not `bash -c` quoting), e.g. call the new function on an edge case from the ACs
-- [ ] Deviations the subagent reported are acceptable. If one changes what a later story assumes, record it (3.5)
+- [ ] Deviations the subagent reported are acceptable. If one changes what a later story assumes, record it (3.6)
 
 If something is wrong, resume the same agent with SendMessage and list the exact defects, or fix it yourself and commit `fix({PRD-ID}): {STORY-ID} <what>`. Move on only when the story is truly done.
 
-### 3.5 Orchestrator decisions
+### 3.5 Push and read CI
+
+Once a story passes 3.4, push it: `git push`. CI runs while the next story is being planned, so it costs no wall-clock time. Read the run when you verify the **next** story (or wait with `gh run watch {id} --exit-status` if nothing else is running):
+
+```bash
+gh run list --branch {epic_branch} --workflow CI --limit 1 --json databaseId,status,conclusion,headSha
+gh run view {id} --log-failed      # only when it failed
+```
+
+| CI result | Action |
+|-----------|--------|
+| Success | Continue |
+| A failure also in the baseline (0.3) | Pre-existing; do not fix. If it is a timing test, `gh run rerun {id} --failed` once to confirm it is environmental |
+| A new failure | A carried-over error, and `headSha` tells you which story introduced it. Fix it now, while that story is fresh: fix the cause (or register new code in a guard such as a census, with a comment citing the PRD), rerun the affected test files locally, commit `fix({PRD-ID}): …`, push, and read the next run before moving on |
+| Passes in CI, fails locally on Windows (or the reverse) | A platform difference: fix the code for both, and record it in the brief |
+| CI did not run, or is unavailable | Fall back to the local suite at Phase 4 (see 0.3's fallback) |
+
+Several stories may land between two reads; one run covers all of them. A failure that blocks a later story's plan is fixed before that story is implemented.
+
+### 3.6 Orchestrator decisions
 
 Whenever you resolve a conflict (story vs PRD vs code), correct a story's text, or accept a deviation, record it where the next agents will read it: add a line to the affected later stories' **Technical Notes** (`Orchestrator decision ({STORY-ID} plan): …`), amend the PRD if the PRD was wrong, and append a brief rule if it is general. These edits ride in the next story's commit.
 
-### 3.6 Failures during the loop
+### 3.7 Failures during the loop
 
 | Failure | Action |
 |---------|--------|
@@ -217,15 +253,19 @@ Whenever you resolve a conflict (story vs PRD vs code), correct a story's text, 
 
 ---
 
-## Phase 4: FINAL FULL SUITE (once)
+## Phase 4: FINAL CI RUN
 
-When every story is `done`, run the full suite **once**, in the background:
+When every story is `done` and pushed, the CI run of the last commit is the final suite. Wait for it rather than polling in a loop:
 
 ```bash
-docker restart harness-libsql-dev >/dev/null && PYTHONUTF8=1 .venv/Scripts/python -m pytest -q -p no:cacheprovider > "{scratchpad}/full_suite.log" 2>&1
+gh run list --branch {epic_branch} --workflow CI --limit 1 --json databaseId,headSha,status
+gh run watch {id} --exit-status          # in the background; its exit is the notification
+gh run view {id} --log-failed            # only when it failed
 ```
 
-Wait for the completion notification; do not poll in a sleep loop. If the user asks how it is going, read the tail of the log (the percentage and any `F`).
+Check that the run's `headSha` is the epic branch's HEAD; if it is not (a push did not trigger, or a later one is queued), wait for the right one. If the user asks how it is going, `gh run view {id}` shows the step and its time.
+
+**Fallback (CI unavailable):** run the suite locally in the background, with nothing else using the libSQL server, as in 0.3's fallback, logging to `{scratchpad}/full_suite.log`.
 
 Triage every failure against the baseline:
 
@@ -235,24 +275,24 @@ Triage every failure against the baseline:
 | New | A carried-over error: you have the PRD-wide context, so fix it. Fix the cause, not the test, unless the test is a guard (a census or inventory test) that should register the new code; then register it with a comment citing the PRD and the reason |
 | Order-dependent (passes alone, fails in the suite) | Check whether it reproduces without this PRD's changes; if it does, it is pre-existing. Otherwise fix it |
 
-After fixing, rerun the affected test files (not the full suite again), then commit with explicit staging:
-`fix({PRD-ID}): …` or `test({PRD-ID}): …`.
+| Fails in CI only (Linux) or locally only (Windows) | A platform difference, not flakiness: fix the code for both. Reproduce a Linux-only failure locally in a `python:3.11-slim` container when the fix is not obvious |
+
+After fixing, rerun the affected test files locally, then commit with explicit staging (`fix({PRD-ID}): …` or `test({PRD-ID}): …`), push, and read the new CI run. Phase 4 ends on a green run (or one whose only failures are pre-existing).
 
 ---
 
-## Phase 5: CLOSE, PUSH, PR
+## Phase 5: CLOSE, MARK THE PR READY
 
-1. Confirm the PRD frontmatter `status: done` (the last story normally sets it), the board shows 100% and `gen_index.py` prints `errors: none`. Commit if anything changed.
-2. `git status` is clean, and `git log --oneline {base_branch}..{epic_branch}` lists every story.
-3. Push the epic branch: `git push -u origin {epic_branch}`.
-4. Open the PR against `{base_branch}` with `gh pr create --base {base_branch} --head {epic_branch} --title "Epic/{PRD-ID} {PRD title}" --body-file {scratchpad}/pr_body.md`. Write the body in the user's language:
+1. Confirm the PRD frontmatter `status: done` (the last story normally sets it), the board shows 100% and `gen_index.py` prints `errors: none`. Commit and push if anything changed (and read that CI run, as in Phase 4).
+2. `git status` is clean, `git log --oneline {base_branch}..{epic_branch}` lists every story, and `git status -sb` shows nothing ahead of `origin/{epic_branch}`.
+3. Replace the draft body and mark the PR ready: `gh pr edit {number} --body-file {scratchpad}/pr_body.md`, then `gh pr ready {number}`. Write the body in the user's language:
    - **Summary**: what the PRD delivers, in 2–3 sentences
    - **What's new**, grouped by area (modules, config/permissions, data/API, UI, tests/corpora, docs), each item naming the files
    - **Out of scope**: what the PRD defers, and to which PRD
-   - **Validation**: the exact final suite counts, each carried-over error fixed (with its commit), and each pre-existing failure, marked as such
+   - **Validation**: the final CI run (link, counts, duration), each carried-over error fixed (with its commit and the story that introduced it), and each pre-existing failure, marked as such
    - **Known limitations**, as documented
    - The PR attribution line from the session's instructions, if any
-5. **Never merge.** The merge is the user's decision.
+4. **Never merge.** The merge is the user's decision.
 
 ---
 
@@ -264,7 +304,7 @@ After fixing, rerun the affected test files (not the full suite again), then com
 **Epic Branch**: `{epic_branch}` (pushed) · **PR**: {url}
 **Stories**: {done}/{total} done · {N} commits
 
-### Final suite
+### Final suite (CI run {url})
 {passed} passed, {skipped} skipped, {failed} failed ({duration})
 - Carried-over errors fixed: {list with commits, or "none"}
 - Pre-existing failures: {list, or "none"}
@@ -283,9 +323,9 @@ Review and merge the PR when approved.
 
 ## Rules (all phases)
 
-- Never merge; push only in Phase 5. After Phase 0, never switch branches.
+- Never merge. Push the epic branch from Phase 1 on, after each verified story and each fix; subagents never push. After Phase 0, never switch branches.
 - Stage files explicitly. Never `--no-verify`, never amend, never force.
-- One subagent at a time.
-- Subagents never run the full suite. You run it once in Phase 0 (baseline) and once in Phase 4.
+- One subagent at a time. Never two pytest processes at once (they share one libSQL server).
+- Nobody runs the full suite locally: CI runs it on every push. The local suite is only the fallback when CI is unavailable.
 - Talk to the user in their language; command files, code and commits stay in English, matching the repo.
 - Ask only for genuine ambiguity (Golden Rule). Report everything else in the Phase 6 output.
