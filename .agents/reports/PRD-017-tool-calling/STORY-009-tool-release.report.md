@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-009-tool-release.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: d207ac7
 status: COMPLETE
 completed: 2026-11-16
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-16
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-009-tool-release.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `d207ac7`
 
 ## Summary
 

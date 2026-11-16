@@ -12,7 +12,7 @@ labels: [backend, action-policy]
 epic_branch: epic/PRD-017-tool-calling
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-009-tool-release.plan.md
 report: .agents/reports/PRD-017-tool-calling/STORY-009-tool-release.report.md
-commit: pending
+commit: d207ac7
 depends_on: [STORY-003]
 blocks: [STORY-010]
 skills: []
