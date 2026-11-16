@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-014-stub-upstream-tool-calls.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: f32424d
 status: COMPLETE
 completed: 2026-11-16
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-16
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-014-stub-upstream-tool-calls.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `f32424d`
 
 ## Summary
 

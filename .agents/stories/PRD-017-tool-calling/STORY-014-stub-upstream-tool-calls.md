@@ -12,7 +12,7 @@ labels: [tests, e2e, tooling]
 epic_branch: epic/PRD-017-tool-calling
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-014-stub-upstream-tool-calls.plan.md
 report: .agents/reports/PRD-017-tool-calling/STORY-014-stub-upstream-tool-calls.report.md
-commit: null
+commit: f32424d
 depends_on: [STORY-004]
 blocks: [STORY-016, STORY-017]
 skills: []
