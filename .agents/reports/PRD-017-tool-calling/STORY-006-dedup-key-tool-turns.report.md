@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-006-dedup-key-tool-turns.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: 16fd154
 status: COMPLETE
 completed: 2026-11-15
 ---
