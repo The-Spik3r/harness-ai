@@ -36,6 +36,7 @@ As an integrating developer, I want the non-streamed `/v1` completion to carry t
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-009 plan): `tool_release.apply_decisions` returns `finish_reason=None` when there are no calls, meaning "keep the upstream's value"; join content with `tool_release.content_with_notes(content, notes)` (the one Section 6.6 helper); note template and the 64-char cut are `DENIAL_NOTE_TEMPLATE` / `NOTE_FIELD_CAP`.
 - `app/models/v1_schemas.py`: `FinishReason` `:83`, `AssistantMessage` `:100-102` (`content: str` → `Optional[str]`, add `tool_calls: Optional[List[...]] = None`), `HarnessCompletionInfo` `:112-121`. Serialize with `model_dump(mode="json")`, never `exclude_none` (module docstring).
 - `app/services/v1_translate.py`: `_FINISH_REASONS` `:93`, `translate_result` `:368-408`. The finish reason comes from the `Release` (STORY-009), not from `upstream.finish_reason`, when calls were evaluated.
 - Decide in the plan whether `tool_calls: null` on a text-only response is acceptable to every PRD-015 E2E client (Aider, Continue, the SDK); if a key that was absent breaks a strict client, omit it when `None` and record the deviation.

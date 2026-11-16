@@ -6,7 +6,7 @@
 
 ## Progress
 
-8/18 stories done — 44%
+9/18 stories done — 50%
 
 ## Stories
 
@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-017-tool-calling`. No per-story 
 | STORY-006 | dedup_key over tool turns: never the anchor, in the prefix, tool-free keys unchanged | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-006-dedup-key-tool-turns.plan.md) | `16fd154` |
 | STORY-007 | Steps 3, 5, 6 on tool content; tool-call arguments never inspected or redacted | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-007-policies-on-tool-content.plan.md) | `ab2dcc0` |
 | STORY-008 | /v1 request translation under V1_TOOLS_ENABLED: tools, tool turns, shape rules, V1_TOOL_MODELS; passed through to step 7 | feature | ✅ done | large | [plan](../../plans/PRD-017-tool-calling/completed/STORY-008-v1-request-translation-under-flag.plan.md) | `c3ed60b` |
-| STORY-009 | tool_release.apply_decisions: release allowed calls, drop denied ones with a note, finish_reason | feature | ⬜ todo | small | — | — |
+| STORY-009 | tool_release.apply_decisions: release allowed calls, drop denied ones with a note, finish_reason | feature | ✅ done | small | [plan](../../plans/PRD-017-tool-calling/completed/STORY-009-tool-release.plan.md) | `pending` |
 | STORY-010 | Step 7c: evaluate every call, release, record() with audit_id, fail closed, has_tool_calls | feature | ⬜ todo | large | — | — |
 | STORY-011 | Completion shape: tool_calls, content null, finish_reason tool_calls, harness.actions | feature | ⬜ todo | medium | — | — |
 | STORY-012 | Buffered SSE tool_calls deltas in one burst | feature | ⬜ todo | medium | — | — |

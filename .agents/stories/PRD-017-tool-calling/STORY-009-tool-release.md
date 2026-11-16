@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: small
 phase: "3 - Decide and release"
-status: todo
+status: done
 labels: [backend, action-policy]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-009-tool-release.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-009-tool-release.report.md
+commit: pending
 depends_on: [STORY-003]
 blocks: [STORY-010]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-009: tool_release.apply_decisions: release allowed calls, drop denied ones with a note, finish_reason

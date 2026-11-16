@@ -36,6 +36,7 @@ As a security admin, I want every tool call the model produced decided by the ac
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-009 plan): `tool_release.apply_decisions` returns `finish_reason=None` when there are no calls, meaning "keep the upstream's value"; join content with `tool_release.content_with_notes(content, notes)` (the one Section 6.6 helper); note template and the 64-char cut are `DENIAL_NOTE_TEMPLATE` / `NOTE_FIELD_CAP`.
 - Position: `app/services/query_pipeline.py` between step 7b (`:699-724`) and step 8 (`:726-801`); the success row is at `:766-792` (`has_tool_calls=False` with the comment "PRD-016 sets this" — this story sets it). Number it **7c** (the lettering rule at `:362-365`).
 - How the router gets the release without moving `/query`'s body: `QuerySuccessResponse` is `/query`'s response model. Options for the plan: a private attribute / `exclude=True` field on the success model, or a wrapper the router unwraps. Choose one, prove `/query`'s JSON is unchanged, and document it. The router's `_Upstream` wrapper (`app/routers/v1.py:108-136`) already captures the raw upstream result — do **not** let the router read raw `upstream.result.tool_calls` for the response (T1).
 - `ActionAuditError` goes in `_PIPELINE_FAULTS` (`app/routers/v1.py:105`) and `_fault_code` (`:183-197`) → `INTERNAL_ERROR`; `/query` never reaches it (no calls without tools).
