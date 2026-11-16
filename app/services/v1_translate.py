@@ -580,7 +580,9 @@ def translate_result(
     calls (`null` when every call was denied) and `content` is `null` when
     calls are released and there is no text or note. With no outcome the
     completion is PRD-015's, byte for byte (D10): neither new key is present.
-    Streamed deltas are STORY-012's.
+    The stream renders this same message through `v1_sse.completion_events`
+    (role chunk, one delta per released call, finish chunk), so both shapes
+    follow one release.
     """
     outcome = result.tool_outcome
     reported = upstream.finish_reason

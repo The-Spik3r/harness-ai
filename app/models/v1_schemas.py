@@ -11,7 +11,9 @@ Serialize with `model_dump(mode="json")` or `model_dump_json()`, never with
 `finish_reason`, `param`, `harness`) that clients read, and the only keys that
 disappear are the two Section 7.6 omits plus, under PRD-017 (D10, D14),
 `message.tool_calls` and `harness.actions` on a response where no tool call was
-evaluated, each dropped by its own serializer.
+evaluated, each dropped by its own serializer. A chunk delta omits every key it
+was not given, so the finish chunk's `{}` and the role chunk's `content: null`
+both hold (PRD-017).
 """
 
 from typing import Any, Dict, List, Literal, Optional
@@ -191,28 +193,50 @@ class ChatCompletion(BaseModel):
     harness: HarnessCompletionInfo
 
 
+class ChunkToolCall(BaseModel):
+    """One released call as a stream delta (PRD-017 Section 6.6).
+
+    One per call, carrying the whole `arguments` string: a client concatenates
+    fragments per `index`, and one fragment is a complete one (Risk 2). The
+    OpenAI SDK's `ChoiceDeltaToolCall` shape.
+    """
+
+    index: int
+    id: str
+    type: Literal["function"] = "function"
+    function: ToolCallFunction
+
+
 class ChunkDelta(BaseModel):
     role: Optional[Literal["assistant"]] = None
     content: Optional[str] = None
+    tool_calls: Optional[List[ChunkToolCall]] = None
 
     @model_serializer(mode="wrap")
     def _drop_unset(self, handler):
-        # Section 7.6: the finish chunk's delta is `{}`, not
-        # `{"role": null, "content": null}`.
-        return {key: value for key, value in handler(self).items() if value is not None}
+        # Section 7.6: the finish chunk's delta is `{}` (nothing set), not
+        # `{"role": null, "content": null}`. The role chunk keeps an explicit
+        # `content: null` when calls are released and there is no text (PRD-017
+        # Section 6.6, STORY-012 DD-1): the same set-ness rule as
+        # `AssistantMessage`.
+        return {
+            key: value
+            for key, value in handler(self).items()
+            if key in self.model_fields_set
+        }
 
 
 class ChunkChoice(BaseModel):
     index: int = 0
     delta: ChunkDelta
-    # `null` on the content chunk, the reason on the finish chunk.
+    # `null` on the role and tool-call chunks, the reason on the finish chunk.
     finish_reason: Optional[FinishReason] = None
 
 
 class ChatCompletionChunk(BaseModel):
     """One `data:` event of a buffered stream (Section 7.6).
 
-    Content and finish chunks carry no `usage` key; the usage chunk (only with
+    Role, tool-call and finish chunks carry no `usage` key; the usage chunk (only with
     `include_usage`) carries `choices: []` and `usage`. Every chunk's `id` is
     `chat_completion_id(audit_id)`.
     """

@@ -6,8 +6,8 @@ first of "the pipeline finished" and "the upstream was called"
 (`wait_for_commit`) and sends an ordinary JSON response in the first case.
 After commit, `stream` sends nothing but `: keep-alive` comments until the
 pipeline's outcome exists (T8), then the events the router renders from it:
-one content chunk, one finish chunk, the usage chunk on request and
-`[DONE]` (D6), or a single `error` event and no `[DONE]`.
+one role/content chunk, one chunk per released tool call (PRD-017), one finish
+chunk, the usage chunk on request and `[DONE]` (D6), or a single `error` event and no `[DONE]`.
 
 The pipeline is never cancelled here. It runs on its executor thread to
 completion whatever the client does (Section 7.6), so the row is written and
@@ -26,6 +26,7 @@ from app.models.v1_schemas import (
     ChatCompletionChunk,
     ChunkChoice,
     ChunkDelta,
+    ChunkToolCall,
     ErrorResponse,
 )
 
@@ -48,6 +49,13 @@ def completion_events(completion: ChatCompletion, include_usage: bool) -> List[s
     Built from `translate_result`'s `ChatCompletion`, so `finish_reason`, the
     usage split and the id follow one rule streamed and not. Every chunk takes
     the completion's `id`, `created` and `model`.
+
+    PRD-017 Section 6.6: the released calls (step 7c's release, which
+    `translate_result` put on the message, never the upstream's, T1) follow the
+    role chunk, one chunk each with its whole `arguments`. `tool_calls` absent
+    (text-only) or `None` (every call denied) renders none, so those streams are
+    PRD-015's. The finish chunk stays the last delta: OpenCode errors on a
+    delta after a `finish_reason`, and a usage chunk after it is fine.
     """
     choice = completion.choices[0]
 
@@ -60,10 +68,16 @@ def completion_events(completion: ChatCompletion, include_usage: bool) -> List[s
         data_event(chunk(choices=[ChunkChoice(
             delta=ChunkDelta(role="assistant", content=choice.message.content)
         )])),
-        data_event(chunk(choices=[ChunkChoice(
-            delta=ChunkDelta(), finish_reason=choice.finish_reason
-        )])),
     ]
+    for index, call in enumerate(choice.message.tool_calls or []):
+        events.append(data_event(chunk(choices=[ChunkChoice(
+            delta=ChunkDelta(tool_calls=[
+                ChunkToolCall(index=index, id=call.id, function=call.function)
+            ])
+        )])))
+    events.append(data_event(chunk(choices=[ChunkChoice(
+        delta=ChunkDelta(), finish_reason=choice.finish_reason
+    )])))
     if include_usage:
         events.append(data_event(chunk(choices=[], usage=completion.usage)))
     events.append(DONE)

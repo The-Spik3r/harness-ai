@@ -17,7 +17,7 @@ depends_on: [STORY-001, STORY-014, STORY-015]
 blocks: [STORY-017, STORY-018]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-016: E2E: OpenCode completes a scripted multi-file task; a scripted DROP TABLE is denied and reported
@@ -42,6 +42,7 @@ As an integrating developer using OpenCode, I want it to run a real agent task t
 - The model name OpenCode sends must be in `MODEL_ALLOWLIST` (and `V1_TOOL_MODELS` if set).
 - Outbound OpenRouter fails from the dev machine (PRD-015 Risk 7): the stub is the upstream (D15). If OpenCode needs network for anything else (model catalogue), find the offline setting and record it.
 - Run it at least once here and attach the result to the report; the everyday suite must still skip it without `--run-e2e`.
+- Orchestrator note (STORY-012 plan, DD-4): the stream keeps PRD-015's order. That is the role chunk, one complete tool-call delta per released call, the finish chunk, then the `include_usage` chunk (`choices: []`) and `[DONE]`. The survey (`client-survey.md:49-51`, OpenCode `openai-chat.ts#L985-L997`) says OpenCode 2.0.10 errors only on content or tool deltas after a `finish_reason`. A usage-only chunk after the finish is fine, and the recorded Groq fixture does the same. Confirm it live: OpenCode sends `stream_options.include_usage: true` by default, so every run exercises this order. If OpenCode does reject it, record the failure here. Do not reorder the PRD-015 sequence without an orchestrator decision.
 - Skills: none applicable. No UI.
 
 ## Dependencies

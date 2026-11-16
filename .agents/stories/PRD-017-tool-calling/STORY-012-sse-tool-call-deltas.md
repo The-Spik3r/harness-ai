@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Decide and release"
-status: todo
+status: done
 labels: [backend, api, v1, streaming]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-012-sse-tool-call-deltas.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-012-sse-tool-call-deltas.report.md
+commit: pending
 depends_on: [STORY-011]
 blocks: [STORY-015]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-012: Buffered SSE tool_calls deltas in one burst

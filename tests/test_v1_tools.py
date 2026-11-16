@@ -10,8 +10,8 @@ PRD-015's, byte for byte (D10).
 
 Two layers: the pure translator (no DB), then the router and pipeline through `TestClient`.
 Since STORY-010 the pipeline decides and records every call (step 7c). STORY-011 releases the
-allowed calls on the non-streamed body, and STORY-012 streams them; until then
-`test_interim_streamed_*` pins that no call data leaks into a stream (T1). The STORY-010 section
+allowed calls on the non-streamed body, and STORY-012 streams them as one delta per call
+(Section 6.6), checked against the `openai` SDK's stream accumulator. The STORY-010 section
 at the end covers the decision and its audit.
 """
 
@@ -22,6 +22,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 import json
 import random
+import re
 
 import httpx
 import pytest
@@ -35,8 +36,18 @@ from app.db.models import User
 from app.main import app
 from app.models.messages import ToolCallSpec, conversation_shape_violation, normalize_messages
 from app.models.schemas import QuerySuccessResponse
-from app.models.v1_schemas import ChatCompletionRequest
-from app.services import action_audit, action_policy, tool_release
+from app.models.v1_schemas import (
+    AssistantMessage,
+    ChatCompletion,
+    ChatCompletionRequest,
+    Choice,
+    CompletionToolCall,
+    HarnessAction,
+    HarnessCompletionInfo,
+    ToolCallFunction,
+    Usage,
+)
+from app.services import action_audit, action_policy, tool_release, v1_sse
 from app.services.action_adapters import ToolCall
 from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterResult, ToolParams
@@ -940,10 +951,10 @@ def test_allowed_call_is_released_with_content_null_and_finish_tool_calls(temp_d
     ]
 
 
-def test_interim_streamed_allowed_call_is_not_yet_streamed(temp_db, monkeypatch):
-    """Interim (STORY-011): the call is decided and recorded and the finish reason is the
-    release's, but the tool-call deltas are STORY-012's; no call data may leak into the stream
-    (T1). STORY-012 replaces this test with the streamed shape."""
+def test_streamed_allowed_call_is_one_delta_then_finish_tool_calls(temp_db, monkeypatch):
+    """STORY-012 AC1 (replaces the STORY-011 interim pin): role chunk with `content: null`, one
+    tool-call delta with the whole arguments, finish `tool_calls`, `[DONE]`; the decision is
+    recorded and the stream carries no `harness` object (PRD-017 Section 6.6)."""
     monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
     _use(monkeypatch, _ToolUpstream(
         response="", tool_calls=(_READ_CALL,), finish_reason="tool_calls",
@@ -952,11 +963,21 @@ def test_interim_streamed_allowed_call_is_not_yet_streamed(temp_db, monkeypatch)
     response = client.post(_PATH, json=_router_body(tools=[_TOOL], stream=True))
 
     assert response.status_code == 200
-    assert '{"path":"src/a.py"}' not in response.text
-    assert '"arguments"' not in response.text
+    chunks = _data_events(response.text)
+    assert [c["choices"] for c in chunks] == [
+        [{"index": 0, "delta": {"role": "assistant", "content": None}, "finish_reason": None}],
+        [{"index": 0, "delta": {"tool_calls": [
+            {"index": 0, "id": "call_r", "type": "function",
+             "function": {"name": "read", "arguments": '{"path":"src/a.py"}'}}
+        ]}, "finish_reason": None}],
+        [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+    ]
+    assert all("harness" not in c for c in chunks)
+    assert json.dumps('{"path":"src/a.py"}') in response.text
     assert response.text.rstrip().endswith("data: [DONE]")
     with get_connection() as conn:
-        assert [r["decision"] for r in conn.execute("SELECT decision FROM action_decisions")] == ["allow"]
+        rows = conn.execute("SELECT decision, audit_id FROM action_decisions").fetchall()
+    assert [(r["decision"], r["audit_id"]) for r in rows] == [("allow", _only_row().id)]
 
 
 def test_mixed_response_releases_the_allowed_call_and_notes_the_denied_one(temp_db, monkeypatch):
@@ -1012,6 +1033,205 @@ def test_router_sdk_round_trip(temp_db, monkeypatch):
     parsed = openai.types.chat.ChatCompletion.model_validate(response.json())
     assert parsed.choices[0].finish_reason == "tool_calls"
     assert parsed.choices[0].message.tool_calls[0].function.arguments == _READ_CALL.arguments
+
+
+# --- STORY-012: streamed tool-call deltas ------------------------------------------------------
+
+_A1 = '{"path":"a\\"b.py"}'
+_A2 = '{"command": "ls  -la"}'
+_STREAM_USAGE = {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10}
+
+
+def _two_call_completion():
+    return ChatCompletion(
+        id="chatcmpl-harness-42",
+        created=1792569600,
+        model=_MODEL,
+        choices=[Choice(
+            message=AssistantMessage(content=None, tool_calls=[
+                CompletionToolCall(id="call_1", function=ToolCallFunction(name="read", arguments=_A1)),
+                CompletionToolCall(id="call_2", function=ToolCallFunction(name="bash", arguments=_A2)),
+            ]),
+            finish_reason="tool_calls",
+        )],
+        usage=Usage(**_STREAM_USAGE),
+        harness=HarnessCompletionInfo(audit_id=42, actions=[
+            HarnessAction(tool_call_id="call_1", tool_name="read", decision="allow", rule="r", reason="x"),
+            HarnessAction(tool_call_id="call_2", tool_name="bash", decision="allow", rule="r", reason="x"),
+        ]),
+    )
+
+
+def _payloads(events):
+    """The `data:` payloads of rendered events, `[DONE]` kept as a string."""
+    out = []
+    for event in events:
+        assert event.startswith("data: ") and event.endswith("\n\n")
+        body = event[len("data: "):-2]
+        out.append(body if body == "[DONE]" else json.loads(body))
+    return out
+
+
+def _accumulate(payloads):
+    """Feed a stream's chunks through the `openai` SDK's accumulator (AC3)."""
+    openai = pytest.importorskip("openai")
+    from openai.lib.streaming.chat import ChatCompletionStreamState
+
+    state = ChatCompletionStreamState()
+    for payload in payloads:
+        if payload != "[DONE]":
+            state.handle_chunk(openai.types.chat.ChatCompletionChunk.model_validate(payload))
+    return state.get_final_completion()
+
+
+def _call_tuples(message):
+    return [(c.id, c.type, c.function.name, c.function.arguments) for c in message.tool_calls]
+
+
+@pytest.mark.parametrize("include_usage", [True, False])
+def test_completion_events_stream_two_released_calls(include_usage):
+    """AC1: role chunk with `content: null`, one chunk per call with the whole arguments, finish
+    `tool_calls`, usage only on request, `[DONE]`; every chunk carries the completion's ids."""
+    events = v1_sse.completion_events(_two_call_completion(), include_usage=include_usage)
+    payloads = _payloads(events)
+
+    def base(choices, **extra):
+        return {
+            "id": "chatcmpl-harness-42", "object": "chat.completion.chunk",
+            "created": 1792569600, "model": _MODEL, "choices": choices, **extra,
+        }
+
+    def call_chunk(index, call_id, name, arguments):
+        return base([{"index": 0, "delta": {"tool_calls": [
+            {"index": index, "id": call_id, "type": "function",
+             "function": {"name": name, "arguments": arguments}}
+        ]}, "finish_reason": None}])
+
+    expected = [
+        base([{"index": 0, "delta": {"role": "assistant", "content": None}, "finish_reason": None}]),
+        call_chunk(0, "call_1", "read", _A1),
+        call_chunk(1, "call_2", "bash", _A2),
+        base([{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]),
+    ]
+    if include_usage:
+        expected.append(base([], usage=_STREAM_USAGE))
+    expected.append("[DONE]")
+    assert payloads == expected
+    assert not any(isinstance(p, dict) and "harness" in p for p in payloads)
+    # D13: the arguments strings go out byte for byte.
+    text = "".join(events)
+    assert json.dumps(_A1) in text and json.dumps(_A2) in text
+
+
+def test_completion_events_text_only_has_no_tool_call_delta():
+    completion = _two_call_completion()
+    completion.choices[0].message = AssistantMessage(content="Hi.")
+    completion.choices[0].finish_reason = "stop"
+    payloads = _payloads(v1_sse.completion_events(completion, include_usage=False))
+    assert [p["choices"][0]["delta"] for p in payloads[:-1]] == [{"role": "assistant", "content": "Hi."}, {}]
+    assert "tool_calls" not in "".join(v1_sse.completion_events(completion, include_usage=False))
+
+
+def test_sdk_accumulator_rebuilds_the_non_streamed_message():
+    """AC3 (pure): the SDK's stream accumulator over the rendered chunks equals the parsed body."""
+    openai = pytest.importorskip("openai")
+    completion = _two_call_completion()
+
+    final = _accumulate(_payloads(v1_sse.completion_events(completion, include_usage=True)))
+    plain = openai.types.chat.ChatCompletion.model_validate(json.loads(completion.model_dump_json()))
+
+    assert final.choices[0].message.content is None and plain.choices[0].message.content is None
+    assert final.choices[0].finish_reason == plain.choices[0].finish_reason == "tool_calls"
+    assert _call_tuples(final.choices[0].message) == _call_tuples(plain.choices[0].message)
+    assert [t[3] for t in _call_tuples(final.choices[0].message)] == [_A1, _A2]
+    assert final.usage.total_tokens == plain.usage.total_tokens == 10
+
+
+def test_streamed_and_plain_tool_responses_accumulate_to_the_same_message(temp_db, monkeypatch):
+    """AC3 (router): the same two allowed calls, streamed and plain, give one message."""
+    openai = pytest.importorskip("openai")
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(
+        response="",
+        tool_calls=(_READ_CALL, ToolCallSpec("call_r2", "read", '{"path":"src/b.py"}')),
+        finish_reason="tool_calls",
+    ))
+
+    def ask(n, **extra):
+        messages = [{"role": "user", "content": f"list the files {n}"}]
+        return client.post(_PATH, json=_router_body(tools=[_TOOL], messages=messages, **extra))
+
+    streamed = ask(1, stream=True, stream_options={"include_usage": True})
+    plain = ask(2)
+
+    assert streamed.status_code == plain.status_code == 200
+    final = _accumulate(_data_events(streamed.text))
+    parsed = openai.types.chat.ChatCompletion.model_validate(plain.json())
+    assert final.choices[0].message.content is None and parsed.choices[0].message.content is None
+    assert final.choices[0].finish_reason == parsed.choices[0].finish_reason == "tool_calls"
+    assert _call_tuples(final.choices[0].message) == _call_tuples(parsed.choices[0].message)
+    assert [t[0] for t in _call_tuples(parsed.choices[0].message)] == ["call_r", "call_r2"]
+
+
+@pytest.mark.parametrize("include_usage", [True, False])
+def test_flag_on_text_only_stream_is_the_flag_off_stream(temp_db, monkeypatch, include_usage):
+    """AC2 (DD-1): a text-only stream is the same with the flag on as off, byte for byte once
+    the per-request id and `created` are normalized."""
+    texts = []
+    for enabled, prompt in ((False, "first prompt"), (True, "second prompt")):
+        monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", enabled)
+        _use(monkeypatch, _ToolUpstream())
+        response = client.post(_PATH, json=_router_body(
+            messages=[{"role": "user", "content": prompt}], stream=True,
+            stream_options={"include_usage": include_usage},
+        ))
+        assert response.status_code == 200
+        texts.append(response.text)
+
+    assert "tool_calls" not in texts[1]
+    normalized = [
+        re.sub(r'"created":\d+', '"created":0', re.sub(r"chatcmpl-harness-\d+", "chatcmpl-harness-0", t))
+        for t in texts
+    ]
+    assert normalized[0] == normalized[1]
+
+
+def test_streamed_all_denied_is_the_note_then_stop_and_no_delta(temp_db, monkeypatch):
+    """AC4: every call denied: the note in the role chunk, finish `stop`, no tool-call delta."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _calling_upstream())
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL], stream=True))
+
+    assert response.status_code == 200
+    chunks = _data_events(response.text)
+    assert [c["choices"] for c in chunks] == [
+        [{"index": 0, "delta": {"role": "assistant", "content": _denial_note("bash", "call_2", '{"command":"rm -rf /"}')},
+          "finish_reason": None}],
+        [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+    ]
+    assert response.text.rstrip().endswith("data: [DONE]")
+    assert '"tool_calls"' not in response.text
+
+
+def test_streamed_mixed_response_is_text_and_note_then_the_allowed_call(temp_db, monkeypatch):
+    """A mixed answer streams the text and the note, only the allowed call, finish `tool_calls`."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(
+        response="Reading.", tool_calls=(_READ_CALL, _DROP_TABLE), finish_reason="tool_calls",
+    ))
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL], stream=True))
+
+    assert response.status_code == 200
+    chunks = _data_events(response.text)
+    rows = _decision_table()
+    note = tool_release.DENIAL_NOTE_TEMPLATE.format(name="shell", id="call_1", reason=rows[1]["reason"])
+    assert chunks[0]["choices"][0]["delta"] == {"role": "assistant", "content": "Reading.\n\n" + note}
+    call_deltas = [c["choices"][0]["delta"]["tool_calls"] for c in chunks if "tool_calls" in c["choices"][0]["delta"]]
+    assert [[(t["index"], t["id"]) for t in d] for d in call_deltas] == [[(0, "call_r")]]
+    assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    assert "DROP TABLE" not in response.text.replace(note, "")
 
 
 # --- STORY-010: decide and record ----------------------------------------------------------

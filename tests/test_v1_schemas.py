@@ -27,6 +27,7 @@ from app.models.v1_schemas import (
     Choice,
     ChunkChoice,
     ChunkDelta,
+    ChunkToolCall,
     ErrorDetail,
     ErrorResponse,
     HarnessCompletionInfo,
@@ -482,3 +483,52 @@ def test_openai_sdk_parses_null_tool_calls():
 
     assert parsed.choices[0].message.tool_calls is None
     assert parsed.choices[0].message.content == "[harness] denied"
+
+
+# --- PRD-017 STORY-012: tool-call deltas (Section 6.6, DD-1) -----------------
+
+
+def _tool_call_chunk(index=1, call_id="call_2", name="bash", arguments=_ARGS_2):
+    call = ChunkToolCall(index=index, id=call_id, function=ToolCallFunction(name=name, arguments=arguments))
+    return _chunk([ChunkChoice(delta=ChunkDelta(tool_calls=[call]))])
+
+
+def _null_role_chunk():
+    return _chunk([ChunkChoice(delta=ChunkDelta(role="assistant", content=None))])
+
+
+def test_role_chunk_keeps_an_explicit_null_content():
+    for dumped in _all_dumps(_null_role_chunk()):
+        assert dumped["choices"][0]["delta"] == {"role": "assistant", "content": None}
+
+
+def test_tool_call_chunk_matches_section_6_6():
+    expected = {
+        "tool_calls": [
+            {"index": 1, "id": "call_2", "type": "function", "function": {"name": "bash", "arguments": _ARGS_2}}
+        ]
+    }
+    for dumped in _all_dumps(_tool_call_chunk()):
+        assert dumped["choices"][0]["delta"] == expected
+        assert dumped["choices"][0]["finish_reason"] is None
+    wire = json.loads(_tool_call_chunk().model_dump_json())
+    assert list(wire["choices"][0]["delta"]["tool_calls"][0]) == ["index", "id", "type", "function"]
+    # D13: the arguments string goes out byte for byte.
+    assert json.dumps(_ARGS_1) in _tool_call_chunk(0, "call_1", "read", _ARGS_1).model_dump_json()
+
+
+def test_unset_delta_keys_are_dropped():
+    assert ChunkDelta().model_dump() == {}
+    assert "tool_calls" not in ChunkDelta(role="assistant", content="x").model_dump()
+    assert ChunkDelta(role="assistant", content="x").model_dump() == {"role": "assistant", "content": "x"}
+
+
+def test_openai_sdk_validates_the_tool_call_chunk():
+    openai = pytest.importorskip("openai")
+    from openai.types.chat import ChatCompletionChunk as SdkChunk
+
+    parsed = SdkChunk.model_validate(json.loads(_tool_call_chunk().model_dump_json()))
+    call = parsed.choices[0].delta.tool_calls[0]
+    assert (call.index, call.id, call.function.name, call.function.arguments) == (1, "call_2", "bash", _ARGS_2)
+    role = SdkChunk.model_validate(json.loads(_null_role_chunk().model_dump_json()))
+    assert role.choices[0].delta.content is None
