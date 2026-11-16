@@ -19,7 +19,7 @@ The README roadmap listed an [OpenAI-compatible endpoint](../docs/roadmap.md#ope
 | 3 | [Audit & usage limits](./PRE-PRD-013-audit-and-usage-limits.md) | [PRD-013](../.agents/PRDs/PRD-013-audit-and-usage-limits/PRD.md) | 16–18 | 010 | `promoted` |
 | 4 | [OpenAI-compatible endpoint (text)](./PRE-PRD-014-openai-compatible-endpoint.md) | [PRD-015](../.agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md) (PRD-014 was taken by the test-suite brief) | 14–16 | 011, 012, 013 | `promoted` |
 | 4 | [Action policy rules](./PRE-PRD-015-action-policy-rules.md) | [PRD-016](../.agents/PRDs/PRD-016-action-policy-rules/PRD.md) (PRD-015 went to the endpoint brief) | 12–15 | 011 | `promoted` |
-| 5 | [Tool calling on the compatible endpoint](./PRE-PRD-016-tool-calling.md) | PRD-017 | 10–12 | 014, 015 | `draft` |
+| 5 | [Tool calling on the compatible endpoint](./PRE-PRD-016-tool-calling.md) | [PRD-017](../.agents/PRDs/PRD-017-tool-calling/PRD.md) (PRD-016 went to the action policy brief) | 10–12 | 014, 015 | `promoted` |
 
 Estimated total: ~98–117 stories.
 
@@ -32,7 +32,7 @@ Estimated total: ~98–117 stories.
 - **Serial:** 009 → 010. Everything else depends on the message model 010 defines.
 - **Parallel:** 011, 012 and 013 once 010 is done. 015 can start as soon as 011 lands (configurable lists are its prerequisite, per the README).
 - **Milestone 1** — PRD-014 done: usable from the OpenAI SDKs, Aider and Continue. **Reached 2026-10-30**: the brief became [PRD-015](../.agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md), whose 19 stories are done and merged to `main` (PR #20); the endpoint is described in the [roadmap](../docs/roadmap.md#openai-compatible-endpoint).
-- **PRD-016 done** (reached 2026-11-15): the action policy engine and its audit are built on `epic/PRD-016-action-policy-rules` (20 stories), not yet merged to `main` and not yet called by `/v1`; PRD-017 wires it. See [Action policy rules](../docs/features.md#action-policy-rules).
+- **PRD-016 done** (reached 2026-11-15): the action policy engine and its audit are built (20 stories) and merged to `main` (PR #21), not yet called by `/v1`; PRD-017 wires it. See [Action policy rules](../docs/features.md#action-policy-rules).
 - **Milestone 2** — PRD-017 done (brief 016): drop-in for OpenCode and Cline in agent mode.
 
 **Shortcut (explicit debt):** 009 → 010 → 014 with conservative defaults (patterns on `user` turns only, PII on input only, audit unchanged). ~38–46 stories. Do not start 016 until 011–013 and 015 are closed.
