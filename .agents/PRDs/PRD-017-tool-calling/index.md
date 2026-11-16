@@ -6,7 +6,7 @@
 
 ## Progress
 
-10/18 stories done — 56%
+11/18 stories done — 61%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-017-tool-calling`. No per-story 
 | STORY-008 | /v1 request translation under V1_TOOLS_ENABLED: tools, tool turns, shape rules, V1_TOOL_MODELS; passed through to step 7 | feature | ✅ done | large | [plan](../../plans/PRD-017-tool-calling/completed/STORY-008-v1-request-translation-under-flag.plan.md) | `c3ed60b` |
 | STORY-009 | tool_release.apply_decisions: release allowed calls, drop denied ones with a note, finish_reason | feature | ✅ done | small | [plan](../../plans/PRD-017-tool-calling/completed/STORY-009-tool-release.plan.md) | `d207ac7` |
 | STORY-010 | Step 7c: evaluate every call, release, record() with audit_id, fail closed, has_tool_calls | feature | ✅ done | large | [plan](../../plans/PRD-017-tool-calling/completed/STORY-010-step-7c-action-evaluation.plan.md) | `73f8860` |
-| STORY-011 | Completion shape: tool_calls, content null, finish_reason tool_calls, harness.actions | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-017-tool-calling/STORY-011-completion-shape.plan.md) | — |
+| STORY-011 | Completion shape: tool_calls, content null, finish_reason tool_calls, harness.actions | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-011-completion-shape.plan.md) | `9a98b52` |
 | STORY-012 | Buffered SSE tool_calls deltas in one burst | feature | ⬜ todo | medium | — | — |
 | STORY-013 | GET /audit/actions?audit_id= and the Actions view's empty-state copy | enhancement | ⬜ todo | small | — | — |
 | STORY-014 | Stub upstream: scripted tool_calls replies, rules matching on any last turn | technical | ⬜ todo | small | — | — |
