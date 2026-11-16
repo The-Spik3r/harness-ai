@@ -1,0 +1,10 @@
+# Ordinary work: add a file through a patch. OpenCode 2.x `patch` (SOURCES.md: OpenCode 2.0.10; target `patchText`).
+tool_call:
+  name: patch
+  arguments: '{"patchText":"*** Begin Patch\n*** Environment ID: env-1\n*** Add File: src/new.ts\n+export const x = 1;\n*** End Patch"}'
+policy: built_in
+client: OpenCode 2.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'apply_patch was renamed patch in 2.0. The Environment ID line names no file, so the only target is the Add File header, a relative path inside the workspace.'

@@ -18,7 +18,9 @@ What has shipped, what is next, and design notes for the planned work. The READM
 - [x] [Multi-turn context](features.md#multi-turn-context) — the chat sends its history, so a session is a conversation
 - [x] [Configurable, per-deployment pattern lists](features.md#pattern-policy) — per-role scope, word matching, indirect injection flagged
 - [x] [PII redaction for code](features.md#pii-redaction) — policy per profile, role and direction; fenced blocks skipped; within a measured latency budget
-- [x] [OpenAI-compatible endpoint](#openai-compatible-endpoint) — `POST /v1/chat/completions` and `GET /v1/models` for the OpenAI SDKs, Aider and Continue, through the same pipeline under the `code` profile
+- [x] [OpenAI-compatible endpoint](#openai-compatible-endpoint) — `POST /v1/chat/completions` and `GET /v1/models` for the OpenAI SDKs, Aider and Continue, and for OpenCode and Cline with tool calling turned on, through the same pipeline under the `code` profile
+- [x] [Tool calling on /v1](features.md#tool-calling) — OpenCode and Cline in agent mode; every tool call decided by the action policy before the client sees it; off by default (`V1_TOOLS_ENABLED`)
+- [x] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations. Built in [PRD-016](features.md#action-policy-rules) and decided on every `/v1` tool call since PRD-017
 - [x] [Audit fields and usage limits](features.md#usage-limits) — per-user token budget and rate limit, shared across instances; ingress, token split and conversation key on every audit row; `ADMIN_TOKEN` scoped by ingress
 
 ### Next up — resilience
@@ -34,7 +36,6 @@ This is the first work beyond the Turso migration, called out as such in [The da
 
 - [ ] Semantic (not just exact-match) duplicate detection
 - [ ] [MCP servers and agent skills](#mcp-servers-and-agent-skills) — code-writing tools behind the same pipeline
-- [ ] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations. The engine and its audit are built ([PRD-016](features.md#action-policy-rules)); the box stays unticked until tool calling on `/v1` (PRD-017) calls it
 
 Everything below this line is **intended direction, not current behavior**, except where a section says it has shipped. Ingresses today: `POST /query`, the chat UI and `POST /v1/chat/completions`.
 
@@ -47,9 +48,9 @@ OPENAI_BASE_URL=http://localhost:8000/v1
 OPENAI_API_KEY=<harness token, never the OpenRouter key>
 ```
 
-It is a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate, pattern, PII, OpenRouter and audit flow, runs the `code` profile, and maps a block back onto the standard's error shape, so the calling tool shows an ordinary API error instead of a malformed completion. The harness is the only component holding the real OpenRouter key. `stream: true` is answered after the whole response has been checked (buffered upstream and re-emitted as SSE), which is streaming-shaped, not streaming-latency. `ADMIN_TOKEN` is never accepted there. Settings: `V1_ENABLED`, `V1_SSE_KEEPALIVE_SECONDS`, `OPENROUTER_BASE_URL` (documented in `.env.example`).
+It is a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate, pattern, PII, OpenRouter and audit flow, runs the `code` profile, and maps a block back onto the standard's error shape, so the calling tool shows an ordinary API error instead of a malformed completion. The harness is the only component holding the real OpenRouter key. `stream: true` is answered after the whole response has been checked (buffered upstream and re-emitted as SSE), which is streaming-shaped, not streaming-latency. `ADMIN_TOKEN` is never accepted there. Settings: `V1_ENABLED`, `V1_SSE_KEEPALIVE_SECONDS`, `OPENROUTER_BASE_URL`, `V1_TOOLS_ENABLED`, `V1_TOOL_MODELS` (documented in `.env.example`).
 
-**Not yet:** a request that carries `tools`, `tool_calls` or a `tool` turn is refused with `tools_not_supported`. That is [PRD-017](../pre-prds/PRE-PRD-016-tool-calling.md), and it is what Cline and OpenCode need in agent mode.
+**Tool calling (PRD-017).** With `V1_TOOLS_ENABLED=true`, `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns are accepted, which is what Cline and OpenCode need in agent mode, and every call the model returns is decided before it is released. Off, the default, keeps the `tools_not_supported` refusal. See [Tool calling](features.md#tool-calling). **Still not covered:** `functions` / `function_call` (refused either way) and real streaming (the stream is still buffered).
 
 ### MCP servers and agent skills
 
@@ -59,7 +60,7 @@ The plan is to extend interception down to the tool layer:
 
 - **[MCP](https://modelcontextprotocol.io) servers behind the harness** — the harness fronts one or more MCP servers, so tool discovery and every `tools/call` pass through it and land in the audit log next to the prompts that caused them.
 - **Skills** — packaged capabilities (write code, open a pull request, run a migration) exposed through that same interception point, so what an agent is allowed to do becomes a deployment decision rather than a client-side one.
-- **Tool-call auditing** — one row per call: tool name, arguments, user, allowed or denied. The current `audit_logs` schema records prompts and responses only, so this needs a schema addition.
+- **Tool-call auditing** — one row per call: tool name, arguments, user, allowed or denied. That record now exists for `/v1` tool calls (`action_decisions`, linked to the request's audit row by `audit_id`); MCP `tools/call` would reuse it.
 
 ### Action policy rules
 
@@ -75,10 +76,10 @@ The piece that makes the above safe to enable: a deny-by-default rule set evalua
 
 The design intent carries over from the existing checks: a denial short-circuits **before** the action happens, returns a `reason` string the calling agent can display, and is logged with the same rigor as an allowed call — the audit trail has to show what was attempted, not only what succeeded.
 
-**Built (PRD-016), not yet called.** The table above is now the built catalogue: 25 rules, a pure engine that decides a tool call as *allow*, *flag* or *deny*, six `action:*` permissions that no built-in role holds, a policy file (`ACTION_POLICY_FILE`, with [`examples/action_policy.yaml`](../examples/action_policy.yaml)), an `action_decisions` audit table, `GET /audit/actions`, an **Actions** view in the admin console, and corpora of synthetic and evasion calls that no role can get past. What it does and does not cover is in [Features: Action policy rules](features.md#action-policy-rules). The harness never executes a tool; it classifies a call the model proposed.
+**Built (PRD-016), called by `/v1` (PRD-017).** The table above is now the built catalogue: 25 rules, a pure engine that decides a tool call as *allow*, *flag* or *deny*, six `action:*` permissions that no built-in role holds, a policy file (`ACTION_POLICY_FILE`, with [`examples/action_policy.yaml`](../examples/action_policy.yaml)), an `action_decisions` audit table, `GET /audit/actions`, an **Actions** view in the admin console, and corpora of synthetic and evasion calls that no role can get past. What it does and does not cover is in [Features: Action policy rules](features.md#action-policy-rules). The harness never executes a tool; it classifies a call the model proposed.
 
-**What PRD-017 adds.** Nothing in the request path calls the engine yet: `/v1` still refuses `tools`. PRD-017 accepts them, evaluates each `tool_call` before the response leaves the harness, decides what a denial looks like on the wire and what happens to a response that mixes allowed and denied calls, links each decision to its `audit_id`, and rewords the Actions view's empty state. Until then the checkbox above stays unticked.
+**What PRD-017 added.** With `V1_TOOLS_ENABLED=true`, `/v1` accepts `tools` and tool turns and evaluates each `tool_call` after the model answered and before the response leaves the harness. A denied call is dropped and replaced by a note in the content, the others are released in order (`finish_reason` is `tool_calls` while one is released, `stop` when none survived), and each decision is linked to its request by `audit_id` (`GET /audit/actions?audit_id=`). If the decisions cannot be recorded, nothing is released and the request fails with a retryable `500`. The Actions view's empty state now says decisions are recorded only while the flag is on. See [Tool calling](features.md#tool-calling).
 
-These rules are per-deployment configuration, which made *Configurable, per-deployment pattern lists* a prerequisite rather than an independent nice-to-have. That prerequisite has shipped, see [Pattern policy](features.md#pattern-policy), and so has the record the rules act on: a tool result carrying a planted instruction is flagged in the audit and still reaches the model, and these rules are what will stop the model acting on it. RBAC pairs with them: the same `DELETE` can be denied for one role and allowed for another, through the `action:*` permissions in the role matrix of `app/services/authz.py`, which extends the deny-by-default model from prompts to tool calls.
+These rules are per-deployment configuration, which made *Configurable, per-deployment pattern lists* a prerequisite rather than an independent nice-to-have. That prerequisite has shipped, see [Pattern policy](features.md#pattern-policy), and so has the record the rules act on: a tool result carrying a planted instruction is flagged in the audit and still reaches the model, and these rules are what stop the model acting on it. RBAC pairs with them: the same `DELETE` can be denied for one role and allowed for another, through the `action:*` permissions in the role matrix of `app/services/authz.py`, which extends the deny-by-default model from prompts to tool calls.
 
 ---

@@ -14,7 +14,7 @@ written twice is an error)::
 
     tool_call: {name: <str>, arguments: '<the JSON text a model would emit>'}
     policy: built_in | example
-    client: OpenCode | Cline 4.x | Cline 3.x | MCP
+    client: OpenCode | OpenCode 2.x | Cline 4.x | Cline 3.x | MCP
     category: brief | rule | ordinary
     expect: {user: <decision>, dba: <decision>, admin: <decision>}  # `user` required
     rule: <the rule id reported for every role named>
@@ -142,7 +142,8 @@ _IDENTITIES = MappingProxyType({role: Identity(f"corpus-{role}", role) for role 
 _DBA_PERMISSIONS = frozenset({"query:submit", "action:sql:write"})
 
 #: Closed vocabularies of the file format.
-_CLIENTS = ("OpenCode", "Cline 4.x", "Cline 3.x", "MCP")
+# PRD-017 STORY-001: "OpenCode 2.x" is the client cell of the OpenCode 2.0.10 SOURCES.md table.
+_CLIENTS = ("OpenCode", "OpenCode 2.x", "Cline 4.x", "Cline 3.x", "MCP")
 _CATEGORIES = ("brief", "rule", "ordinary")
 _POLICY_NAMES = ("built_in", "example")
 _REQUIRED_KEYS = frozenset({"tool_call", "policy", "client", "category", "expect", "rule", "note"})
@@ -455,11 +456,13 @@ def test_ordinary_agent_work_is_never_denied():
     all_allow = [case for case in ordinary if set(case.expect.values()) == {"allow"}]
 
     for case in ordinary:
-        assert case.client in ("OpenCode", "Cline 4.x", "Cline 3.x"), case.path.name
+        # PRD-017 STORY-001: "OpenCode 2.x" joined the agent clients (SOURCES.md "OpenCode 2.x").
+        assert case.client in ("OpenCode", "OpenCode 2.x", "Cline 4.x", "Cline 3.x"), case.path.name
         assert "deny" not in case.expect.values(), case.path.name
         assert set(case.expect) == set(_ROLES), case.path.name
     assert len(all_allow) >= 15, f"{len(all_allow)} ordinary files allowed for every role"
-    for agent in ("OpenCode", "Cline 4.x", "Cline 3.x"):
+    # PRD-017 STORY-001: and OpenCode 2.x, which has ordinary allow files of its own.
+    for agent in ("OpenCode", "OpenCode 2.x", "Cline 4.x", "Cline 3.x"):
         assert any(case.client == agent for case in all_allow), agent
 
 

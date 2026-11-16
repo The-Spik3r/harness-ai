@@ -1,0 +1,89 @@
+{
+  "default": {
+    "content": "stub_openrouter: opencode.json matched no rule, stopping."
+  },
+  "rules": [
+    {
+      "regex": "E2E-OPENCODE-DROP",
+      "last_role": "user",
+      "advertises": "shell",
+      "tool_calls": [
+        {
+          "id": "call_drop",
+          "name": "shell",
+          "arguments": "{\"command\":\"sqlite3 app.db \\\"DROP TABLE users\\\"\"}"
+        }
+      ]
+    },
+    {
+      "regex": "E2E-OPENCODE-TASK",
+      "last_role": "user",
+      "advertises": "shell",
+      "tool_calls": [
+        {
+          "id": "call_read_calc",
+          "name": "read",
+          "arguments": "{\"path\":\"@REPO@/src/calc.py\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "read",
+      "contains": "def add",
+      "tool_calls": [
+        {
+          "id": "call_edit_calc",
+          "name": "edit",
+          "arguments": "{\"path\":\"@REPO@/src/calc.py\",\"oldString\":\"return a - b\",\"newString\":\"return a + b\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "edit",
+      "regex": "",
+      "tool_calls": [
+        {
+          "id": "call_write_test",
+          "name": "write",
+          "arguments": "{\"path\":\"@REPO@/tests/test_calc.py\",\"content\":\"import unittest\\n\\nfrom src.calc import add\\n\\n\\nclass AddTest(unittest.TestCase):\\n    def test_add(self):\\n        self.assertEqual(add(2, 3), 5)\\n\\n\\nif __name__ == \\\"__main__\\\":\\n    unittest.main()\\n\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "write",
+      "regex": "",
+      "tool_calls": [
+        {
+          "id": "call_unittest",
+          "name": "shell",
+          "arguments": "{\"command\":\"python -m unittest -q\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "shell",
+      "regex": "(?m)^OK",
+      "content": "E2E-OPENCODE-DONE: add() fixed and the tests pass."
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "shell",
+      "regex": "",
+      "content": "E2E-OPENCODE-FAILED: the tests did not pass."
+    },
+    {
+      "regex": "",
+      "last_role": "user",
+      "content": "E2E OpenCode run"
+    }
+  ]
+}

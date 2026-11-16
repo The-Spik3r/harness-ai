@@ -3,15 +3,23 @@
 No DB. Each example below is the PRD's, copied verbatim with concrete values
 where the PRD shows an ellipsis. The OpenAI SDK block at the end is skipped
 when `openai` is not installed (it is a test-only dependency, STORY-015).
+
+PRD-017 STORY-011: the released tool calls (`message.tool_calls`, `content: null`)
+and `harness.actions` against PRD-017 Section 10; each is absent unless a call was
+evaluated (D10), and `tool_calls: null` is kept when every call was denied.
 """
 
 import json
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
 from app.models.v1_schemas import (
     CHAT_COMPLETION_ID_PREFIX,
+    CompletionToolCall,
+    HarnessAction,
+    ToolCallFunction,
     AssistantMessage,
     ChatCompletion,
     ChatCompletionChunk,
@@ -19,6 +27,7 @@ from app.models.v1_schemas import (
     Choice,
     ChunkChoice,
     ChunkDelta,
+    ChunkToolCall,
     ErrorDetail,
     ErrorResponse,
     HarnessCompletionInfo,
@@ -256,7 +265,9 @@ def test_chat_completion_id_is_the_one_derivation():
     assert chat_completion_id(1).startswith(CHAT_COMPLETION_ID_PREFIX)
 
 
-@pytest.mark.parametrize("value", ["tool_calls", "error", ""])
+# PRD-017 Section 6.6 (DD-2): "tool_calls" is now a FinishReason the release sets;
+# "function_call" (the deprecated API's) is still refused.
+@pytest.mark.parametrize("value", ["function_call", "error", ""])
 def test_completion_refuses_an_unknown_finish_reason(value):
     # The translator (STORY-009) maps anything else the upstream sends to "stop".
     with pytest.raises(ValidationError):
@@ -352,3 +363,172 @@ def test_openai_sdk_validates_each_chunk(build, expected):
 
     assert parsed.id == "chatcmpl-harness-1842"
     assert len(parsed.choices) == len(expected["choices"])
+
+
+# --- PRD-017 STORY-011: released tool calls and harness.actions --------------
+
+_ARGS_1 = '{"path":"a\\"b.py"}'
+_ARGS_2 = '{"command": "ls  -la"}'
+
+
+def _calls():
+    return [
+        CompletionToolCall(id="call_1", function=ToolCallFunction(name="read", arguments=_ARGS_1)),
+        CompletionToolCall(id="call_2", function=ToolCallFunction(name="bash", arguments=_ARGS_2)),
+    ]
+
+
+def _released_completion(**message):
+    completion = _completion()
+    completion.choices[0] = Choice(
+        message=AssistantMessage(**message), finish_reason="tool_calls"
+    )
+    return completion
+
+
+def test_text_only_message_has_no_tool_calls_key():
+    for dumped in _all_dumps(AssistantMessage(content="x")):
+        assert dumped == {"role": "assistant", "content": "x"}
+    for dumped in _all_dumps(HarnessCompletionInfo(audit_id=1)):
+        assert "actions" not in dumped
+
+
+def test_explicit_null_tool_calls_is_kept():
+    for dumped in _all_dumps(AssistantMessage(content="note", tool_calls=None)):
+        assert dumped == {"role": "assistant", "content": "note", "tool_calls": None}
+
+
+def test_released_calls_serialize_in_the_section_10_shape():
+    message = AssistantMessage(content=None, tool_calls=_calls())
+    expected = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {"name": "read", "arguments": _ARGS_1}},
+            {"id": "call_2", "type": "function", "function": {"name": "bash", "arguments": _ARGS_2}},
+        ],
+    }
+
+    for dumped in _all_dumps(message):
+        assert dumped == expected
+    # The string survives the JSON text as one escaped string, not re-serialized (D13).
+    assert json.dumps(_ARGS_1) in message.model_dump_json()
+
+
+def test_harness_actions_serialize_one_entry_per_decision():
+    info = HarnessCompletionInfo(
+        audit_id=412,
+        actions=[
+            HarnessAction(
+                tool_call_id="call_1", tool_name="read", decision="allow", rule="default.allow",
+                reason="no rule matched",
+            ),
+            HarnessAction(
+                tool_call_id="call_2", tool_name="shell", decision="deny", rule="sql.ddl",
+                reason="DDL via shell",
+            ),
+        ],
+    )
+
+    for dumped in _all_dumps(info):
+        assert dumped == {
+            "audit_id": 412,
+            "pii_redacted": False,
+            "pii_entities_masked": [],
+            "actions": [
+                {"tool_call_id": "call_1", "tool_name": "read", "decision": "allow",
+                 "rule": "default.allow", "reason": "no rule matched"},
+                {"tool_call_id": "call_2", "tool_name": "shell", "decision": "deny",
+                 "rule": "sql.ddl", "reason": "DDL via shell"},
+            ],
+        }
+
+
+def test_harness_action_decisions_are_the_policy_vocabulary():
+    from app.services import action_classifiers
+
+    assert set(get_args(HarnessAction.model_fields["decision"].annotation)) == set(
+        action_classifiers.DECISIONS
+    )
+
+
+def test_openai_sdk_parses_released_calls():
+    openai = pytest.importorskip("openai")
+    completion = _released_completion(content=None, tool_calls=_calls())
+    completion.harness = HarnessCompletionInfo(
+        audit_id=1842,
+        actions=[
+            HarnessAction(tool_call_id="call_1", tool_name="read", decision="allow", rule="r", reason="x"),
+            HarnessAction(tool_call_id="call_2", tool_name="bash", decision="flag", rule="r", reason="y"),
+        ],
+    )
+
+    parsed = openai.types.chat.ChatCompletion.model_validate(json.loads(completion.model_dump_json()))
+
+    message = parsed.choices[0].message
+    assert message.content is None
+    assert parsed.choices[0].finish_reason == "tool_calls"
+    assert [c.id for c in message.tool_calls] == ["call_1", "call_2"]
+    assert [c.function.name for c in message.tool_calls] == ["read", "bash"]
+    assert [c.function.arguments for c in message.tool_calls] == [_ARGS_1, _ARGS_2]
+    assert len(parsed.model_extra["harness"]["actions"]) == 2
+
+
+def test_openai_sdk_parses_null_tool_calls():
+    openai = pytest.importorskip("openai")
+    completion = _released_completion(content="[harness] denied", tool_calls=None)
+    completion.choices[0].finish_reason = "stop"
+
+    parsed = openai.types.chat.ChatCompletion.model_validate(json.loads(completion.model_dump_json()))
+
+    assert parsed.choices[0].message.tool_calls is None
+    assert parsed.choices[0].message.content == "[harness] denied"
+
+
+# --- PRD-017 STORY-012: tool-call deltas (Section 6.6, DD-1) -----------------
+
+
+def _tool_call_chunk(index=1, call_id="call_2", name="bash", arguments=_ARGS_2):
+    call = ChunkToolCall(index=index, id=call_id, function=ToolCallFunction(name=name, arguments=arguments))
+    return _chunk([ChunkChoice(delta=ChunkDelta(tool_calls=[call]))])
+
+
+def _null_role_chunk():
+    return _chunk([ChunkChoice(delta=ChunkDelta(role="assistant", content=None))])
+
+
+def test_role_chunk_keeps_an_explicit_null_content():
+    for dumped in _all_dumps(_null_role_chunk()):
+        assert dumped["choices"][0]["delta"] == {"role": "assistant", "content": None}
+
+
+def test_tool_call_chunk_matches_section_6_6():
+    expected = {
+        "tool_calls": [
+            {"index": 1, "id": "call_2", "type": "function", "function": {"name": "bash", "arguments": _ARGS_2}}
+        ]
+    }
+    for dumped in _all_dumps(_tool_call_chunk()):
+        assert dumped["choices"][0]["delta"] == expected
+        assert dumped["choices"][0]["finish_reason"] is None
+    wire = json.loads(_tool_call_chunk().model_dump_json())
+    assert list(wire["choices"][0]["delta"]["tool_calls"][0]) == ["index", "id", "type", "function"]
+    # D13: the arguments string goes out byte for byte.
+    assert json.dumps(_ARGS_1) in _tool_call_chunk(0, "call_1", "read", _ARGS_1).model_dump_json()
+
+
+def test_unset_delta_keys_are_dropped():
+    assert ChunkDelta().model_dump() == {}
+    assert "tool_calls" not in ChunkDelta(role="assistant", content="x").model_dump()
+    assert ChunkDelta(role="assistant", content="x").model_dump() == {"role": "assistant", "content": "x"}
+
+
+def test_openai_sdk_validates_the_tool_call_chunk():
+    openai = pytest.importorskip("openai")
+    from openai.types.chat import ChatCompletionChunk as SdkChunk
+
+    parsed = SdkChunk.model_validate(json.loads(_tool_call_chunk().model_dump_json()))
+    call = parsed.choices[0].delta.tool_calls[0]
+    assert (call.index, call.id, call.function.name, call.function.arguments) == (1, "call_2", "bash", _ARGS_2)
+    role = SdkChunk.model_validate(json.loads(_null_role_chunk().model_dump_json()))
+    assert role.choices[0].delta.content is None

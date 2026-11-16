@@ -9,11 +9,12 @@ import httpx
 import pytest
 
 from app.config import settings
-from app.models.messages import Message
+from app.models.messages import Message, ToolCallSpec
 from app.services.openrouter_client import (
     GenerationParams,
     OpenRouterError,
     OpenRouterResult,
+    ToolParams,
     UnsupportedParameterError,
     call_openrouter,
 )
@@ -436,7 +437,9 @@ def test_three_positional_arguments_still_construct_a_result():
 def test_the_split_fields_are_declared_last_and_in_order():
     assert [f.name for f in dataclasses.fields(OpenRouterResult)] == [
         # PRD-015 STORY-002 appends finish_reason after the split.
+        # PRD-017 STORY-004 (D5, Section 6.9): tool_calls appended last with a default.
         "response", "model_used", "tokens_used", "input_tokens", "output_tokens", "finish_reason",
+        "tool_calls",
     ]
 
 
@@ -607,3 +610,316 @@ def test_base_url_is_read_per_call_not_cached_at_import(monkeypatch):
         "http://127.0.0.1:9100/v1/chat/completions",
         "http://localhost:9200/v1/chat/completions",
     ]
+
+
+# --- PRD-017 STORY-004: tool calls upstream ---
+
+_TOOLS = [{"type": "function", "function": {"name": "bash", "parameters": {"type": "object"}}}]
+_NASTY_ARGS = '{"p":"C:\\\\x\\n", "email":"a@b.co"} '
+_SHAPE = "OpenRouter returned an unexpected response shape: "
+
+
+def _tool_call_response(content, tool_calls, finish_reason="tool_calls", usage=None):
+    request = httpx.Request("POST", _API_URL)
+    message = {"content": content}
+    if tool_calls is not ...:
+        message["tool_calls"] = tool_calls
+    payload = {
+        "choices": [{"message": message, "finish_reason": finish_reason}],
+        "usage": usage or {"total_tokens": 12, "prompt_tokens": 7, "completion_tokens": 5},
+    }
+    return httpx.Response(200, request=request, json=payload)
+
+
+def _entry(call_id="call_1", name="bash", arguments='{"command":"ls"}', **extra):
+    entry = {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+    entry.update(extra)
+    return entry
+
+
+def _send(client, tools=ToolParams(tools=_TOOLS), messages=None):
+    return call_openrouter(messages or [Message("user", "hi")], "m", "k", client=client, tools=tools)
+
+
+def test_tool_params_reach_the_payload_exactly_as_given():
+    client = _FakeClient(response=_response())
+    tp = ToolParams(tools=_TOOLS, tool_choice="auto", parallel_tool_calls=False)
+
+    call_openrouter([Message("user", "hi")], "gpt-4", "k", client=client, tools=tp)
+
+    payload = client.requests[0]["json"]
+    expected = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": _TOOLS,
+        "tool_choice": "auto",
+        "parallel_tool_calls": False,
+    }
+    assert json.dumps(payload, sort_keys=False) == json.dumps(expected, sort_keys=False)
+    assert payload["tools"] is tp.tools
+    assert payload["parallel_tool_calls"] is False
+
+
+@pytest.mark.parametrize(
+    "choice",
+    ["none", "auto", "required", {"type": "function", "function": {"name": "bash"}}],
+)
+def test_each_tool_choice_form_is_sent_as_given(choice):
+    client = _FakeClient(response=_response())
+
+    _send(client, ToolParams(tools=_TOOLS, tool_choice=choice))
+
+    assert client.requests[0]["json"]["tool_choice"] == choice
+
+
+def test_a_none_tool_field_is_not_sent():
+    client = _FakeClient(response=_response())
+
+    _send(client, ToolParams(tools=_TOOLS))
+
+    payload = client.requests[0]["json"]
+    assert "tool_choice" not in payload
+    assert "parallel_tool_calls" not in payload
+    assert payload["tools"] == _TOOLS
+
+
+def test_without_tools_the_payload_is_byte_identical_to_a_recorded_one():
+    client = _FakeClient(response=_response())
+    messages = [Message("system", "be brief"), Message("user", "hi"), Message("assistant", "hello")]
+
+    call_openrouter(
+        messages, "gpt-4", "k", params=GenerationParams(temperature=0.2, stop=["x"]), client=client
+    )
+
+    recorded = (
+        '{"model": "gpt-4", "messages": [{"role": "system", "content": "be brief"}, '
+        '{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}], '
+        '"temperature": 0.2, "stop": ["x"]}'
+    )
+    assert json.dumps(client.requests[0]["json"], sort_keys=False) == recorded
+
+
+def test_tools_is_keyword_only():
+    client = _FakeClient(response=_response())
+
+    with pytest.raises(TypeError):
+        call_openrouter([Message("user", "hi")], "m", "k", None, client, ToolParams(tools=_TOOLS))
+
+
+def test_generation_params_still_refuse_tools():
+    # PRD-010 T5: ToolParams is its own keyword, the allowlist did not widen.
+    with pytest.raises(UnsupportedParameterError, match="tools"):
+        GenerationParams.from_mapping({"tools": []})
+
+
+def test_assistant_tool_call_turn_serializes_with_null_content():
+    client = _FakeClient(response=_response())
+    msgs = [
+        Message("user", "ls"),
+        Message("assistant", "", (ToolCallSpec("call_1", "bash", '{"command":"ls"}'),)),
+    ]
+
+    call_openrouter(msgs, "m", "k", client=client)
+
+    wire = client.requests[0]["json"]["messages"][1]
+    expected = (
+        '{"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", '
+        '"type": "function", "function": {"name": "bash", "arguments": "{\\"command\\":\\"ls\\"}"}}]}'
+    )
+    assert json.dumps(wire, sort_keys=False) == expected
+
+
+def test_assistant_tool_call_turn_keeps_its_content_string():
+    client = _FakeClient(response=_response())
+    msgs = [Message("assistant", "thinking", (ToolCallSpec("call_1", "bash", "{}"),))]
+
+    call_openrouter(msgs, "m", "k", client=client)
+
+    assert client.requests[0]["json"]["messages"][0]["content"] == "thinking"
+
+
+def test_tool_turn_serializes_with_tool_call_id_before_content():
+    client = _FakeClient(response=_response())
+
+    call_openrouter([Message("tool", "app.db", tool_call_id="call_1")], "m", "k", client=client)
+
+    wire = client.requests[0]["json"]["messages"][0]
+    assert json.dumps(wire, sort_keys=False) == (
+        '{"role": "tool", "tool_call_id": "call_1", "content": "app.db"}'
+    )
+
+
+def test_arguments_string_is_sent_byte_for_byte():
+    client = _FakeClient(response=_response())
+    spec = ToolCallSpec("call_1", "bash", _NASTY_ARGS)
+
+    call_openrouter([Message("assistant", "", (spec,))], "m", "k", client=client)
+
+    sent = client.requests[0]["json"]["messages"][0]["tool_calls"][0]["function"]["arguments"]
+    assert sent == _NASTY_ARGS
+    assert sent is spec.arguments
+
+
+def test_empty_assistant_turn_without_calls_keeps_empty_string_content():
+    client = _FakeClient(response=_response())
+
+    call_openrouter([Message("assistant", "")], "m", "k", client=client)
+
+    assert client.requests[0]["json"]["messages"][0] == {"role": "assistant", "content": ""}
+
+
+def test_null_content_with_calls_parses_to_empty_response_and_ordered_calls():
+    client = _FakeClient(
+        response=_tool_call_response(
+            None, [_entry("call_1", "bash", _NASTY_ARGS), _entry("call_2", "read", "{}")]
+        )
+    )
+
+    result = _send(client)
+
+    assert result.response == ""
+    assert result.tool_calls == (
+        ToolCallSpec("call_1", "bash", _NASTY_ARGS),
+        ToolCallSpec("call_2", "read", "{}"),
+    )
+    assert result.tool_calls[0].arguments == _NASTY_ARGS
+    assert result.finish_reason == "tool_calls"
+
+
+def test_text_with_calls_keeps_both():
+    client = _FakeClient(response=_tool_call_response("let me look", [_entry()]))
+
+    result = _send(client)
+
+    assert result.response == "let me look"
+    assert len(result.tool_calls) == 1
+
+
+@pytest.mark.parametrize("variant", ["absent", "null"])
+def test_a_call_without_a_type_is_accepted(variant):
+    entry = _entry()
+    if variant == "absent":
+        del entry["type"]
+    else:
+        entry["type"] = None
+    client = _FakeClient(response=_tool_call_response(None, [entry]))
+
+    assert _send(client).tool_calls == (ToolCallSpec("call_1", "bash", '{"command":"ls"}'),)
+
+
+def test_usage_and_split_are_read_on_a_tool_call_response():
+    client = _FakeClient(response=_tool_call_response(None, [_entry()]))
+
+    result = _send(client)
+
+    assert (result.tokens_used, result.input_tokens, result.output_tokens) == (12, 7, 5)
+
+
+def test_a_tool_call_response_without_usage_total_still_fails():
+    client = _FakeClient(response=_tool_call_response(None, [_entry()], usage={"prompt_tokens": 1}))
+
+    with pytest.raises(OpenRouterError, match="unexpected response shape"):
+        _send(client)
+
+
+def test_tools_sent_and_no_tool_calls_key_returns_text_without_calls():
+    client = _FakeClient(response=_tool_call_response("hi", ..., finish_reason="stop"))
+
+    result = _send(client)
+
+    assert result.response == "hi"
+    assert result.tool_calls == ()
+
+
+def test_tools_sent_and_empty_tool_calls_returns_text_without_calls():
+    client = _FakeClient(response=_tool_call_response("hi", [], finish_reason="stop"))
+
+    assert _send(client).tool_calls == ()
+
+
+def test_tools_sent_and_null_content_with_null_tool_calls_is_the_no_text_error():
+    client = _FakeClient(response=_tool_call_response(None, None, finish_reason="stop"))
+
+    with pytest.raises(OpenRouterError, match=r"returned no text content \(finish_reason=stop\)") as exc_info:
+        _send(client)
+
+    assert "PRD-017" not in str(exc_info.value)
+
+
+def test_empty_tool_calls_with_null_content_is_an_error_and_keeps_the_d18_note():
+    # Pinned on purpose (PRD-017 D18): the no-text branch is byte-identical, so
+    # its note condition (tool_calls is not None) also fires for [] under tools=.
+    client = _FakeClient(response=_tool_call_response(None, [], finish_reason="stop"))
+
+    with pytest.raises(OpenRouterError, match=r"tool calls are not supported \(PRD-017\)"):
+        _send(client)
+
+
+def test_tool_calls_without_tools_sent_keep_the_d18_error_exactly():
+    client = _FakeClient(response=_tool_call_response(None, [_entry()]))
+
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter([Message("user", "hi")], "m", "k", client=client)
+
+    assert str(exc_info.value) == (
+        "OpenRouter returned no text content (finish_reason=tool_calls); "
+        "tool calls are not supported (PRD-017)"
+    )
+    assert exc_info.value.retryable is False
+
+
+def test_text_with_calls_without_tools_sent_ignores_the_calls():
+    client = _FakeClient(response=_tool_call_response("hi", [_entry()]))
+
+    result = call_openrouter([Message("user", "hi")], "m", "k", client=client)
+
+    assert result.response == "hi"
+    assert result.tool_calls == ()
+
+
+@pytest.mark.parametrize(
+    "calls, path",
+    [
+        ({}, "choices[0].message.tool_calls is not a list"),
+        ("x", "choices[0].message.tool_calls is not a list"),
+        (["x"], "choices[0].message.tool_calls[0] is not an object"),
+        ([{"type": "function", "function": {"name": "a", "arguments": "{}"}}], "tool_calls[0].id must be a non-empty string"),
+        ([_entry(call_id="")], "tool_calls[0].id must be a non-empty string"),
+        ([_entry(call_id=7)], "tool_calls[0].id must be a non-empty string"),
+        ([_entry(type="custom")], 'tool_calls[0].type must be "function"'),
+        ([_entry(type="")], 'tool_calls[0].type must be "function"'),
+        ([{"id": "c", "type": "function"}], "tool_calls[0].function is not an object"),
+        ([{"id": "c", "type": "function", "function": "bash"}], "tool_calls[0].function is not an object"),
+        ([_entry(name="")], "tool_calls[0].function.name must be a non-empty string"),
+        ([{"id": "c", "function": {"arguments": "{}"}}], "tool_calls[0].function.name must be a non-empty string"),
+        ([_entry(arguments={"command": "ls"})], "tool_calls[0].function.arguments must be a string"),
+        ([_entry(arguments=None)], "tool_calls[0].function.arguments must be a string"),
+        ([_entry(arguments=3)], "tool_calls[0].function.arguments must be a string"),
+        ([{"id": "c", "function": {"name": "a"}}], "tool_calls[0].function.arguments must be a string"),
+        ([_entry("dup"), _entry("dup")], "tool_calls[1].id repeats an earlier id in this response"),
+    ],
+)
+def test_malformed_tool_calls_are_a_non_retryable_shape_error(calls, path):
+    client = _FakeClient(response=_tool_call_response(None, calls))
+
+    with pytest.raises(OpenRouterError) as exc_info:
+        _send(client)
+
+    assert str(exc_info.value).startswith(_SHAPE)
+    assert path in str(exc_info.value)
+    assert exc_info.value.retryable is False
+    assert exc_info.value.upstream_status is None
+
+
+def test_a_shape_error_never_contains_a_value():
+    secret = "SENTINEL-secret-value"
+    cases = [
+        [_entry(call_id=secret, type=secret)],
+        [_entry(name=secret, arguments={"k": secret})],
+        [_entry(secret, "n", secret), _entry(secret, "n", secret)],
+    ]
+    for calls in cases:
+        client = _FakeClient(response=_tool_call_response(None, calls))
+        with pytest.raises(OpenRouterError) as exc_info:
+            _send(client)
+        assert secret not in str(exc_info.value)

@@ -5,17 +5,34 @@ become a `Message(role, content: str)` here, and nothing past `normalize_*`
 ever sees a part list or a `None`. Pure on purpose: no I/O, no settings, no
 pydantic, no `app` import. The pipeline (STORY-004/007), chat history
 (STORY-011) and PRD-011..014 build on this module; PRD-014 is the first ingress
-that calls the normalizer.
+that calls the normalizer. PRD-017 D5 adds the tool fields (`tool_calls` on an
+assistant turn, `tool_call_id` on a tool turn) to the same shape.
 """
 
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping, Sequence, get_args
+from typing import Any, Literal, Mapping, Optional, Sequence, get_args
 
-# `tool` is valid on purpose, so PRD-016 does not have to widen the type. The
-# pipeline refuses it structurally (STORY-007), as `dedup_key` already does.
+# `tool` is valid on purpose, so PRD-017 (tool calling) does not have to widen
+# the type. Tool turns normalize (D5), and the pipeline accepts them under the
+# D6 shape rules (`conversation_shape_violation`).
 Role = Literal["system", "user", "assistant", "tool"]
 
 _ROLES = frozenset(get_args(Role))
+
+
+@dataclass(frozen=True)
+class ToolCallSpec:
+    """One tool call on an assistant turn (PRD-017 Section 6.2, D5).
+
+    Deliberately not `action_adapters.ToolCall`: this module imports nothing from
+    `app`. A test keeps the field names aligned with it.
+    """
+
+    id: str
+    name: str
+    # The raw JSON string, exactly as the model emitted it; never parsed,
+    # stripped or re-serialized (PRD-012's contract, PRD-017 D13).
+    arguments: str
 
 
 @dataclass(frozen=True)
@@ -24,10 +41,65 @@ class Message:
 
     Deliberately unvalidated: `run_query` builds `Message("user", prompt)` for
     any prompt `/query` accepts. Validation lives at the edge, in the normalizer.
+    The tool fields (PRD-017 D5) are unvalidated here too: per-message shape is
+    the normalizer's job, cross-message shape (D6) is `conversation_shape_violation`'s.
     """
 
     role: Role
     content: str
+    tool_calls: tuple[ToolCallSpec, ...] = ()  # assistant only
+    tool_call_id: Optional[str] = None  # tool only
+
+
+_TOOL_FOLLOWS = "a tool turn must follow an assistant turn with tool_calls, with only tool turns between"
+_TOOL_ID_UNKNOWN = "tool_call_id is not an id of the preceding assistant turn's tool_calls"
+_TOOL_ID_REPEATED = "tool_call_id answers a call that was already answered"
+_LAST_TURN = "the last message must be a user or tool turn"
+_NEEDS_USER = "the conversation must contain a user turn"
+
+
+def conversation_shape_violation(messages: Sequence[Message]) -> Optional[tuple[int, str]]:
+    """The first cross-message shape violation as `(index, rule)`, or None (PRD-017 D6, Section 6.3).
+
+    Shared by step 0 (`InvalidConversationError`) and the `/v1` edge (STORY-008,
+    `V1RequestError`) so the two cannot drift. The caller formats
+    `messages[{index}]: {rule}`. The rule names the rule only, never a turn's
+    content or an id (PRD-015 T6). Non-empty is the caller's check (its location
+    is `messages`, not `messages[i]`), so `[]` returns None.
+
+    Rules: a `tool` turn answers a call of the nearest preceding assistant turn
+    with `tool_calls`, with only `tool` turns between; its `tool_call_id` is one
+    of that turn's ids and is answered once; the last turn is `user` or `tool`;
+    and the conversation contains a `user` turn (the dedup and conversation keys
+    anchor on one). Not every call need be answered.
+    """
+    open_ids: Optional[frozenset[str]] = None
+    answered: set[str] = set()
+    for index, message in enumerate(messages):
+        if message.role == "tool":
+            if open_ids is None:
+                return index, _TOOL_FOLLOWS
+            if message.tool_call_id not in open_ids:
+                return index, _TOOL_ID_UNKNOWN
+            # "Answered once" is scoped to its assistant turn: some providers
+            # reuse ids like `call_0` every round, and a later round may answer
+            # `call_0` again.
+            if message.tool_call_id in answered:
+                return index, _TOOL_ID_REPEATED
+            answered.add(message.tool_call_id)
+        elif message.role == "assistant" and message.tool_calls:
+            open_ids = frozenset(call.id for call in message.tool_calls)
+            answered = set()
+        else:
+            open_ids = None
+    if not messages:
+        return None
+    last = len(messages) - 1
+    if messages[last].role not in ("user", "tool"):
+        return last, _LAST_TURN
+    if not any(m.role == "user" for m in messages):
+        return last, _NEEDS_USER
+    return None
 
 
 class MessageNormalizationError(Exception):
@@ -62,7 +134,50 @@ def _normalize_content(role: str, content: Any) -> str:
     raise MessageNormalizationError("content must be a string, a list of text parts, or null")
 
 
+def _normalize_tool_calls(calls: Any) -> tuple[ToolCallSpec, ...]:
+    if not isinstance(calls, list):
+        raise MessageNormalizationError("tool_calls must be a list")
+    specs: list[ToolCallSpec] = []
+    seen: set[str] = set()
+    for index, call in enumerate(calls):
+        where = f"tool_calls[{index}]"
+        if not isinstance(call, Mapping):
+            raise MessageNormalizationError(f"{where} is not an object")
+        call_id = call.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            raise MessageNormalizationError(f"{where}.id must be a non-empty string")
+        if call.get("type") != "function":
+            raise MessageNormalizationError(f'{where}.type must be "function"')
+        function = call.get("function")
+        if not isinstance(function, Mapping):
+            raise MessageNormalizationError(f"{where}.function is not an object")
+        name = function.get("name")
+        if not isinstance(name, str) or not name:
+            raise MessageNormalizationError(f"{where}.function.name must be a non-empty string")
+        # `arguments` is carried as the exact input string: never parsed,
+        # stripped or re-serialized (PRD-012's contract, PRD-017 D13). Empty and
+        # non-JSON strings are accepted; only `action_adapters.map_tool_call`
+        # parses it, for classification.
+        arguments = function.get("arguments")
+        if not isinstance(arguments, str):
+            raise MessageNormalizationError(f"{where}.function.arguments must be a string")
+        if call_id in seen:
+            raise MessageNormalizationError(f"{where}.id repeats an earlier id in this turn")
+        seen.add(call_id)
+        specs.append(ToolCallSpec(call_id, name, arguments))
+    return tuple(specs)
+
+
 def normalize_message(raw: Mapping[str, Any]) -> Message:
+    """Normalize one raw OpenAI-shaped message (PRD-010 6.2; tool fields PRD-017 D5).
+
+    Per-message shape only; cross-message rules (D6) are `conversation_shape_violation`'s. `tool_calls`
+    is assistant-only and `tool_call_id` is tool-only (required there, non-empty).
+    `tool_calls: null` on any role, and `tool_call_id: null` on a non-tool role,
+    count as absent (orchestrator decision STORY-003: OpenAI SDK `model_dump()`
+    echoes of text assistant messages carry `tool_calls: null`). `tool_call_id:
+    null` on a `tool` turn is refused, since it is required there.
+    """
     if not isinstance(raw, Mapping):
         raise MessageNormalizationError("message is not an object")
     role = raw.get("role")
@@ -70,16 +185,34 @@ def normalize_message(raw: Mapping[str, Any]) -> Message:
         raise MessageNormalizationError(
             "unknown role (expected one of: system, user, assistant, tool)"
         )
-    # Before content: OpenAI's tool-call assistant turn is `content: null` plus
-    # `tool_calls`, which would otherwise normalize silently to "".
-    if "tool_calls" in raw:
-        raise MessageNormalizationError("tool_calls are not supported (PRD-017)")
-    return Message(role, _normalize_content(role, raw.get("content")))
+    # Tool shape before content: OpenAI's tool-call assistant turn is `content:
+    # null` plus `tool_calls`, and a `tool` turn without an id must fail on the
+    # id, not on whatever its content happens to be.
+    # `tool_calls: null` is absent on any role (SDK `model_dump()` echoes of text
+    # assistant turns carry it); a non-null value is assistant-only.
+    raw_calls = raw.get("tool_calls")
+    tool_calls: tuple[ToolCallSpec, ...] = ()
+    if raw_calls is not None:
+        if role != "assistant":
+            raise MessageNormalizationError("tool_calls are only allowed on assistant messages")
+        tool_calls = _normalize_tool_calls(raw_calls)
+    tool_call_id: Optional[str] = None
+    raw_id = raw.get("tool_call_id")
+    if role == "tool":
+        if not isinstance(raw_id, str) or not raw_id:
+            raise MessageNormalizationError(
+                "tool_call_id is required on tool messages and must be a non-empty string"
+            )
+        tool_call_id = raw_id
+    elif raw_id is not None:
+        raise MessageNormalizationError("tool_call_id is only allowed on tool messages")
+    return Message(role, _normalize_content(role, raw.get("content")), tool_calls, tool_call_id)
 
 
 def normalize_messages(raw: Sequence[Mapping[str, Any]]) -> list[Message]:
-    # Structure across messages (non-empty, last turn is user) is the pipeline's
-    # to check (STORY-007): PRD-014 may accept an assistant prefill later.
+    # Structure across messages (non-empty, D6) is the pipeline's to check, and
+    # the `/v1` edge's via `conversation_shape_violation`: PRD-014 may accept an
+    # assistant prefill later.
     if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
         raise MessageNormalizationError("messages must be a list")
     messages = []

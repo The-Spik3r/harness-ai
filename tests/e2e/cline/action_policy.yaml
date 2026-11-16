@@ -1,0 +1,40 @@
+# tests/e2e/cline/action_policy.yaml
+#
+# PRD-017 STORY-017 (F11): the action policy for Cline 4.x / CLI 3.0.74 (STORY-001).
+# `tests/e2e/test_cline.py` runs the real Cline against it, and
+# `tests/test_e2e_cline_script.py` pins what it decides.
+#
+# This file is a TEMPLATE: `@REPO@` is the workspace root, and the test replaces it
+# with the throwaway repository's absolute path (forward slashes). A deployment
+# copies the file and writes its own root; see examples/action_policy.yaml for the
+# other sections.
+#
+# A present section REPLACES the built-in one wholesale (PRD-016 Section 6.6, D12).
+# `tools:` below therefore maps only Cline's tools: every other tool name (OpenCode's
+# `shell`, `read`, ...) is `tool.unknown` and denied. The five entries are the same
+# targets as the built-in Cline 4.x mapping (app/services/action_adapters.py), and the
+# everyday test fails if they drift.
+workspace:
+  roots:
+    - "@REPO@"
+
+shell:
+  allow:
+    - python -m unittest
+
+tools:
+  run_commands:      { kind: shell,    target: "commands[]|commands|cmd", format: command }
+  read_files:        { kind: fs_read,  target: "files[].path|files[].file_path|files[].filePath|files.path|files.file_path|files.filePath|file_paths[]|file_paths|paths[]|paths" }
+  editor:            { kind: fs_write, target: path }
+  # `apply_patch` and `fetch_web_content` are advertised by Cline's act mode, not by the
+  # `--yolo` preset this E2E runs. They are mapped so a deployment that uses act mode is
+  # decided by the file; `apply_patch` reads `input` only (Cline's spelling, not OpenCode's
+  # `patchText`).
+  apply_patch:       { kind: fs_write, target: input, format: patch }
+  fetch_web_content: { kind: http,     target: "requests[].url" }
+  # `search_codebase`, `skills`, `ask_question`, `spawn_agent` and `team_*` stay unmapped
+  # on purpose: `tool.unknown`, denied.
+
+opaque_tools:
+  # Cline's loop ends only on this call. Denied, Cline asks again forever.
+  submit_and_exit: allow

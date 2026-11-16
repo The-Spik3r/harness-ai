@@ -473,6 +473,11 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_dedup_key.py:
 #       test_tool_turn_anywhere_is_refused_naming_prd_016 ->
 #         test_tool_turn_anywhere_is_refused_naming_prd_017
+#
+# PRD-017 STORY-006 (D4): dedup_key keys tool turns instead of refusing them.
+#   - test_dedup_key.py:
+#       test_tool_turn_anywhere_is_refused_naming_prd_017 ->
+#         test_tool_turns_are_keyed_not_refused
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_admin_state.py": {
         "test_the_sheet_carries_all_nine_stats_response_figures",
@@ -483,7 +488,10 @@ _DELIBERATELY_SUPERSEDED_TESTS = {
         "test_null_content_with_tool_calls_names_prd_016",
         "test_null_content_without_tool_calls_omits_prd_016_note",
     },
-    "tests/test_dedup_key.py": {"test_tool_turn_anywhere_is_refused_naming_prd_016"},
+    "tests/test_dedup_key.py": {
+        "test_tool_turn_anywhere_is_refused_naming_prd_016",
+        "test_tool_turn_anywhere_is_refused_naming_prd_017",
+    },
     "tests/test_query_pipeline_multiturn.py": {
         "test_provisional_policy_inspects_last_user_turn_only",
         "test_inspection_target_still_carries_its_provisional_marker",

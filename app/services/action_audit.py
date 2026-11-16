@@ -3,7 +3,8 @@
 The I/O edge (Section 6.12). The engine (`action_policy`), the adapters and the
 classifiers stay pure; every database write the action audit makes is here,
 through `app.db.database.insert_action_decisions`. PRD-017 is the first live
-caller of `record()`; this story ships the function and its storage only.
+caller of `record()`: `query_pipeline` step 8 calls it after the success row,
+with that row's `audit_id` (STORY-010).
 
 What each column holds, for decision `d` and identity `i`:
 
@@ -36,8 +37,9 @@ Redaction runs **before** truncation, so a cut never separates a key from its
 the unredacted string, so identical calls still group.
 
 No catch. A storage failure surfaces as `app.db.errors.StorageError` (or
-`IntegrityError`) from `_session()`; what the live path does when the audit
-cannot be written is PRD-017's decision, not this module's.
+`IntegrityError`) from `_session()`. What the live path does is PRD-017 D8's
+decision, made in the pipeline, not here: it turns the failure into
+`ActionAuditError` and fails closed.
 """
 
 import json

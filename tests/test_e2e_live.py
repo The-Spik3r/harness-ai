@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import httpx
 import pytest
@@ -285,3 +286,70 @@ def test_the_stub_log_is_read_as_rule_labels():
         ])
 
     assert _live.Stub(_Proc(), "http://127.0.0.1:1/v1").settle() == ["1", "default"]
+
+
+def test_the_recorder_keeps_tool_names_only_when_asked(recorder):
+    """PRD-017 STORY-016: tool names are opt-in. The default shape keeps none, and never a description."""
+    body = {"model": "m", "messages": [{"role": "user", "content": "x"}],
+            "tools": [{"function": {"name": "b"}}, {"function": {"name": "a", "description": "SECRET"}}]}
+    httpx.post(f"{recorder.base}/v1/chat/completions", json=body)
+    assert "tool_names" not in recorder.posts()[0]
+
+    named = _live.Recorder(recorder.upstream, keep_tool_names=True)
+    try:
+        httpx.post(f"{named.base}/v1/chat/completions", json=body)
+        httpx.post(f"{named.base}/v1/chat/completions", json={"model": "m", "messages": [], "tools": "nope"})
+        first, second = named.posts()
+        assert first["tool_names"] == ["a", "b"]
+        assert second["tool_names"] == []
+        assert "SECRET" not in json.dumps(named.log)
+    finally:
+        named.close()
+
+
+def test_the_action_dump_reads_list_action_decisions():
+    compile(_live.DUMP_ACTIONS, "<dump>", "exec")
+    assert "list_action_decisions" in _live.DUMP_ACTIONS
+
+
+def test_run_tree_closes_stdin_and_kills_the_whole_tree_on_timeout(tmp_path):
+    """PRD-017 STORY-017: the helper both client E2Es run their client with.
+
+    stdin is closed (a read sees EOF at once, as `opencode run` needs), and a run past its
+    timeout leaves neither the process nor its child behind.
+    """
+    code, out, err = _live.run_tree(
+        [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], tmp_path, dict(os.environ), 30)
+    assert (code, out.strip()) == (0, "''")
+
+    pid_file = tmp_path / "child.pid"
+    parent = (
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+        "time.sleep(120)\n"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        _live.run_tree([sys.executable, "-c", parent], tmp_path, dict(os.environ), 3)
+    child_pid = int(pid_file.read_text())
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _pid_alive(child_pid):
+        time.sleep(0.2)
+    assert not _pid_alive(child_pid)
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        listing = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True).stdout
+        return str(pid) in listing.decode("ascii", "replace")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    # A killed orphan can linger as a zombie until init reaps it (a CI container's
+    # PID 1 may never do so); `kill(pid, 0)` still succeeds on one. Dead is dead.
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return True
+    return stat.rsplit(")", 1)[1].split()[0] != "Z"

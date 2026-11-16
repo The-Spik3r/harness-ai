@@ -2574,6 +2574,38 @@ def test_find_duplicate_timestamp_sql_is_the_planned_shape():
     assert "prompt_hash" not in source
 
 
+def test_mark_audit_log_failed_flips_one_row_and_frees_the_dedup_window(temp_db):
+    """PRD-017 STORY-010 (D8): success=0 plus the message on that row only; the lookup then skips it."""
+    ids = [
+        insert_audit_log(
+            AuditLog(timestamp="2026-09-16T09:00:00Z", user_id="ana@empresa.com", prompt_hash="h", dedup_key="k")
+        )
+        for _ in range(2)
+    ]
+    assert database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-15T09:00:00Z") is not None
+
+    database.mark_audit_log_failed(ids[0], "action audit failed")
+
+    first, second = get_audit_log(ids[0]), get_audit_log(ids[1])
+    assert (first.success, first.error_message) == (False, "action audit failed")
+    assert (second.success, second.error_message) == (True, None)
+    # The sibling row still counts, so only the marked row left the window.
+    database.mark_audit_log_failed(ids[1], "action audit failed")
+    assert database.find_duplicate_timestamp("ana@empresa.com", "k", "2026-09-15T09:00:00Z") is None
+
+
+def test_mark_audit_log_failed_unknown_id_is_a_no_op_and_storage_errors_are_typed(temp_db, monkeypatch):
+    database.mark_audit_log_failed(999_999, "action audit failed")
+    assert count_audit_logs() == 0
+
+    def broken():
+        raise ValueError("Hrana: `api error`: boom")
+
+    monkeypatch.setattr(database, "get_connection", broken)
+    with pytest.raises(StorageError):
+        database.mark_audit_log_failed(1, "action audit failed")
+
+
 # ---------------------------------------------------------------------------
 # PRD-011 STORY-009: pattern_role and pattern_action (D6).
 # ---------------------------------------------------------------------------

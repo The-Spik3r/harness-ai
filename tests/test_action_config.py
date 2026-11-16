@@ -1125,7 +1125,11 @@ def test_examples_action_policy_yaml_loads(monkeypatch):
     assert policy.rules["shell.unlisted"] == Rule("flag", "action:shell:exec")
     assert policy.rules["sql.write"] == Rule("deny", "action:sql:write")
     assert policy.tools["apply_patch"] == ToolMapping("fs_write", "patchText", format="patch")
-    assert len(policy.tools) == 7
+    # PRD-017 STORY-001: 7 -> 9, the sample maps OpenCode 2.0.10's `shell` and `patch` (and `path` on read/write/edit) beside v1.19.5's names.
+    assert len(policy.tools) == 9
+    assert policy.tools["patch"] == ToolMapping("fs_write", "patchText", format="patch")
+    assert policy.tools["shell"] == ToolMapping("shell", "command")
+    assert "execute" not in policy.tools and "execute" not in policy.opaque_tools
     assert dict(policy.opaque_tools) == {"todowrite": "allow"}
     assert policy.workspace_roots == ("/home/dev/projects",)
     assert "npm test" in policy.shell_allow

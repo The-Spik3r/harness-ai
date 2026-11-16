@@ -1,0 +1,118 @@
+{
+  "default": {
+    "tool_calls": [
+      {
+        "id": "call_submit_default",
+        "name": "submit_and_exit",
+        "arguments": "{\"summary\":\"stub_openrouter: cline.json matched no rule, stopping.\",\"verified\":false}"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "role": "assistant",
+      "contains": "[harness] tool call",
+      "last_role": "user",
+      "advertises": "submit_and_exit",
+      "tool_calls": [
+        {
+          "id": "call_submit_drop",
+          "name": "submit_and_exit",
+          "arguments": "{\"summary\":\"E2E-CLINE-DROP: the harness denied the call, nothing was run.\",\"verified\":true}"
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "contains": "e2e017-017-cline-drop",
+      "last_role": "user",
+      "advertises": "run_commands",
+      "tool_calls": [
+        {
+          "id": "call_drop",
+          "name": "run_commands",
+          "arguments": "{\"commands\":[\"sqlite3 app.db \\\"DROP TABLE users\\\"\"]}"
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "contains": "e2e017-017-cline-task",
+      "last_role": "user",
+      "advertises": "read_files",
+      "tool_calls": [
+        {
+          "id": "call_read_calc",
+          "name": "read_files",
+          "arguments": "{\"files\":[{\"path\":\"@REPO@/src/calc.py\"}]}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "read_files",
+      "contains": "def add",
+      "tool_calls": [
+        {
+          "id": "call_edit_calc",
+          "name": "editor",
+          "arguments": "{\"path\":\"@REPO@/src/calc.py\",\"old_text\":\"return a - b\",\"new_text\":\"return a + b\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "editor",
+      "contains": "test_calc.py",
+      "tool_calls": [
+        {
+          "id": "call_unittest",
+          "name": "run_commands",
+          "arguments": "{\"commands\":[\"python -m unittest -q\"]}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "editor",
+      "regex": "",
+      "tool_calls": [
+        {
+          "id": "call_write_test",
+          "name": "editor",
+          "arguments": "{\"path\":\"@REPO@/tests/test_calc.py\",\"old_text\":\"# placeholder\\n\",\"new_text\":\"import unittest\\n\\nfrom src.calc import add\\n\\n\\nclass AddTest(unittest.TestCase):\\n    def test_add(self):\\n        self.assertEqual(add(2, 3), 5)\\n\\n\\nif __name__ == \\\"__main__\\\":\\n    unittest.main()\\n\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "run_commands",
+      "regex": "(\\\\n|\\n)OK\\b",
+      "advertises": "submit_and_exit",
+      "tool_calls": [
+        {
+          "id": "call_submit_done",
+          "name": "submit_and_exit",
+          "arguments": "{\"summary\":\"E2E-CLINE-DONE: add() fixed and the tests pass.\",\"verified\":true}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "run_commands",
+      "regex": "",
+      "tool_calls": [
+        {
+          "id": "call_submit_failed",
+          "name": "submit_and_exit",
+          "arguments": "{\"summary\":\"E2E-CLINE-FAILED: the tests did not pass.\",\"verified\":false}"
+        }
+      ]
+    }
+  ]
+}

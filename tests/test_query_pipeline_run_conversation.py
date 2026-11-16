@@ -75,11 +75,15 @@ def test_run_conversation_signature_matches_the_prd():
     # (PRD-013 Section 6.9), chosen by the call site like `profile`.
     # PRD-015 STORY-007: trailing keyword-only `ignored_params`, passed only by
     # the `/v1` router; run_query passes nothing, so its signature is unchanged.
+    # PRD-017 STORY-008: trailing keyword-only `tools`, passed only by the `/v1`
+    # router (Section 10's internal API); run_query's signature is unchanged.
     assert list(signature.parameters) == [
         "identity", "messages", "device", "model", "openrouter_api_key",
         "params", "call_openrouter", "session_id", "profile", "ingress", "streamed",
-        "ignored_params",
+        "ignored_params", "tools",
     ]
+    assert signature.parameters["tools"].default is None
+    assert signature.parameters["tools"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["ignored_params"].default is None
     assert signature.parameters["ignored_params"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["profile"].default is None
@@ -145,6 +149,7 @@ def test_run_query_delegates_to_run_conversation_with_one_user_message(monkeypat
         pytest.param(
             [Message("user", "hi"), Message("assistant", "hey")], id="non-user-final",
         ),
+        # PRD-017 D6: still refused, now because a tool turn comes first (it answers no assistant tool_calls turn), not because tool turns are unsupported.
         pytest.param(
             [Message("tool", "x"), Message("user", "hi")], id="tool-turn-present",
         ),

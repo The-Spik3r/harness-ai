@@ -1407,3 +1407,86 @@ def test_env_example_action_policy_defaults_match_settings():
     assert _env_example_value(text, "ACTION_SQL_DIALECT") == defaults["ACTION_SQL_DIALECT"]
     positions = [text.index(f"{var}=") for var in _ACTION_VARS]
     assert positions == sorted(positions)
+
+
+# --- PRD-017 STORY-002: V1_TOOLS_ENABLED and V1_TOOL_MODELS -------------------
+# STORY-008 (the translator) and STORY-010 (step 7c) read them now; the last two
+# tests of this section, the .env.example ones, are STORY-018's.
+
+
+def test_tool_settings_available_with_documented_defaults(monkeypatch):
+    for var in ("V1_TOOLS_ENABLED", "V1_TOOL_MODELS"):
+        monkeypatch.delenv(var, raising=False)
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.V1_TOOLS_ENABLED is False
+    assert result.V1_TOOL_MODELS == ""
+    assert result.v1_tool_models_list == []
+
+
+def test_v1_tools_enabled_parses_the_string_true():
+    assert _settings(DATABASE_URL=_LOCAL_URL, V1_TOOLS_ENABLED="true").V1_TOOLS_ENABLED is True
+
+
+def test_v1_tool_models_list_returns_stripped_names_in_order():
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        MODEL_ALLOWLIST="gpt-4,openai/gpt-4o,anthropic/claude-3.5-sonnet",
+        V1_TOOL_MODELS="openai/gpt-4o, anthropic/claude-3.5-sonnet",
+    )
+
+    assert result.v1_tool_models_list == ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"]
+
+
+@pytest.mark.parametrize(
+    ("allowlist", "tool_models", "offending"),
+    [
+        ("gpt-4,openai/gpt-4o", "openai/gpt-4o, mistral/x", "mistral/x"),
+        ("gpt-4,openai/gpt-4o", "OpenAI/GPT-4o", "OpenAI/GPT-4o"),
+        ("", "openai/gpt-4o", "openai/gpt-4o"),
+    ],
+    ids=["one-bad-among-good", "case-mismatch", "empty-allowlist"],
+)
+def test_v1_tool_models_entry_outside_model_allowlist_is_a_startup_error(allowlist, tool_models, offending):
+    """The list has no admin exemption: admin's any-model allowance is not
+    consulted at startup, so the empty-allowlist case fails too (PRD-017 D3)."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, MODEL_ALLOWLIST=allowlist, V1_TOOL_MODELS=tool_models)
+
+    message = str(exc_info.value)
+    for fragment in ("V1_TOOL_MODELS", "MODEL_ALLOWLIST", "Example", offending):
+        assert fragment in message, fragment
+    # The good entry is not reported as offending.
+    assert "not in MODEL_ALLOWLIST: openai/gpt-4o, " not in message
+
+
+@pytest.mark.parametrize("value", ["   ", " , ,"])
+def test_v1_tool_models_blank_parses_to_no_restriction(value):
+    result = _settings(DATABASE_URL=_LOCAL_URL, MODEL_ALLOWLIST="gpt-4", V1_TOOL_MODELS=value)
+
+    assert result.v1_tool_models_list == []
+
+
+_TOOL_VARS = ("V1_TOOLS_ENABLED", "V1_TOOL_MODELS")
+
+
+def test_env_example_documents_the_tool_vars_with_a_comment():
+    """PRD-017 STORY-018 AC 4: both present, each with a comment line above."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _TOOL_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_tool_defaults_match_settings():
+    """The documented values are the defaults, and the vars sit in Settings order:
+    after V1_SSE_KEEPALIVE_SECONDS and before ACTION_POLICY_FILE (app/config.py)."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _TOOL_VARS}
+
+    assert _env_example_value(text, "V1_TOOLS_ENABLED") == str(defaults["V1_TOOLS_ENABLED"]).lower()
+    assert _env_example_value(text, "V1_TOOL_MODELS") == defaults["V1_TOOL_MODELS"]
+    positions = [text.index(f"{var}=") for var in _TOOL_VARS]
+    assert positions == sorted(positions)
+    assert text.index("V1_SSE_KEEPALIVE_SECONDS=") < positions[0]
+    assert positions[-1] < text.index("ACTION_POLICY_FILE=")

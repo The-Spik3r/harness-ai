@@ -1,0 +1,10 @@
+# tool.unknown: OpenCode 2.x CodeMode `execute` (SOURCES.md: OpenCode 2.0.10; `none`, target `code`).
+tool_call:
+  name: execute
+  arguments: '{"code":"return await fetch(\"https://example.com\")"}'
+policy: built_in
+client: OpenCode 2.x
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: tool.unknown
+note: 'The code runs JavaScript that can fetch and call MCP tools without naming them in tool_calls, so it is never classified, and it must never be listed in opaque_tools.'

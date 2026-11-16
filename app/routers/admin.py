@@ -105,19 +105,26 @@ ACTIONS_LIMIT_MAX = 500
 # FastAPI rejects any other value with 422 before the handler runs.
 ActionDecisionFilter = Literal["allow", "flag", "deny"]
 
+# PRD-017 Section 10: `?audit_id=` lists one request's decisions. `ge=1` as
+# `limit`'s: an `audit_logs.id` is an AUTOINCREMENT id, so FastAPI rejects a
+# non-integer, zero or negative value with 422 before the handler runs.
+
 
 @router.get("/audit/actions", response_model=ActionsResponse)
 def get_audit_actions(
     identity: Identity = Depends(require_identity),
     limit: int = Query(ACTIONS_LIMIT_DEFAULT, ge=1, le=ACTIONS_LIMIT_MAX),
     decision: Optional[ActionDecisionFilter] = Query(None),
+    audit_id: Optional[int] = Query(None, ge=1),
 ) -> ActionsResponse:
     """The most recent action decisions, newest first (PRD-016 F11, 9.1).
 
     Scoped exactly as `GET /audit`: `audit:read:all` reads every user's rows,
     `audit:read:own` only the caller's, and neither is a 403 naming
     `audit:read:own`. The scoping is a row filter only, with no per-role
-    masking, as on `GET /audit`.
+    masking, as on `GET /audit`. `?audit_id=` and `?decision=` filter after the
+    scoping and combine with it (AND), so under `audit:read:own` another user's
+    request reads as empty, not as a 403 (PRD-017 Section 10).
     """
     try:
         authorize(identity, PERMISSION_AUDIT_READ_ALL)
@@ -134,7 +141,10 @@ def get_audit_actions(
     entries = [
         _action_entry(row)
         for row in list_action_decisions(
-            limit=limit, user_id=scope_user_id, decision=decision
+            limit=limit,
+            user_id=scope_user_id,
+            decision=decision,
+            audit_id=audit_id,
         )
     ]
     return ActionsResponse(entries=entries)

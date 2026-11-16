@@ -401,7 +401,10 @@ def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
         # text only: run_query passes the caller's prompt before any redaction, the
         # same string audit_logger hashes; the prefix is hashed with hashlib
         # directly, so it adds no site.
-        "app/services/duplicate_checker.py": 1,
+        # PRD-017 D4 (STORY-006): a second site, the tool-shaped key's anchor (the
+        # last user turn). Same input rule: run_conversation passes the raw
+        # conversation at step 1, before any redaction, so it hashes raw text only.
+        "app/services/duplicate_checker.py": 2,
         # PRD-016 Section 6.10 (STORY-015): arguments_hash of an action decision. The
         # site receives raw text only: the tool call's full arguments string as the
         # agent sent it, never the redacted preview.

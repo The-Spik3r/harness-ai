@@ -25,9 +25,10 @@ every row keeps one height; the full text is the cell's `title`, and the rule
 cell's title is the reason the engine recorded. That is a hover device: a touch
 screen has no hover, a known limit (no per-row disclosure is built here).
 
-**An empty view is a sentence, not a grid.** It says what the view lists, why it
-is empty (nothing calls the policy engine until PRD-017) and the action,
-Refresh, and its title names the filter that is empty.
+**An empty view is a sentence, not a grid.** It says what the view lists (the
+policy's decisions on `/v1` tool calls), how rows appear (tool calling is off
+unless `V1_TOOLS_ENABLED`) and the action, Refresh, and its title names the
+filter that is empty.
 
 **This module reads fields; it does not compute.** Every cell is an `ActionRow`
 string built by `admin_formatting.to_action_rows`; the state is chosen upstream
@@ -240,9 +241,10 @@ def _table() -> rx.Component:
 def _empty_actions() -> rx.Component:
     """Nothing recorded for this filter: a sentence, not an empty grid.
 
-    The title names the filter; the body says what the view lists, why it is
-    empty (PRD-017) and the action, Refresh, the masthead's control. No card, no
-    illustration, no centring -- the register's empty panel, re-declared.
+    The title names the filter; the body says what the view lists, how rows
+    appear (`V1_TOOLS_ENABLED`) and the action, Refresh, the masthead's control.
+    No card, no illustration, no centring -- the register's empty panel,
+    re-declared.
     """
     return rx.box(
         rx.box(

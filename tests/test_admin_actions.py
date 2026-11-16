@@ -11,6 +11,8 @@ list of objects, and `/stats` reports `actions_denied`, `actions_flagged` and
 Requesting `temp_db` makes these `db` tests: they run against the libSQL dev
 server. If many of them error at fixture setup, restart the container
 (`docker restart harness-libsql-dev`) before suspecting code.
+
+PRD-017 STORY-013 adds `?audit_id=` (Section 10).
 """
 
 import os
@@ -242,11 +244,98 @@ def test_default_limit_is_100(temp_db, monkeypatch):
     monkeypatch.setattr("app.routers.admin.list_action_decisions", recorder)
 
     assert _entries(client.get("/audit/actions", headers=_ADMIN_HEADERS)) == []
-    assert calls == [{"limit": 100, "user_id": None, "decision": None}]
+    # PRD-017 STORY-013 (Section 10): the router now always passes audit_id;
+    # None is no filter.
+    assert calls == [
+        {"limit": 100, "user_id": None, "decision": None, "audit_id": None}
+    ]
 
 
 def test_decision_literal_mirrors_the_db_vocabulary():
     assert set(get_args(admin.ActionDecisionFilter)) == set(ACTION_DECISION_VALUES)
+
+
+# --- PRD-017 STORY-013: ?audit_id= (Section 10) ---
+
+
+def test_audit_id_returns_only_that_requests_decisions_newest_first(temp_db):
+    ids = insert_action_decisions(
+        [
+            _row(audit_id=41),
+            _row(audit_id=41),
+            _row(audit_id=42),
+            _row(audit_id=None),
+            _row(audit_id=41),
+        ]
+    )
+    ids_41 = [ids[0], ids[1], ids[4]]
+
+    entries = _entries(client.get("/audit/actions?audit_id=41", headers=_ADMIN_HEADERS))
+
+    assert [e["id"] for e in entries] == sorted(ids_41, reverse=True)
+    assert all(e["audit_id"] == 41 for e in entries)
+
+
+def test_audit_id_combines_with_decision(temp_db):
+    ids = insert_action_decisions(
+        [
+            _row(audit_id=41, decision="deny"),
+            _row(audit_id=41, decision="allow", rule="sql.read"),
+            _row(audit_id=42, decision="deny"),
+        ]
+    )
+
+    entries = _entries(
+        client.get("/audit/actions?audit_id=41&decision=deny", headers=_ADMIN_HEADERS)
+    )
+
+    assert [e["id"] for e in entries] == [ids[0]]
+
+
+def test_audit_id_of_another_users_request_is_empty_under_own_scope(temp_db):
+    ids = insert_action_decisions(
+        [_row(user_id="other", audit_id=41), _row(user_id="ana", audit_id=42)]
+    )
+    headers = _user("ana", "user")
+
+    other = client.get("/audit/actions?audit_id=41", headers=headers)
+    assert other.status_code == 200
+    assert other.json() == {"entries": []}
+    mine = _entries(client.get("/audit/actions?audit_id=42", headers=headers))
+    assert [e["id"] for e in mine] == [ids[1]]
+
+
+def test_audit_id_without_either_audit_permission_is_403(temp_db):
+    headers = _user("outsider", "guest")
+
+    response = client.get("/audit/actions?audit_id=41", headers=headers)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Permission denied: audit:read:own"}
+
+
+@pytest.mark.parametrize("audit_id", ["-1", "0", "x", "1.5", ""])
+def test_audit_id_invalid_is_422(temp_db, monkeypatch, audit_id):
+    monkeypatch.setattr("app.routers.admin.list_action_decisions", _fail_if_called)
+
+    response = client.get(f"/audit/actions?audit_id={audit_id}", headers=_ADMIN_HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_audit_id_is_passed_to_the_repository(temp_db, monkeypatch):
+    calls: list = []
+
+    def recorder(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr("app.routers.admin.list_action_decisions", recorder)
+
+    assert _entries(client.get("/audit/actions?audit_id=41", headers=_ADMIN_HEADERS)) == []
+    assert calls == [
+        {"limit": 100, "user_id": None, "decision": None, "audit_id": 41}
+    ]
 
 
 # --- AC 3: entry shape --------------------------------------------------------

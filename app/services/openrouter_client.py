@@ -4,7 +4,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 import httpx
 
 from app.config import settings
-from app.models.messages import Message
+from app.models.messages import Message, ToolCallSpec
 
 _DEFAULT_MODEL = "gpt-4"
 
@@ -101,12 +101,88 @@ class GenerationParams:
         return cls(**{key: raw[key] for key in _ALLOWED_GENERATION_PARAMS if key in raw})
 
 
+@dataclass(frozen=True)
+class ToolParams:
+    """The tool request call_openrouter forwards (PRD-017 Section 4, D11).
+
+    Its own keyword, not fields on GenerationParams (PRD-010 T5: from_mapping
+    must keep refusing `tools`). Carries values only: shape validation is the
+    `/v1` translator's (STORY-008), which is its one builder. Fields are sent
+    as given, and a None field is not sent.
+    """
+
+    tools: Sequence[Mapping[str, Any]]
+    tool_choice: Optional[Union[str, Mapping[str, Any]]] = None
+    parallel_tool_calls: Optional[bool] = None
+
+
 def _token_count(value: Any) -> Optional[int]:
     """A provider-reported token count, or None when it is not usable (PRD-013 F3)."""
     # bool is a subclass of int: True/False must not be recorded as 1/0.
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def _wire_message(message: Message) -> dict[str, Any]:
+    """One Message as the upstream wire shape (PRD-017 F5).
+
+    Tool-free messages stay exactly {"role", "content"}. arguments is the
+    ToolCallSpec's string, never parsed or re-serialized (D13).
+    """
+    wire: dict[str, Any] = {"role": message.role}
+    if message.tool_call_id is not None:
+        wire["tool_call_id"] = message.tool_call_id
+    # OpenAI's tool-call assistant turn is content: null; the normalizer turned
+    # that null into "" (messages.py), so it is restored here.
+    wire["content"] = None if message.tool_calls and message.content == "" else message.content
+    if message.tool_calls:
+        wire["tool_calls"] = [
+            {"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.arguments}}
+            for c in message.tool_calls
+        ]
+    return wire
+
+
+def _parse_tool_calls(raw: Any) -> tuple[ToolCallSpec, ...]:
+    """choices[0].message.tool_calls as ToolCallSpecs (PRD-017 Section 4, D13).
+
+    Used only when the request sent tools= (D18). Every failure is a
+    non-retryable shape error naming the field, never a value. `type` is lenient
+    when absent or null (some providers omit it) and strict when wrong; the
+    client-edge normalizer is stricter because OpenAI's spec requires the key
+    there. arguments must already be a string: coercing an object would invent
+    bytes the model never wrote (D13), so it is refused, never serialized.
+    """
+    prefix = "OpenRouter returned an unexpected response shape: "
+    if not isinstance(raw, list):
+        raise OpenRouterError(f"{prefix}choices[0].message.tool_calls is not a list")
+    calls: list[ToolCallSpec] = []
+    seen: set[str] = set()
+    for index, call in enumerate(raw):
+        where = f"choices[0].message.tool_calls[{index}]"
+        if not isinstance(call, Mapping):
+            raise OpenRouterError(f"{prefix}{where} is not an object")
+        call_id = call.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            raise OpenRouterError(f"{prefix}{where}.id must be a non-empty string")
+        call_type = call.get("type")
+        if call_type is not None and call_type != "function":
+            raise OpenRouterError(f'{prefix}{where}.type must be "function"')
+        function = call.get("function")
+        if not isinstance(function, Mapping):
+            raise OpenRouterError(f"{prefix}{where}.function is not an object")
+        name = function.get("name")
+        if not isinstance(name, str) or not name:
+            raise OpenRouterError(f"{prefix}{where}.function.name must be a non-empty string")
+        arguments = function.get("arguments")
+        if not isinstance(arguments, str):
+            raise OpenRouterError(f"{prefix}{where}.function.arguments must be a string")
+        if call_id in seen:
+            raise OpenRouterError(f"{prefix}{where}.id repeats an earlier id in this response")
+        seen.add(call_id)
+        calls.append(ToolCallSpec(id=call_id, name=name, arguments=arguments))
+    return tuple(calls)
 
 
 def _classify_http_error(exc: httpx.HTTPError) -> tuple[Optional[int], bool]:
@@ -134,6 +210,10 @@ class OpenRouterResult:
     # PRD-015 STORY-002: choices[0].finish_reason, None when absent or not a
     # string. Declared last with a default for the same reason as the split.
     finish_reason: Optional[str] = None
+    # PRD-017 STORY-004: choices[0].message.tool_calls, parsed only when the
+    # request sent tools= (D18). Declared last with a default, the PRD-013 /
+    # PRD-015 precedent, so three-argument construction keeps working.
+    tool_calls: tuple[ToolCallSpec, ...] = ()
 
 
 def call_openrouter(
@@ -142,7 +222,13 @@ def call_openrouter(
     api_key: Optional[str] = None,
     params: Optional[GenerationParams] = None,
     client: Optional[httpx.Client] = None,
+    *,
+    tools: Optional[ToolParams] = None,
 ) -> OpenRouterResult:
+    """tool_calls are parsed only when `tools=` was sent (PRD-017 D18).
+
+    Without it, a null content with tool calls stays today's error.
+    """
     if not messages:
         raise OpenRouterError("messages must not be empty")
 
@@ -158,11 +244,20 @@ def call_openrouter(
     }
     payload = {
         "model": model,
-        "messages": [{"role": m.role, "content": m.content} for m in messages],
+        "messages": [_wire_message(m) for m in messages],
     }
     if params is not None:
         for field in ("temperature", "max_tokens", "top_p", "stop"):
             value = getattr(params, field)
+            if value is not None:
+                payload[field] = value
+    # PRD-017 D11: forwarded as given, a None field not sent. A separate keyword,
+    # passed only when set (params='s rule), so (messages, model, api_key) stubs
+    # keep working.
+    if tools is not None:
+        payload["tools"] = tools.tools
+        for field in ("tool_choice", "parallel_tool_calls"):
+            value = getattr(tools, field)
             if value is not None:
                 payload[field] = value
 
@@ -192,7 +287,17 @@ def call_openrouter(
                 f"OpenRouter returned an unexpected response shape: {exc}"
             ) from exc
 
+        calls: tuple[ToolCallSpec, ...] = ()
+        if tools is not None:
+            # PRD-017: parsed only when tools= was sent. Absent, null and [] are no calls.
+            raw_calls = message.get("tool_calls")
+            if raw_calls is not None:
+                calls = _parse_tool_calls(raw_calls)
+        if content is None and calls:
+            content = ""  # content: null beside calls (PRD-017 Section 4)
         if content is None:
+            # Unchanged under D18. Note a null content plus tool_calls: [] sent
+            # with tools= still gets the note below: its condition is kept as is.
             finish_reason = choice.get("finish_reason")
             error_message = f"OpenRouter returned no text content (finish_reason={finish_reason})"
             if message.get("tool_calls") is not None:
@@ -223,4 +328,5 @@ def call_openrouter(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         finish_reason=finish_reason,
+        tool_calls=calls,
     )

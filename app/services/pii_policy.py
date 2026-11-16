@@ -81,10 +81,11 @@ class PiiPolicy:
     | `max_characters`     | None                             | PII_MAX_CHARACTERS_CODE                   |
     | `structure_safe`     | False                            | True                                      |
 
-    `chat` lists `tool` for completeness only: step 0 refuses `tool` turns, so
-    no `chat` request carries one. It lists `system` because today every
-    message is redacted, whatever its role, and `chat` must stay today's
-    behaviour.
+    `chat` lists `tool` for completeness only. `/v1` runs `code`, and `/query`
+    and the chat UI never build a tool turn (PRD-017 D17), so no `chat` request
+    carries one. If one did, its content would be redacted, which is the strict
+    direction. It lists `system` because today every message is redacted,
+    whatever its role, and `chat` must stay today's behaviour.
     """
 
     #: "chat" | "code"

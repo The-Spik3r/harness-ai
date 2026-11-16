@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import pytest
 
 from app.db.database import get_audit_log, get_connection
+from app.models.messages import Message, ToolCallSpec
 from app.models.schemas import (
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
@@ -37,6 +38,7 @@ from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.pii_redactor import PiiRedactorError
 from app.services.query_pipeline import run_query
 import app.services.query_pipeline as query_pipeline
+from tests.test_dedup_key import _npm_test_loop
 
 
 @dataclass(frozen=True)
@@ -286,3 +288,49 @@ def test_key_is_computed_once_before_authorization(temp_db, monkeypatch):
     )
     assert isinstance(result, QuerySuccessResponse)
     assert len(calls) == 1
+
+
+# --- PRD-017 STORY-006: tool turns are keyed by step 1 (D4, Section 6.4) ---
+
+
+def _run_loop_request(messages, call_openrouter=_fake_call_openrouter):
+    return query_pipeline.run_conversation(
+        identity=_JUAN, messages=messages, device=None, model="gpt-4",
+        openrouter_api_key=None, call_openrouter=call_openrouter,
+    )
+
+
+def test_tool_conversation_row_carries_the_tool_shaped_key(temp_db):
+    """AC5: step 1 no longer raises on a tool turn, and the row carries the new key."""
+    # No monkeypatch of dedup_key: step 1 must accept the tool turns by itself.
+    messages = [
+        Message("user", "list files"),
+        Message("assistant", "", (ToolCallSpec("c1", "ls", "{}"),)),
+        Message("tool", "README.md\nsrc", tool_call_id="c1"),
+    ]
+
+    result = _run_loop_request(messages)
+
+    assert isinstance(result, QuerySuccessResponse)
+    row = get_audit_log(result.audit_id)
+    assert row.dedup_key == dedup_key(_JUAN.user_id, messages)
+    # PRD-017 Section 6.4 rebuilt independently of the module (tool_final literal).
+    assert row.dedup_key == "2d0429e076c98d694359db9c9faef08a1b3aa98db13c54f8c1443f53523b0d36"
+    assert row.dedup_key != dedup_key(_JUAN.user_id, [_user("list files")])
+
+
+def test_npm_test_twice_is_not_held_but_a_resend_is(temp_db):
+    """AC4: the agent loop is never held as a duplicate; a byte-identical resend is."""
+    loop = _npm_test_loop()
+    keys = []
+    for messages in loop:
+        result = _run_loop_request(messages)
+        assert isinstance(result, QuerySuccessResponse)
+        keys.append(get_audit_log(result.audit_id).dedup_key)
+    assert len(set(keys)) == len(loop)
+
+    resend = _run_loop_request(loop[3], call_openrouter=_fail_if_called)
+
+    assert isinstance(resend, QueryBlockedDuplicateResponse)
+    # The blocked response carries no audit_id; its row is the newest one.
+    assert _last_audit_entry().dedup_key == keys[3]
