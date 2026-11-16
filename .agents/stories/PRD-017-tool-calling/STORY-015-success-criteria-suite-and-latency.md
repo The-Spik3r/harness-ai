@@ -12,7 +12,7 @@ labels: [tests, security]
 epic_branch: epic/PRD-017-tool-calling
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-015-success-criteria-suite-and-latency.plan.md
 report: .agents/reports/PRD-017-tool-calling/STORY-015-success-criteria-suite-and-latency.report.md
-commit: null
+commit: e36ecee
 depends_on: [STORY-012, STORY-013]
 blocks: [STORY-016, STORY-018]
 skills: []

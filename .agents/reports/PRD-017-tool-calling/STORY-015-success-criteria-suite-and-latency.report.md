@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-015-success-criteria-suite-and-latency.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: e36ecee
 status: COMPLETE
 completed: 2026-11-16
 ---
@@ -12,11 +12,11 @@ completed: 2026-11-16
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-015-success-criteria-suite-and-latency.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `e36ecee`
 
 ## Summary
 
-Tests only. One new file, `tests/test_tool_calling_criteria.py` (13 tests that run by default, 6 of them parametrized into 18 cases, plus 1 benchmark test, skipped without `--run-benchmark`). It drives `/v1/chat/completions` through `TestClient` with `V1_TOOLS_ENABLED=true` and an injected upstream, and proves the brief's success criteria. No app code changed. Fixtures and helpers are imported from `tests/test_v1_tools.py`, `tests/test_query_pipeline_tools.py` and `tests/test_action_corpus.py`.
+Tests only. One new file, `tests/test_tool_calling_criteria.py` (18 collected cases that run by default, plus 1 benchmark test, skipped without `--run-benchmark`). It drives `/v1/chat/completions` through `TestClient` with `V1_TOOLS_ENABLED=true` and an injected upstream, and proves the brief's success criteria. No app code changed. Fixtures and helpers are imported from `tests/test_v1_tools.py`, `tests/test_query_pipeline_tools.py` and `tests/test_action_corpus.py`.
 
 ## Tasks Completed
 
