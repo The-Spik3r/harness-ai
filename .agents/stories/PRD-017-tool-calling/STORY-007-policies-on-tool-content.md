@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - The pipeline accepts tools"
-status: todo
+status: in-progress
 labels: [backend, pipeline, pii, patterns]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
+plan: .agents/plans/PRD-017-tool-calling/STORY-007-policies-on-tool-content.plan.md
 report: null
 commit: null
 depends_on: [STORY-005]
 blocks: [STORY-008]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-007: Steps 3, 5, 6 on tool content; tool-call arguments never inspected or redacted

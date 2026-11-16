@@ -66,7 +66,6 @@ from app.services.pattern_detector import PatternInspectionResult, inspect, stri
 from tests.test_query_pipeline_patterns import (
     _Profile,
     _Upstream,
-    _admit_tool_turns,
     _audit_rows_since,
     _fail_if_called,
     _indirect,
@@ -496,9 +495,8 @@ def _assert_flagged_and_answered(result, upstream: _Upstream, rows: list) -> Non
 def test_indirect_injection_flags_and_still_calls_the_model(case, temp_db, monkeypatch):
     """PRD-011 T2, D4: the accepted exposure, asserted. Both halves -- the
     flag row and the upstream call -- because a "flag" that quietly blocked
-    would be the worse failure. `_admit_tool_turns` is the STORY-009 seam:
-    step 0 and dedup_key refuse `tool` turns until PRD-016."""
-    _admit_tool_turns(monkeypatch)
+    would be the worse failure. `_indirect` is D6-shaped, so the real step 0
+    and `dedup_key` run (PRD-017 STORY-005/006)."""
     upstream = _Upstream()
     before = _last_audit_id()
 
@@ -516,7 +514,6 @@ _PROMOTED = _INDIRECT[:1]
 def test_indirect_injection_end_to_end_follows_the_tool_cell(case, action, temp_db, monkeypatch):
     """The same arm with the tool cell set to each action: a promoted cell
     blocks with no upstream call, an unpromoted one answers."""
-    _admit_tool_turns(monkeypatch)
     _use_profile(monkeypatch, _code_with_tool(action))
     upstream = _Upstream() if action == "flag" else _fail_if_called
     before = _last_audit_id()

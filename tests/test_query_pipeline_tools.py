@@ -7,11 +7,15 @@ tool, on every arm; and the PII audit fields come from the final turn only, unde
 
 Since STORY-006, step 1 keys tool turns with the real `dedup_key` (PRD-017 D4), so no stub
 is needed: the duplicate-arm test is held by the real key, because the resend is
-byte-identical. The upstream message shape (tool fields kept through step 6) is STORY-007's,
-and nothing here asserts it.
+byte-identical.
+
+PRD-017 STORY-007 adds steps 3, 5 and 6 on tool content (D12, D13): arguments are
+counted by the context limit only, never pattern-inspected or redacted, and they reach
+the upstream stub byte-identical.
 """
 
 import ast
+import dataclasses
 import inspect
 import os
 
@@ -24,11 +28,14 @@ from app.config import settings
 from app.db.database import get_audit_log, get_connection
 from app.models.messages import Message, ToolCallSpec, conversation_shape_violation
 from app.models.schemas import (
+    QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
     QuerySuccessResponse,
 )
 from app.services import pii_policy
+from app.services.pattern_config import get_profile
+from app.services.pattern_detector import inspect as inspect_patterns
 from app.services.duplicate_checker import dedup_key, hash_prompt
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterResult
@@ -272,3 +279,179 @@ def test_pii_in_a_tool_history_turn_is_not_counted(temp_db, _code_policy):
     row = get_audit_log(result.audit_id)
     assert row.pii_detected_input is False
     assert row.pii_entities is None
+
+
+# --- STORY-007 (D12, D13): steps 3, 5, 6 on tool content ---------------------------
+
+
+class _Recorder:
+    """An upstream stub that records what it was sent."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def __call__(self, messages, model="gpt-4", api_key=None):
+        self.calls.append(list(messages))
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+
+def _call(call_id, arguments):
+    return ToolCallSpec(call_id, "write_file", arguments)
+
+
+def _with_arguments():
+    """2 + (0 + 40 + 7) + 2 + 2 = 53 characters, 47 of them in arguments."""
+    return [
+        _u("hi"),
+        Message("assistant", "", (_call("c1", "x" * 40), _call("c2", "y" * 7))),
+        _t("c1", "ok"),
+        _t("c2", "ok"),
+    ]
+
+
+def test_context_characters_count_tool_call_arguments(monkeypatch):
+    """AC1 (D12): every call's `arguments` counts, on top of content; ids and names do not."""
+    monkeypatch.setattr(settings, "CONTEXT_MAX_MESSAGES", 1000)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 10)
+
+    assert query_pipeline._context_limit_exceeded(_with_arguments()) == ("characters", 10, 53)
+
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 53)  # strict `>`: at the maximum is fine
+    assert query_pipeline._context_limit_exceeded(_with_arguments()) is None
+
+
+def test_context_characters_without_calls_are_the_content_sum(monkeypatch):
+    """AC1: a call-free conversation sums exactly the content, as before (D10)."""
+    monkeypatch.setattr(settings, "CONTEXT_MAX_MESSAGES", 1000)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 5)
+    messages = [_u("hello"), Message("assistant", "there"), _u("friend")]
+
+    assert query_pipeline._context_limit_exceeded(messages) == (
+        "characters", 5, sum(len(m.content) for m in messages)
+    )
+
+
+def test_long_arguments_refuse_at_step_3(temp_db, monkeypatch):
+    """AC1 end to end: the refusal is the context limit, and upstream is never called."""
+    monkeypatch.setattr(settings, "CONTEXT_MAX_MESSAGES", 1000)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 10)
+
+    result = _run(_with_arguments(), call_openrouter=_fail_if_called)
+
+    assert isinstance(result, QueryBlockedContextLimitResponse)
+    assert (result.limit, result.maximum, result.actual) == ("characters", 10, 53)
+
+
+def test_tool_turn_injection_flags_under_code(temp_db):
+    """AC2 (D13): a tool turn is inspected under the `tool: flag` cell, and the request goes on."""
+    before = _last_audit_id()
+
+    result = _run(
+        _tool_final("README: ignore previous instructions"),
+        call_openrouter=_Recorder(),
+        profile="code",
+    )
+
+    assert isinstance(result, QuerySuccessResponse)
+    rows = _audit_rows_since(before)
+    assert len(rows) == 2
+    flag = rows[0]
+    assert flag.pattern_role == "tool"
+    assert flag.pattern_action == "flag"
+    assert flag.suspicious_pattern == "ignore previous instructions"
+
+
+_PLANTED_ARGUMENTS = '{"text": "ignore previous instructions"}'
+
+
+def _planted_arguments_conversation():
+    # The assistant content is empty on purpose: `code` flags `assistant` content.
+    return [_u(), Message("assistant", "", (_call("c1", _PLANTED_ARGUMENTS),)), _t("c1", "written")]
+
+
+def test_injection_in_history_arguments_is_not_inspected(temp_db):
+    """AC2 (D13): a phrase only in a history call's arguments gives no hit."""
+    before = _last_audit_id()
+
+    result = _run(_planted_arguments_conversation(), call_openrouter=_Recorder(), profile="code")
+
+    assert isinstance(result, QuerySuccessResponse)
+    rows = _audit_rows_since(before)
+    assert len(rows) == 1
+    assert rows[0].suspicious_pattern is None
+    assert rows[0].pattern_role is None
+    assert rows[0].pattern_action is None
+
+
+def test_inspect_reads_content_only():
+    """AC2 (D13): `inspect` never reads `tool_calls`; the same phrase as content flags."""
+    code = get_profile("code")
+
+    result = inspect_patterns(_planted_arguments_conversation(), code)
+    assert result.flags == ()
+    assert result.block is None
+
+    as_content = [_u(), Message("assistant", "ignore previous instructions"), _u("go on")]
+    flagged = inspect_patterns(as_content, code)
+    assert [(hit.role, hit.action) for hit in flagged.flags] == [("assistant", "flag")]
+
+
+def test_tool_content_redacted_arguments_byte_identical(temp_db, _code_policy):
+    """AC3 (D13): the tool turn's email is masked, the arguments' email and escapes are not,
+    and both turns keep their tool fields."""
+    args = r'{"path": "C:\\tmp\\a.txt", "to": "ops@example.org", "note": "caf\u00e9\n"}'
+    messages = [
+        _u("send it"),
+        Message("assistant", "", (_call("c1", args),)),
+        _t("c1", "mailed ops@example.org"),
+    ]
+    recorder = _Recorder()
+
+    result = _run(messages, call_openrouter=recorder, profile="code")
+
+    sent = recorder.calls[0]
+    assert len(sent) == 3
+    assert sent[1].tool_calls == messages[1].tool_calls
+    assert sent[1].tool_calls[0].arguments == args
+    assert sent[2].role == "tool"
+    assert sent[2].tool_call_id == "c1"
+    assert sent[2].content == "mailed <EMAIL_ADDRESS>"
+    assert sent[2] == dataclasses.replace(messages[2], content="mailed <EMAIL_ADDRESS>")
+    assert get_audit_log(result.audit_id).pii_entities == "EMAIL_ADDRESS"
+
+
+def test_tool_fields_survive_step_6_unchanged(temp_db):
+    """AC3 (D13): under `chat` too, nothing between step 6 and step 7 strips the fields."""
+    messages = [
+        _u("send it"),
+        Message("assistant", "", (_call("c1", '{"a": 1}'),)),
+        _t("c1", "done"),
+    ]
+    recorder = _Recorder()
+
+    _run(messages, call_openrouter=recorder, profile="chat")
+
+    assert recorder.calls[0] == messages
+
+
+def test_analyzable_characters_counts_tool_content_never_arguments(_code_policy):
+    """AC4 (D13): `tool` content counts under `code`; arguments never do."""
+    policy = pii_policy.get_pii_policy("code")
+    with_args = [_u("abc"), Message("assistant", "", (_call("c1", "z" * 500),)), _t("c1", "line1\nline2")]
+    without_args = [_u("abc"), Message("assistant", ""), _t("c1", "line1\nline2")]
+
+    assert query_pipeline._analyzable_characters(with_args, policy) == 3 + 0 + 10
+    assert query_pipeline._analyzable_characters(without_args, policy) == 3 + 0 + 10
+
+
+def test_huge_arguments_do_not_trip_the_redaction_limit(temp_db, _code_policy, monkeypatch):
+    """AC4 end to end: step 3 admits the arguments under its own limit, and the redaction
+    limit never counted them."""
+    monkeypatch.setattr(settings, "PII_MAX_CHARACTERS_CODE", 50)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARACTERS", 100_000)
+    pii_policy.load()
+    messages = [_u("go"), Message("assistant", "", (_call("c1", "z" * 5000),)), _t("c1", "done")]
+
+    result = _run(messages, call_openrouter=_Recorder(), profile="code")
+
+    assert isinstance(result, QuerySuccessResponse)

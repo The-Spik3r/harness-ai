@@ -264,7 +264,10 @@ def strip_code_spans(text: str) -> str:
 
 
 class _Turn(Protocol):
-    """One message: `app.models.messages.Message`, structurally."""
+    """One message: `app.models.messages.Message`, structurally.
+
+    Only `role` and `content`: a turn's `tool_calls` are not part of what is
+    inspected (PRD-017 D13)."""
 
     role: str
     content: str
@@ -346,6 +349,11 @@ def inspect(
     Code spans are stripped at most once per message, lazily, on the first
     list whose scope is `outside_code`; a list scoped `everywhere` always sees
     the raw text, so a fence cannot hide an injection phrase (T6).
+
+    **Only `content` is read.** An assistant turn's `tool_calls` are not
+    inspected: `_Turn` declares no other field, and tool-call arguments are
+    never pattern-inspected (PRD-017 D13). A `tool` turn's content is inspected
+    under the profile's `tool` cell like any other role.
     """
     flags: list[PatternHit] = []
     truncated: list[int] = []

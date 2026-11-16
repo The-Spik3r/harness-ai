@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 from typing import Callable, Literal, Optional, Sequence, Tuple, Union
 
@@ -96,12 +97,23 @@ def _context_limit_exceeded(
 
     The comparison is strict `>`: a conversation exactly at the maximum is
     within the limit, not over it.
+
+    The character count is every turn's `content` plus every tool call's
+    `arguments` (PRD-017 D12, Section 6.5); ids and names are not counted. The
+    PII size limit at step 6 never counts arguments (`_analyzable_characters`,
+    D13).
     """
     message_count = len(messages)
     if message_count > settings.CONTEXT_MAX_MESSAGES:
         return "messages", settings.CONTEXT_MAX_MESSAGES, message_count
 
-    character_count = sum(len(message.content) for message in messages)
+    # PRD-017 D12: a history call's arguments are text the model reads, so they
+    # count toward the limit like content. Arguments only, as Section 6.5 states;
+    # a conversation without calls sums exactly today's terms.
+    character_count = sum(
+        len(message.content) + sum(len(call.arguments) for call in message.tool_calls)
+        for message in messages
+    )
     if character_count > settings.CONTEXT_MAX_CHARACTERS:
         return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
 
@@ -139,6 +151,10 @@ def _analyzable_characters(messages: Sequence[Message], policy: PiiPolicy) -> in
     newline in prose is a run of one, costs the analyzer nothing either, and is
     left out by the same rule (PRD-012 Section 6.7, "newline runs not
     counted"). Lengths only: nothing here calls the analyzer.
+
+    Content only: a `tool` turn counts when the policy covers `tool` (`code`
+    does), and tool-call arguments never count, because they never reach the
+    analyzer (PRD-017 D13). Step 3 counts them (D12).
     """
     total = 0
     for message in messages:
@@ -503,6 +519,11 @@ def run_conversation(
     # so the raw text is inspected and never the masked one. Both settings are
     # read here, per call, for the reason _context_limit_exceeded gives.
     #
+    # Only `content` is inspected. A `tool` turn takes the profile's `tool`
+    # cell, and a history call's `arguments` are never pattern-inspected: they
+    # are the model's proposal, which the action policy classifies (PRD-017
+    # D13, Section 6.5).
+    #
     # An unknown profile is a call-site bug and raises PatternConfigError here.
     # An earlier arm that wrote a row has already returned, and its row records
     # the name the call site passed -- which is what ran, as far as it went.
@@ -557,8 +578,9 @@ def run_conversation(
     # returned, so a flag followed by a block leaves only the block row.
     # `chat` has no flag cell. `code` flags `assistant` turns (PRD-015 D9),
     # which `/v1` reaches once its router is mounted (STORY-009) -- until then
-    # only tests do. Its `tool` cell becomes reachable once `/v1` forwards tool
-    # turns (PRD-017 STORY-008); until then only tests reach it.
+    # only tests do. Its `tool` cell is reached by any D6-valid conversation
+    # with a tool turn, which step 0 has admitted since PRD-017 STORY-005. `/v1`
+    # forwards such turns once its edge stops refusing them (PRD-017 STORY-008).
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
@@ -632,15 +654,18 @@ def run_conversation(
     # count toward the audit's PII fields (PRD-010 D7): re-redacting history
     # that already passed once is not a new PII event, or every later row of
     # a session would misreport one. The final turn is `user` or `tool` (step
-    # 0, PRD-017 D7), and both policies cover both roles.
+    # 0, PRD-017 D7), and both policies cover both roles. A `tool` turn's
+    # content is redacted like any covered turn (PRD-017 Section 6.5);
+    # assistant `tool_calls` are not (D13).
     redacted_messages: list[Message] = []
     input_entities: list[str] = []
     last_index = len(messages) - 1
     for index, message in enumerate(messages):
         if message.role not in policy.input_roles:
-            # The same object, so it reaches upstream byte-identical: `code`'s
-            # `system` turn, the client's own prompt (PRD-012 D3). Every
-            # policy covers `tool`, so a `tool` turn never takes this branch.
+            # The same object, every field included, so it reaches upstream
+            # byte-identical: `code`'s `system` turn, the client's own prompt
+            # (PRD-012 D3). Every policy covers `user`, `assistant` and `tool`,
+            # so no turn that carries tool fields takes this branch.
             redacted_messages.append(message)
             continue
         try:
@@ -662,7 +687,11 @@ def run_conversation(
                 ignored_params=ignored_params,
             )
             raise
-        redacted_messages.append(Message(message.role, redacted_content))
+        # `replace`, not `Message(role, content)`: an assistant turn's
+        # `tool_calls` and a tool turn's `tool_call_id` go upstream as received.
+        # Arguments are never redacted; only `content` reaches `_redact`
+        # (PRD-012 Section 6.5, PRD-017 D13).
+        redacted_messages.append(dataclasses.replace(message, content=redacted_content))
         if index == last_index:
             input_entities = entities
 
