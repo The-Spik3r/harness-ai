@@ -43,6 +43,15 @@ DUMP = (
     "print(json.dumps([dataclasses.asdict(row) for row in rows]))\n"
 )
 
+# The same for one user's action decisions (PRD-017 STORY-016): the rows the
+# release step writes per tool call, joined to the audit rows by `audit_id`.
+DUMP_ACTIONS = (
+    "import dataclasses, json, sys\n"
+    "from app.db.database import list_action_decisions\n"
+    "rows = list_action_decisions(limit=1000, user_id=sys.argv[1])\n"
+    "print(json.dumps([dataclasses.asdict(row) for row in rows]))\n"
+)
+
 
 def read_line_within(stream, timeout):
     box = []
@@ -133,6 +142,16 @@ def dump_rows(run, user_id: str) -> list:
     """That user's audit rows, oldest first."""
     proc = run("-c", DUMP, user_id)
     assert proc.returncode == 0, f"audit dump exited {proc.returncode}: {proc.stderr}"
+    return sorted(json.loads(proc.stdout), key=lambda row: row["id"])
+
+
+def dump_action_decisions(run, user_id: str) -> list:
+    """That user's `action_decisions` rows, oldest first (PRD-017 STORY-016).
+
+    A child, like `dump_rows`: storage is only reached against `HARNESS_E2E_LIBSQL_URL`.
+    """
+    proc = run("-c", DUMP_ACTIONS, user_id)
+    assert proc.returncode == 0, f"action-decisions dump exited {proc.returncode}: {proc.stderr}"
     return sorted(json.loads(proc.stdout), key=lambda row: row["id"])
 
 
@@ -267,6 +286,21 @@ def _shape(value) -> str:
     return "non-empty"
 
 
+def tool_names(raw: bytes) -> list:
+    """The sorted `tools[].function.name` strings of a request body. Nothing else of a tool is kept."""
+    try:
+        tools = json.loads(raw).get("tools")
+    except (ValueError, AttributeError):
+        return []
+    names = {
+        tool["function"]["name"]
+        for tool in (tools if isinstance(tools, list) else [])
+        if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+        and isinstance(tool["function"].get("name"), str)
+    }
+    return sorted(names)
+
+
 def request_shape(body: dict) -> dict:
     """What `Recorder` keeps of one request: names, roles and the model. Never content."""
     messages = body.get("messages") if isinstance(body.get("messages"), list) else []
@@ -330,6 +364,8 @@ class _RecordingHandler(BaseHTTPRequestHandler):
             shape = request_shape(json.loads(raw))
         except (ValueError, AttributeError):
             shape = {"keys": None}
+        if self.recorder.keep_tool_names:
+            shape["tool_names"] = tool_names(raw)
         self._relay("POST", raw, self._record("POST", shape))
 
     def do_GET(self) -> None:
@@ -347,10 +383,16 @@ class Recorder:
     `status` (the harness's answer), `keepalives` (SSE comment lines relayed
     to the client) and `device_header` (whether `X-Harness-Device` was sent,
     never its value).
+
+    `keep_tool_names` (PRD-017 STORY-016) adds `tool_names`: the function names
+    of the request's `tools`, sorted. A tool name is a name the client defines,
+    not content (OpenCode's are public), and it is opt-in because the default
+    shape keeps no tool name.
     """
 
-    def __init__(self, upstream: str) -> None:
+    def __init__(self, upstream: str, keep_tool_names: bool = False) -> None:
         self.upstream = upstream
+        self.keep_tool_names = keep_tool_names
         self.log: list = []
         self.lock = threading.Lock()
         handler = type("Handler", (_RecordingHandler,), {"recorder": self})

@@ -285,3 +285,27 @@ def test_the_stub_log_is_read_as_rule_labels():
         ])
 
     assert _live.Stub(_Proc(), "http://127.0.0.1:1/v1").settle() == ["1", "default"]
+
+
+def test_the_recorder_keeps_tool_names_only_when_asked(recorder):
+    """PRD-017 STORY-016: tool names are opt-in. The default shape keeps none, and never a description."""
+    body = {"model": "m", "messages": [{"role": "user", "content": "x"}],
+            "tools": [{"function": {"name": "b"}}, {"function": {"name": "a", "description": "SECRET"}}]}
+    httpx.post(f"{recorder.base}/v1/chat/completions", json=body)
+    assert "tool_names" not in recorder.posts()[0]
+
+    named = _live.Recorder(recorder.upstream, keep_tool_names=True)
+    try:
+        httpx.post(f"{named.base}/v1/chat/completions", json=body)
+        httpx.post(f"{named.base}/v1/chat/completions", json={"model": "m", "messages": [], "tools": "nope"})
+        first, second = named.posts()
+        assert first["tool_names"] == ["a", "b"]
+        assert second["tool_names"] == []
+        assert "SECRET" not in json.dumps(named.log)
+    finally:
+        named.close()
+
+
+def test_the_action_dump_reads_list_action_decisions():
+    compile(_live.DUMP_ACTIONS, "<dump>", "exec")
+    assert "list_action_decisions" in _live.DUMP_ACTIONS
