@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - The pipeline accepts tools"
-status: in-progress
+status: done
 labels: [backend, api, v1]
 epic_branch: epic/PRD-017-tool-calling
-plan: .agents/plans/PRD-017-tool-calling/STORY-008-v1-request-translation-under-flag.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-008-v1-request-translation-under-flag.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-008-v1-request-translation-under-flag.report.md
+commit: c3ed60b
 depends_on: [STORY-001, STORY-002, STORY-004, STORY-005, STORY-006, STORY-007]
 blocks: [STORY-010]
 skills: []

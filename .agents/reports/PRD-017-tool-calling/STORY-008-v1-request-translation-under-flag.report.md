@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-008-v1-request-translation-under-flag.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: c3ed60b
 status: COMPLETE
 completed: 2026-11-16
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-16
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-008-v1-request-translation-under-flag.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `c3ed60b`
 
 ## Summary
 
