@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# The orchestrator pushes an epic branch after every story (its draft PR is the
+# full suite), so a newer push supersedes the run still going on the same PR.
+# Runs on `main` are never cancelled: each merge's run is the next PRD's baseline.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
