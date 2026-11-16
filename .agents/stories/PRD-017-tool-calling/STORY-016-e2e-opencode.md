@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: large
 phase: "4 - Real clients and docs"
-status: in-progress
+status: done
 labels: [tests, e2e, clients]
 epic_branch: epic/PRD-017-tool-calling
-plan: .agents/plans/PRD-017-tool-calling/STORY-016-e2e-opencode.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-016-e2e-opencode.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-016-e2e-opencode.report.md
+commit: d11067c
 depends_on: [STORY-001, STORY-014, STORY-015]
 blocks: [STORY-017, STORY-018]
 skills: []
