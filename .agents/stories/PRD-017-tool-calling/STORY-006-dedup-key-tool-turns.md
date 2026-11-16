@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - The pipeline accepts tools"
-status: todo
+status: in-progress
 labels: [backend, duplicates]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
+plan: .agents/plans/PRD-017-tool-calling/STORY-006-dedup-key-tool-turns.plan.md
 report: null
 commit: null
 depends_on: [STORY-005]
