@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - The pipeline accepts tools"
-status: in-progress
+status: done
 labels: [backend, pipeline, audit]
 epic_branch: epic/PRD-017-tool-calling
-plan: .agents/plans/PRD-017-tool-calling/STORY-005-step-zero-and-prompt-anchor.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-005-step-zero-and-prompt-anchor.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-005-step-zero-and-prompt-anchor.report.md
+commit: a86a71c
 depends_on: [STORY-003]
 blocks: [STORY-006, STORY-007, STORY-008]
 skills: []

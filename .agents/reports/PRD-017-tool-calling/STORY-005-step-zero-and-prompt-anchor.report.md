@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-005-step-zero-and-prompt-anchor.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: a86a71c
 status: COMPLETE
 completed: 2026-11-15
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-15
 
 **Plan**: `.agents/plans/PRD-017-tool-calling/completed/STORY-005-step-zero-and-prompt-anchor.plan.md`
 **Epic Branch**: `epic/PRD-017-tool-calling`
-**Commit**: `pending`
+**Commit**: `a86a71c`
 
 ## Summary
 

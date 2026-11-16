@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/18 stories done — 22%
+5/18 stories done — 28%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-017-tool-calling`. No per-story 
 | STORY-002 | V1_TOOLS_ENABLED and V1_TOOL_MODELS settings with startup validation | technical | ✅ done | small | [plan](../../plans/PRD-017-tool-calling/completed/STORY-002-tool-settings.plan.md) | `afc8079` |
 | STORY-003 | ToolCallSpec, Message.tool_calls / tool_call_id, and the normalizer | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-003-message-model-tool-fields.plan.md) | `a68762c` |
 | STORY-004 | Upstream client: ToolParams, tool message serialization, tool_calls parsing | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-004-upstream-tool-calls.plan.md) | `1f81ec5` |
-| STORY-005 | Step 0 accepts tool turns under the D6 shape rules; the audit prompt is the final turn | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-017-tool-calling/STORY-005-step-zero-and-prompt-anchor.plan.md) | — |
+| STORY-005 | Step 0 accepts tool turns under the D6 shape rules; the audit prompt is the final turn | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-005-step-zero-and-prompt-anchor.plan.md) | `a86a71c` |
 | STORY-006 | dedup_key over tool turns: never the anchor, in the prefix, tool-free keys unchanged | feature | ⬜ todo | medium | — | — |
 | STORY-007 | Steps 3, 5, 6 on tool content; tool-call arguments never inspected or redacted | feature | ⬜ todo | medium | — | — |
 | STORY-008 | /v1 request translation under V1_TOOLS_ENABLED: tools, tool turns, shape rules, V1_TOOL_MODELS; passed through to step 7 | feature | ⬜ todo | large | — | — |
