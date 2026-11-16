@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/18 stories done — 11%
+3/18 stories done — 17%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-017-tool-calling`. No per-story 
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Client survey: OpenCode 2.0.10 and Cline request/response shapes; PRD-016 mappings re-verified | spike | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-001-client-survey.plan.md) | `5127071` |
 | STORY-002 | V1_TOOLS_ENABLED and V1_TOOL_MODELS settings with startup validation | technical | ✅ done | small | [plan](../../plans/PRD-017-tool-calling/completed/STORY-002-tool-settings.plan.md) | `afc8079` |
-| STORY-003 | ToolCallSpec, Message.tool_calls / tool_call_id, and the normalizer | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-017-tool-calling/STORY-003-message-model-tool-fields.plan.md) | — |
+| STORY-003 | ToolCallSpec, Message.tool_calls / tool_call_id, and the normalizer | feature | ✅ done | medium | [plan](../../plans/PRD-017-tool-calling/completed/STORY-003-message-model-tool-fields.plan.md) | `a68762c` |
 | STORY-004 | Upstream client: ToolParams, tool message serialization, tool_calls parsing | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Step 0 accepts tool turns under the D6 shape rules; the audit prompt is the final turn | feature | ⬜ todo | medium | — | — |
 | STORY-006 | dedup_key over tool turns: never the anchor, in the prefix, tool-free keys unchanged | feature | ⬜ todo | medium | — | — |
