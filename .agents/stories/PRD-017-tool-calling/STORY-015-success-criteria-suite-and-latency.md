@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Real clients and docs"
-status: todo
+status: done
 labels: [tests, security]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
-report: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-015-success-criteria-suite-and-latency.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-015-success-criteria-suite-and-latency.report.md
 commit: null
 depends_on: [STORY-012, STORY-013]
 blocks: [STORY-016, STORY-018]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-015: In-process success-criteria suite for tool calling; step 7c latency measured
