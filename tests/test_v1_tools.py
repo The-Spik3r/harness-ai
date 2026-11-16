@@ -9,8 +9,9 @@ their shape (location and rule, never a value, T6), checks D6 with the shared
 PRD-015's, byte for byte (D10).
 
 Two layers: the pure translator (no DB), then the router and pipeline through `TestClient`.
-Until STORY-010/011 the result translator reads `response` only, so an upstream's tool calls
-are dropped, never sent (T1): `test_interim_*` pin that.
+Since STORY-010 the pipeline decides and records every call (step 7c); the body still carries
+`response` only (content plus denial notes), so no call is sent until STORY-011, and
+`test_interim_*` pin that (T1). The STORY-010 section at the end covers the decision and its audit.
 """
 
 import os
@@ -28,14 +29,18 @@ from fastapi.testclient import TestClient
 import app.services.query_pipeline as query_pipeline
 from app.config import settings
 from app.db.database import get_audit_log, get_connection, insert_user
+from app.db.errors import StorageError
 from app.db.models import User
 from app.main import app
 from app.models.messages import ToolCallSpec, conversation_shape_violation, normalize_messages
+from app.models.schemas import QuerySuccessResponse
 from app.models.v1_schemas import ChatCompletionRequest
-from app.services.identity import hash_token
+from app.services import action_audit, action_policy, tool_release
+from app.services.action_adapters import ToolCall
+from app.services.identity import Identity, hash_token
 from app.services.openrouter_client import OpenRouterResult, ToolParams
 from app.services.openrouter_client import call_openrouter as _real_call_openrouter
-from app.services.query_pipeline import _validate_conversation
+from app.services.query_pipeline import ActionAuditError, _validate_conversation
 from app.services.v1_translate import (
     FORWARDED,
     REJECTED_UNLESS_DEFAULT,
@@ -844,8 +849,18 @@ def _calling_upstream():
 
 
 def _assert_no_call_released(text):
-    for leaked in ("call_2", "rm -rf", "bash", "tool_calls"):
+    # PRD-017 STORY-010 (D2, T1): the denial note legitimately names the tool, the id and the
+    # reason ("bash", "call_2", "rm -rf"), so those are no longer leaks. What must not appear is
+    # the arguments string (raw and JSON-escaped), an arguments key or a tool_calls key.
+    for leaked in ('{"command":"rm -rf /"}', '{\\"command\\":\\"rm -rf /\\"}', '"arguments"', '"tool_calls"'):
         assert leaked not in text
+
+
+def _denial_note(name, call_id, arguments):
+    """The note the real engine's verdict for this call yields (PRD-017 Section 6.6)."""
+    decision = action_policy.evaluate(ToolCall(call_id, name, arguments), Identity(_AUTH_USER_ID, "user"))
+    assert decision.decision == "deny"
+    return tool_release.DENIAL_NOTE_TEMPLATE.format(name=name, id=call_id, reason=decision.reason)
 
 
 def test_interim_upstream_tool_calls_are_dropped_not_released(temp_db, monkeypatch):
@@ -859,11 +874,15 @@ def test_interim_upstream_tool_calls_are_dropped_not_released(temp_db, monkeypat
 
     assert response.status_code == 200
     choice = response.json()["choices"][0]
-    assert choice["message"]["content"] == ""
+    # PRD-017 STORY-010 (D2): the upstream's `bash` / `rm -rf /` call is now decided (deny), so
+    # the client gets the denial note as content instead of an empty string.
+    assert choice["message"]["content"] == _denial_note("bash", "call_2", '{"command":"rm -rf /"}')
     assert choice["finish_reason"] == "stop"
     assert "tool_calls" not in choice["message"]
     _assert_no_call_released(response.text)
     assert len(stub.calls) == 1
+    with get_connection() as conn:
+        assert [r["decision"] for r in conn.execute("SELECT decision FROM action_decisions")] == ["deny"]
 
 
 def test_interim_streamed_tool_calls_are_dropped_not_released(temp_db, monkeypatch):
@@ -875,3 +894,170 @@ def test_interim_streamed_tool_calls_are_dropped_not_released(temp_db, monkeypat
 
     assert response.status_code == 200
     _assert_no_call_released(response.text)
+    # PRD-017 STORY-010 (D2): the streamed content is the denial note.
+    streamed = "".join(
+        c["choices"][0]["delta"].get("content") or "" for c in _data_events(response.text) if c["choices"]
+    )
+    assert streamed == _denial_note("bash", "call_2", '{"command":"rm -rf /"}')
+
+
+def test_interim_allowed_call_is_decided_but_not_yet_released(temp_db, monkeypatch):
+    """Interim (STORY-010): an allowed call is decided and recorded, but the body still carries
+    `response` only, so it is not released yet (T1). STORY-011 replaces this test."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(
+        response="", tool_calls=(ToolCallSpec("call_r", "read", '{"path":"src/a.py"}'),), finish_reason="tool_calls",
+    ))
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL]))
+
+    assert response.status_code == 200
+    choice = response.json()["choices"][0]
+    assert choice["message"]["content"] == ""
+    assert choice["finish_reason"] == "stop"
+    assert "tool_calls" not in choice["message"]
+    with get_connection() as conn:
+        rows = conn.execute("SELECT decision, audit_id FROM action_decisions").fetchall()
+    assert [(r["decision"], r["audit_id"]) for r in rows] == [("allow", _only_row().id)]
+
+
+# --- STORY-010: decide and record ----------------------------------------------------------
+
+_AUDIT_FAILED = {
+    "error": {
+        "message": "Action audit failed: decisions could not be recorded",
+        "type": "api_error", "param": None, "code": "internal_error", "harness": None,
+    }
+}
+_DROP_TABLE = ToolCallSpec("call_1", "shell", json.dumps({"command": 'sqlite3 app.db "DROP TABLE users"'}))
+_READ_CALL = ToolCallSpec("call_r", "read", '{"path":"src/a.py"}')
+
+
+def _decision_table():
+    with get_connection() as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM action_decisions ORDER BY id")]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["json", "sse"])
+def test_drop_table_via_shell_is_denied_and_recorded_with_the_audit_id(temp_db, monkeypatch, stream):
+    """AC4: one deny/sql.ddl row against the request's audit row; no call in the response."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(response="", tool_calls=(_DROP_TABLE,), finish_reason="tool_calls"))
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL], stream=stream))
+
+    assert response.status_code == 200
+    (row,) = _decision_table()
+    audit = _only_row()
+    assert (row["decision"], row["rule"], row["tool_name"]) == ("deny", "sql.ddl", "shell")
+    assert row["audit_id"] == audit.id
+    assert audit.has_tool_calls is True
+    assert '"tool_calls"' not in response.text
+    note = tool_release.DENIAL_NOTE_TEMPLATE.format(name="shell", id="call_1", reason=row["reason"])
+    if stream:
+        content = "".join(
+            c["choices"][0]["delta"].get("content") or "" for c in _data_events(response.text) if c["choices"]
+        )
+    else:
+        content = response.json()["choices"][0]["message"]["content"]
+        assert int(response.headers["X-Harness-Audit-Id"]) == audit.id
+    assert content == note
+
+
+def _fail_record(monkeypatch):
+    def failing(*args, **kwargs):
+        raise StorageError(f"driver said {_CANARY}")
+
+    monkeypatch.setattr(action_audit, "record", failing)
+
+
+def test_action_audit_failure_is_500_internal_error_and_releases_nothing(temp_db, monkeypatch):
+    """AC3 (JSON): fixed body, retryable, no call id, arguments or driver text; no decision rows."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(response="", tool_calls=(_READ_CALL, _DROP_TABLE), finish_reason="tool_calls"))
+    _fail_record(monkeypatch)
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL]))
+
+    assert response.status_code == 500
+    assert response.json() == _AUDIT_FAILED
+    assert "x-should-retry" not in response.headers
+    for leaked in ("call_r", "call_1", "src/a.py", "DROP TABLE", _CANARY):
+        assert leaked not in response.text
+    assert _decision_table() == []
+
+
+def test_action_audit_failure_after_stream_commit_is_the_error_event(temp_db, monkeypatch):
+    """AC3 (SSE): one error data event, no [DONE], nothing of the calls (mirrors test_v1_sse)."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    _use(monkeypatch, _ToolUpstream(response="", tool_calls=(_READ_CALL, _DROP_TABLE), finish_reason="tool_calls"))
+    _fail_record(monkeypatch)
+
+    response = client.post(_PATH, json=_router_body(tools=[_TOOL], stream=True))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert _data_events(response.text) == [_AUDIT_FAILED]
+    assert "[DONE]" not in response.text
+    for leaked in ("call_r", "call_1", "src/a.py", "DROP TABLE", _CANARY):
+        assert leaked not in response.text
+    assert _decision_table() == []
+
+
+def test_action_audit_failure_marks_the_row_and_the_same_request_is_answered_again(temp_db, monkeypatch):
+    """D8: the retry is not held as a duplicate once the row is marked failed."""
+    monkeypatch.setattr(settings, "V1_TOOLS_ENABLED", True)
+    stub = _use(monkeypatch, _ToolUpstream(response="", tool_calls=(_READ_CALL,), finish_reason="tool_calls"))
+    real_record = action_audit.record
+    _fail_record(monkeypatch)
+
+    assert client.post(_PATH, json=_router_body(tools=[_TOOL])).status_code == 500
+    monkeypatch.setattr(action_audit, "record", real_record)
+    retry = client.post(_PATH, json=_router_body(tools=[_TOOL]))
+
+    assert retry.status_code == 200
+    assert len(stub.calls) == 2
+
+
+def test_fault_code_maps_action_audit_error():
+    """AC3: a new test, so the pre-existing `_fault_code` parametrize stays unedited."""
+    from app.routers.v1 import _PIPELINE_FAULTS, _fault_code
+
+    exc = ActionAuditError("x")
+
+    assert isinstance(exc, _PIPELINE_FAULTS)
+    assert _fault_code(exc) == "internal_error"
+
+
+def test_router_never_reads_raw_upstream_tool_calls():
+    """T1: no `<x>.result.tool_calls` attribute chain in the router; calls come from the pipeline result."""
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path("app/routers/v1.py").read_text(encoding="utf-8"))
+    chains = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "tool_calls"
+        and isinstance(node.value, ast.Attribute) and node.value.attr == "result"
+    ]
+
+    assert chains == []
+
+
+def test_query_body_and_schema_ignore_the_tool_outcome(temp_db, monkeypatch):
+    """D17, DD-1: a private attribute is never serialized and never in the OpenAPI schema."""
+    fields = {"status", "response", "audit_id", "model_used", "tokens_used", "pii_redacted", "pii_entities_masked"}
+    plain = QuerySuccessResponse(response="r", audit_id=1, model_used="m", tokens_used=2)
+    carrying = QuerySuccessResponse(response="r", audit_id=1, model_used="m", tokens_used=2)
+    carrying._tool_outcome = tool_release.ToolOutcome(tool_release.Release((), (), None), ())
+
+    assert carrying.tool_outcome is not None and plain.tool_outcome is None
+    assert carrying.model_dump() == plain.model_dump()
+    assert carrying.model_dump_json() == plain.model_dump_json()
+    assert QuerySuccessResponse.model_json_schema() == plain.model_json_schema()
+    assert set(app.openapi()["components"]["schemas"]["QuerySuccessResponse"]["properties"]) == fields
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _ThreeArgUpstream())
+    response = client.post("/query", json={"prompt": "hello"})
+    assert response.status_code == 200
+    assert set(response.json()) == fields

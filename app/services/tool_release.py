@@ -20,7 +20,8 @@ The note is `DENIAL_NOTE_TEMPLATE` with the model-chosen `name` and `id` cut to
 for the agent, PRD-016 T11). `content_with_notes` is the one Section 6.6
 joining helper; STORY-010 calls it after step 8 redaction so a note is never
 masked, and the response shapes (STORY-011/012) do not re-join. Mapping `""` to
-`null` is the result translator's (STORY-011).
+`null` is the result translator's (STORY-011). `ToolOutcome` is what step 7c
+hands the router on the success result (STORY-010).
 
 Purity (Section 6.12): this module names no `settings`, does no I/O, logs
 nothing and reads no clock. `ActionDecision` is imported for typing only, so
@@ -60,6 +61,15 @@ class Release:
     #: `"tool_calls"` if any call is released, `"stop"` if every call was
     #: denied, `None` when there were no calls (the upstream's stands).
     finish_reason: Optional[str]
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    """Step 7c's result for one response: what the router may release (PRD-017 Section 6.1)."""
+
+    release: Release
+    #: `evaluate_all`'s decisions, in call order, one per upstream call.
+    decisions: tuple["ActionDecision", ...]
 
 
 def apply_decisions(

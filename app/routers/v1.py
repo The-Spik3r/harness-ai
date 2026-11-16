@@ -20,8 +20,10 @@ runs there) and writes no row (Section 7.7). STORY-013 added the buffered
 stream: a `stream: true` request is committed to SSE only once the upstream
 call has started (Section 6.4), so every verdict keeps its real status.
 PRD-017 STORY-008 passes the tool request through under `V1_TOOLS_ENABLED`;
-releasing the model's tool calls is STORY-010/011, so the response is built
-from `response` only until then (T1).
+STORY-010 decides and records every call in the pipeline (step 7c). The
+response is still built from `response` (content plus denial notes) until
+STORY-011 releases the allowed calls from the pipeline result's
+`tool_outcome`, never from `upstream.result` (T1).
 """
 
 import asyncio
@@ -58,7 +60,7 @@ from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
-from app.services.query_pipeline import run_conversation
+from app.services.query_pipeline import ActionAuditError, run_conversation
 from app.services.usage_limits import UsageLimitError
 from app.services.v1_translate import (
     BREAK_GLASS_NOT_PERMITTED,
@@ -104,8 +106,15 @@ _SERVER_ERROR = ("api_error", INTERNAL_ERROR)
 
 # What `run_conversation` raises (PRD-015 Section 7.5): `/query`'s chain in
 # app/routers/query.py minus `ChatSessionError`, which needs a session and
-# `/v1` passes none. Anything else is a bug and stays Starlette's 500.
-_PIPELINE_FAULTS = (OpenRouterError, DuplicateCheckError, UsageLimitError, PiiRedactorError)
+# `/v1` passes none, plus `ActionAuditError`, which only a tools request
+# reaches (PRD-017 D8). Anything else is a bug and stays Starlette's 500.
+_PIPELINE_FAULTS = (
+    OpenRouterError,
+    DuplicateCheckError,
+    UsageLimitError,
+    PiiRedactorError,
+    ActionAuditError,
+)
 
 
 class _Upstream:
@@ -124,6 +133,9 @@ class _Upstream:
     `called` is set on the pipeline thread before any result can exist, which
     makes it the deterministic answer to "commit or not"; `started` wakes the
     event loop for it.
+
+    `result.tool_calls` are the raw upstream calls, decided only inside the
+    pipeline: they are never read to build a response (PRD-017 T1).
     """
 
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -193,7 +205,7 @@ def _fault_code(exc: Exception) -> str:
     """
     if isinstance(exc, OpenRouterError):
         return UPSTREAM_UNAVAILABLE if exc.retryable else UPSTREAM_ERROR
-    if isinstance(exc, (DuplicateCheckError, UsageLimitError)):
+    if isinstance(exc, (DuplicateCheckError, UsageLimitError, ActionAuditError)):
         return INTERNAL_ERROR
     if isinstance(exc, PiiRedactorError):
         return REDACTION_FAILED

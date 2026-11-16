@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Decide and release"
-status: todo
+status: done
 labels: [backend, pipeline, action-policy, audit]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-017-tool-calling/completed/STORY-010-step-7c-action-evaluation.plan.md
+report: .agents/reports/PRD-017-tool-calling/STORY-010-step-7c-action-evaluation.report.md
+commit: pending
 depends_on: [STORY-001, STORY-002, STORY-008, STORY-009]
 blocks: [STORY-011, STORY-013]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-010: Step 7c: evaluate every call, release, record() with audit_id, fail closed, has_tool_calls

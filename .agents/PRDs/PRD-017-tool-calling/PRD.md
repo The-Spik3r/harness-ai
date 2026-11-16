@@ -517,7 +517,7 @@ The brief's five criteria hold: OpenCode and Cline each complete the scripted mu
 | D5 | *(new)* How `Message` carries tools | Two defaulted fields and `ToolCallSpec`; arguments stay the raw string |
 | D6 | *(new)* Conversation shape | Last turn `user` or `tool`; a `tool` turn answers a call of the nearest preceding assistant `tool_calls` turn, once (Section 6.3) |
 | D7 | *(new)* The audit row's `prompt` when the last turn is `tool` | **The final turn**, user or tool: it is what this request added. Its PII entities are the row's |
-| D8 | *(new)* `record()` fails | **Fail closed**: 500 `internal_error` (retryable, PRD-015 D7's storage rule), nothing released; the `audit_logs` row exists and an `ERROR` log names the user and `audit_id` |
+| D8 | *(new)* `record()` fails | **Fail closed**: 500 `internal_error` (retryable, PRD-015 D7's storage rule), nothing released; an `ERROR` log names the user and `audit_id`. *Orchestrator decision (STORY-010 plan):* the success row is written before `record()` (it needs the row's id), so the pipeline then marks that row `success=0` with `error_message='action audit failed'`, best effort, so the retry is not held as a duplicate (`find_duplicate_timestamp` counts only `success=1`). If that update fails too, the log says so and the 24-hour duplicate window holds the retry |
 | D9 | *(new)* `flag` | Released and recorded (PRD-016 D10); visible in `harness.actions` |
 | D10 | *(new)* Flag off; legacy API | Off is PRD-015 byte for byte; `functions`/`function_call` refused always |
 | D11 | *(new)* `parallel_tool_calls` | **Forwarded** when tools are on (a parameter that changes what the caller gets is not silently dropped, PRD-015 principle); ignored and recorded as today when off |

@@ -899,6 +899,24 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
         return row["timestamp"] if row is not None else None
 
 
+def mark_audit_log_failed(audit_id: int, error_message: str) -> None:
+    """Flip one audit row to `success = 0` with `error_message` (PRD-017 D8).
+
+    The caller is `query_pipeline` after `action_audit.record()` failed: the
+    success row was written first (`record()` needs its id), so a retry would
+    be held as a duplicate. `find_duplicate_timestamp` counts only `success = 1`
+    rows, so this restores the retry. It touches those two columns of that one
+    row and nothing else; an unknown id updates nothing and raises nothing.
+    Raises `StorageError` like every function here; the caller treats it as
+    best effort.
+    """
+    with _session() as conn:
+        conn.execute(
+            "UPDATE audit_logs SET success = 0, error_message = ? WHERE id = ?",
+            (error_message, audit_id),
+        )
+
+
 def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
     """Map one audit row onto `AuditLog`, by column name.
 

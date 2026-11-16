@@ -3,6 +3,8 @@ import logging
 from typing import Any, Callable, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
+from app.db.database import mark_audit_log_failed
+from app.db.errors import StorageError
 from app.models.messages import Message, conversation_shape_violation
 from app.models.schemas import (
     QueryBlockedContextLimitResponse,
@@ -12,6 +14,10 @@ from app.models.schemas import (
     QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
+# PRD-017 STORY-010 DD-5: called through their modules (`action_policy.
+# evaluate_all(...)`), so a test's monkeypatch of the source module reaches the
+# pipeline, the rule `action_policy._classify` documents.
+from app.services import action_adapters, action_audit, action_policy, tool_release
 from app.services.audit_logger import log_query
 from app.services.authz import (
     PERMISSION_QUERY_BYOK,
@@ -67,6 +73,32 @@ class InvalidConversationError(Exception):
     Raised before dedup_key, authorization, or any log_query call, so it
     writes no audit row. Neither the router nor ChatState catches it.
     """
+
+
+#: The `error_message` of an audit row whose decisions could not be recorded (D8).
+_ACTION_AUDIT_FAILED = "action audit failed"
+
+
+class ActionAuditError(Exception):
+    """`action_audit.record()` failed after the success row was written (PRD-017 D8, F7).
+
+    The pipeline logs the user and `audit_id` at ERROR, makes a best-effort
+    attempt to mark that row `success = 0` so a retry is not held as a duplicate,
+    and raises this with a fixed message (no driver text, because `/v1` sends
+    the message to the client). `/v1` maps it to 500 `internal_error`, retryable,
+    and nothing is released (T5). `/query` never reaches it: it sends no `tools`,
+    so no calls come back (D17, D18).
+    """
+
+
+def _has_tool_turns(messages: Sequence[Message]) -> bool:
+    """The request half of D19: an assistant `tool_calls` turn or a `tool` turn.
+
+    A pure function of the conversation, so step 1b computes it once and every
+    row carries it, whichever arm writes the row. The response half (the
+    upstream carried calls) is known only from step 7c on.
+    """
+    return any(m.role == "tool" or bool(m.tool_calls) for m in messages)
 
 
 def _validate_conversation(messages: Sequence[Message]) -> None:
@@ -246,6 +278,10 @@ def _deny(
     # forgotten authorization arm is a TypeError, not a `/v1` row that
     # silently claims the client got everything it asked for.
     ignored_params: Optional[str],
+    # Required for the same reason as the six above (PRD-017 D19): a forgotten
+    # authorization arm is a TypeError, not a tool-turn row that claims no
+    # tool calls were involved.
+    has_tool_calls: bool,
     exc: PermissionDenied,
     reason: str,
 ) -> QueryBlockedForbiddenResponse:
@@ -264,6 +300,7 @@ def _deny(
         conversation_key=conversation_key,
         streamed=streamed,
         ignored_params=ignored_params,
+        has_tool_calls=has_tool_calls,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -326,6 +363,9 @@ def run_conversation(
     key = dedup_key(identity.user_id, messages)
     message_count = len(messages)
     conv_key = conversation_key(identity.user_id, messages)
+    # PRD-017 D19, the request half of `has_tool_calls`: pure too, so every row
+    # below carries it. The response half joins it at step 7c.
+    request_has_tool_turns = _has_tool_turns(messages)
 
     # Step 2: authorize / model / BYOK.
     try:
@@ -335,7 +375,7 @@ def run_conversation(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
-            ignored_params=ignored_params, exc=exc,
+            ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
             reason="Missing required permission",
         )
 
@@ -346,7 +386,7 @@ def run_conversation(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
-            ignored_params=ignored_params, exc=exc,
+            ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
             reason="Model not permitted for this role",
         )
 
@@ -358,7 +398,7 @@ def run_conversation(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
-                ignored_params=ignored_params, exc=exc,
+                ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
                 reason="Missing required permission",
             )
 
@@ -379,7 +419,7 @@ def run_conversation(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
-            ignored_params=ignored_params,
+            ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
             exc=PermissionDenied("ingress:break_glass"),
             reason="Break-glass credential not permitted on this ingress",
         )
@@ -437,6 +477,7 @@ def run_conversation(
                 conversation_key=conv_key,
                 streamed=streamed,
                 ignored_params=ignored_params,
+                has_tool_calls=request_has_tool_turns,
             )
             return QueryBlockedUsageLimitResponse(
                 reason="Usage limit reached",
@@ -481,6 +522,7 @@ def run_conversation(
             conversation_key=conv_key,
             streamed=streamed,
             ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds context limit",
@@ -512,6 +554,7 @@ def run_conversation(
             conversation_key=conv_key,
             streamed=streamed,
             ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
         )
         return QueryBlockedDuplicateResponse(
             reason="Duplicate query within 24 hours",
@@ -568,6 +611,7 @@ def run_conversation(
             conversation_key=conv_key,
             streamed=streamed,
             ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
         )
         return QueryBlockedSuspiciousResponse(
             reason="Suspicious pattern detected",
@@ -604,6 +648,7 @@ def run_conversation(
             conversation_key=conv_key,
             streamed=streamed,
             ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
         )
 
     # Step 6: redact input per the profile's PII policy (PRD-012 Sections
@@ -643,6 +688,7 @@ def run_conversation(
             conversation_key=conv_key,
             streamed=streamed,
             ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
         )
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds redaction limit",
@@ -690,6 +736,7 @@ def run_conversation(
                 conversation_key=conv_key,
                 streamed=streamed,
                 ignored_params=ignored_params,
+                has_tool_calls=request_has_tool_turns,
             )
             raise
         # `replace`, not `Message(role, content)`: an assistant turn's
@@ -732,6 +779,7 @@ def run_conversation(
             conversation_key=conv_key,
             streamed=streamed,
             ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
         )
         raise
 
@@ -762,13 +810,43 @@ def run_conversation(
             openrouter_result.tokens_used,
         )
 
+    # Step 7c: actions (PRD-017 Section 6.1; F6; D1, D2, D9; T1).
+    #
+    # After 7b, so the tokens are charged whatever the decision (PRD-013 T3).
+    # Before step 8, which needs the final content: the policy classifies the
+    # arguments as the model wrote them (PRD-016 6.1), and the notes it yields
+    # are joined after redaction below. It runs only when the upstream returned
+    # calls, which D18 limits to a request that sent `tools=`; `/query`, the chat
+    # UI and a `/v1` request without tools never enter it.
+    #
+    # `ToolCallSpec` -> `ToolCall` is field for field (F6): the arguments string
+    # is the same object, never parsed here. evaluate_all() never raises for
+    # model input (PRD-016 F7); apply_decisions()' ValueError is a programming
+    # error and propagates, so no call is ever released undecided (T1).
+    outcome: Optional[tool_release.ToolOutcome] = None
+    if openrouter_result.tool_calls:
+        calls = tuple(
+            action_adapters.ToolCall(c.id, c.name, c.arguments)
+            for c in openrouter_result.tool_calls
+        )
+        decisions = action_policy.evaluate_all(calls, identity)
+        outcome = tool_release.ToolOutcome(
+            release=tool_release.apply_decisions(openrouter_result.tool_calls, decisions),
+            decisions=decisions,
+        )
+    # PRD-017 D19: the request half, or the upstream response carried calls
+    # (counted before release, so an all-denied response is still a tool turn).
+    has_tool_calls = request_has_tool_turns or bool(openrouter_result.tool_calls)
+
     # Step 8: redact the response only when the policy's output switch is on,
     # then audit and return. `chat` always redacts it. `code` does not by
     # default (PRD-012 D1): the reader of a coding agent's output is the file
     # system, and a placeholder in a response becomes a placeholder in a file.
     # Its row then has pii_detected_output=0 because the output was **not
     # analyzed**, not because it was clean; the row's `profile` column says
-    # which it was (PRD-012 D9).
+    # which it was (PRD-012 D9). Only the upstream's content is redacted, never a
+    # call's arguments (PRD-017 Section 6.5, D13); the denial notes are joined
+    # after it, so they are never masked (Section 6.6).
     if policy.output:
         try:
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
@@ -794,11 +872,21 @@ def run_conversation(
                 conversation_key=conv_key,
                 streamed=streamed,
                 ignored_params=ignored_params,
+                has_tool_calls=has_tool_calls,
             )
+            # Nothing is released on this arm, and record() is a step 8 call
+            # against the success row only (PRD-017 F7): no decision rows here.
             raise
     else:
         redacted_response = openrouter_result.response
         output_entities = []
+
+    # The `outcome is None` branch is `/query`'s path, byte for byte.
+    content = (
+        redacted_response
+        if outcome is None
+        else tool_release.content_with_notes(redacted_response, outcome.release.notes)
+    )
 
     masked_entities = sorted(set(input_entities) | set(output_entities))
 
@@ -811,10 +899,10 @@ def run_conversation(
         tokens_used=openrouter_result.tokens_used,
         input_tokens=openrouter_result.input_tokens,
         output_tokens=openrouter_result.output_tokens,
-        # PRD-017 STORY-010 sets this from the request and the response. Until
-        # then it is False, and this is the one place it is passed (PRD-013 F5); every other row takes the
-        # column's default, which is equally true.
-        has_tool_calls=False,
+        # PRD-017 D19: the request carried tool turns, or the response carried
+        # calls (before release). The row's `response` stays what the upstream
+        # said; the decisions live in `action_decisions` (STORY-010 DD-2).
+        has_tool_calls=has_tool_calls,
         success=True,
         pii_detected_input=bool(input_entities),
         pii_detected_output=bool(output_entities),
@@ -829,14 +917,47 @@ def run_conversation(
         ignored_params=ignored_params,
     )
 
-    return QuerySuccessResponse(
-        response=redacted_response,
+    # The decision audit (PRD-017 F7, D8; T5): after the row, whose id it needs
+    # (PRD-016 6.1). Fail closed: no release without the decision rows. Only the
+    # user and `audit_id` are logged, never the arguments or the driver's text.
+    if outcome is not None:
+        try:
+            action_audit.record(
+                outcome.decisions, identity, audit_id=audit_id, session_id=session_id
+            )
+        except StorageError as exc:
+            logger.error(
+                "action audit failed: user_id=%s audit_id=%s", identity.user_id, audit_id
+            )
+            # D8 (orchestrator decision): the success row exists, and a success
+            # row is a prior query, so an honest retry would be held as a
+            # duplicate. Mark it failed, best effort: if this fails too the
+            # duplicate window holds the retry, and we still fail closed.
+            try:
+                mark_audit_log_failed(audit_id, _ACTION_AUDIT_FAILED)
+            except Exception:
+                logger.error(
+                    "action audit failure not marked: user_id=%s audit_id=%s",
+                    identity.user_id,
+                    audit_id,
+                )
+            raise ActionAuditError(
+                "Action audit failed: decisions could not be recorded"
+            ) from exc
+
+    success = QuerySuccessResponse(
+        response=content,
         audit_id=audit_id,
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
         pii_redacted=bool(masked_entities),
         pii_entities_masked=masked_entities,
     )
+    if outcome is not None:
+        # Private, never serialized (STORY-010 DD-1): the router's only source of
+        # released calls (T1).
+        success._tool_outcome = outcome
+    return success
 
 
 def run_query(

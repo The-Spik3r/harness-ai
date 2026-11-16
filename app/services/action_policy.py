@@ -52,8 +52,10 @@ itself (`policy=None` defaults to the loaded policy, grants go through
 `holds()`), so the test asserts what is true rather than a subprocess "no
 settings loaded" check.
 
-Not this module's work: what PRD-017 does with `flag` and `deny` (D4), and
-recording decisions (STORY-015, `action_audit.record`). `ActionDecision`
+Not this module's work: what PRD-017 does with `flag` and `deny` (D4: since
+STORY-010, `query_pipeline` step 7c calls `evaluate_all`, and `tool_release`
+releases `allow`/`flag` and turns a `deny` into a note), and recording
+decisions (STORY-015, `action_audit.record`). `ActionDecision`
 carries `operations`, the reported `operation` and the raw `arguments` beyond
 Section 6.2's eight fields so that `record()` keeps its Section 10 signature.
 """
