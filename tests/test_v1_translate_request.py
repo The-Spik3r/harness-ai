@@ -771,6 +771,9 @@ def test_profile_and_ingress_are_ordinary_ignored_keys():
         "stream",
         "include_usage",
         "ignored_params",
+        # PRD-017 STORY-008 AC2 (D11): V1Call.tools carries the ToolParams. It
+        # is not a profile or door field, so T4 still holds.
+        "tools",
     }
 
 

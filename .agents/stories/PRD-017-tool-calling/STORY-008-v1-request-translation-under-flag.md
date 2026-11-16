@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - The pipeline accepts tools"
-status: todo
+status: in-progress
 labels: [backend, api, v1]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
+plan: .agents/plans/PRD-017-tool-calling/STORY-008-v1-request-translation-under-flag.plan.md
 report: null
 commit: null
 depends_on: [STORY-001, STORY-002, STORY-004, STORY-005, STORY-006, STORY-007]
 blocks: [STORY-010]
 skills: []
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # STORY-008: /v1 request translation under V1_TOOLS_ENABLED: tools, tool turns, shape rules, V1_TOOL_MODELS; passed through to step 7

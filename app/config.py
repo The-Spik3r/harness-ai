@@ -373,10 +373,10 @@ class Settings(BaseSettings):
     # > 0 and <= 60. Consumed by STORY-013.
     V1_SSE_KEEPALIVE_SECONDS: float = 10.0
 
-    # Tool calling on /v1 (PRD-017 Section 4, 9.3). Nothing reads these yet --
-    # STORY-008 (translation) and STORY-010 (step 7c) read them per request, the
-    # _context_limit_exceeded rule (Section 6.7), so tests flip them with
-    # monkeypatch.
+    # Tool calling on /v1 (PRD-017 Section 4, 9.3). The `/v1` router reads
+    # both per request and passes them to the translator (STORY-008); step 7c
+    # (STORY-010) will read them too. Per request is the _context_limit_exceeded
+    # rule (Section 6.7), so tests flip them with monkeypatch.
 
     # Off: PRD-015 byte for byte. `tools` is refused as `tools_not_supported`
     # exactly as today; `functions`/`function_call` are refused whatever the

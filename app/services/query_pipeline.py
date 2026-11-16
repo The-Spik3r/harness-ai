@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Callable, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
 from app.models.messages import Message, conversation_shape_violation
@@ -27,6 +27,7 @@ from app.services.openrouter_client import (
     GenerationParams,
     OpenRouterError,
     OpenRouterResult,
+    ToolParams,
     call_openrouter,
 )
 from app.services.pattern_config import get_profile
@@ -294,6 +295,10 @@ def run_conversation(
     # v1_translate names them, passed by the router (STORY-009) and recorded
     # on every row below. None for every other door; run_query passes nothing.
     ignored_params: Optional[str] = None,
+    # PRD-017 Section 4, D11: the `/v1` router's ToolParams (STORY-008), passed
+    # to step 7 only when set, as `params` is; every other door passes nothing
+    # (D17).
+    tools: Optional[ToolParams] = None,
 ) -> QueryPipelineResult:
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
@@ -698,16 +703,17 @@ def run_conversation(
     # Step 7: upstream. params is forwarded only when set: the existing
     # injected call_openrouter stubs across the suite have signature
     # (messages, model, api_key) and raise TypeError on an unexpected
-    # params= keyword (PRD-010 STORY-005 Technical Notes).
+    # params= keyword (PRD-010 STORY-005 Technical Notes). A tools= keyword is
+    # passed under the same rule (PRD-017 STORY-008).
+    extra: dict[str, Any] = {}
+    if params is not None:
+        extra["params"] = params
+    if tools is not None:
+        extra["tools"] = tools
     try:
-        if params is not None:
-            openrouter_result = call_openrouter(
-                redacted_messages, model=model, api_key=openrouter_api_key, params=params
-            )
-        else:
-            openrouter_result = call_openrouter(
-                redacted_messages, model=model, api_key=openrouter_api_key
-            )
+        openrouter_result = call_openrouter(
+            redacted_messages, model=model, api_key=openrouter_api_key, **extra
+        )
     except OpenRouterError as exc:
         log_query(
             user_id=identity.user_id,

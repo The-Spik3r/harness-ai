@@ -12,6 +12,9 @@ byte-identical.
 PRD-017 STORY-007 adds steps 3, 5 and 6 on tool content (D12, D13): arguments are
 counted by the context limit only, never pattern-inspected or redacted, and they reach
 the upstream stub byte-identical.
+
+PRD-017 STORY-008 adds the `tools` keyword: step 7 passes `tools=` to `call_openrouter` only
+when it is set, as it does `params=`, so three-argument stubs keep working (D11, D17).
 """
 
 import ast
@@ -38,7 +41,7 @@ from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect as inspect_patterns
 from app.services.duplicate_checker import dedup_key, hash_prompt
 from app.services.identity import Identity
-from app.services.openrouter_client import OpenRouterResult
+from app.services.openrouter_client import GenerationParams, OpenRouterResult, ToolParams
 import app.services.query_pipeline as query_pipeline
 from tests.test_query_pipeline_dedup_key import _log_query_call_sources
 from tests.test_query_pipeline_pii_profiles import _SHIPPED_CODE_SETTINGS
@@ -453,5 +456,64 @@ def test_huge_arguments_do_not_trip_the_redaction_limit(temp_db, _code_policy, m
     messages = [_u("go"), Message("assistant", "", (_call("c1", "z" * 5000),)), _t("c1", "done")]
 
     result = _run(messages, call_openrouter=_Recorder(), profile="code")
+
+    assert isinstance(result, QuerySuccessResponse)
+
+
+# --- STORY-008: step 7 forwards tools= only when set ---------------------------------------
+
+
+class _ToolsRecorder:
+    """An upstream stub that accepts both optional keywords and records what arrived."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def __call__(self, messages, model="gpt-4", api_key=None, params=None, *, tools=None):
+        self.calls.append({"params": params, "tools": tools})
+        return OpenRouterResult(response="Hi there!", model_used=model, tokens_used=12)
+
+
+_TOOL_PARAMS = ToolParams(
+    tools=[{"type": "function", "function": {"name": "ls", "parameters": {"type": "object"}}}],
+    tool_choice="auto",
+    parallel_tool_calls=True,
+)
+
+
+def test_tools_reach_step_7_as_the_same_object(temp_db):
+    """STORY-008 AC2: the router's ToolParams goes to `call_openrouter` untouched."""
+    recorder = _ToolsRecorder()
+
+    result = _run([_u()], call_openrouter=recorder, tools=_TOOL_PARAMS)
+
+    assert isinstance(result, QuerySuccessResponse)
+    assert recorder.calls[0]["tools"] is _TOOL_PARAMS
+    assert recorder.calls[0]["params"] is None
+
+
+def test_params_and_tools_both_arrive_when_both_are_set(temp_db):
+    recorder = _ToolsRecorder()
+    params = GenerationParams(temperature=0.2)
+
+    _run([_u()], call_openrouter=recorder, params=params, tools=_TOOL_PARAMS)
+
+    assert recorder.calls[0] == {"params": params, "tools": _TOOL_PARAMS}
+
+
+def test_three_argument_stub_still_works_without_tools(temp_db):
+    """Not passed when None: a (messages, model, api_key) stub would raise TypeError."""
+    result = _run([_u()], call_openrouter=_fake_call_openrouter)
+
+    assert isinstance(result, QuerySuccessResponse)
+
+
+def test_run_query_never_passes_tools(temp_db):
+    """D17: `/query` has no tools parameter, and a three-argument stub serves it."""
+    assert "tools" not in inspect.signature(query_pipeline.run_query).parameters
+    result = query_pipeline.run_query(
+        identity=_JUAN, prompt="hello", device=None, model="gpt-4",
+        openrouter_api_key=None, call_openrouter=_fake_call_openrouter,
+    )
 
     assert isinstance(result, QuerySuccessResponse)

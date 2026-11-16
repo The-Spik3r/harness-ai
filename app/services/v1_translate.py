@@ -8,6 +8,12 @@ router sends (Section 7.5), and a pipeline fault into the `V1Error` its retry
 semantics call for (D7). Every refusal is a `V1RequestError`, which the
 router maps to a 400 (STORY-009/010). Pure on purpose, like
 `app/models/messages.py`: no I/O, no settings reads, no logging, no clock.
+
+PRD-017 STORY-008: with `tools_enabled` the request may carry `tools`,
+`tool_choice`, `parallel_tool_calls` and tool turns (Sections 4, 6.3, 10); the
+router reads `V1_TOOLS_ENABLED` and `V1_TOOL_MODELS` per request and passes
+them in, because this module reads no settings. The defaults are the flag-off
+values, so PRD-015's behaviour is unchanged byte for byte (D10).
 """
 
 from dataclasses import dataclass
@@ -24,7 +30,12 @@ from typing import (
     Union,
 )
 
-from app.models.messages import Message, MessageNormalizationError, normalize_message
+from app.models.messages import (
+    Message,
+    MessageNormalizationError,
+    conversation_shape_violation,
+    normalize_message,
+)
 from app.models.schemas import (
     QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
@@ -45,6 +56,7 @@ from app.models.v1_schemas import (
 from app.services.openrouter_client import (
     GenerationParams,
     OpenRouterResult,
+    ToolParams,
     UnsupportedParameterError,
 )
 
@@ -116,10 +128,25 @@ REJECTED_UNLESS_DEFAULT: Mapping[str, Tuple[str, Tuple[Any, ...]]] = {
 # other key is ignored and only its name recorded.
 _STRUCTURAL = frozenset({"model", "messages", "stream", "stream_options"})
 
+# PRD-017 Section 4, D11: the keys `V1_TOOLS_ENABLED` turns from rejected /
+# ignored into tool params. REJECTED_UNLESS_DEFAULT above is the flag-off table
+# (tests/e2e/_live.py mirrors it), so each key is in exactly one group per flag
+# state: with the flag on, these three are tool params and `functions` /
+# `function_call` stay rejected (D10). `parallel_tool_calls` is not declared on
+# ChatCompletionRequest: with the flag off it stays an ignored unknown key.
+TOOL_PARAMS = frozenset({"tools", "tool_choice", "parallel_tool_calls"})
+
 _REJECTED_RULES = {
     TOOLS_NOT_SUPPORTED: "tool calling is not supported (PRD-017)",
     UNSUPPORTED_PARAMETER: "only the default value is supported on this endpoint",
 }
+
+# PRD-017 Section 10, flag on: `tool calling is not supported` would be false,
+# so the two deprecated keys get their own text. Flag-off strings are untouched.
+_LEGACY_TOOLS_RULE = "the deprecated function-calling API is not supported; use tools"
+_FLAG_ON_REJECTED_RULES = {**_REJECTED_RULES, TOOLS_NOT_SUPPORTED: _LEGACY_TOOLS_RULE}
+# PRD-017 D16: exactly this text, no location prefix.
+_TOOL_MODEL_RULE = "model is not enabled for tool calling (V1_TOOL_MODELS)"
 
 # Check order, and the rule each 400 names. The rule is the translator's own
 # text: GenerationParams' messages end with the value (`got ...`), and `stop`
@@ -156,7 +183,11 @@ class V1Call:
 
     No `profile` or `ingress`: the call site names those, never the request
     (T4). `params` is None when nothing was forwarded, so `call_openrouter` is
-    called without `params=`, as for every other ingress.
+    called without `params=`, as for every other ingress. `tools` is the same
+    for the tool request (PRD-017 Section 4, D11): None when nothing was
+    forwarded, which is always so with the flag off and with `tools` absent,
+    `null` or `[]` (STORY-004 decision), so `call_openrouter` is called without
+    `tools=`.
     """
 
     messages: List[Message]
@@ -165,6 +196,7 @@ class V1Call:
     stream: bool
     include_usage: bool
     ignored_params: Optional[str]
+    tools: Optional[ToolParams] = None
 
 
 @dataclass(frozen=True)
@@ -187,7 +219,9 @@ class V1Error:
     retryable: bool = False
 
 
-def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str]]:
+def translate_messages(
+    raw: Sequence[Any], *, tools_enabled: bool = False
+) -> Tuple[List[Message], FrozenSet[str]]:
     """The client's `messages` as pipeline `Message`s, plus the ignored names.
 
     Per message, in order: `tool_calls` / `function_call` and the `tool` role
@@ -200,6 +234,13 @@ def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str
     programming-error guard that writes no row (PRD-010 Section 6.1), this one
     is the client-facing 400, so `InvalidConversationError` stays unreachable
     from `/v1` (PRD-015 Section 4).
+
+    With `tools_enabled` (PRD-017 STORY-008) assistant `tool_calls` and `tool`
+    turns go to the normalizer, a non-null `function_call` is still
+    `tools_not_supported` (D10; `null` counts as absent, as an SDK
+    `model_dump()` echo carries it), and the cross-message rules are
+    `conversation_shape_violation`'s, the same helper as step 0 (D6), so the
+    two cannot drift. The flag-off strings above are kept for PRD-015.
     """
     if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
         raise V1RequestError(INVALID_MESSAGES, "messages must be a list", "messages")
@@ -211,16 +252,29 @@ def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str
     for index, item in enumerate(raw):
         location = f"messages[{index}]"
         if isinstance(item, Mapping):
-            # Before the normalizer: it refuses `tool_calls` itself, which
-            # would surface as `invalid_messages`, and it accepts `tool`.
-            if "tool_calls" in item or "function_call" in item:
-                raise V1RequestError(
-                    TOOLS_NOT_SUPPORTED, f"{location}: tool calls are not supported (PRD-017)", location
-                )
-            if item.get("role") == "tool":
-                raise V1RequestError(
-                    TOOLS_NOT_SUPPORTED, f"{location}: tool turns are not supported (PRD-017)", location
-                )
+            if tools_enabled:
+                if item.get("function_call") is not None:
+                    raise V1RequestError(
+                        TOOLS_NOT_SUPPORTED,
+                        f"{location}: function_call is the deprecated function-calling API; "
+                        "use tool_calls",
+                        location,
+                    )
+            else:
+                # Before the normalizer: it refuses `tool_calls` itself, which
+                # would surface as `invalid_messages`, and it accepts `tool`.
+                if "tool_calls" in item or "function_call" in item:
+                    raise V1RequestError(
+                        TOOLS_NOT_SUPPORTED,
+                        f"{location}: tool calls are not supported (PRD-017)",
+                        location,
+                    )
+                if item.get("role") == "tool":
+                    raise V1RequestError(
+                        TOOLS_NOT_SUPPORTED,
+                        f"{location}: tool turns are not supported (PRD-017)",
+                        location,
+                    )
             if "name" in item:
                 ignored.add(IGNORED_MESSAGE_NAME)
             # `developer` is a wire alias, not a pipeline role: `Role` is not
@@ -232,7 +286,13 @@ def translate_messages(raw: Sequence[Any]) -> Tuple[List[Message], FrozenSet[str
         except MessageNormalizationError as exc:
             raise V1RequestError(INVALID_MESSAGES, f"{location}: {exc}", location) from exc
 
-    if messages[-1].role != "user":
+    if tools_enabled:
+        violation = conversation_shape_violation(messages)
+        if violation is not None:
+            index, rule = violation
+            location = f"messages[{index}]"
+            raise V1RequestError(INVALID_MESSAGES, f"{location}: {rule}", location)
+    elif messages[-1].role != "user":
         location = f"messages[{len(messages) - 1}]"
         raise V1RequestError(
             INVALID_MESSAGES, f"{location}: the last message must be a user turn", location
@@ -245,10 +305,17 @@ def _is_default(value: Any, defaults: Tuple[Any, ...]) -> bool:
     return any(type(value) is type(default) and value == default for default in defaults)
 
 
-def _check_rejected(sent: FrozenSet[str], values: Mapping[str, Any]) -> None:
+def _check_rejected(
+    sent: FrozenSet[str],
+    values: Mapping[str, Any],
+    skip: FrozenSet[str] = frozenset(),
+    rules: Mapping[str, str] = _REJECTED_RULES,
+) -> None:
     for key, (code, defaults) in REJECTED_UNLESS_DEFAULT.items():
+        if key in skip:
+            continue
         if key in sent and not _is_default(values[key], defaults):
-            raise V1RequestError(code, f"{key}: {_REJECTED_RULES[code]}", key)
+            raise V1RequestError(code, f"{key}: {rules[code]}", key)
 
 
 def _is_number(value: Any) -> bool:
@@ -295,6 +362,97 @@ def _forwarded_params(sent: FrozenSet[str], values: Mapping[str, Any]) -> Option
     return GenerationParams.from_mapping(collected) if collected else None
 
 
+def _refusal(param: str, rule: str) -> V1RequestError:
+    # Location and rule only (T6): a tool's name, description and schema are
+    # client text and never reach the 400 body.
+    return V1RequestError(INVALID_PARAMETER, f"{param}: {rule}", param)
+
+
+def _check_tools(value: Any) -> List[Mapping[str, Any]]:
+    """`tools` shape (PRD-017 F3, Section 10), and the list itself, never a copy.
+
+    Shape only: no name pattern, no duplicate rule, and `parameters` is not
+    interpreted. Unknown keys are kept, so the list is forwarded as received.
+    """
+    if not isinstance(value, list):
+        raise _refusal("tools", "must be a list of tool objects")
+    for index, item in enumerate(value):
+        where = f"tools[{index}]"
+        if not isinstance(item, Mapping):
+            raise _refusal(where, "must be an object")
+        if item.get("type") != "function":
+            raise _refusal(f"{where}.type", 'must be "function"')
+        function = item.get("function")
+        if not isinstance(function, Mapping):
+            raise _refusal(f"{where}.function", "must be an object")
+        name = function.get("name")
+        if not isinstance(name, str) or not name:
+            raise _refusal(f"{where}.function.name", "must be a non-empty string")
+        description = function.get("description")
+        if description is not None and not isinstance(description, str):
+            raise _refusal(f"{where}.function.description", "must be a string")
+        parameters = function.get("parameters")
+        if parameters is not None and not isinstance(parameters, Mapping):
+            raise _refusal(f"{where}.function.parameters", "must be an object")
+        strict = function.get("strict")
+        if strict is not None and not isinstance(strict, bool):
+            raise _refusal(f"{where}.function.strict", "must be a boolean")
+    return value
+
+
+_TOOL_CHOICE_RULE = (
+    'must be "none", "auto", "required" or {"type": "function", "function": {"name": ...}}'
+)
+_TOOL_CHOICE_STRINGS = frozenset({"none", "auto", "required"})
+
+
+def _check_tool_choice(value: Any, tools: Optional[List[Mapping[str, Any]]]) -> None:
+    """`tool_choice` shape; a named function must be one of `tools` (when any)."""
+    if isinstance(value, str):
+        if value in _TOOL_CHOICE_STRINGS:
+            return
+        raise _refusal("tool_choice", _TOOL_CHOICE_RULE)
+    if not isinstance(value, Mapping) or value.get("type") != "function":
+        raise _refusal("tool_choice", _TOOL_CHOICE_RULE)
+    function = value.get("function")
+    name = function.get("name") if isinstance(function, Mapping) else None
+    if not isinstance(name, str) or not name:
+        raise _refusal("tool_choice", _TOOL_CHOICE_RULE)
+    if tools is not None and name not in {tool["function"]["name"] for tool in tools}:
+        raise _refusal("tool_choice", "must name a function in tools")
+
+
+def _tool_params(
+    sent: FrozenSet[str], values: Mapping[str, Any]
+) -> Tuple[Optional[ToolParams], FrozenSet[str]]:
+    """The flag-on tool request as `ToolParams`, plus the names it ignored.
+
+    Checked in order: `tools`, `tool_choice`, `parallel_tool_calls`. With no
+    tools to forward (`tools` absent, `null` or `[]`, STORY-004 decision) the
+    result is None and nothing tool-related is forwarded: `tool_choice` may be
+    absent, `null` or `"none"` and any other valid value is refused, and
+    `parallel_tool_calls` is recorded as ignored, as with the flag off, so
+    the flag never makes a PRD-015 request fail (D11). With tools, the values
+    are forwarded as sent and `null` is absent.
+    """
+    raw_tools = values.get("tools") if "tools" in sent else None
+    tools = _check_tools(raw_tools) if raw_tools is not None else None
+    if not tools:
+        tools = None
+    choice = values.get("tool_choice") if "tool_choice" in sent else None
+    if choice is not None:
+        _check_tool_choice(choice, tools)
+    parallel = values.get("parallel_tool_calls") if "parallel_tool_calls" in sent else None
+    if parallel is not None and not isinstance(parallel, bool):
+        raise _refusal("parallel_tool_calls", "must be a boolean")
+    if tools is None:
+        if choice is not None and choice != "none":
+            raise _refusal("tool_choice", "requires a non-empty tools list")
+        ignored = frozenset({"parallel_tool_calls"}) if "parallel_tool_calls" in sent else frozenset()
+        return None, ignored
+    return ToolParams(tools=tools, tool_choice=choice, parallel_tool_calls=parallel), frozenset()
+
+
 def _stream_options(value: Any) -> Tuple[bool, FrozenSet[str]]:
     """`include_usage`, plus `stream_options.<key>` for every other sub-key."""
     if value is None:
@@ -309,7 +467,12 @@ def _stream_options(value: Any) -> Tuple[bool, FrozenSet[str]]:
     return include_usage is True, ignored
 
 
-def translate_request(body: ChatCompletionRequest) -> V1Call:
+def translate_request(
+    body: ChatCompletionRequest,
+    *,
+    tools_enabled: bool = False,
+    tool_models: Sequence[str] = (),
+) -> V1Call:
     """The parsed request as pipeline arguments (PRD-015 Sections 7.1, 7.3).
 
     Checks run in a fixed order and the first failure wins: the rejected keys
@@ -321,19 +484,41 @@ def translate_request(body: ChatCompletionRequest) -> V1Call:
     `name` is in `translate_messages`. `ignored_params` holds names only,
     sorted and comma-joined, None when nothing was ignored. `include_usage`
     is honoured only on a streamed request.
+
+    `tools_enabled` and `tool_models` are the router's per-request reads of
+    `V1_TOOLS_ENABLED` and `V1_TOOL_MODELS` (PRD-017 Section 6.7), passed in
+    because this module reads no settings; the defaults are the flag-off
+    values. With the flag on the order is: the rejected keys except the tool
+    params (`functions` / `function_call` stay refused, D10), then `tools`,
+    `tool_choice`, `parallel_tool_calls`, then the model check, then the
+    forwarded keys, `stream_options` and the messages. The model check (D16)
+    runs when tools are forwarded and `tool_models` is non-empty: the list
+    describes a model's capability, not a caller's permission, so it holds for
+    every caller. Tool history alone is not a `tools` request and is not
+    checked.
     """
     sent = frozenset(body.model_fields_set)
     # Declared fields are attributes; extras live only in model_extra.
     values = {key: getattr(body, key) for key in type(body).model_fields}
     values.update(body.model_extra or {})
 
-    _check_rejected(sent, values)
+    tools: Optional[ToolParams] = None
+    tool_ignored: FrozenSet[str] = frozenset()
+    if tools_enabled:
+        _check_rejected(sent, values, skip=TOOL_PARAMS, rules=_FLAG_ON_REJECTED_RULES)
+        tools, tool_ignored = _tool_params(sent, values)
+        if tools is not None and tool_models and body.model not in tool_models:
+            raise V1RequestError(TOOLS_NOT_SUPPORTED, _TOOL_MODEL_RULE, "tools")
+    else:
+        _check_rejected(sent, values)
     params = _forwarded_params(sent, values)
     include_usage, stream_ignored = _stream_options(body.stream_options)
-    messages, message_ignored = translate_messages(body.messages)
+    messages, message_ignored = translate_messages(body.messages, tools_enabled=tools_enabled)
 
     top_level = sent - FORWARDED - REJECTED_UNLESS_DEFAULT.keys() - _STRUCTURAL
-    ignored = top_level | stream_ignored | message_ignored
+    if tools_enabled:
+        top_level = top_level - TOOL_PARAMS
+    ignored = top_level | stream_ignored | message_ignored | tool_ignored
     return V1Call(
         messages=messages,
         params=params,
@@ -341,6 +526,7 @@ def translate_request(body: ChatCompletionRequest) -> V1Call:
         stream=body.stream,
         include_usage=body.stream and include_usage,
         ignored_params=",".join(sorted(ignored)) or None,
+        tools=tools,
     )
 
 

@@ -19,6 +19,9 @@ fault is transient (D7). STORY-012 added `GET /v1/models`, which lists
 runs there) and writes no row (Section 7.7). STORY-013 added the buffered
 stream: a `stream: true` request is committed to SSE only once the upstream
 call has started (Section 6.4), so every verdict keeps its real status.
+PRD-017 STORY-008 passes the tool request through under `V1_TOOLS_ENABLED`;
+releasing the model's tool calls is STORY-010/011, so the response is built
+from `response` only until then (T1).
 """
 
 import asyncio
@@ -275,7 +278,14 @@ async def chat_completions(
     # Both refusals come before the pipeline, so neither writes a row (T9).
     try:
         device = translate_device(x_harness_device)
-        call = translate_request(body)
+        # Read per request, so a flipped flag takes effect without a restart
+        # and tests monkeypatch it (PRD-017 Section 6.7). The translator reads
+        # no settings.
+        call = translate_request(
+            body,
+            tools_enabled=settings.V1_TOOLS_ENABLED,
+            tool_models=settings.v1_tool_models_list,
+        )
     except V1RequestError as exc:
         # T9: who and which rule, never the message, param value or body.
         logger.info("v1 request refused: user_id=%s code=%s", identity.user_id, exc.code)
@@ -299,6 +309,9 @@ async def chat_completions(
         # False would mislabel an SSE refusal (PRD-013 Section 6.9).
         streamed=call.stream,
         ignored_params=call.ignored_params,
+        # None unless the flag is on and tools were sent; run_conversation
+        # forwards it to step 7 only when set (PRD-017 STORY-008).
+        tools=call.tools,
     ))
     # Whatever happens to this request, the pipeline finishes and its outcome
     # is retrieved.
