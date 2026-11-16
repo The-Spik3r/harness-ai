@@ -12,7 +12,7 @@ labels: [backend, api, v1, streaming]
 epic_branch: epic/PRD-017-tool-calling
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-012-sse-tool-call-deltas.plan.md
 report: .agents/reports/PRD-017-tool-calling/STORY-012-sse-tool-call-deltas.report.md
-commit: pending
+commit: 0865708
 depends_on: [STORY-011]
 blocks: [STORY-015]
 skills: []

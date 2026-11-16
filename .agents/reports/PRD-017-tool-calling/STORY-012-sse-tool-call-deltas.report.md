@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-017
 plan: .agents/plans/PRD-017-tool-calling/completed/STORY-012-sse-tool-call-deltas.plan.md
 epic_branch: epic/PRD-017-tool-calling
-commit: pending
+commit: 0865708
 status: COMPLETE
 completed: 2026-11-16
 ---
