@@ -1,0 +1,10 @@
+# Ordinary work: run the tests. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"npm test"}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: shell.allowlisted
+note: 'npm test is a multi-token allowlist entry that matches the first two tokens.'

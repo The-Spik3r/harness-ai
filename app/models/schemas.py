@@ -250,6 +250,55 @@ class AuditResponse(BaseModel):
     queries: List[AuditQueryEntry]
 
 
+class ActionClassificationEntry(BaseModel):
+    # PRD-016 Section 6.10: the decoded form of one element of the
+    # `classifications` JSON column, as `action_audit._classifications_json`
+    # writes it. `kind` is null when the classifier reported no operation
+    # (`tool.unknown`, `tool.malformed`).
+    rule: str
+    kind: Optional[str] = None
+    detail: str
+
+
+class ActionDecisionEntry(BaseModel):
+    # PRD-016 F11 / Section 10: one `action_decisions` row, with exactly the
+    # fields of the Section 10 example, in its order.
+    #
+    # `arguments_preview` and `arguments_hash` are deliberately absent (Section
+    # 10), for the reason PRD-009 D5 gives for `dedup_key`: they are storage
+    # aids, not something a reader of the audit needs. `session_id` is absent
+    # too, because the Section 10 example omits it (orchestrator decision,
+    # STORY-016 plan Q1).
+    #
+    # `reason` is the stored column, returned as stored and never rebuilt
+    # (orchestrator decision, STORY-014/015 plans; PRD 6.10 amended).
+    #
+    # A read model with no validators, for `AuditQueryEntry.session_id`'s
+    # reasons: the values were checked at the write end.
+    id: int
+    timestamp: str
+    audit_id: Optional[int] = None
+    user_id: str
+    role: str
+    tool_call_id: str
+    tool_name: str
+    operation_kind: Optional[str] = None
+    target_preview: Optional[str] = None
+    decision: str
+    rule: str
+    reason: str
+    granted_by: Optional[str] = None
+    classifications: List[ActionClassificationEntry]
+    policy_digest: str
+
+
+class ActionsResponse(BaseModel):
+    # PRD-016 Section 10 / F11: `entries` only. Unlike `AuditResponse` there is
+    # no `total`: the PRD defines none, and `count_action_decisions()` takes no
+    # `user_id`, so a scoped total would have no source (F10).
+    entries: List[ActionDecisionEntry]
+
+
 class StatsResponse(BaseModel):
     total_queries: int
     blocked_duplicates: int
@@ -265,3 +314,8 @@ class StatsResponse(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     blocked_usage_limits: int = 0
+    # PRD-016 F11 / Section 10: decision counts over the whole action_decisions
+    # table, 0 when empty.
+    actions_denied: int = 0
+    actions_flagged: int = 0
+    actions_allowed: int = 0

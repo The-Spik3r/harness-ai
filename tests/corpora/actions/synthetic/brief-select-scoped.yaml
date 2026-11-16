@@ -1,0 +1,10 @@
+# Brief criterion: a scoped SELECT is allowed. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"SELECT * FROM users WHERE id = 1"}'
+policy: built_in
+client: MCP
+category: brief
+expect: {user: allow, dba: allow, admin: allow}
+rule: sql.read
+note: 'PRD Section 11: a read-only statement is sql.read, allowed for every role.'

@@ -1,0 +1,10 @@
+# Ordinary work: create a file. Cline 4.x `editor` (SOURCES.md: Cline v4.1.26; target `path`).
+tool_call:
+  name: editor
+  arguments: '{"command":"create","path":"src/new.ts","file_text":"x"}'
+policy: built_in
+client: Cline 4.x
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'A relative path below the working directory is inside the workspace.'

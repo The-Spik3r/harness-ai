@@ -1,0 +1,10 @@
+# shell.unclassifiable: command substitution. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"echo $(whoami)"}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.unclassifiable
+note: '$(...) hides the command that runs, so the line is shell.unclassifiable, deny (fail closed).'

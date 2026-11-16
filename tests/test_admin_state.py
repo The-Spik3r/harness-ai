@@ -404,6 +404,22 @@ def _no_usage_read(monkeypatch):
     usage read itself."""
     monkeypatch.setattr(_admin_state_module, "usage_snapshot", lambda: [])
 
+
+@pytest.fixture(autouse=True)
+def _no_actions_read(monkeypatch):
+    """PRD-016 (STORY-019): `load()` makes a third, separate read for the Actions
+    view. These tests are about the register and the summary, so the two action
+    reads are stubbed empty -- a fixture only, no assertion changed. The Actions
+    reads are tested in `tests/test_actions_view.py`."""
+    monkeypatch.setattr(
+        _admin_state_module, "list_action_decisions", lambda **_kwargs: []
+    )
+    monkeypatch.setattr(
+        _admin_state_module,
+        "count_action_decisions",
+        lambda: {"allow": 0, "flag": 0, "deny": 0},
+    )
+
 _READ_RETURNS = {
     "list_audit_logs": None,  # filled per test with _logs()
     "count_audit_logs": 3180,

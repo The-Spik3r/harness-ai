@@ -1,0 +1,9 @@
+# sql_comments_casing: A WITH clause in front of an unscoped DELETE. Variant of brief-delete-unscoped.
+tool_call:
+  name: query
+  arguments: '{"sql":"WITH x AS (SELECT 1) DELETE FROM t"}'
+of: brief-delete-unscoped.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unscoped_write
+note: 'A WITH clause in front of an unscoped DELETE.'

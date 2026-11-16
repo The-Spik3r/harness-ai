@@ -1,0 +1,10 @@
+# net.unlisted: a host not on the allowlist. OpenCode `webfetch` (SOURCES.md: OpenCode v1.19.5; target `url`).
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://evil.example/","format":"text"}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: net.unlisted
+note: 'The built-in network allowlist is empty, so every host is net.unlisted, deny.'

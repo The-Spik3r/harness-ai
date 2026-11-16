@@ -27,6 +27,7 @@
 - [Screenshots](#screenshots)
 - [Architecture](#architecture)
 - [Features](#features)
+- [Action policy rules](#action-policy-rules)
 - [Requirements](#requirements)
 - [Quickstart — Local](#quickstart--local)
 - [Quickstart — Docker](#quickstart--docker)
@@ -152,12 +153,13 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | Capability | Description |
 |---|---|
 | **Single entry point** | One pipeline intercepts every prompt/response pair, behind two doors: `POST /query` and the OpenAI-compatible `POST /v1/chat/completions`. Nothing reaches OpenRouter without passing through it. |
-| **OpenAI-compatible endpoint** | `POST /v1/chat/completions` and `GET /v1/models`, so the OpenAI SDKs, Aider and Continue work with only their base URL and key changed. It is a translation layer onto the same pipeline, not a second one: coding-agent traffic runs the `code` profile, every block comes back as an ordinary `400` or `403` error that clients show and do not retry, and `stream: true` is answered after the whole response has been checked. See [OpenAI-compatible endpoint](#openai-compatible-endpoint). |
+| **OpenAI-compatible endpoint** | `POST /v1/chat/completions` and `GET /v1/models`, so the OpenAI SDKs, Aider and Continue work with only their base URL and key changed. It is a translation layer onto the same pipeline, not a second one: coding-agent traffic runs the `code` profile, every block comes back as an ordinary `400` or `403` error that clients show and do not retry, and `stream: true` is answered after the whole response has been checked. See [OpenAI-compatible endpoint](docs/roadmap.md#openai-compatible-endpoint). |
 | **Chat UI** | A browser-based chat served from the same port and process as the API, running through the identical pipeline as `POST /query`. |
 | **Role-based access control** | Every request is resolved to a verified `Identity` from a per-user bearer token — no self-declared `user_id` is trusted. Three fixed roles (`admin`, `auditor`, `user`) each hold an explicit permission set; deny-by-default for any unmapped role or permission. `ADMIN_TOKEN` remains a break-glass admin credential, not the primary auth mechanism. |
 | **Duplicate blocking** | Exact-match (word-for-word) detection of a prompt the **same account** already had answered within a rolling 24-hour window. Scoped per user, never across users — see [Duplicate detection scope](docs/features.md#duplicate-detection-scope). |
 | **Prompt-injection blocking** | Word-boundary matching against a per-deployment pattern file, applied per message role: the caller's own turns are blocked on a hit, and an instruction planted in a tool result is flagged in the audit rather than blocked. See [Pattern policy](docs/features.md#pattern-policy). |
 | **PII redaction** | Under the `chat` profile (`POST /query` and the chat UI), [Microsoft Presidio](https://microsoft.github.io/presidio/) masks personal data (names, emails, phone numbers, cards, SSNs, IBANs, locations) in the outbound prompt and its history before they reach OpenRouter, and in the model's response before it reaches the caller. Masking never blocks a `chat` request, and the audit log keeps the raw text. A `code` profile for coding agents masks prose only, runs pattern recognizers only, leaves the response alone, and refuses a request too large to analyze. See [PII redaction](docs/features.md#pii-redaction). English-only in this release. |
+| **Action policy rules** | Built and tested, **not yet called by `/v1`** (PRD-017). Classifies every tool call a model proposes (SQL, shell, filesystem, network, secrets), decides it per role through six `action:*` permissions, denies by default, and writes one audit row per call. The harness never executes tools. Limits are stated plainly. See [Action policy rules](docs/features.md#action-policy-rules). |
 | **Full audit logging** | Every request — success or blocked — writes one row to the `audit_logs` table in Turso: user, device, hashed prompt/response with a 500-character preview, model, tokens (input and output), flags, and timestamp, plus the ingress it came through, its message count and a conversation key that groups an agent's turns. IP addresses and geolocation are never captured. |
 | **Persisted chat sessions** | The chat UI holds named, per-conversation transcripts in Turso — restored on reload, on a new browser session, and from any instance sharing the database. Each transcript is readable only by the account that wrote it; no admin surface exposes one. `CHAT_HISTORY_ENABLED=false` turns the whole feature off, from the same image. |
 | **Multi-turn context** | The chat sends the conversation, not just the latest message: every answered exchange in the session that fits the configured limits goes upstream, redacted, on every send. The pipeline takes a list of messages; `POST /query` is the one-message case and is unchanged. See [Multi-turn context](docs/features.md#multi-turn-context). |
@@ -165,6 +167,27 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | **Admin endpoints** | `GET /audit` and `GET /stats` expose the last 100 audit entries and aggregate statistics, gated behind a bearer token. The admin console adds a Usage page: what each user has used today. |
 | **Docker parity** | Identical behavior via `python app.py` or `docker-compose up` — no environment-specific branches. |
 | **Model-agnostic** | Works with any model OpenRouter serves — Claude, GPT, or others — with no code changes. |
+
+## Action policy rules
+
+**Status: built and tested, not yet called by `/v1`.** Tool calling on `/v1` is PRD-017; until it ships, a request that carries `tools` is still refused with `tools_not_supported`, so no live traffic is decided by these rules yet. The engine classifies every tool call a model proposes (SQL, shell, filesystem, network, secret reads), decides it per role through six `action:*` permissions that no built-in role holds, and writes one audit row per call, allowed or not. **The harness never executes tools**: it classifies a call and the client runs it. Full reference: **[Action policy rules](docs/features.md#action-policy-rules)**.
+
+To use it once something calls it:
+
+1. Copy [`examples/action_policy.yaml`](examples/action_policy.yaml), set `workspace.roots` (OpenCode and Cline 4.x send absolute paths, and the built-in list is empty, so every absolute write is denied), and point `ACTION_POLICY_FILE` at it.
+2. Grant the `action:*` permissions you want to the roles that need them in `RBAC_ROLES_FILE`, which replaces the whole matrix, so restate every role.
+3. The sample maps OpenCode and SQL tools only (`tools:` replaces the mapping wholesale). A Cline deployment writes its own `tools:` and `shell.allow`; with the built-in policy no Cline shell call is allowed.
+
+What it does not cover:
+
+- PowerShell and `cmd.exe` are not classified beyond a short list of destructive heads.
+- Paths are checked lexically: symlinks, hard links and 8.3 short names are not resolved.
+- Network hosts are matched by name; DNS is never resolved.
+- A directory search (`grep`, `search_files`) can return the contents of a secret file; keep secrets outside the workspace.
+- An allowlisted shell command is trusted whole, apart from a closed table of code-carrying options.
+- `arguments_preview` can hold up to 500 characters of a denied secret read.
+
+**Upgrade note:** policy files are loaded through a strict YAML loader that `PATTERNS_FILE` now uses too. A key written twice in an existing patterns file used to resolve silently to the last one; it now stops startup, naming both lines.
 
 ## Requirements
 
@@ -302,9 +325,9 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 
 | Doc | What's in it |
 |---|---|
-| [Features in depth](docs/features.md) | Duplicate-detection scope, multi-turn context, pattern policy, PII redaction and usage limits — full behaviour and the threat reasoning behind each. |
+| [Features in depth](docs/features.md) | Duplicate-detection scope, multi-turn context, pattern policy, PII redaction, usage limits and action policy rules — full behaviour and the threat reasoning behind each. |
 | [Configuration](docs/configuration.md) | Every environment variable, its default, and what it changes. |
-| [API reference](docs/api.md) | `POST /query`, `GET /audit` and `GET /stats` — every request and response shape. |
+| [API reference](docs/api.md) | `POST /query`, `GET /audit`, `GET /audit/actions` and `GET /stats` — every request and response shape. |
 | [Persistence & deployment](docs/deployment.md) | Where state lives, what is stored and who can read it, multi-instance notes, and migrating off SQLite. |
 | [Testing](docs/testing.md) | Running the suite, the libSQL diagnostics verdicts, and troubleshooting. |
 | [Roadmap](docs/roadmap.md) | Shipped, next up, and design notes for the planned work. |
@@ -313,11 +336,11 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 
 ## Roadmap
 
-**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits.
+**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), and action policy rules (the engine and its audit; not yet called by `/v1`).
 
 **Next up** — provider resilience: retry, circuit breaker and offline buffering in front of the database, a second provider as fallback to OpenRouter, and websocket session affinity so the harness can run behind a load balancer. This is the first work beyond the Turso migration, because today a transient database or provider outage fails requests rather than degrading them — see [The database is a hard dependency of every request](docs/deployment.md#the-database-is-a-hard-dependency-of-every-request).
 
-**Planned** — semantic (not just exact-match) duplicate detection, an OpenAI-compatible endpoint, MCP servers and agent skills behind the same pipeline, and action policy rules for tool calls.
+**Planned** — semantic (not just exact-match) duplicate detection, tool calling on `/v1` (PRD-017), which is what calls the action policy, and MCP servers and agent skills behind the same pipeline.
 
 The full roadmap, with design notes for each planned item, is in **[docs/roadmap.md](docs/roadmap.md)**.
 

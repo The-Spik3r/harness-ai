@@ -1,0 +1,9 @@
+# unlisted_head: Clear-Disk is outside the head tables; only the floor catches it. Variant of rule-shell-make-release-built-in.
+tool_call:
+  name: bash
+  arguments: '{"command":"Clear-Disk -Number 0 -RemoveData"}'
+of: rule-shell-make-release-built-in.yaml
+technique: unlisted_head
+expect: not_allow
+rule: shell.unlisted
+note: 'Clear-Disk is outside the head tables; only the floor catches it.'

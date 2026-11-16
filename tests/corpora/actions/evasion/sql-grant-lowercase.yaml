@@ -1,0 +1,9 @@
+# sql_comments_casing: Lower-case GRANT. Variant of rule-sql-grant.
+tool_call:
+  name: query
+  arguments: '{"sql":"grant all on orders to analyst"}'
+of: rule-sql-grant.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.dcl
+note: 'Lower-case GRANT.'

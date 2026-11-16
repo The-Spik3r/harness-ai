@@ -1,0 +1,10 @@
+# fs.write_outside_workspace: a relative path that climbs out. Cline 4.x `editor` (SOURCES.md: Cline v4.1.26; target `path`).
+tool_call:
+  name: editor
+  arguments: '{"command":"create","path":"../../outside.txt","file_text":"x"}'
+policy: built_in
+client: Cline 4.x
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: fs.write_outside_workspace
+note: 'A relative path that leaves the working directory through .. is outside the workspace.'

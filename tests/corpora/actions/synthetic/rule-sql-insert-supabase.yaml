@@ -1,0 +1,11 @@
+# sql.write through the Supabase execute_sql tool. MCP `execute_sql` (SOURCES.md: MCP supabase, mcp-server-supabase-v0.17.0; target `query`).
+tool_call:
+  name: execute_sql
+  arguments: '{"project_id":"p1","query":"INSERT INTO orders (id, total) VALUES (7, 12.5)"}'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: allow, admin: deny}
+rule: sql.write
+granted_by: {dba: 'action:sql:write'}
+note: 'An INSERT is sql.write: deny by default, granted to dba by action:sql:write (D7).'

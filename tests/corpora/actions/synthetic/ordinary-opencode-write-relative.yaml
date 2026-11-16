@@ -1,0 +1,10 @@
+# Ordinary work: a relative write. OpenCode `write` (SOURCES.md: OpenCode v1.19.5; target `filePath`).
+tool_call:
+  name: write
+  arguments: '{"filePath":"src/a.ts","content":"x"}'
+policy: built_in
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: fs.write_in_workspace
+note: 'A relative path that stays below the working directory is inside the workspace.'

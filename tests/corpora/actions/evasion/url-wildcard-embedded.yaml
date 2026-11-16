@@ -1,0 +1,9 @@
+# url_tricks: An attacker host ending in the allowlisted text without a dot. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://evilgithubusercontent.com/x","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unlisted
+note: 'An attacker host ending in the allowlisted text without a dot.'

@@ -1,0 +1,9 @@
+# sql_comments_casing: WHERE TRUE does not scope a DELETE. Variant of brief-delete-where-tautology.
+tool_call:
+  name: query
+  arguments: '{"sql":"DELETE FROM t WHERE TRUE"}'
+of: brief-delete-where-tautology.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unscoped_write
+note: 'WHERE TRUE does not scope a DELETE.'

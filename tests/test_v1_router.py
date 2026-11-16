@@ -254,7 +254,8 @@ def test_translation_refusal_is_400_without_row(temp_db, upstream):
     assert response.status_code == 400
     assert response.json() == {
         "error": {
-            "message": "tools: tool calling is not supported (PRD-016)",
+            # PRD-016 D14 (STORY-002): tool calling is PRD-017; was (PRD-016).
+            "message": "tools: tool calling is not supported (PRD-017)",
             "type": "invalid_request_error",
             "param": "tools",
             "code": "tools_not_supported",

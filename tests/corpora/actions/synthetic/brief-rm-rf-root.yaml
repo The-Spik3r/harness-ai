@@ -1,0 +1,10 @@
+# Brief criterion: rm -rf / is denied. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"rm -rf /"}'
+policy: built_in
+client: OpenCode
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.destructive
+note: 'PRD Section 11: rm with recursive and force flags is shell.destructive, a deny no grant can lift (T5).'

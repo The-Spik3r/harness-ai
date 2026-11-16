@@ -18,6 +18,7 @@ What has shipped, what is next, and design notes for the planned work. The READM
 - [x] [Multi-turn context](features.md#multi-turn-context) — the chat sends its history, so a session is a conversation
 - [x] [Configurable, per-deployment pattern lists](features.md#pattern-policy) — per-role scope, word matching, indirect injection flagged
 - [x] [PII redaction for code](features.md#pii-redaction) — policy per profile, role and direction; fenced blocks skipped; within a measured latency budget
+- [x] [OpenAI-compatible endpoint](#openai-compatible-endpoint) — `POST /v1/chat/completions` and `GET /v1/models` for the OpenAI SDKs, Aider and Continue, through the same pipeline under the `code` profile
 - [x] [Audit fields and usage limits](features.md#usage-limits) — per-user token budget and rate limit, shared across instances; ingress, token split and conversation key on every audit row; `ADMIN_TOKEN` scoped by ingress
 
 ### Next up — resilience
@@ -32,28 +33,23 @@ This is the first work beyond the Turso migration, called out as such in [The da
 ### Planned
 
 - [ ] Semantic (not just exact-match) duplicate detection
-- [ ] [OpenAI-compatible endpoint](#openai-compatible-endpoint) — drop-in use from OpenCode and other coding agents
 - [ ] [MCP servers and agent skills](#mcp-servers-and-agent-skills) — code-writing tools behind the same pipeline
-- [ ] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations
+- [ ] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations. The engine and its audit are built ([PRD-016](features.md#action-policy-rules)); the box stays unticked until tool calling on `/v1` (PRD-017) calls it
 
-Everything below this line is **intended direction, not current behavior**. The only ingress that exists today is `POST /query`.
+Everything below this line is **intended direction, not current behavior**, except where a section says it has shipped. Ingresses today: `POST /query`, the chat UI and `POST /v1/chat/completions`.
 
 ### OpenAI-compatible endpoint
 
-`POST /query` is a shape specific to this project: every client has to be written against it, which is why the chat UI is the only thing that speaks it. The plan is to add `POST /v1/chat/completions` following the OpenAI Chat Completions standard, so tools that already speak it — [OpenCode](https://github.com/sst/opencode), Cline, Continue, Aider, the official OpenAI SDKs — can be pointed at the harness by changing one base URL:
+**Shipped (PRD-015).** `POST /v1/chat/completions` and `GET /v1/models` follow the OpenAI Chat Completions standard, so tools that already speak it, such as [OpenCode](https://github.com/sst/opencode), Cline, Continue, Aider and the official OpenAI SDKs, are pointed at the harness by changing one base URL:
 
 ```bash
 OPENAI_BASE_URL=http://localhost:8000/v1
-OPENAI_API_KEY=<harness token — never the OpenRouter key>
+OPENAI_API_KEY=<harness token, never the OpenRouter key>
 ```
 
-This would be a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate → pattern → PII → OpenRouter → audit flow, and maps a block back onto the standard's error shape, so the calling tool surfaces an ordinary API error instead of a malformed completion. The harness becomes the only component holding the real OpenRouter key. Half of that is now built: the pipeline already takes a `messages` list, redacts every turn and keys the duplicate check over the conversation — see [Multi-turn context](features.md#multi-turn-context) — and the `code` PII policy that ingress will run, which leaves fenced code and the response unmasked, is built and measured (see [PII redaction](features.md#pii-redaction)). What does not exist is the HTTP ingress, and the trust model for `system` and `assistant` turns a caller supplies, which is what this section is still about.
+It is a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate, pattern, PII, OpenRouter and audit flow, runs the `code` profile, and maps a block back onto the standard's error shape, so the calling tool shows an ordinary API error instead of a malformed completion. The harness is the only component holding the real OpenRouter key. `stream: true` is answered after the whole response has been checked (buffered upstream and re-emitted as SSE), which is streaming-shaped, not streaming-latency. `ADMIN_TOKEN` is never accepted there. Settings: `V1_ENABLED`, `V1_SSE_KEEPALIVE_SECONDS`, `OPENROUTER_BASE_URL` (documented in `.env.example`).
 
-Open design questions:
-
-- How `user_id` and device are carried — a custom header, or the standard's optional `user` field.
-- ~~What gets hashed for duplicate detection in a multi-turn conversation.~~ **Answered:** the last user turn plus a hash of the preceding turns, per user — the key `POST /query` already uses, with a non-empty prefix. An agent that resends an unchanged history and repeats its last turn is a duplicate; one whose history has moved on is not. See [Multi-turn context](features.md#multi-turn-context).
-- Whether `stream: true` can be supported at all, given the harness must inspect a complete response before releasing it. A partial answer is buffering upstream and re-emitting as SSE once the checks pass — streaming-shaped, not streaming-latency.
+**Not yet:** a request that carries `tools`, `tool_calls` or a `tool` turn is refused with `tools_not_supported`. That is [PRD-017](../pre-prds/PRE-PRD-016-tool-calling.md), and it is what Cline and OpenCode need in agent mode.
 
 ### MCP servers and agent skills
 
@@ -79,6 +75,10 @@ The piece that makes the above safe to enable: a deny-by-default rule set evalua
 
 The design intent carries over from the existing checks: a denial short-circuits **before** the action happens, returns a `reason` string the calling agent can display, and is logged with the same rigor as an allowed call — the audit trail has to show what was attempted, not only what succeeded.
 
-These rules are per-deployment configuration, which made *Configurable, per-deployment pattern lists* a prerequisite for this work rather than an independent nice-to-have. That prerequisite has shipped — see [Pattern policy](features.md#pattern-policy) — and so has the record this work would act on: a tool result carrying a planted instruction is already flagged in the audit, and still reaches the model. These rules are what would stop the model acting on it; they are not built yet. RBAC, already shipped, is the natural pairing: the same `DELETE` can already be denied for one role and allowed for another via the role→permission matrix in `app/services/authz.py` — action policy rules would extend that same deny-by-default model from prompts to tool calls.
+**Built (PRD-016), not yet called.** The table above is now the built catalogue: 25 rules, a pure engine that decides a tool call as *allow*, *flag* or *deny*, six `action:*` permissions that no built-in role holds, a policy file (`ACTION_POLICY_FILE`, with [`examples/action_policy.yaml`](../examples/action_policy.yaml)), an `action_decisions` audit table, `GET /audit/actions`, an **Actions** view in the admin console, and corpora of synthetic and evasion calls that no role can get past. What it does and does not cover is in [Features: Action policy rules](features.md#action-policy-rules). The harness never executes a tool; it classifies a call the model proposed.
+
+**What PRD-017 adds.** Nothing in the request path calls the engine yet: `/v1` still refuses `tools`. PRD-017 accepts them, evaluates each `tool_call` before the response leaves the harness, decides what a denial looks like on the wire and what happens to a response that mixes allowed and denied calls, links each decision to its `audit_id`, and rewords the Actions view's empty state. Until then the checkbox above stays unticked.
+
+These rules are per-deployment configuration, which made *Configurable, per-deployment pattern lists* a prerequisite rather than an independent nice-to-have. That prerequisite has shipped, see [Pattern policy](features.md#pattern-policy), and so has the record the rules act on: a tool result carrying a planted instruction is flagged in the audit and still reaches the model, and these rules are what will stop the model acting on it. RBAC pairs with them: the same `DELETE` can be denied for one role and allowed for another, through the `action:*` permissions in the role matrix of `app/services/authz.py`, which extends the deny-by-default model from prompts to tool calls.
 
 ---

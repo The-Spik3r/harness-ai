@@ -1,0 +1,9 @@
+# url_tricks: A name that resolves to loopback (no DNS is done; the host is not on the list). Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://127.0.0.1.nip.io/","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unlisted
+note: 'A name that resolves to loopback (no DNS is done; the host is not on the list).'

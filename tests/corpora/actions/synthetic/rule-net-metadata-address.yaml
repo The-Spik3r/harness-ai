@@ -1,0 +1,10 @@
+# net.unlisted: the cloud metadata address. OpenCode `webfetch` (SOURCES.md: OpenCode v1.19.5; target `url`).
+tool_call:
+  name: webfetch
+  arguments: '{"url":"http://169.254.169.254/latest/meta-data/","format":"text"}'
+policy: example
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: net.unlisted
+note: 'An IP literal matches only an exact IP entry, and the example policy lists none (STORY-012).'

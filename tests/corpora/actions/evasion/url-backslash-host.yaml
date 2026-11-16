@@ -1,0 +1,9 @@
+# url_tricks: A backslash that some clients read as the end of the host. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://evil.example\\@registry.npmjs.org/","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unparsed
+note: 'A backslash that some clients read as the end of the host.'

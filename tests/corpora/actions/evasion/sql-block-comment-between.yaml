@@ -1,0 +1,9 @@
+# sql_comments_casing: Block comments between the keywords are dropped by the parser. Variant of brief-drop-table-users.
+tool_call:
+  name: query
+  arguments: '{"sql":"DROP/**/TABLE/**/users"}'
+of: brief-drop-table-users.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.ddl
+note: 'Block comments between the keywords are dropped by the parser.'

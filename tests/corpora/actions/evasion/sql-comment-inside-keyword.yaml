@@ -1,0 +1,9 @@
+# sql_comments_casing: A comment inside a keyword breaks the statement; unparsed, denied. Variant of brief-drop-table-users.
+tool_call:
+  name: query
+  arguments: '{"sql":"DR/**/OP TABLE users"}'
+of: brief-drop-table-users.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unparsed
+note: 'A comment inside a keyword breaks the statement; unparsed, denied.'

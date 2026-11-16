@@ -582,6 +582,52 @@ def test_missing_file_raises_naming_the_path(tmp_path, monkeypatch, _reset_polic
     assert str(missing) in message
 
 
+# PRD-016 STORY-005 (D13): pattern_config now parses through strict_yaml, so a
+# key written twice -- which PyYAML used to resolve silently, last one winning
+# -- is a startup error naming the file and the key. A new function, not a
+# `_MALFORMED_CASES` row, so the existing table and its ids stay unchanged.
+_DUPLICATE_LISTS_FILE = _VALID_FILE + """
+lists:
+  other:
+    match: word
+    scope: everywhere
+    patterns: [x]
+"""
+
+_DUPLICATE_PATTERNS_FILE = """
+lists:
+  only:
+    match: word
+    scope: everywhere
+    patterns: [hello there]
+    patterns: [goodbye]
+profiles:
+  chat:
+    lists: [only]
+    roles:
+      user: block
+"""
+
+
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [(_DUPLICATE_LISTS_FILE, "lists"), (_DUPLICATE_PATTERNS_FILE, "patterns")],
+    ids=["top-level", "nested"],
+)
+def test_a_duplicate_key_raises_naming_the_file_and_the_key(tmp_path, monkeypatch, _reset_policy, body, key):
+    path = _write(tmp_path, body)
+    monkeypatch.setattr(settings, "PATTERNS_FILE", path)
+
+    with pytest.raises(PatternConfigError) as exc_info:
+        load()
+
+    message = str(exc_info.value)
+    assert "Failed to parse PATTERNS_FILE" in message
+    assert path in message
+    assert f"duplicate key '{key}'" in message
+    assert get_policy() is BUILT_IN_POLICY, "a refused file leaves the previous policy in force"
+
+
 def test_every_malformed_case_names_the_file_path(tmp_path, monkeypatch, _reset_policy):
     """The path is in every message, not just some.
 

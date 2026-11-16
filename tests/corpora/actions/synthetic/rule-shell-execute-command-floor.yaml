@@ -1,0 +1,10 @@
+# Floor: a Cline 3.x shell call under the built-in policy. Cline 3.x `execute_command` (SOURCES.md: Cline v3.89.2; target `command`).
+tool_call:
+  name: execute_command
+  arguments: '{"command":"git status","requires_approval":false}'
+policy: built_in
+client: Cline 3.x
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.unlisted
+note: 'Same floor as rule-shell-run-commands-floor: an empty shell allowlist makes even git status shell.unlisted (STORY-017 plan, finding 2).'

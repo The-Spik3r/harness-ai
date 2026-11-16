@@ -1,11 +1,11 @@
 ---
-target_prd: PRD-015
+target_prd: PRD-016
 slug: action-policy-rules
 title: Action policy rules
-status: draft
-prd:
+status: promoted
+prd: .agents/PRDs/PRD-016-action-policy-rules/PRD.md
 depends_on: [PRD-011]
-blocks: [PRD-016]
+blocks: [PRD-017]
 estimated_stories: 12-15
 created: 2026-09-16
 ---
@@ -14,9 +14,9 @@ created: 2026-09-16
 
 ## Problem
 
-Coding agents do not only produce text; they call tools that write files, run commands and query databases. The harness's checks are text-level: a prompt can pass the injection filter and still yield a tool call that drops a table (README, *MCP servers and agent skills*). Enabling tool calling (PRD-016) without an enforcement point for actions would make the harness a pass-through for exactly the operations it exists to control.
+Coding agents do not only produce text; they call tools that write files, run commands and query databases. The harness's checks are text-level: a prompt can pass the injection filter and still yield a tool call that drops a table (README, *MCP servers and agent skills*). Enabling tool calling (PRD-017) without an enforcement point for actions would make the harness a pass-through for exactly the operations it exists to control.
 
-The README ([Action policy rules](../README.md#action-policy-rules)) already defines the intent: a deny-by-default rule set evaluated **before** a tool call leaves the harness, in the position the pattern check holds for prompts.
+The README ([Action policy rules](../docs/roadmap.md#action-policy-rules)) already defines the intent: a deny-by-default rule set evaluated **before** a tool call leaves the harness, in the position the pattern check holds for prompts.
 
 ## Goal
 
@@ -38,7 +38,7 @@ Every tool call the model emits is classified and allowed, denied or flagged by 
 - Tool-call parser: map a `tool_call` (name + JSON args) to a class and a target. Known tool schemas for OpenCode/Cline/Aider as adapters; unknown tools → default decision.
 - Decision engine: allow / deny / flag, per role via the RBAC matrix in [authz.py](../app/services/authz.py).
 - Audit columns for action decisions.
-- Tested against synthetic `tool_calls` — does not need PRD-014 or PRD-016 to exist.
+- Tested against synthetic `tool_calls` — does not need PRD-015 or PRD-017 to exist.
 
 **Out**
 - Executing or sandboxing tools (the harness never runs them).
@@ -52,7 +52,7 @@ Every tool call the model emits is classified and allowed, denied or flagged by 
 | D1 | Unknown tool name | Deny by default, per the README's deny-by-default intent; allowlist per deployment. |
 | D2 | SQL classification: regex or parser? | Parser (e.g. `sqlglot`) — regex is trivially evaded. |
 | D3 | Shell classification | Tokenize and match command heads + dangerous flag combos; anything with pipes to an interpreter denied. |
-| D4 | Response on deny | Replace the tool call with an assistant message carrying the reason (PRD-016 decides the wire shape). |
+| D4 | Response on deny | Replace the tool call with an assistant message carrying the reason (PRD-017 decides the wire shape). |
 | D5 | Obfuscation (base64, `eval`, chained commands) | Deny when the parser cannot classify with confidence. |
 
 ## Evidence

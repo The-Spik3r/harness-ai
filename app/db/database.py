@@ -6,7 +6,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterator, Mapping, Optional
+from typing import Any, Iterator, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 
 import libsql
@@ -20,8 +20,12 @@ from app.db.errors import (
     StorageError,
 )
 from app.db.models import (
+    ACTION_DECISION_VALUES,
     AUDIT_LOGS_ADDED_COLUMNS,
     CHAT_MESSAGES_ADDED_COLUMNS,
+    CREATE_ACTION_DECISIONS_AUDIT_INDEX,
+    CREATE_ACTION_DECISIONS_TABLE,
+    CREATE_ACTION_DECISIONS_USER_TS_INDEX,
     CREATE_AUDIT_LOGS_DEDUP_INDEX,
     CREATE_AUDIT_LOGS_TABLE,
     CREATE_CHAT_MESSAGES_SESSION_INDEX,
@@ -32,6 +36,7 @@ from app.db.models import (
     CREATE_USERS_TABLE,
     CREATE_USERS_TOKEN_HASH_INDEX,
     USERS_ADDED_COLUMNS,
+    ActionDecisionRow,
     AuditLog,
     ChatSession,
     StoredMessage,
@@ -709,6 +714,12 @@ def init_db() -> None:
     alone with no added-columns mapping. In steady state it is one more
     `CREATE ... IF NOT EXISTS` no-op in the same transaction. Its position is
     not load-bearing: no other statement in this block reads it.
+
+    PRD-016 STORY-015 adds `action_decisions` and its two indexes (Section
+    6.10, D8), a new table, so it too arrives by CREATE alone with no
+    added-columns mapping and alters no existing table. No other statement in
+    this block reads it, so its position is not load-bearing; the indexes
+    follow their table, as every index here does.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -727,6 +738,9 @@ def init_db() -> None:
         _add_missing_columns(conn, "chat_messages", CHAT_MESSAGES_ADDED_COLUMNS)
         conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
         conn.execute(CREATE_USAGE_DAILY_TABLE)
+        conn.execute(CREATE_ACTION_DECISIONS_TABLE)
+        conn.execute(CREATE_ACTION_DECISIONS_USER_TS_INDEX)
+        conn.execute(CREATE_ACTION_DECISIONS_AUDIT_INDEX)
 
 
 def _add_missing_columns(
@@ -2213,3 +2227,134 @@ def count_chat_sessions(user_id: str) -> int:
             (user_id,),
         ).fetchone()
         return row["n"]
+
+
+# --- Action decisions (PRD-016 STORY-015) ---
+
+
+def insert_action_decisions(rows: Sequence[ActionDecisionRow]) -> list[int]:
+    """Write one batch of action decision rows (PRD-016 Section 6.10, F10, D8).
+
+    **One `_session()` block, so one transaction.** Each row is its own
+    `INSERT`, and `_Connection.__exit__` rolls back on any exception, so a
+    failure on row *k* leaves no row of the batch: all land or none do. One
+    statement per row rather than `executemany` (which reports no per-row id)
+    or a multi-row `INSERT ... RETURNING id` (whose row order SQLite does not
+    guarantee): `cursor.lastrowid` per statement is `insert_audit_log`'s idiom,
+    and it gives the ids in input order.
+
+    An empty `rows` returns `[]` without opening a session: a response with no
+    tool calls costs no round trip.
+    """
+    if not rows:
+        return []
+    ids: list[int] = []
+    with _session() as conn:
+        for row in rows:
+            cursor = conn.execute(
+                """
+                INSERT INTO action_decisions (
+                    timestamp, audit_id, session_id, user_id, role,
+                    tool_call_id, tool_name, operation_kind, target_preview,
+                    arguments_hash, arguments_preview, decision, rule, reason,
+                    granted_by, classifications, policy_digest
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row.timestamp,
+                    row.audit_id,
+                    row.session_id,
+                    row.user_id,
+                    row.role,
+                    row.tool_call_id,
+                    row.tool_name,
+                    row.operation_kind,
+                    row.target_preview,
+                    row.arguments_hash,
+                    row.arguments_preview,
+                    row.decision,
+                    row.rule,
+                    row.reason,
+                    row.granted_by,
+                    row.classifications,
+                    row.policy_digest,
+                ),
+            )
+            ids.append(cursor.lastrowid)
+    return ids
+
+
+def _row_to_action_decision_row(row: Mapping[str, Any]) -> ActionDecisionRow:
+    """Map one action_decisions row onto `ActionDecisionRow`, by column name."""
+    return ActionDecisionRow(
+        id=row["id"],
+        timestamp=row["timestamp"],
+        audit_id=row["audit_id"],
+        session_id=row["session_id"],
+        user_id=row["user_id"],
+        role=row["role"],
+        tool_call_id=row["tool_call_id"],
+        tool_name=row["tool_name"],
+        operation_kind=row["operation_kind"],
+        target_preview=row["target_preview"],
+        arguments_hash=row["arguments_hash"],
+        arguments_preview=row["arguments_preview"],
+        decision=row["decision"],
+        rule=row["rule"],
+        reason=row["reason"],
+        granted_by=row["granted_by"],
+        classifications=row["classifications"],
+        policy_digest=row["policy_digest"],
+    )
+
+
+def list_action_decisions(
+    limit: int = 100,
+    user_id: Optional[str] = None,
+    decision: Optional[str] = None,
+) -> list[ActionDecisionRow]:
+    """The most recent action decisions, newest first (PRD-016 F10).
+
+    **`ORDER BY id DESC`, never by the timestamp.** `timestamp` is a
+    second-resolution TEXT column, and every row of one `record()` call shares
+    one, so ordering by it ties arbitrarily (PRD-006 Section 13, as
+    `list_chat_messages` documents). `AUTOINCREMENT` is the order.
+
+    `user_id` and `decision` filter when given and combine with AND. The
+    clauses are fixed strings and only the values are bound, so no caller text
+    reaches the SQL. `decision` is not validated here: STORY-016's router
+    rejects an unknown value with 422, and here one simply matches no row.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    if user_id is not None:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if decision is not None:
+        clauses.append("decision = ?")
+        params.append(decision)
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+    params.append(limit)
+    with _session() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM action_decisions {where}ORDER BY id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+        return [_row_to_action_decision_row(row) for row in rows]
+
+
+def count_action_decisions() -> dict[str, int]:
+    """How many action decisions of each kind, over the whole table (PRD-016 F10).
+
+    Every decision in `ACTION_DECISION_VALUES` is a key, 0 when it has no
+    rows, so an empty table reads `{"allow": 0, "flag": 0, "deny": 0}` --
+    what STORY-016's `/stats` reports.
+    """
+    counts = {value: 0 for value in ACTION_DECISION_VALUES}
+    with _session() as conn:
+        rows = conn.execute(
+            "SELECT decision, COUNT(*) AS n FROM action_decisions GROUP BY decision"
+        ).fetchall()
+    for row in rows:
+        counts[row["decision"]] = row["n"]
+    return counts

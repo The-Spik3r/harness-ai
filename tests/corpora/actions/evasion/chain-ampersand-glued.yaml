@@ -1,0 +1,9 @@
+# chaining: && with no spaces around it still splits. Variant of rule-shell-npm-test-then-rm.
+tool_call:
+  name: bash
+  arguments: '{"command":"true&&rm -rf /"}'
+of: rule-shell-npm-test-then-rm.yaml
+technique: chaining
+expect: not_allow
+rule: shell.destructive
+note: '&& with no spaces around it still splits.'

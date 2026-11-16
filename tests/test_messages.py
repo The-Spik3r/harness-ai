@@ -105,14 +105,15 @@ def test_normalizes_table_row(raw, expected):
         ({"role": "system", "content": None}, "null content"),
         ({"role": "tool", "content": None}, "null content"),
         # The exact OpenAI tool-call shape: content null *and* tool_calls. It
-        # must hit the PRD-016 rule, not normalize to "" (check order).
+        # must hit the tool-calling (PRD-017) rule, not normalize to "" (check
+        # order). PRD-016 D14 (STORY-002): tool calling is PRD-017; was PRD-016.
         (
             {
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}],
             },
-            "PRD-016",
+            "PRD-017",
         ),
         ({"role": "developer", "content": "hi"}, "unknown role"),
     ],
@@ -142,7 +143,8 @@ def test_refuses_table_row(raw, rule):
         ({"role": 1, "content": "x"}, "unknown role"),
         ({"role": "user", "content": 3}, "content must be a string"),
         ({"role": "user", "content": {"type": "text", "text": "x"}}, "content must be a string"),
-        ({"role": "assistant", "content": "x", "tool_calls": []}, "PRD-016"),
+        # PRD-016 D14 (STORY-002): tool calling is PRD-017; was PRD-016.
+        ({"role": "assistant", "content": "x", "tool_calls": []}, "PRD-017"),
     ],
     ids=[
         "text-part-missing-text",

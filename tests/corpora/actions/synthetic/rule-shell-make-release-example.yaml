@@ -1,0 +1,10 @@
+# shell.unlisted under the example policy's rollout default. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"make release"}'
+policy: example
+client: OpenCode
+category: rule
+expect: {user: flag, dba: flag, admin: flag}
+rule: shell.unlisted
+note: 'examples/action_policy.yaml sets shell.unlisted to flag to measure before denying.'

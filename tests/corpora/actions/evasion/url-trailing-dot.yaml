@@ -1,0 +1,9 @@
+# url_tricks: A fully qualified host with a trailing dot. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"https://evil.example./x","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unlisted
+note: 'A fully qualified host with a trailing dot.'

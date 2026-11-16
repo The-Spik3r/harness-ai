@@ -1333,3 +1333,77 @@ def test_env_example_base_url_comment_states_the_t10_rule():
 
     for fragment in ("https://", "loopback", "127.0.0.1", "OPENROUTER_API_KEY", "T10"):
         assert fragment in block, fragment
+
+
+# --- PRD-016 STORY-005: action policy settings ---
+#
+# Nothing reads these three yet: action_config (STORY-006/007/008) and
+# action_policy (STORY-014) are the consumers. Their .env.example lines are
+# STORY-020's (the last two tests of this section), and the check that ACTION_SQL_DIALECT names a dialect sqlglot
+# knows belongs to STORY-008's action_config.load().
+
+_ACTION_VARS = ("ACTION_POLICY_FILE", "ACTION_MAX_ARGUMENT_CHARACTERS", "ACTION_SQL_DIALECT")
+
+
+def test_action_settings_available_with_documented_defaults(monkeypatch):
+    """AC 1: the three settings exist with PRD-016 Section 9.3's defaults."""
+    for var in _ACTION_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.ACTION_POLICY_FILE == ""
+    assert result.ACTION_MAX_ARGUMENT_CHARACTERS == 100_000
+    assert result.ACTION_SQL_DIALECT == ""
+
+
+@pytest.mark.parametrize("value", [0, -1, "0"])
+def test_an_action_max_argument_characters_below_one_is_a_startup_error(value):
+    """AC 1: 0 reads like "no ceiling" and is not one, so the message names the
+    field, the value, what it bounds and what to set instead."""
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, ACTION_MAX_ARGUMENT_CHARACTERS=value)
+
+    message = str(exc_info.value)
+    assert "ACTION_MAX_ARGUMENT_CHARACTERS" in message
+    assert f"got {int(value)}" in message, "the message must quote the value it rejected"
+    assert "tool.malformed" in message, "the message must say what the field bounds"
+    assert "ACTION_MAX_ARGUMENT_CHARACTERS=100000" in message, "the message must say what to set instead"
+
+
+def test_action_max_argument_characters_accepts_the_boundary_value_of_one():
+    assert _settings(DATABASE_URL=_LOCAL_URL, ACTION_MAX_ARGUMENT_CHARACTERS=1).ACTION_MAX_ARGUMENT_CHARACTERS == 1
+
+
+def test_action_sql_dialect_is_only_a_string_here():
+    """The assertion with teeth: no sqlglot check slipped into Settings. A name
+    no dialect has is accepted here and refused by STORY-008's loader."""
+    assert _settings(DATABASE_URL=_LOCAL_URL, ACTION_SQL_DIALECT="nosuchdb").ACTION_SQL_DIALECT == "nosuchdb"
+
+
+def test_action_policy_file_is_not_read_by_settings(tmp_path):
+    """A path that does not resolve constructs fine: the file is action_config's
+    to read (STORY-006/007), not Settings'."""
+    missing = str(tmp_path / "missing.yaml")
+
+    assert _settings(DATABASE_URL=_LOCAL_URL, ACTION_POLICY_FILE=missing).ACTION_POLICY_FILE == missing
+
+
+def test_env_example_documents_the_action_policy_vars_with_a_comment():
+    """PRD-016 STORY-020 AC 3: all three present, each with a comment line above."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _ACTION_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_action_policy_defaults_match_settings():
+    """The documented values are the defaults, and the vars follow Settings order."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    defaults = {name: Settings.model_fields[name].default for name in _ACTION_VARS}
+
+    assert _env_example_value(text, "ACTION_POLICY_FILE") == defaults["ACTION_POLICY_FILE"]
+    assert int(_env_example_value(text, "ACTION_MAX_ARGUMENT_CHARACTERS")) == defaults["ACTION_MAX_ARGUMENT_CHARACTERS"]
+    assert _env_example_value(text, "ACTION_SQL_DIALECT") == defaults["ACTION_SQL_DIALECT"]
+    positions = [text.index(f"{var}=") for var in _ACTION_VARS]
+    assert positions == sorted(positions)

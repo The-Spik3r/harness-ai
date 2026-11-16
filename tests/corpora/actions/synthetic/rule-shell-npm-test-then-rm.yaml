@@ -1,0 +1,11 @@
+# An allowlisted segment does not lift a destructive one. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"npm test && rm -rf build"}'
+policy: example
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: shell.destructive
+includes: [shell.allowlisted]
+note: 'PRD Section 11: each segment is classified; npm test is shell.allowlisted, rm -rf build is shell.destructive, and the fold reports the deny.'

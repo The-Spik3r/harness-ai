@@ -1,0 +1,9 @@
+# path_tricks: .env/ names the same file. Variant of brief-write-dotenv.
+tool_call:
+  name: write
+  arguments: '{"filePath":".env/","content":"A=1"}'
+of: brief-write-dotenv.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_protected
+note: '.env/ names the same file.'

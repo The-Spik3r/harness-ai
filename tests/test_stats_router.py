@@ -127,6 +127,10 @@ def test_valid_token_returns_expected_shape_and_values(temp_db):
         "input_tokens",
         "output_tokens",
         "blocked_usage_limits",
+        # PRD-016 F11 / Section 10: three additive action counts (STORY-016).
+        "actions_denied",
+        "actions_flagged",
+        "actions_allowed",
     }
     assert body["total_queries"] == 4
     assert body["blocked_duplicates"] == 1
@@ -203,6 +207,11 @@ def test_zero_rows_returns_zeroed_stats_without_error(temp_db):
         "input_tokens": 0,
         "output_tokens": 0,
         "blocked_usage_limits": 0,
+        # PRD-016 F11 / Section 10: three additive action counts, 0 on an
+        # empty table (STORY-016).
+        "actions_denied": 0,
+        "actions_flagged": 0,
+        "actions_allowed": 0,
     }
 
 
@@ -284,6 +293,10 @@ def test_auditor_role_reads_stats_with_unchanged_shape(temp_db):
         "input_tokens",
         "output_tokens",
         "blocked_usage_limits",
+        # PRD-016 F11 / Section 10: three additive action counts (STORY-016).
+        "actions_denied",
+        "actions_flagged",
+        "actions_allowed",
     }
     assert body["total_queries"] == 1
 
@@ -452,6 +465,12 @@ def test_stats_does_not_fetch_the_register_rows(temp_db, monkeypatch):
         "input_tokens": 2140,
         "output_tokens": 312,
         "blocked_usage_limits": 6,
+        # PRD-016 F11 / Section 10: three additive action counts, 0 on an
+        # empty table (STORY-016). Not from `_snapshot_of`: they are read by
+        # `count_action_decisions()` against the real, empty `temp_db`.
+        "actions_denied": 0,
+        "actions_flagged": 0,
+        "actions_allowed": 0,
     }
 
 

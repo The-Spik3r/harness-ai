@@ -1,0 +1,9 @@
+# windows_shell: ENV: in upper case (the secrets.py fix). Variant of rule-shell-npm-test-then-rm.
+tool_call:
+  name: bash
+  arguments: '{"command":"ls ENV:AWS_SECRET"}'
+of: rule-shell-npm-test-then-rm.yaml
+technique: windows_shell
+expect: not_allow
+rule: secret.read
+note: 'ENV: in upper case (the secrets.py fix).'

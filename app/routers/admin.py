@@ -1,12 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.db.database import (
+    count_action_decisions,
     count_audit_logs,
+    list_action_decisions,
     list_audit_logs,
     summary_snapshot,
 )
+from app.db.models import ActionDecisionRow
 from app.middleware.auth import require_identity, require_permission
-from app.models.schemas import AuditQueryEntry, AuditResponse, StatsResponse
+from app.models.schemas import (
+    ActionClassificationEntry,
+    ActionDecisionEntry,
+    ActionsResponse,
+    AuditQueryEntry,
+    AuditResponse,
+    StatsResponse,
+)
 from app.services.authz import (
     PERMISSION_AUDIT_READ_ALL,
     PERMISSION_AUDIT_READ_OWN,
@@ -81,14 +94,88 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
     return AuditResponse(total=total, queries=queries)
 
 
+# PRD-016 Section 10: `?limit=` 1-500, default 100. 100 is `list_audit_logs`'
+# and `list_action_decisions`' default.
+ACTIONS_LIMIT_DEFAULT = 100
+ACTIONS_LIMIT_MAX = 500
+
+# PRD-016 Section 10: `?decision=allow|flag|deny`. This restates
+# `ACTION_DECISION_VALUES` (app/db/models.py) because a `Literal` cannot be
+# built from a runtime tuple; tests/test_admin_actions.py pins the two equal.
+# FastAPI rejects any other value with 422 before the handler runs.
+ActionDecisionFilter = Literal["allow", "flag", "deny"]
+
+
+@router.get("/audit/actions", response_model=ActionsResponse)
+def get_audit_actions(
+    identity: Identity = Depends(require_identity),
+    limit: int = Query(ACTIONS_LIMIT_DEFAULT, ge=1, le=ACTIONS_LIMIT_MAX),
+    decision: Optional[ActionDecisionFilter] = Query(None),
+) -> ActionsResponse:
+    """The most recent action decisions, newest first (PRD-016 F11, 9.1).
+
+    Scoped exactly as `GET /audit`: `audit:read:all` reads every user's rows,
+    `audit:read:own` only the caller's, and neither is a 403 naming
+    `audit:read:own`. The scoping is a row filter only, with no per-role
+    masking, as on `GET /audit`.
+    """
+    try:
+        authorize(identity, PERMISSION_AUDIT_READ_ALL)
+        scope_user_id = None
+    except PermissionDenied:
+        try:
+            authorize(identity, PERMISSION_AUDIT_READ_OWN)
+        except PermissionDenied as exc:
+            raise HTTPException(
+                status_code=403, detail=f"Permission denied: {exc.permission}"
+            ) from exc
+        scope_user_id = identity.user_id
+
+    entries = [
+        _action_entry(row)
+        for row in list_action_decisions(
+            limit=limit, user_id=scope_user_id, decision=decision
+        )
+    ]
+    return ActionsResponse(entries=entries)
+
+
+def _action_entry(row: ActionDecisionRow) -> ActionDecisionEntry:
+    # A verbatim field passthrough (PRD-016 Section 10), except
+    # `classifications`: the column is JSON text, and decoding it is the
+    # reader's job (`ActionDecisionRow`'s docstring). It is only ever written by
+    # `action_audit._classifications_json`, so a decode failure is a corrupt
+    # row and surfaces as a 500, as a broken `/stats` read does. No catch.
+    return ActionDecisionEntry(
+        id=row.id,
+        timestamp=row.timestamp,
+        audit_id=row.audit_id,
+        user_id=row.user_id,
+        role=row.role,
+        tool_call_id=row.tool_call_id,
+        tool_name=row.tool_name,
+        operation_kind=row.operation_kind,
+        target_preview=row.target_preview,
+        decision=row.decision,
+        rule=row.rule,
+        reason=row.reason,
+        granted_by=row.granted_by,
+        classifications=[
+            ActionClassificationEntry(**c) for c in json.loads(row.classifications)
+        ],
+        policy_digest=row.policy_digest,
+    )
+
+
 @router.get(
     "/stats",
     response_model=StatsResponse,
     dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
 )
 def get_stats() -> StatsResponse:
-    # One statement, twelve figures, where there were nine sequential reads
-    # (PRD-007 Section 6 Pattern 3). Against a local file the fan-out cost
+    # One statement for the twelve audit figures; PRD-016 adds a second, over
+    # `action_decisions`, for three more (see below). The twelve were nine
+    # sequential reads (PRD-007 Section 6 Pattern 3). Against a local file the fan-out cost
     # nothing; against a remote endpoint it was nine round trips per call, and
     # the latency scaled with the number of figures the response happens to
     # report. `summary_snapshot()` (STORY-010) reads them all in one. PRD-013
@@ -123,6 +210,14 @@ def get_stats() -> StatsResponse:
     # `summary_snapshot()` blocks. As `async def` that blocking call would sit
     # on the event loop, which is worse than the nine reads it replaces.
     snapshot = summary_snapshot(row_limit=0)
+    # PRD-016 F11. A second statement, against a different table, rather than
+    # folded into `_SUMMARY_SQL`: `SUMMARY_FIGURES` is a pinned 13-tuple
+    # (tests/test_audit_stats_prd013.py), and widening it would reopen
+    # STORY-010's batched read for a table it never reads. `/stats` is
+    # therefore two round trips, one per table; the "one `audit_logs` read"
+    # claim still holds (tests/test_stats_router.py counts `audit_logs`
+    # statements only).
+    action_counts = count_action_decisions()
 
     total = snapshot.total_recorded
     successful = snapshot.successful_queries
@@ -143,4 +238,8 @@ def get_stats() -> StatsResponse:
         input_tokens=snapshot.input_tokens,
         output_tokens=snapshot.output_tokens,
         blocked_usage_limits=snapshot.blocked_usage_limits,
+        # PRD-016 F11 / Section 10: every key is present, 0 on an empty table.
+        actions_denied=action_counts["deny"],
+        actions_flagged=action_counts["flag"],
+        actions_allowed=action_counts["allow"],
     )

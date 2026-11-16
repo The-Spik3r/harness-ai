@@ -1,0 +1,9 @@
+# url_tricks: A file:// URL. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"file:///etc/passwd","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unparsed
+note: 'A file:// URL.'

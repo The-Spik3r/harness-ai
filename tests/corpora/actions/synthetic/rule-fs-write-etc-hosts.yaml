@@ -1,0 +1,10 @@
+# fs.write_outside_workspace: an absolute system path. OpenCode `write` (SOURCES.md: OpenCode v1.19.5; target `filePath`).
+tool_call:
+  name: write
+  arguments: '{"filePath":"/etc/hosts","content":"127.0.0.1 x"}'
+policy: built_in
+client: OpenCode
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: fs.write_outside_workspace
+note: '/etc/hosts is not under a workspace root; with no roots configured every absolute write is outside (Section 6.5).'

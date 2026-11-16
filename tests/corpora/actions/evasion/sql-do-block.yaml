@@ -1,0 +1,9 @@
+# sql_comments_casing: An anonymous DO block is not parseable here; denied. Variant of brief-drop-table-users.
+tool_call:
+  name: query
+  arguments: '{"sql":"DO $$ BEGIN DROP TABLE users; END $$"}'
+of: brief-drop-table-users.yaml
+technique: sql_comments_casing
+expect: not_allow
+rule: sql.unparsed
+note: 'An anonymous DO block is not parseable here; denied.'

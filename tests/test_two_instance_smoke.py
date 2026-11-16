@@ -855,8 +855,10 @@ def test_both_instances_boot_simultaneously_against_one_database(instances):
     for instance, schema in zip(instances, schemas):
         # Four tables since PRD-008 STORY-003 taught init_db() to create the
         # transcript pair; it was ["audit_logs", "users"] before. Five since
-        # PRD-013 STORY-009 added the usage counters.
+        # PRD-013 STORY-009 added the usage counters. Six since PRD-016
+        # STORY-015 added the action decision audit (D8).
         assert schema["tables"] == [
+            "action_decisions",
             "audit_logs",
             "chat_messages",
             "chat_sessions",

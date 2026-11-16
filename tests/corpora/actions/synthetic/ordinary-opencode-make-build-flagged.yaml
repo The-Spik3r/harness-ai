@@ -1,0 +1,10 @@
+# Ordinary work that is flagged, not denied. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"make build"}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: flag, dba: flag, admin: flag}
+rule: shell.unlisted
+note: 'make is not allowlisted; the example policy''s rollout default flags shell.unlisted, so ordinary work is measured, not blocked.'

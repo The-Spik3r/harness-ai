@@ -1,0 +1,9 @@
+# wrappers: mysql -e carries SQL too. Variant of rule-shell-psql-drop.
+tool_call:
+  name: bash
+  arguments: '{"command":"mysql -e ''DROP TABLE t''"}'
+of: rule-shell-psql-drop.yaml
+technique: wrappers
+expect: not_allow
+rule: sql.ddl
+note: 'mysql -e carries SQL too.'

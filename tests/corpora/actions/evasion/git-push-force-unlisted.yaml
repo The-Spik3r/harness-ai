@@ -1,0 +1,10 @@
+# unlisted_head: git push is not an allowlisted subcommand; floor, never allow. Variant of rule-shell-npm-test-then-rm.
+tool_call:
+  name: bash
+  arguments: '{"command":"git push --force"}'
+of: rule-shell-npm-test-then-rm.yaml
+technique: unlisted_head
+expect: not_allow
+rule: shell.unlisted
+decision: flag
+note: 'git push is not an allowlisted subcommand; floor, never allow.'

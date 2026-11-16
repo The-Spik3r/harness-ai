@@ -1,0 +1,9 @@
+# secret_access: glob pattern ../../**/.env* is matched literally against the secret globs. Variant of rule-secret-read-dotenv.
+tool_call:
+  name: glob
+  arguments: '{"pattern":"../../**/.env*"}'
+of: rule-secret-read-dotenv.yaml
+technique: secret_access
+expect: not_allow
+rule: secret.read
+note: 'glob pattern ../../**/.env* is matched literally against the secret globs.'

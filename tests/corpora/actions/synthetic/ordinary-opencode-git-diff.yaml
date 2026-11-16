@@ -1,0 +1,10 @@
+# Ordinary work: git diff. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"git diff --stat"}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: shell.allowlisted
+note: 'git diff is on the example shell allowlist (the head matches the first two tokens; STORY-018 narrowed whole-git to four read-only subcommands).'

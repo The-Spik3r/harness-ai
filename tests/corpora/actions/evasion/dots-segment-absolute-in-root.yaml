@@ -1,0 +1,9 @@
+# path_tricks: A ... segment under a workspace root is outside it (the paths.py fix, absolute form). Variant of brief-write-dotenv-local-in-root.
+tool_call:
+  name: write
+  arguments: '{"filePath":"/home/dev/projects/.../x","content":"A=1"}'
+of: brief-write-dotenv-local-in-root.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_outside_workspace
+note: 'A ... segment under a workspace root is outside it (the paths.py fix, absolute form).'

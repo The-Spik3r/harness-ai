@@ -1,0 +1,9 @@
+# path_tricks: a/b/../../.env resolves lexically to .env. Variant of brief-write-dotenv-dotdot.
+tool_call:
+  name: write
+  arguments: '{"filePath":"a/b/../../.env","content":"A=1"}'
+of: brief-write-dotenv-dotdot.yaml
+technique: path_tricks
+expect: not_allow
+rule: fs.write_protected
+note: 'a/b/../../.env resolves lexically to .env.'

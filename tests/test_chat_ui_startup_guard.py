@@ -1,6 +1,6 @@
 """Startup-guard coverage for the chat UI entry point.
 
-Four lifespan concerns live here now:
+Five lifespan concerns live here now:
 
   * PRD-005 STORY-016's RBAC bootstrap guard, registered as a lifespan task.
   * PRD-007 STORY-008's database reachability guard, which fires from init_db()
@@ -13,10 +13,14 @@ Four lifespan concerns live here now:
   * PRD-011 STORY-007's `pattern_config.load()`, registered as a lifespan task
     beside `authz.load`. A malformed PATTERNS_FILE must stop this ingress too,
     since it is the one production actually runs.
+  * PRD-016 STORY-006's `action_config.load()`, registered as a lifespan task
+    after `authz.load` (PRD-016 Section 6.11). A set ACTION_POLICY_FILE that
+    cannot be loaded must stop this ingress too.
 
 app/main.py's lifespan never runs under Reflex's api_transformer mount (see
 chat_ui/chat_ui/chat_ui.py's comments) -- init_db(), pii_redactor.load(),
-authz.load(), pattern_config.load(), authz.check_bootstrap(), and the
+authz.load(), pattern_config.load(), action_config.load(),
+authz.check_bootstrap(), and the
 pipeline executor's shutdown are all duplicated there. This runs in a subprocess with PYTHONPATH
 set to chat_ui/, exactly like tests/test_chat_components_import.py, so
 importing chat_ui.chat_ui here never puts the inner package on this process's
@@ -101,6 +105,22 @@ try:
 except Exception as exc:
     result["pii_policy_forced_raised"] = type(exc).__name__
 
+# PRD-016 STORY-006. After authz.load (PRD Section 6.11), before the
+# bootstrap guard's database read.
+action_load = chat_ui_module.action_config.load
+result["action_load_registered"] = action_load in tasks
+result["action_load_order_ok"] = (
+    action_load in tasks
+    and tasks.index(chat_ui_module.authz.load) < tasks.index(action_load)
+    < tasks.index(chat_ui_module.authz.check_bootstrap)
+)
+try:
+    action_load()
+    result["action_raised"] = None
+except Exception as exc:
+    result["action_raised"] = type(exc).__name__
+    result["action_message"] = str(exc)
+
 try:
     chat_ui_module.authz.check_bootstrap()
     result["raised"] = False
@@ -137,6 +157,9 @@ def _empty_rbac_env(database_url_factory):
     # must not turn it into a file.
     env["PATTERNS_FILE"] = ""
     env["PATTERN_PROFILE_DEFAULT"] = "chat"
+    # PRD-016 STORY-006: the "no action policy file" case, stated rather than
+    # inherited, for the same reason.
+    env["ACTION_POLICY_FILE"] = ""
     return env
 
 
@@ -253,6 +276,39 @@ def test_pii_policy_config_error_fails_chat_ui_startup(_empty_rbac_env):
     assert not result["errors"], result["errors"]
     assert result["pii_policy_load_registered"] is True
     assert result["pii_policy_forced_raised"] == "PiiConfigError"
+
+
+# --------------------------------------------------------------------------
+# PRD-016 STORY-006 -- action_config.load() as a chat UI lifespan task.
+# --------------------------------------------------------------------------
+
+
+def test_action_config_load_registered_after_authz_load_as_chat_ui_lifespan_task(_empty_rbac_env):
+    """AC 5, Reflex path: registered on the mount app.main's lifespan never
+    reaches, after authz.load and before check_bootstrap's database read."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["action_load_registered"] is True
+    assert result["action_load_order_ok"] is True
+
+
+def test_action_config_load_is_a_noop_when_action_policy_file_unset(_empty_rbac_env):
+    """AC 1 on the Reflex path: no ACTION_POLICY_FILE, nothing raised."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["action_raised"] is None
+
+
+def test_action_config_load_fails_chat_ui_startup_when_a_file_is_set(_empty_rbac_env, tmp_path):
+    """No silent fallback on the Reflex path. Registration plus the raise is
+    what makes this a claim about startup rather than about load() (the
+    pattern_config test above gives the reasoning)."""
+    path = str(tmp_path / "missing.yaml")
+    result = _run_probe({**_empty_rbac_env, "ACTION_POLICY_FILE": path})
+    assert not result["errors"], result["errors"]
+    assert result["action_load_registered"] is True
+    assert result["action_raised"] == "ActionConfigError"
+    assert path in result["action_message"]
 
 
 # --------------------------------------------------------------------------

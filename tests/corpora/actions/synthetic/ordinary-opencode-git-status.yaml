@@ -1,0 +1,10 @@
+# Ordinary work: git status. OpenCode `bash` (SOURCES.md: OpenCode v1.19.5; target `command`).
+tool_call:
+  name: bash
+  arguments: '{"command":"git status"}'
+policy: example
+client: OpenCode
+category: ordinary
+expect: {user: allow, dba: allow, admin: allow}
+rule: shell.allowlisted
+note: 'git status is on the example shell allowlist (STORY-018 narrowed whole-git to four read-only subcommands).'

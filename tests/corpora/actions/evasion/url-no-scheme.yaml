@@ -1,0 +1,9 @@
+# url_tricks: A URL with no scheme. Variant of rule-net-userinfo.
+tool_call:
+  name: webfetch
+  arguments: '{"url":"evil.example/x","format":"text"}'
+of: rule-net-userinfo.yaml
+technique: url_tricks
+expect: not_allow
+rule: net.unparsed
+note: 'A URL with no scheme.'

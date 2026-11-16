@@ -1,0 +1,9 @@
+# eval_source: . is source. Variant of brief-rm-rf-root.
+tool_call:
+  name: bash
+  arguments: '{"command":". ./cleanup.sh"}'
+of: brief-rm-rf-root.yaml
+technique: eval_source
+expect: not_allow
+rule: shell.unclassifiable
+note: '. is source.'

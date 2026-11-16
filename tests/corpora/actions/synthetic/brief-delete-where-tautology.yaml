@@ -1,0 +1,10 @@
+# Brief criterion: WHERE 1=1 does not scope a DELETE. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"DELETE FROM t WHERE 1=1"}'
+policy: built_in
+client: MCP
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.unscoped_write
+note: 'PRD Section 11: a tautological WHERE counts as unscoped (Section 6.3, sql.unscoped_write).'

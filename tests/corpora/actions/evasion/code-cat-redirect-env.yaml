@@ -1,0 +1,9 @@
+# redirect_write: cat >> .env appends to a protected file. Variant of rule-shell-npm-test-then-rm.
+tool_call:
+  name: bash
+  arguments: '{"command":"cat x >> .env"}'
+of: rule-shell-npm-test-then-rm.yaml
+technique: redirect_write
+expect: not_allow
+rule: fs.write_protected
+note: 'cat >> .env appends to a protected file.'

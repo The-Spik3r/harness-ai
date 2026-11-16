@@ -28,7 +28,8 @@ from app.main import app
 _CADDYFILE = pathlib.Path(__file__).resolve().parents[1] / "Caddyfile"
 
 # The matcher as STORY-018 leaves it: PRD-002's Reflex and harness routes, plus
-# `/v1/*` for the OpenAI-compatible ingress (PRD-015 Section 6.1).
+# `/v1/*` for the OpenAI-compatible ingress (PRD-015 Section 6.1), plus
+# `/audit/actions` (PRD-016).
 EXPECTED_MATCHER = (
     "/_event/*",
     "/ping",
@@ -36,6 +37,8 @@ EXPECTED_MATCHER = (
     "/_upload/*",
     "/query",
     "/audit",
+    # PRD-016 F11 (STORY-016): GET /audit/actions; /audit is an exact token.
+    "/audit/actions",
     "/stats",
     "/health",
     "/v1/*",

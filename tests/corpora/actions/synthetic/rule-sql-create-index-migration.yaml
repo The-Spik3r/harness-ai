@@ -1,0 +1,10 @@
+# sql.ddl through the Supabase apply_migration tool. MCP `apply_migration` (SOURCES.md: MCP supabase, mcp-server-supabase-v0.17.0; target `query`).
+tool_call:
+  name: apply_migration
+  arguments: '{"name":"add_index","query":"CREATE INDEX idx_orders_user ON orders (user_id)"}'
+policy: built_in
+client: MCP
+category: rule
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.ddl
+note: 'CREATE INDEX is DDL; the grant is action:sql:ddl, which dba does not hold in the test matrix.'

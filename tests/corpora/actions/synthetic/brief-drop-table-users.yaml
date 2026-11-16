@@ -1,0 +1,10 @@
+# Brief criterion: DROP TABLE users is denied. MCP `query` (SOURCES.md: MCP postgres reference server, archive head; target `sql`).
+tool_call:
+  name: query
+  arguments: '{"sql":"DROP TABLE users"}'
+policy: built_in
+client: MCP
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: sql.ddl
+note: 'PRD Section 11: DROP is DDL; sql.ddl is deny by default and no corpus role holds action:sql:ddl.'

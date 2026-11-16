@@ -1,0 +1,9 @@
+# wrappers: npm i is an alias of install. Variant of rule-shell-npm-install.
+tool_call:
+  name: bash
+  arguments: '{"command":"npm i lodash"}'
+of: rule-shell-npm-install.yaml
+technique: wrappers
+expect: not_allow
+rule: shell.package_install
+note: 'npm i is an alias of install.'

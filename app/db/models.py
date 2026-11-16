@@ -341,6 +341,72 @@ CREATE_CHAT_MESSAGES_SESSION_INDEX = (
     "ON chat_messages(session_id, id)"
 )
 
+# The action decision audit (PRD-016 Section 6.10, D8). One row per tool call,
+# allowed calls included, because one response can carry several calls and
+# audit_logs is one row per request. Written by app/services/action_audit.py's
+# record(); PRD-017 is its first live caller.
+#
+# audit_id is nullable and points at audit_logs.id: NULL for a direct call, which
+# has no audit row. **No foreign key**, for the reason the chat tables give
+# above: SQLite enforces one only under a per-connection PRAGMA the shared
+# libSQL client cannot guarantee, and an unenforced constraint reads as a
+# guarantee that is not there. Nor on user_id, for usage_daily's reason: the
+# break-glass `admin` identity has no users row and its calls are still audited.
+#
+# `reason` is stored, beyond Section 6.10's original DDL, by orchestrator
+# decision (STORY-014 plan; PRD 6.10 amended): it is a pure function of rule,
+# decision and detail, but storing it keeps the audit readable without code.
+#
+# target_preview is the reported operation's target with the query, fragment and
+# userinfo of an `http` URL redacted (STORY-012/015 plans); arguments_preview is
+# the raw 500 characters (T10) with the same redaction applied to every
+# http(s) URL inside it. arguments_hash is over the full raw string.
+#
+# Rows are read ORDER BY id and never by the TEXT timestamp, which ties within
+# one second (PRD-006 Section 13), as chat_messages is read.
+#
+# A new table, so it arrives by CREATE alone and has no added-columns mapping.
+CREATE_ACTION_DECISIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS action_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    audit_id INTEGER,                 -- audit_logs.id of the request; NULL for direct calls
+    session_id TEXT,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    tool_call_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    operation_kind TEXT,              -- NULL for tool.unknown / tool.malformed
+    target_preview TEXT,              -- first 500 chars of the target the rule judged
+    arguments_hash TEXT NOT NULL,     -- hash_prompt over the raw arguments string
+    arguments_preview TEXT,           -- first 500 chars of the raw arguments string
+    decision TEXT NOT NULL,           -- allow | flag | deny
+    rule TEXT NOT NULL,
+    reason TEXT NOT NULL,             -- the fixed-template reason (orchestrator decision)
+    granted_by TEXT,                  -- the action permission, when one lifted the rule
+    classifications TEXT NOT NULL,    -- JSON array: [{rule, kind, detail}], every one
+    policy_digest TEXT NOT NULL
+)
+"""
+
+# STORY-016's per-user read (`audit:read:own`) filters on user_id; its
+# ORDER BY id reads the rowid SQLite appends to every secondary index.
+CREATE_ACTION_DECISIONS_USER_TS_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_action_decisions_user_ts "
+    "ON action_decisions(user_id, timestamp)"
+)
+
+# PRD-017's join from an audit_logs row to its decisions.
+CREATE_ACTION_DECISIONS_AUDIT_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_action_decisions_audit "
+    "ON action_decisions(audit_id)"
+)
+
+# The closed decision vocabulary, mirrored from
+# app.services.action_classifiers.DECISIONS because app/db imports nothing from
+# app/services. tests/test_action_audit.py pins the two equal.
+ACTION_DECISION_VALUES: tuple[str, ...] = ("allow", "flag", "deny")
+
 
 @dataclass
 class AuditLog:
@@ -505,4 +571,35 @@ class StoredMessage:
     # dropped nothing", and only a nullable field can say both.
     history_trimmed: Optional[int] = None
     created_at: Optional[str] = None  # append_chat_message() stamps it when omitted
+    id: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ActionDecisionRow:
+    """One row of action_decisions (PRD-016 Section 6.10, D8) -- the table's
+    shape, not the engine's `ActionDecision`.
+
+    `classifications` is the JSON text the column holds. Decoding it belongs to
+    the reader (STORY-016's API), not here: this dataclass mirrors the table,
+    as StoredMessage does. Fields are in column order; `id` is last because
+    insert_action_decisions() assigns it.
+    """
+
+    timestamp: str
+    audit_id: Optional[int]
+    session_id: Optional[str]
+    user_id: str
+    role: str
+    tool_call_id: str
+    tool_name: str
+    operation_kind: Optional[str]
+    target_preview: Optional[str]
+    arguments_hash: str
+    arguments_preview: Optional[str]
+    decision: str
+    rule: str
+    reason: str
+    granted_by: Optional[str]
+    classifications: str
+    policy_digest: str
     id: Optional[int] = None

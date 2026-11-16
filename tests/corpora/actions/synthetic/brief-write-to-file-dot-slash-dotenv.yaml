@@ -1,0 +1,10 @@
+# Brief criterion: ./.env spelling of the protected write. Cline 3.x `write_to_file` (SOURCES.md: Cline v3.89.2; target `path`).
+tool_call:
+  name: write_to_file
+  arguments: '{"path":"./.env","content":"A=1"}'
+policy: built_in
+client: Cline 3.x
+category: brief
+expect: {user: deny, dba: deny, admin: deny}
+rule: fs.write_protected
+note: 'PRD Section 11: ./.env normalises to .env before the protected-path match (Section 6.5).'
