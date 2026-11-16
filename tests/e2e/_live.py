@@ -16,6 +16,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -110,11 +111,19 @@ def write_lf(path: Path, text: str) -> None:
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
-    """Stop `proc` and everything it started (Windows: `taskkill /T`). PRD-017 STORY-016, shared by STORY-017."""
+    """Stop `proc` and everything it started. PRD-017 STORY-016, shared by STORY-017.
+
+    Windows: `taskkill /T`. POSIX: the whole process group, which `run_tree` makes
+    the child lead (`start_new_session`); `proc.kill()` alone orphans grandchildren
+    (the CI failure that added the group kill).
+    """
     if os.name == "nt":
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=30)
     else:
-        proc.kill()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
     try:
         proc.wait(timeout=15)
     except subprocess.TimeoutExpired:
@@ -129,6 +138,8 @@ def run_tree(command: list, cwd: Path, env: dict, timeout: int):
     proc = subprocess.Popen(
         command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", errors="replace",
+        # POSIX: its own process group, so kill_tree can stop grandchildren too.
+        start_new_session=os.name != "nt",
     )
     try:
         out, err = proc.communicate(timeout=timeout)

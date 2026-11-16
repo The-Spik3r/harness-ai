@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import httpx
 import pytest
@@ -345,4 +346,10 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
-    return True
+    # A killed orphan can linger as a zombie until init reaps it (a CI container's
+    # PID 1 may never do so); `kill(pid, 0)` still succeeds on one. Dead is dead.
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return True
+    return stat.rsplit(")", 1)[1].split()[0] != "Z"
