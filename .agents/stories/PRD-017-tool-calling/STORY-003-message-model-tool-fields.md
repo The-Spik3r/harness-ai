@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Survey and foundations"
-status: todo
+status: in-progress
 labels: [backend, models]
 epic_branch: epic/PRD-017-tool-calling
-plan: null
+plan: .agents/plans/PRD-017-tool-calling/STORY-003-message-model-tool-fields.plan.md
 report: null
 commit: null
 depends_on: []

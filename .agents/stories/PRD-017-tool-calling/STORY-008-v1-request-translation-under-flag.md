@@ -36,6 +36,7 @@ As an integrating developer, I want `/v1` to accept my agent's tool definitions 
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-003): the normalizer treats `tool_calls: null` and a null `tool_call_id` as absent (OpenAI SDK `model_dump()` echoes send them on text turns). With the flag on, the translator must do the same; with the flag off, PRD-015's key-presence refusal stays as it is.
 - Orchestrator decision (STORY-002 plan): `V1_TOOL_MODELS` is a capability list, not a grant. Request-time check: when `settings.v1_tool_models_list` is non-empty, `model in v1_tool_models_list` for **every** caller (admin and RBAC-off included), without reading `identity.role`; empty means no extra check.
 - Orchestrator note (STORY-001): Cline writes history `arguments` via `JSON.stringify` (whitespace may differ from the upstream's); forward whatever arrives, unchanged. Both clients send `content: null` on a tool-call-only assistant turn and neither sends `parallel_tool_calls`; OpenCode always sends `stream_options`.
 - Orchestrator decision (STORY-001 plan): OpenCode 2.0.10 sends `tools: []` when the history has tool calls but no tool is active, never sends `parallel_tool_calls`, always `stream: true`, and writes assistant `content: null` with tool calls. With the flag on, `tools: []` plus tool history must be accepted (tool turns are admitted whenever the flag is on, not only when `tools` is non-empty); with the flag off, PRD-015 still treats `[]` as the default. Use STORY-001's survey note for the exact shapes.

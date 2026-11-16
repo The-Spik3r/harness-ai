@@ -36,6 +36,7 @@ As a security admin, I want tool results to go through the same context, pattern
 
 ## Technical Notes
 
+- Orchestrator note (STORY-003 plan): `app/services/pii_redactor.py:523-526`'s docstring says `Message` has no `tool_calls` field; reword it to state the contract (arguments never reach the redactor) now that the field exists.
 - `app/services/query_pipeline.py`: `_context_limit_exceeded` `:78-105`; step 5 `:496-576` (the comment at `:554-557` says the `tool` cell is unreachable); `_analyzable_characters` `:128-146`; step 6 loop `:632-663` — `Message(message.role, redacted_content)` at `:661` would drop `tool_calls`/`tool_call_id`: use `dataclasses.replace(message, content=...)`.
 - `pattern_detector.inspect` walks `message.content` per role (`app/services/pattern_detector.py`); confirm it never reads other fields, and that the `code` profile's `tool: flag` cell (`app/services/pattern_config.py:249`) is what fires.
 - `pii_policy` (`app/services/pii_policy.py:84-85, 130`): `code` covers `tool`; `chat` covers it "for completeness only" — reword that comment.
