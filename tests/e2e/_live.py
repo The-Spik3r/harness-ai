@@ -97,6 +97,50 @@ def stop(proc: subprocess.Popen, timeout: float) -> None:
         proc.wait()
 
 
+def git(repo: Path, *args: str) -> str:
+    """`git <args>` in `repo`, stdout. Moved here from `test_opencode.py` (PRD-017 STORY-016), shared by STORY-017."""
+    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout
+
+
+def write_lf(path: Path, text: str) -> None:
+    """Write `text` as UTF-8 with LF endings, creating parents (PRD-017 STORY-016, shared by STORY-017)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
+def kill_tree(proc: subprocess.Popen) -> None:
+    """Stop `proc` and everything it started (Windows: `taskkill /T`). PRD-017 STORY-016, shared by STORY-017."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=30)
+    else:
+        proc.kill()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def run_tree(command: list, cwd: Path, env: dict, timeout: int):
+    """`subprocess.run` that closes stdin and, whatever happens, leaves no process of the tree behind.
+
+    Returns `(returncode, stdout, stderr)`. PRD-017 STORY-016 (origin), STORY-017 (shared).
+    """
+    proc = subprocess.Popen(
+        command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except BaseException:
+        kill_tree(proc)
+        raise
+    finally:
+        if proc.poll() is None:
+            kill_tree(proc)
+    return proc.returncode, out, err
+
+
 def resolve_e2e_db_url(recipe: str) -> str:
     """`HARNESS_E2E_LIBSQL_URL`, or fail with `recipe`. Never another database."""
     url = os.environ.get("HARNESS_E2E_LIBSQL_URL", "").strip()

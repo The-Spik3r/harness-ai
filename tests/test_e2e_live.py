@@ -309,3 +309,40 @@ def test_the_recorder_keeps_tool_names_only_when_asked(recorder):
 def test_the_action_dump_reads_list_action_decisions():
     compile(_live.DUMP_ACTIONS, "<dump>", "exec")
     assert "list_action_decisions" in _live.DUMP_ACTIONS
+
+
+def test_run_tree_closes_stdin_and_kills_the_whole_tree_on_timeout(tmp_path):
+    """PRD-017 STORY-017: the helper both client E2Es run their client with.
+
+    stdin is closed (a read sees EOF at once, as `opencode run` needs), and a run past its
+    timeout leaves neither the process nor its child behind.
+    """
+    code, out, err = _live.run_tree(
+        [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], tmp_path, dict(os.environ), 30)
+    assert (code, out.strip()) == (0, "''")
+
+    pid_file = tmp_path / "child.pid"
+    parent = (
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+        "time.sleep(120)\n"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        _live.run_tree([sys.executable, "-c", parent], tmp_path, dict(os.environ), 3)
+    child_pid = int(pid_file.read_text())
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _pid_alive(child_pid):
+        time.sleep(0.2)
+    assert not _pid_alive(child_pid)
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        listing = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True).stdout
+        return str(pid) in listing.decode("ascii", "replace")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True

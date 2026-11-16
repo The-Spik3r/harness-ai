@@ -53,7 +53,6 @@ import json
 import os
 import secrets
 import sqlite3
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -101,45 +100,6 @@ _REPORT_FIELDS = (
     "has_tool_calls", "was_duplicate_blocked",
 )
 _ACTION_FIELDS = ("id", "audit_id", "tool_call_id", "tool_name", "operation_kind", "decision", "rule", "reason")
-
-
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout
-
-
-def _write_lf(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text)
-
-
-def _kill_tree(proc: subprocess.Popen) -> None:
-    """Stop `proc` and everything it started (Windows: `taskkill /T`)."""
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=30)
-    else:
-        proc.kill()
-    try:
-        proc.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-
-
-def _run_tree(command: list, cwd: Path, env: dict, timeout: int):
-    """`subprocess.run` that closes stdin and, whatever happens, leaves no process of the tree behind."""
-    proc = subprocess.Popen(
-        command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace",
-    )
-    try:
-        out, err = proc.communicate(timeout=timeout)
-    except BaseException:
-        _kill_tree(proc)
-        raise
-    finally:
-        if proc.poll() is None:
-            _kill_tree(proc)
-    return proc.returncode, out, err
 
 
 # --------------------------------------------------------------------------
@@ -202,20 +162,20 @@ def workspace(tmp_path_factory):
     Created before the stub, whose script carries this path.
     """
     path = tmp_path_factory.mktemp("e2e017-016-repo")
-    _git(path, "init", "-q")
+    _live.git(path, "init", "-q")
     for key, value in (("user.name", "e2e017-016"), ("user.email", "e2e017-016@example.invalid"),
                        ("core.autocrlf", "false"), ("commit.gpgsign", "false")):
-        _git(path, "config", key, value)
-    _write_lf(path / "src" / "__init__.py", "")
-    _write_lf(path / "src" / "calc.py", CALC_ORIGINAL)
-    _write_lf(path / "tests" / "__init__.py", "")
-    _write_lf(path / "tests" / "test_calc.py", TEST_ORIGINAL)
+        _live.git(path, "config", key, value)
+    _live.write_lf(path / "src" / "__init__.py", "")
+    _live.write_lf(path / "src" / "calc.py", CALC_ORIGINAL)
+    _live.write_lf(path / "tests" / "__init__.py", "")
+    _live.write_lf(path / "tests" / "test_calc.py", TEST_ORIGINAL)
     with sqlite3.connect(path / "app.db") as conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
         conn.execute("INSERT INTO users (name) VALUES ('e2e')")
     conn.close()
-    _git(path, "add", "-A")
-    _git(path, "commit", "-qm", "init")
+    _live.git(path, "add", "-A")
+    _live.git(path, "commit", "-qm", "init")
     return path
 
 
@@ -349,7 +309,7 @@ def _oc_env(oc_home: Path, **extra) -> dict:
 @pytest.fixture(scope="module")
 def opencode_runs(request, opencode_exe, oc_home, recorder, child_cwd):
     """The report's record of every OpenCode run (AC 4), written to opencode-run.json."""
-    code, out, err = _run_tree([opencode_exe, "--version"], oc_home, _oc_env(oc_home), 120)
+    code, out, err = _live.run_tree([opencode_exe, "--version"], oc_home, _oc_env(oc_home), 120)
     version = out.strip()
     record = {
         "opencode_version": version,
@@ -391,7 +351,7 @@ def run_opencode(opencode_exe, oc_home, opencode_runs, recorder, stub, users, wo
                       OPENCODE_CONFIG_CONTENT=json.dumps(opencode_config(recorder.base, token)))
         command = [opencode_exe, "run", "--standalone", "--auto", "--format", "json", "-m", OPENCODE_MODEL, prompt]
         posts_before, upstream_before = len(recorder.posts()), len(stub.settle())
-        returncode, out, err = _run_tree(command, workspace, env, 300)
+        returncode, out, err = _live.run_tree(command, workspace, env, 300)
         output = (out + err).replace(token, "<harness token>")
         events = []
         for line in output.splitlines():
@@ -490,7 +450,7 @@ def test_opencode_runs_the_scripted_task_through_the_harness(workspace, run_open
 def test_a_scripted_drop_table_is_denied_and_opencode_reports_it(workspace, run_opencode, rows, actions):
     before_rows = {row["id"] for row in rows("drop")}
     before_actions = {row["id"] for row in actions("drop")}
-    status_before = _git(workspace, "status", "--porcelain")  # the task test left its two edits in the tree
+    status_before = _live.git(workspace, "status", "--porcelain")  # the task test left its two edits in the tree
 
     run = run_opencode("drop", f"E2E-OPENCODE-DROP [{NONCE}] clean up the database")
 
@@ -500,7 +460,7 @@ def test_a_scripted_drop_table_is_denied_and_opencode_reports_it(workspace, run_
     with sqlite3.connect(workspace / "app.db") as conn:
         assert conn.execute("SELECT COUNT(*) FROM users").fetchone() == (1,)
     conn.close()
-    assert _git(workspace, "status", "--porcelain") == status_before  # the denied call changed no file
+    assert _live.git(workspace, "status", "--porcelain") == status_before  # the denied call changed no file
 
     [row] = [row for row in rows("drop") if row["id"] not in before_rows]
     assert (row["ingress"], row["profile"], row["success"]) == ("v1", "code", True)

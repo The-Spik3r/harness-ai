@@ -36,6 +36,8 @@ As a platform operator, I want tool calling documented as shipped — how to tur
 
 ## Technical Notes
 
+- Orchestrator note (STORY-017 plan): document the Cline CLI 3.0.74 setup (`cline auth --data-dir <ABSOLUTE dir> --provider openai-compatible --baseurl <harness>/v1`, then `--yolo --json -c <dir>`), and its pitfalls: a relative `--data-dir` silently falls back to api.openai.com; `-t` is not honoured and the loop only ends on `submit_and_exit`; Cline fetches feature flags from its own service at startup (outbound traffic the harness does not see, no known switch). A Cline deployment needs `opaque_tools: {submit_and_exit: allow}` and its own `tools:`/`shell.allow` (see `tests/e2e/cline/action_policy.yaml`).
+- Orchestrator note (STORY-016): document the verified OpenCode 2.0.10 headless setup (provider `@ai-sdk/openai-compatible` with `options.baseURL`, `OPENCODE_CONFIG_CONTENT`, `agent.title.disable`, `OPENCODE_DISABLE_MODELS_FETCH=1`, `run --standalone`, stdin closed) and the pitfalls: `opencode run` waits on a non-closed stdin; it takes its working directory from `PWD`, not the process cwd; OpenCode sends `store` (recorded in `ignored_params`).
 - Orchestrator note (STORY-001): `docs/features.md` (around line 279) lists only OpenCode v1.19.5 tool names; add the 2.0.10 names (`shell`, `patch`, `path` keys), the `execute` CodeMode tool (always denied), and the Cline CLI 3.0.74 headless setup from the survey note.
 - Read every PRD-017 story report's Deviations for doc items, and the orchestrator notes added to this story's Technical Notes during the run.
 - Follow PRD-016 STORY-020 and PRD-015 STORY-019 for structure and tone; `docs/roadmap.md:37, 43-52, 78-82` are the paragraphs named above.
