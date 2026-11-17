@@ -7,12 +7,12 @@ type: spike
 priority: high
 complexity: small
 phase: "1 - Measure the driver"
-status: in-progress
+status: done
 labels: [backend, storage, spike]
 epic_branch: epic/PRD-018-db-resilience
-plan: .agents/plans/PRD-018-db-resilience/STORY-001-driver-failure-surface-spike.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-001-driver-failure-surface-spike.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-001-driver-failure-surface-spike.report.md
+commit: 07bd37f
 depends_on: []
 blocks: [STORY-002]
 skills: []

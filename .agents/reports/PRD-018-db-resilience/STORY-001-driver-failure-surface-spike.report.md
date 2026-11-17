@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-001-driver-failure-surface-spike.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: 07bd37f
 status: COMPLETE
 completed: 2026-11-17
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-17
 
 **Plan**: `.agents/plans/PRD-018-db-resilience/completed/STORY-001-driver-failure-surface-spike.plan.md`
 **Epic Branch**: `epic/PRD-018-db-resilience`
-**Commit**: `pending`
+**Commit**: `07bd37f`
 **Findings report**: `.agents/spikes/PRD-018-driver-failure-surface.md`
 
 ## Summary
