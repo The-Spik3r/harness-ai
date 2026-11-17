@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "5 - Visible and documented"
-status: in-progress
+status: done
 labels: [backend, api, admin-ui]
 epic_branch: epic/PRD-018-db-resilience
-plan: .agents/plans/PRD-018-db-resilience/STORY-012-storage-status-and-admin-panel.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-012-storage-status-and-admin-panel.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-012-storage-status-and-admin-panel.report.md
+commit: 1c94ed8
 depends_on: [STORY-005, STORY-008, STORY-009]
 blocks: [STORY-014]
 skills: [frontend-design]

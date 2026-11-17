@@ -6,7 +6,7 @@
 
 ## Progress
 
-11/14 stories done — 79%
+12/14 stories done — 86%
 
 ## Stories
 
@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story
 | STORY-009 | Journal drainer thread and lifespan wiring (FastAPI and Reflex) | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-009-journal-drainer.plan.md) | `bbeea1a` |
 | STORY-010 | AuditRef, journaled release of step 8, PRD-017 D13 decisions path, audit_ref response fields | feature | ✅ done | large | [plan](../../plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md) | `4ab037a` |
 | STORY-011 | Duplicate overlay over journaled rows and the admission headroom check | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-011-duplicate-overlay-and-headroom.plan.md) | `84a463b` |
-| STORY-012 | GET /storage/status, in-memory counters, and the admin console Storage panel | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-018-db-resilience/STORY-012-storage-status-and-admin-panel.plan.md) | — |
+| STORY-012 | GET /storage/status, in-memory counters, and the admin console Storage panel | feature | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-012-storage-status-and-admin-panel.plan.md) | `1c94ed8` |
 | STORY-013 | Success-criteria suite — statements 1–14 under fault injection, outage end-to-end, opt-in chaos, latency | technical | ⬜ todo | medium | — | — |
 | STORY-014 | Docs, compose volume, .env.example, roadmap, and PRD close-out | technical | ⬜ todo | small | — | — |
 
