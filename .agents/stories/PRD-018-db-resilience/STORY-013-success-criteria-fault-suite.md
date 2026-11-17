@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "5 - Visible and documented"
-status: todo
+status: done
 labels: [tests, storage]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-013-success-criteria-fault-suite.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-013-success-criteria-fault-suite.report.md
+commit: pending
 depends_on: [STORY-010, STORY-011]
 blocks: [STORY-014]
 skills: []

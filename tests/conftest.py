@@ -110,6 +110,9 @@ _BENCHMARK_MARKER = "benchmark"
 #: The marker on live-client E2E tests (PRD-015 STORY-015).
 _E2E_MARKER = "e2e"
 
+#: The marker on real-fault tests that restart the shared libSQL dev server (PRD-018 STORY-013).
+_CHAOS_MARKER = "chaos"
+
 #: The marker on tests that reach storage (PRD-014 STORY-002), applied at collection.
 _DB_MARKER = "db"
 
@@ -170,11 +173,18 @@ def pytest_addoption(parser) -> None:
         default=False,
         help="run @pytest.mark.e2e live-client tests; needs HARNESS_E2E_LIBSQL_URL (PRD-015 STORY-015)",
     )
+    parser.addoption(
+        "--run-chaos",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.chaos real-fault tests; they restart the shared libSQL dev server (PRD-018 STORY-013)",
+    )
 
 
 def pytest_configure(config) -> None:
     config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
     config.addinivalue_line("markers", f"{_E2E_MARKER}: live client E2E against a subprocess harness and stub; skipped unless --run-e2e")
+    config.addinivalue_line("markers", f"{_CHAOS_MARKER}: real-fault test that restarts or blackholes the libSQL dev server; skipped unless --run-chaos")
     config.addinivalue_line("markers", f"{_DB_MARKER}: reaches storage (a storage fixture, or listed in _DB_NODEIDS); applied at collection")
 
 
@@ -204,12 +214,18 @@ def pytest_collection_modifyitems(config, items) -> None:
     libSQL endpoint (see `tests/e2e/test_openai_sdk.py`):
 
         HARNESS_E2E_LIBSQL_URL=http://127.0.0.1:8088 pytest tests/e2e -m e2e --run-e2e -v
+
+    `@pytest.mark.chaos` (PRD-018 STORY-013) is skipped unless `--run-chaos` is given.
+    Those tests restart the shared `harness-libsql-dev` container, so they never run
+    by default or in CI, and must not run beside another pytest process:
+
+        pytest tests/test_db_resilience_chaos.py -m chaos --run-chaos -v -s
     """
     db = getattr(pytest.mark, _DB_MARKER)
     for item in items:
         if _STORAGE_FIXTURES.intersection(getattr(item, "fixturenames", ())) or _in_db_nodeids(item.nodeid):
             item.add_marker(db)
-    for marker, option in ((_BENCHMARK_MARKER, "--run-benchmark"), (_E2E_MARKER, "--run-e2e")):
+    for marker, option in ((_BENCHMARK_MARKER, "--run-benchmark"), (_E2E_MARKER, "--run-e2e"), (_CHAOS_MARKER, "--run-chaos")):
         if config.getoption(option):
             continue
         skip = pytest.mark.skip(reason=f"{marker}: pass {option}")

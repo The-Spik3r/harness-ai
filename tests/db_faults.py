@@ -23,7 +23,10 @@ a fired fault from the driver (the `_RecordedClient` rule, `tests/conftest.py`).
 | `rollback` / either | `real.rollback()`, then raises | a dead-stream rollback masking the body's error (spike F4a) |
 
 **Matching.** `execute` faults match by the whitespace-normalised, upper-cased
-prefix `sql`; `commit` and `rollback` faults match by occurrence only. `nth` is
+prefix `sql`; `commit` and `rollback` faults match by occurrence only, except that a
+`commit` fault with `follows` set matches only when the last `execute` on that client
+started with it (STORY-013: "the commit of `admit_usage`" without counting commits;
+every unit commits, so the n-th commit moves whenever a read is added). `nth` is
 1-based among the calls a fault matches, counted across every client the script
 built, and `times` consecutive matches fail from there. The idle probe's
 `SELECT 1` goes through the proxy too, so give an `execute` fault a specific `sql`
@@ -92,10 +95,13 @@ class Fault:
     nth: int = 1  # 1-based, among the calls this fault matches
     times: int = 1  # consecutive matching calls that fail, from `nth`
     when: Literal["before", "after"] = "before"
+    follows: str = ""  # commit only: prefix of the last execute on the same client
 
-    def matches(self, op: str, sql: str) -> bool:
+    def matches(self, op: str, sql: str, last_sql: str = "") -> bool:
         if op != self.op:
             return False
+        if op == "commit":
+            return _normalised(last_sql).startswith(self.follows.upper())
         return op != "execute" or _normalised(sql).startswith(self.sql.upper())
 
 
@@ -117,18 +123,24 @@ class FaultScript:
         with self._lock:
             self._faults.extend(faults)
 
+    def clear(self) -> None:
+        """Drop every fault and its match counts: the outage is over (STORY-013)."""
+        with self._lock:
+            self._faults.clear()
+            self._seen.clear()
+
     def forwarded(self, sql_prefix: str) -> int:
         """How many executes starting with `sql_prefix` reached the real client."""
         prefix = sql_prefix.upper()
         with self._lock:
             return sum(1 for sql in self._forwarded if sql.startswith(prefix))
 
-    def _decide(self, op: str, sql: str = "") -> "Fault | None":
+    def _decide(self, op: str, sql: str = "", last_sql: str = "") -> "Fault | None":
         """Record the call and return the fault that fires on it, if any."""
         with self._lock:
             self.calls.append((op, _normalised(sql)[:60]))
             for fault in self._faults:
-                if not fault.matches(op, sql):
+                if not fault.matches(op, sql, last_sql):
                     continue
                 seen = self._seen.get(id(fault), 0) + 1
                 self._seen[id(fault)] = seen
@@ -169,8 +181,10 @@ class _FaultyClient:
     def __init__(self, real, script: FaultScript) -> None:
         self._real = real
         self._script = script
+        self._last_sql = ""  # the last execute on this client, for `Fault.follows`
 
     def execute(self, sql, *parameters):
+        self._last_sql = sql
         fault = self._script._decide("execute", sql)
         if fault is not None and fault.when == "before":
             raise ValueError(fault.text)
@@ -181,7 +195,7 @@ class _FaultyClient:
         return cursor
 
     def commit(self):
-        fault = self._script._decide("commit")
+        fault = self._script._decide("commit", last_sql=self._last_sql)
         if fault is None:
             return self._real.commit()
         if fault.when == "after":
