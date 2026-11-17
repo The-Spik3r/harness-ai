@@ -1089,6 +1089,8 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "limit_exceeded",
         # PRD-015 STORY-007 (Section 7.3): the names of ignored /v1 parameters.
         "ignored_params",
+        # PRD-018 STORY-004 (D4): the idempotency key.
+        "write_id",
     }
     assert set(columns) == expected
     assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
@@ -2257,13 +2259,13 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     # STORY-009 (D6) appended pattern_role and pattern_action after that, and
     # PRD-012 STORY-011 (D9) appended profile, and PRD-013 STORY-002 (Section
     # 6.2) appended eight more after profile, and PRD-015 STORY-007 appended
-    # ignored_params. The claim is unchanged: the surrogate key stays the
-    # trailing field.
-    assert names[-15:] == [
+    # ignored_params, and PRD-018 STORY-004 (D4) appended write_id. The claim
+    # is unchanged: the surrogate key stays the trailing field.
+    assert names[-16:] == [
         "session_id", "dedup_key", "pattern_role", "pattern_action", "profile",
         "ingress", "message_count", "input_tokens", "output_tokens",
         "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
-        "ignored_params", "id",
+        "ignored_params", "write_id", "id",
     ]
 
 
@@ -2995,9 +2997,10 @@ def test_audit_logs_declares_each_prd013_column_in_both_places(name, ddl):
 def test_the_prd013_columns_are_declared_last_and_in_order():
     """The mapping's order is the order init_db() ALTERs in, and the CREATE's
     is the order AuditLog mirrors. PRD-015 STORY-007 appended ignored_params
-    after them, so they are the eight before the last."""
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-9:-1] == list(_PRD013_COLUMNS)
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-9:-1] == list(_PRD013_COLUMNS)
+    after them, and PRD-018 STORY-004 (D4) appended write_id after that, so
+    they are the eight before the last two."""
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-10:-2] == list(_PRD013_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-10:-2] == list(_PRD013_COLUMNS)
 
 
 @pytest.mark.parametrize("name", list(_PRD013_COLUMNS))
@@ -3029,7 +3032,12 @@ def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, mo
     assert [sql for sql in statements if "ADD COLUMN" in sql.upper()] == [
         f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
         for name, ddl in _PRD013_COLUMNS.items()
-    ] + ["ALTER TABLE audit_logs ADD COLUMN ignored_params TEXT"]
+    ] + [
+        "ALTER TABLE audit_logs ADD COLUMN ignored_params TEXT",
+        # PRD-018 STORY-004 (D4): write_id follows ignored_params. This database
+        # has no action_decisions, so its CREATE builds the column in: no ALTER.
+        "ALTER TABLE audit_logs ADD COLUMN write_id TEXT",
+    ]
     assert not any(
         sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
     ), statements
@@ -3044,7 +3052,7 @@ def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, mo
         raw = conn.execute(
             f"SELECT {', '.join(_PRD013_COLUMNS)} FROM audit_logs ORDER BY id"
         ).fetchall()
-    assert len(columns) == 33
+    assert len(columns) == 34  # PRD-018 STORY-004 (D4): + write_id
     for name in _PRD013_COLUMNS:
         assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
 
@@ -3186,7 +3194,8 @@ def test_audit_log_carries_the_prd013_fields_without_breaking_construction():
 
     names = [field.name for field in dataclasses.fields(AuditLog)]
     # PRD-015 STORY-007's ignored_params sits between them and id.
-    assert names[-10:] == [*_PRD013_COLUMNS, "ignored_params", "id"]
+    # PRD-018 STORY-004 (D4): write_id sits between ignored_params and id.
+    assert names[-11:] == [*_PRD013_COLUMNS, "ignored_params", "write_id", "id"]
 
 
 # ---------------------------------------------------------------------------
@@ -3254,8 +3263,9 @@ def test_audit_logs_declares_ignored_params_in_both_places_last():
     and both declare it the same way, after every earlier column."""
     assert AUDIT_LOGS_ADDED_COLUMNS["ignored_params"] == "TEXT"
     assert "ignored_params TEXT" in CREATE_AUDIT_LOGS_TABLE
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-1] == "ignored_params"
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-1] == "ignored_params"
+    # PRD-018 STORY-004 (D4): write_id now follows ignored_params in both places.
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-2] == "ignored_params"
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-2] == "ignored_params"
 
 
 def test_init_db_creates_ignored_params_as_nullable_text(temp_db):
@@ -3276,7 +3286,9 @@ def test_init_db_migrates_a_pre_prd015_database(uninitialized_db, db_connect, mo
     init_db()
 
     assert [sql for sql in statements if "ADD COLUMN" in sql.upper()] == [
-        "ALTER TABLE audit_logs ADD COLUMN ignored_params TEXT"
+        "ALTER TABLE audit_logs ADD COLUMN ignored_params TEXT",
+        # PRD-018 STORY-004 (D4): write_id is missing from this database too.
+        "ALTER TABLE audit_logs ADD COLUMN write_id TEXT",
     ]
     assert not any(
         sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
@@ -3290,7 +3302,7 @@ def test_init_db_migrates_a_pre_prd015_database(uninitialized_db, db_connect, mo
     with get_connection() as conn:
         columns = _column_names(conn, "audit_logs")
         raw = conn.execute("SELECT ignored_params FROM audit_logs").fetchall()
-    assert len(columns) == 33
+    assert len(columns) == 34  # PRD-018 STORY-004 (D4): + write_id
     assert columns.count("ignored_params") == 1
     assert [row["ignored_params"] for row in raw] == [None]
 

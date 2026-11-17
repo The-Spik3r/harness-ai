@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,6 +8,19 @@ from app.services.duplicate_checker import hash_prompt
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _PREVIEW_LENGTH = 500
+
+
+def _new_write_id() -> str:
+    """A fresh idempotency key: `uuid.uuid4().hex`, 32 lowercase hex characters.
+
+    The PRD-wide `write_id` convention (PRD-018 D4, STORY-004); STORY-008/009/010
+    reuse this one helper rather than minting their own. Hex rather than
+    `str(uuid4())` because the key appears verbatim in client-facing strings
+    (`audit_ref`, `X-Harness-Audit-Ref`, `chatcmpl-harness-ref-<write_id>`) and a
+    `"<batch>:<index>"` decision key reads unambiguously with no hyphen inside
+    the batch part.
+    """
+    return uuid.uuid4().hex
 
 
 def log_query(
@@ -103,5 +117,10 @@ def log_query(
         conversation_key=conversation_key,
         limit_exceeded=limit_exceeded,
         ignored_params=ignored_params,
+        # PRD-018 D4 (Section 6.4): minted once per call, beside the one
+        # timestamp stamp and before the first attempt, so every retry (and,
+        # from STORY-008, the journal entry and the drain) carries the same
+        # pair. Still returns the int id; STORY-010 changes that.
+        write_id=_new_write_id(),
     )
     return insert_audit_log(entry)

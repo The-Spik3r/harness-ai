@@ -33,13 +33,16 @@ from app.db.errors import (
 )
 from app.db.models import (
     ACTION_DECISION_VALUES,
+    ACTION_DECISIONS_ADDED_COLUMNS,
     AUDIT_LOGS_ADDED_COLUMNS,
     CHAT_MESSAGES_ADDED_COLUMNS,
     CREATE_ACTION_DECISIONS_AUDIT_INDEX,
     CREATE_ACTION_DECISIONS_TABLE,
     CREATE_ACTION_DECISIONS_USER_TS_INDEX,
+    CREATE_ACTION_DECISIONS_WRITE_ID_INDEX,
     CREATE_AUDIT_LOGS_DEDUP_INDEX,
     CREATE_AUDIT_LOGS_TABLE,
+    CREATE_AUDIT_LOGS_WRITE_ID_INDEX,
     CREATE_CHAT_MESSAGES_SESSION_INDEX,
     CREATE_CHAT_MESSAGES_TABLE,
     CREATE_CHAT_SESSIONS_TABLE,
@@ -769,7 +772,8 @@ class FailureClass(str, Enum):
 class StatementKind(str, Enum):
     """How safe it is to run a unit of work twice (PRD-018 D3, Section 6.3).
 
-    Declared per public function in `database.py`, at its `_unit_of_work()` call.
+    Declared per public function in `database.py`, at its `_unit_of_work()` call;
+    the two audit inserts choose it per call with `_keyed_kind()` (STORY-004).
 
     - `READ`: changes nothing, so a replay is always safe.
     - `IDEMPOTENT`: a replay lands the same state (a fixed-value UPDATE, a DELETE,
@@ -1195,6 +1199,14 @@ def init_db() -> None:
     added-columns mapping and alters no existing table. No other statement in
     this block reads it, so its position is not load-bearing; the indexes
     follow their table, as every index here does.
+
+    PRD-018 STORY-004 adds `write_id` to `audit_logs` and `action_decisions`
+    (D4). The `audit_logs` UNIQUE index sits after that table's pass, for the
+    dedup index's reason: on an older database the column does not exist until
+    the pass adds it. The `action_decisions` pass sits after its CREATE, for the
+    `chat_messages` pass's reason, which makes it the fourth table on this path.
+    In steady state the cost is one more `PRAGMA table_info` and two
+    `CREATE INDEX IF NOT EXISTS` no-ops.
     """
     if not settings.DB_BOOTSTRAP_ENABLED:
         return
@@ -1204,6 +1216,7 @@ def init_db() -> None:
         conn.execute(CREATE_AUDIT_LOGS_TABLE)
         _add_missing_columns(conn, "audit_logs", AUDIT_LOGS_ADDED_COLUMNS)
         conn.execute(CREATE_AUDIT_LOGS_DEDUP_INDEX)
+        conn.execute(CREATE_AUDIT_LOGS_WRITE_ID_INDEX)  # after the pass: the column may be new
         conn.execute(CREATE_USERS_TABLE)
         _add_missing_columns(conn, "users", USERS_ADDED_COLUMNS)
         conn.execute(CREATE_USERS_TOKEN_HASH_INDEX)
@@ -1214,8 +1227,10 @@ def init_db() -> None:
         conn.execute(CREATE_CHAT_MESSAGES_SESSION_INDEX)
         conn.execute(CREATE_USAGE_DAILY_TABLE)
         conn.execute(CREATE_ACTION_DECISIONS_TABLE)
+        _add_missing_columns(conn, "action_decisions", ACTION_DECISIONS_ADDED_COLUMNS)
         conn.execute(CREATE_ACTION_DECISIONS_USER_TS_INDEX)
         conn.execute(CREATE_ACTION_DECISIONS_AUDIT_INDEX)
+        conn.execute(CREATE_ACTION_DECISIONS_WRITE_ID_INDEX)
 
 
 def _add_missing_columns(
@@ -1254,11 +1269,12 @@ def _add_missing_columns(
 
     **PRD-010 STORY-010 made the table and the mapping parameters**, because
     `chat_messages.history_trimmed` needs exactly the convergence above and
-    nothing about it is audit-specific. Two calls rather than one loop over a
+    nothing about it is audit-specific. Four calls rather than one loop over a
     list of tables: `init_db()` has to run the passes at different points in its
     block -- `audit_logs` before `CREATE_AUDIT_LOGS_DEDUP_INDEX`, which reads a
-    migrated column, and `chat_messages` after `CREATE_CHAT_MESSAGES_TABLE`,
-    without which there is no table to interrogate on a fresh database. The body
+    migrated column, and `chat_messages` and `action_decisions` (PRD-018
+    STORY-004) after their CREATE, without which there is no table to
+    interrogate on a fresh database. The body
     is unchanged: the same pre-check, the same single tolerated failure, the
     same `PRAGMA` read per table.
     """
@@ -1274,17 +1290,14 @@ def _add_missing_columns(
                 raise
 
 
-def insert_audit_log(entry: AuditLog) -> int:
-    """Write one audit row and return its id.
+# Appended to a keyed insert (PRD-018 D4, STORY-004). `DO NOTHING` makes a replay
+# of a landed write a no-op rather than a second row; `RETURNING id` hands back
+# the new row's id on the healthy path in the same round trip as the INSERT. On
+# a conflict `RETURNING` yields no row, and the caller falls back to one
+# `SELECT id ... WHERE write_id = ?` (orchestrator decision, STORY-004).
+_ON_WRITE_ID_CONFLICT = " ON CONFLICT(write_id) DO NOTHING RETURNING id"
 
-    **`NON_IDEMPOTENT` until STORY-004's `write_id` (PRD-018 D4).** No row carries
-    a key a replay could be recognised by yet, so an `OUTCOME_UNKNOWN` commit is
-    never replayed here: a second INSERT would be a second audit row.
-    """
-
-    def _op(conn: _Connection) -> int:
-        cursor = conn.execute(
-            """
+_INSERT_AUDIT_LOG_SQL = """
             INSERT INTO audit_logs (
                 timestamp, user_id, device, prompt_hash, prompt_preview,
                 response_hash, response_preview, model_used, tokens_used,
@@ -1294,48 +1307,122 @@ def insert_audit_log(entry: AuditLog) -> int:
                 pattern_role, pattern_action, profile,
                 ingress, message_count, input_tokens, output_tokens,
                 streamed, has_tool_calls, conversation_key, limit_exceeded,
-                ignored_params
+                ignored_params, write_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                entry.timestamp,
-                entry.user_id,
-                entry.device,
-                entry.prompt_hash,
-                entry.prompt_preview,
-                entry.response_hash,
-                entry.response_preview,
-                entry.model_used,
-                entry.tokens_used,
-                int(entry.was_duplicate_blocked),
-                entry.suspicious_pattern,
-                int(entry.success),
-                entry.error_message,
-                int(entry.pii_detected_input),
-                int(entry.pii_detected_output),
-                entry.pii_entities,
-                entry.role,
-                entry.denied_permission,
-                entry.session_id,
-                entry.dedup_key,
-                entry.pattern_role,
-                entry.pattern_action,
-                entry.profile,
-                entry.ingress,
-                entry.message_count,
-                entry.input_tokens,
-                entry.output_tokens,
-                int(entry.streamed),
-                int(entry.has_tool_calls),
-                entry.conversation_key,
-                entry.limit_exceeded,
-                entry.ignored_params,
-            ),
-        )
-        return cursor.lastrowid
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
 
-    return _unit_of_work("insert_audit_log", StatementKind.NON_IDEMPOTENT, _op)
+
+def _keyed_kind(write_ids: Sequence[Optional[str]]) -> StatementKind:
+    """The kind of an audit insert, chosen per call (PRD-018 D4, STORY-004).
+
+    `IDEMPOTENT` only when every row carries a `write_id`: then a replay meets
+    `ON CONFLICT(write_id) DO NOTHING` and reads the first attempt's id back.
+    One row without a key (a test, a script) makes the whole unit
+    `NON_IDEMPOTENT`, because a replay after `OUTCOME_UNKNOWN` would land that
+    row twice. Pure. Empty input is `NON_IDEMPOTENT` (no caller passes it:
+    `insert_action_decisions([])` returns before the unit).
+    """
+    if write_ids and all(write_id is not None for write_id in write_ids):
+        return StatementKind.IDEMPOTENT
+    return StatementKind.NON_IDEMPOTENT
+
+
+def _keyed_row_id(conn: _Connection, table: str, cursor: _Cursor, write_id: str) -> int:
+    """The id of the row a keyed INSERT ... RETURNING id left for `write_id`.
+
+    PRD-018 D4, STORY-004. PRD 6.4 first said "SELECT rather than RETURNING";
+    the orchestrator reversed it so the healthy path costs no extra round trip
+    (PRD Section 11): `RETURNING id` answers a fresh insert, and only when it
+    yields no row -- a conflict, i.e. a replay -- does one `SELECT id ... WHERE
+    write_id = ?` run, on the same connection and so inside the same
+    transaction. `lastrowid` is never read on this path: after a conflicting
+    DO NOTHING the driver reports 0 or the previous insert's id (STORY-004
+    probe).
+    """
+    row = cursor.fetchone()
+    if row is None:
+        row = conn.execute(
+            f"SELECT id FROM {table} WHERE write_id = ?", (write_id,)
+        ).fetchone()
+    if row is None:
+        # Cannot happen: either the insert or an earlier attempt left the row.
+        # Failing closed beats handing back a guess. Not driver text, so
+        # _unit_of_work does not classify or retry it.
+        raise StorageError(f"{table}: no row for its write_id after the insert")
+    return row["id"]
+
+
+def _insert_audit_row(conn: _Connection, entry: AuditLog) -> int:
+    """One audit row on `conn`; its id. Keyed by `entry.write_id` when present (D4).
+
+    Keyed: `ON CONFLICT(write_id) DO NOTHING RETURNING id`, then, only when
+    that returned no row (a replay), `SELECT id ... WHERE write_id = ?` on the
+    same connection (see `_keyed_row_id`), so the id is the row's whichever
+    attempt inserted it. `lastrowid` is never read on this path. Unkeyed:
+    today's plain INSERT (`write_id` NULL, no `ON CONFLICT`) and `lastrowid`.
+    """
+    keyed = entry.write_id is not None
+    cursor = conn.execute(
+        _INSERT_AUDIT_LOG_SQL + (_ON_WRITE_ID_CONFLICT if keyed else ""),
+        (
+            entry.timestamp,
+            entry.user_id,
+            entry.device,
+            entry.prompt_hash,
+            entry.prompt_preview,
+            entry.response_hash,
+            entry.response_preview,
+            entry.model_used,
+            entry.tokens_used,
+            int(entry.was_duplicate_blocked),
+            entry.suspicious_pattern,
+            int(entry.success),
+            entry.error_message,
+            int(entry.pii_detected_input),
+            int(entry.pii_detected_output),
+            entry.pii_entities,
+            entry.role,
+            entry.denied_permission,
+            entry.session_id,
+            entry.dedup_key,
+            entry.pattern_role,
+            entry.pattern_action,
+            entry.profile,
+            entry.ingress,
+            entry.message_count,
+            entry.input_tokens,
+            entry.output_tokens,
+            int(entry.streamed),
+            int(entry.has_tool_calls),
+            entry.conversation_key,
+            entry.limit_exceeded,
+            entry.ignored_params,
+            entry.write_id,
+        ),
+    )
+    if keyed:
+        return _keyed_row_id(conn, "audit_logs", cursor, entry.write_id)
+    return cursor.lastrowid
+
+
+def insert_audit_log(entry: AuditLog) -> int:
+    """Write one audit row and return its id.
+
+    **Per-call kind (PRD-018 D4, STORY-004).** A row that carries a `write_id`
+    is `IDEMPOTENT`: retried on every infrastructure failure class, and a replay
+    of a landed commit meets `ON CONFLICT(write_id) DO NOTHING` and returns the
+    same id as the first attempt (`RETURNING id`, or one `SELECT` on conflict;
+    PRD 6.4's "SELECT rather than RETURNING" was reversed so the healthy path
+    adds no round trip). A row without one is `NON_IDEMPOTENT`, exactly as
+    before: an `OUTCOME_UNKNOWN` commit is never replayed, because a second
+    INSERT would be a second audit row. `log_query` always keys.
+    """
+
+    def _op(conn: _Connection) -> int:
+        return _insert_audit_row(conn, entry)
+
+    return _unit_of_work("insert_audit_log", _keyed_kind([entry.write_id]), _op)
 
 
 def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Optional[str]:
@@ -1453,6 +1540,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         conversation_key=row["conversation_key"],
         limit_exceeded=row["limit_exceeded"],
         ignored_params=row["ignored_params"],
+        write_id=row["write_id"],
     )
 
 
@@ -1848,6 +1936,8 @@ class SummarySnapshot:
 # PRD-015 STORY-007's `ignored_params` is a key in the row's `json_object`, not
 # a figure: no `?`, so the tuple is unchanged again. It must be there, though:
 # `_row_to_audit_log` reads every key, and a missing one is a KeyError.
+# PRD-018 STORY-004's `write_id` is likewise a key, not a figure: no `?`, so the
+# tuple is unchanged a third time, and it must be there for the same reason.
 #
 # `"rows"` is quoted: ROWS is a keyword (window frames) and an unquoted alias
 # is a syntax error.
@@ -1896,7 +1986,8 @@ SELECT
               'has_tool_calls', has_tool_calls,
               'conversation_key', conversation_key,
               'limit_exceeded', limit_exceeded,
-              'ignored_params', ignored_params))
+              'ignored_params', ignored_params,
+              'write_id', write_id))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
@@ -2857,6 +2948,61 @@ def count_chat_sessions(user_id: str) -> int:
 # --- Action decisions (PRD-016 STORY-015) ---
 
 
+def _insert_action_decision_rows(
+    conn: _Connection, rows: Sequence[ActionDecisionRow]
+) -> list[int]:
+    """The batch's rows on `conn`; their ids in input order (PRD-018 D4).
+
+    Per row, keyed by `row.write_id` when present: `ON CONFLICT(write_id) DO
+    NOTHING RETURNING id`, then only when that returned no row (a replay) a
+    `SELECT id ... WHERE write_id = ?` on the same connection (see
+    `_keyed_row_id`). `lastrowid` is never read on a keyed row. An unkeyed row
+    is today's plain INSERT and `lastrowid`. `ids` is created inside: a retry
+    starts the batch over, and a replay must not append a second set of ids.
+    Per-row statements keep input order without depending on multi-row
+    `RETURNING` ordering, which SQLite does not guarantee.
+    """
+    ids: list[int] = []
+    for row in rows:
+        keyed = row.write_id is not None
+        cursor = conn.execute(
+            """
+            INSERT INTO action_decisions (
+                timestamp, audit_id, session_id, user_id, role,
+                tool_call_id, tool_name, operation_kind, target_preview,
+                arguments_hash, arguments_preview, decision, rule, reason,
+                granted_by, classifications, policy_digest, write_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            + (_ON_WRITE_ID_CONFLICT if keyed else ""),
+            (
+                row.timestamp,
+                row.audit_id,
+                row.session_id,
+                row.user_id,
+                row.role,
+                row.tool_call_id,
+                row.tool_name,
+                row.operation_kind,
+                row.target_preview,
+                row.arguments_hash,
+                row.arguments_preview,
+                row.decision,
+                row.rule,
+                row.reason,
+                row.granted_by,
+                row.classifications,
+                row.policy_digest,
+                row.write_id,
+            ),
+        )
+        if keyed:
+            ids.append(_keyed_row_id(conn, "action_decisions", cursor, row.write_id))
+        else:
+            ids.append(cursor.lastrowid)
+    return ids
+
+
 def insert_action_decisions(rows: Sequence[ActionDecisionRow]) -> list[int]:
     """Write one batch of action decision rows (PRD-016 Section 6.10, F10, D8).
 
@@ -2865,56 +3011,29 @@ def insert_action_decisions(rows: Sequence[ActionDecisionRow]) -> list[int]:
     failure on row *k* leaves no row of the batch: all land or none do. One
     statement per row rather than `executemany` (which reports no per-row id)
     or a multi-row `INSERT ... RETURNING id` (whose row order SQLite does not
-    guarantee): `cursor.lastrowid` per statement is `insert_audit_log`'s idiom,
-    and it gives the ids in input order.
+    guarantee): one statement per row gives the ids in input order.
 
     An empty `rows` returns `[]` without opening a session: a response with no
     tool calls costs no round trip.
 
-    **`NON_IDEMPOTENT` until STORY-004's `write_id` (PRD-018 D4).** No row carries
-    a key a replay could be recognised by yet, so an `OUTCOME_UNKNOWN` commit is
-    never replayed. `ids` is created inside the unit: a retry starts the batch
-    over, and a replay must not append a second set of ids.
+    **Per-call kind (PRD-018 D4, STORY-004).** When every row carries a
+    `write_id` the unit is `IDEMPOTENT`: it is retried on every infrastructure
+    failure class, always **from row 1** (the whole block is the unit), and a
+    row that already landed meets `ON CONFLICT(write_id) DO NOTHING` and reads
+    its original id back (`RETURNING id`, or one `SELECT` on conflict; PRD 6.4's
+    "SELECT rather than RETURNING" was reversed so the healthy path adds no
+    round trip). One unkeyed row makes the unit `NON_IDEMPOTENT`, exactly as
+    before: an `OUTCOME_UNKNOWN` commit is never replayed.
     """
     if not rows:
         return []
 
     def _op(conn: _Connection) -> list[int]:
-        ids: list[int] = []
-        for row in rows:
-            cursor = conn.execute(
-                """
-                INSERT INTO action_decisions (
-                    timestamp, audit_id, session_id, user_id, role,
-                    tool_call_id, tool_name, operation_kind, target_preview,
-                    arguments_hash, arguments_preview, decision, rule, reason,
-                    granted_by, classifications, policy_digest
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    row.timestamp,
-                    row.audit_id,
-                    row.session_id,
-                    row.user_id,
-                    row.role,
-                    row.tool_call_id,
-                    row.tool_name,
-                    row.operation_kind,
-                    row.target_preview,
-                    row.arguments_hash,
-                    row.arguments_preview,
-                    row.decision,
-                    row.rule,
-                    row.reason,
-                    row.granted_by,
-                    row.classifications,
-                    row.policy_digest,
-                ),
-            )
-            ids.append(cursor.lastrowid)
-        return ids
+        return _insert_action_decision_rows(conn, rows)
 
-    return _unit_of_work("insert_action_decisions", StatementKind.NON_IDEMPOTENT, _op)
+    return _unit_of_work(
+        "insert_action_decisions", _keyed_kind([row.write_id for row in rows]), _op
+    )
 
 
 def _row_to_action_decision_row(row: Mapping[str, Any]) -> ActionDecisionRow:
@@ -2938,6 +3057,7 @@ def _row_to_action_decision_row(row: Mapping[str, Any]) -> ActionDecisionRow:
         granted_by=row["granted_by"],
         classifications=row["classifications"],
         policy_digest=row["policy_digest"],
+        write_id=row["write_id"],
     )
 
 

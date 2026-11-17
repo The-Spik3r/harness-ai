@@ -612,9 +612,11 @@ def test_a_different_constraint_on_a_retry_is_raised(monkeypatch):
 
 # name -> kind, with the PRD 6.3 row it comes from.
 _EXPECTED_KINDS = {
-    # NON_IDEMPOTENT until STORY-004's `write_id` (PRD-018 D4): 6.3 rows 6, 8, 9 say
-    # IDEMPOTENT "after D4", and no row carries a write_id yet.
-    "insert_audit_log": K.NON_IDEMPOTENT,  # rows 6, 8
+    # PRD-018 D4 (STORY-004): IDEMPOTENT when keyed, i.e. every row carries a
+    # write_id. The kind is chosen per call; _PER_CALL_KIND pins the exact
+    # expression, and an unkeyed call is NON_IDEMPOTENT (tests/
+    # test_db_resilience_write_id.py).
+    "insert_audit_log": K.IDEMPOTENT,  # rows 6, 8
     "find_duplicate_timestamp": K.READ,  # row 5
     "mark_audit_log_failed": K.IDEMPOTENT,  # row 10
     "get_audit_log": K.READ,  # admin read
@@ -652,9 +654,16 @@ _EXPECTED_KINDS = {
     "append_chat_message": K.NON_IDEMPOTENT,  # row 12
     "list_chat_messages": K.READ,  # row 3
     "count_chat_sessions": K.READ,
-    "insert_action_decisions": K.NON_IDEMPOTENT,  # row 9, IDEMPOTENT after D4
+    "insert_action_decisions": K.IDEMPOTENT,  # row 9, when keyed (PRD-018 D4, STORY-004)
     "list_action_decisions": K.READ,
     "count_action_decisions": K.READ,
+}
+# PRD-018 D4 (STORY-004): the only two units whose kind is an expression, not a
+# constant. The expression is pinned verbatim, so neither can drift to a constant
+# NON_IDEMPOTENT/IDEMPOTENT, and no other function can join without editing this.
+_PER_CALL_KIND = {
+    "insert_audit_log": "_keyed_kind([entry.write_id])",
+    "insert_action_decisions": "_keyed_kind([row.write_id for row in rows])",
 }
 # D17: the boot path keeps its direct session and fails fast; `get_connection` is the
 # raw transaction handle thirteen test modules open themselves.
@@ -697,7 +706,33 @@ def test_every_public_function_runs_one_unit_of_its_own_name_and_kind():
         assert len(calls) == 1, name
         first, second = calls[0].args[:2]
         assert isinstance(first, ast.Constant) and first.value == name, name
-        assert ast.unparse(second) == f"StatementKind.{kind.name}", name
+        # PRD-018 D4 (STORY-004): the two audit inserts pin their per-call
+        # expression; the other 39 still require the literal StatementKind.X.
+        expected = _PER_CALL_KIND.get(name, f"StatementKind.{kind.name}")
+        assert ast.unparse(second) == expected, name
+    assert set(_PER_CALL_KIND) == {"insert_audit_log", "insert_action_decisions"}
+    assert set(_PER_CALL_KIND) <= set(_EXPECTED_KINDS)
+
+
+@pytest.mark.parametrize(
+    ("write_ids", "kind"),
+    [
+        (["a"], K.IDEMPOTENT),
+        (["a:0", "a:1"], K.IDEMPOTENT),
+        ([None], K.NON_IDEMPOTENT),
+        (["a:0", None], K.NON_IDEMPOTENT),
+        ([], K.NON_IDEMPOTENT),
+    ],
+)
+def test_keyed_kind_is_idempotent_only_when_every_row_is_keyed(write_ids, kind):
+    """PRD-018 D4 (STORY-004): one unkeyed row makes the whole unit unsafe to replay."""
+    assert database._keyed_kind(write_ids) is kind
+
+
+def test_the_expected_kind_of_a_keyed_unit_is_what_keyed_kind_returns():
+    """Ties the table's value to the expression it summarises."""
+    assert database._keyed_kind(["x"]) is _EXPECTED_KINDS["insert_audit_log"]
+    assert database._keyed_kind(["x:0"]) is _EXPECTED_KINDS["insert_action_decisions"]
 
 
 def test_nothing_opens_a_session_outside_the_unit_and_the_boot_path():

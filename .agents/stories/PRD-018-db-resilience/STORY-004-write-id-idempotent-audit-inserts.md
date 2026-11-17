@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Retry safely"
-status: todo
+status: done
 labels: [backend, storage, schema]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-004-write-id-idempotent-audit-inserts.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-004-write-id-idempotent-audit-inserts.report.md
+commit: pending
 depends_on: [STORY-003]
 blocks: [STORY-008, STORY-010]
 skills: []

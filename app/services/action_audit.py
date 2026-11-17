@@ -24,6 +24,9 @@ What each column holds, for decision `d` and identity `i`:
   cut to 500 -- `audit_logger`'s preview length, imported rather than copied.
 - `classifications`: a JSON array of `{rule, kind, detail}`, every
   classification in order; `kind` is the operation's kind, or null.
+- `write_id`: one batch hex per `record()` call, plus `:<index>` (0-based, input
+  order). The key a replay of a landed batch is recognised by, so it lands
+  exactly once (PRD-018 D4). NULL only for a row built without one.
 
 Redaction (STORY-012/015 orchestrator decisions). An `http` target is the whole
 URL, and a query string can carry a token. So the stored target of an `http`
@@ -52,7 +55,11 @@ from app.db.models import ActionDecisionRow
 
 # Section 6.12: the action audit reuses audit_logger's preview convention -- one
 # 500, not a copy that can drift. Underscore names by convention only.
-from app.services.audit_logger import _PREVIEW_LENGTH, _TIMESTAMP_FORMAT
+from app.services.audit_logger import (
+    _PREVIEW_LENGTH,
+    _TIMESTAMP_FORMAT,
+    _new_write_id,
+)
 from app.services.duplicate_checker import hash_prompt
 
 if TYPE_CHECKING:
@@ -149,6 +156,7 @@ def _row_of(
     timestamp: str,
     audit_id: Optional[int],
     session_id: Optional[str],
+    write_id: Optional[str] = None,
 ) -> ActionDecisionRow:
     return ActionDecisionRow(
         timestamp=timestamp,
@@ -168,6 +176,7 @@ def _row_of(
         granted_by=d.granted_by,
         classifications=_classifications_json(d),
         policy_digest=d.policy_digest,
+        write_id=write_id,
     )
 
 
@@ -182,9 +191,18 @@ def record(
     One transaction (`insert_action_decisions`): every row of the batch lands,
     or none does. All rows share one UTC timestamp. `record([])` returns `[]`
     and writes nothing.
+
+    PRD-018 D4: one batch hex is minted per call, before the first attempt, and
+    row *i* is keyed `"<batch>:<i>"` (0-based, input order). Every row carries a
+    key, so the unit is retried from row 1 on any infrastructure failure and a
+    replay of a landed batch lands each row once.
     """
     if not decisions:
         return []
     timestamp = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
-    rows = [_row_of(d, identity, timestamp, audit_id, session_id) for d in decisions]
+    batch = _new_write_id()
+    rows = [
+        _row_of(d, identity, timestamp, audit_id, session_id, f"{batch}:{index}")
+        for index, d in enumerate(decisions)
+    ]
     return insert_action_decisions(rows)

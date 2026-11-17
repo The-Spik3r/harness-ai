@@ -85,6 +85,7 @@ _COLUMNS = [
     ("granted_by", 0),
     ("classifications", 1),
     ("policy_digest", 1),
+    ("write_id", 0),  # PRD-018 STORY-004 (D4): "<batch>:<index>", nullable
 ]
 
 # `make release` is `shell.unlisted`; flag it, so the batch has all three outcomes.
@@ -230,6 +231,11 @@ def test_init_db_adds_action_decisions_to_a_pre_prd_database_and_alters_nothing(
         ("table", "action_decisions"),
         ("index", "idx_action_decisions_user_ts"),
         ("index", "idx_action_decisions_audit"),
+        # PRD-018 STORY-004 (D4): the write_id indexes are new. The legacy
+        # audit_logs here is built from the current CREATE, so its column is
+        # already there and nothing is ALTERed -- only its index is created.
+        ("index", "idx_action_decisions_write_id"),
+        ("index", "idx_audit_logs_write_id"),
     }
     assert {key: after[key] for key in before} == before  # byte-identical
     assert get_user("dana").role == "user"
@@ -245,7 +251,9 @@ def test_init_db_creates_action_decisions_inside_the_one_bootstrap_session(
     holding = [s for s in sessions if any("action_decisions" in sql for sql in s)]
     assert len(holding) == 1
     assert any("CREATE TABLE IF NOT EXISTS audit_logs" in sql for sql in holding[0])
-    assert sum("action_decisions" in sql for sql in holding[0]) == 3  # table + 2 indexes
+    # PRD-018 STORY-004 (D4): table + PRAGMA table_info (the added-columns pass)
+    # + 3 indexes (user_ts, audit, write_id).
+    assert sum("action_decisions" in sql for sql in holding[0]) == 5
 
 
 def test_the_db_decision_vocabulary_mirrors_the_classifiers():
