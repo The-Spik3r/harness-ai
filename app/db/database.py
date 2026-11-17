@@ -30,6 +30,7 @@ from app.db.errors import (
     IntegrityError,
     MissingRelationError,
     StorageError,
+    StorageUnavailableError,
 )
 from app.db.models import (
     ACTION_DECISION_VALUES,
@@ -59,6 +60,7 @@ from app.db.models import (
     UsageDay,
     User,
 )
+from app.services.circuit_breaker import BreakerOpen, CircuitBreaker
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -136,6 +138,15 @@ def _full_jitter(cap: float) -> float:
 _retry_sleep: Callable[[float], None] = time.sleep
 _retry_clock: Callable[[], float] = time.monotonic
 _retry_jitter: Callable[[float], float] = _full_jitter
+
+# PRD-018 D6, Section 6.5. The storage circuit breaker's parameters: five
+# consecutive *operations* (not attempts) that ended in an infrastructure-class
+# failure open it, and it stays open for ten seconds before one probe is let
+# through. Constants rather than settings (O6), for the reason
+# `_IDLE_PROBE_AFTER_SECONDS` is one. They are the storage instance's arguments,
+# never the class's defaults: `CircuitBreaker` is shared with PRD-022 and has none.
+_BREAKER_FAILURE_THRESHOLD = 5
+_BREAKER_OPEN_SECONDS = 10.0
 
 
 def _shared_client() -> Any:
@@ -255,6 +266,47 @@ def _invalidate_client(stale: Optional[Any] = None) -> None:
         if stale is None or _client is stale:
             _client = None
             _client_key = None
+
+
+def _probe_fresh_client() -> bool:
+    """The breaker's half-open probe: one `SELECT 1` on a brand-new client (PRD-018 6.5).
+
+    Runs under `_client_lock` on a raw `libsql.connect`, never through
+    `get_connection()` -- the `_proved()` rule: re-entering `_shared_client()`
+    would deadlock on the non-reentrant lock -- and never through
+    `check_database_reachable()`, which is the boot-time classifier (D17). On
+    success the new client replaces the cached one, so the first request after
+    recovery does not pay a second handshake. On a driver failure it returns
+    `False` and leaves the cache alone. A `ValueError` without the driver's
+    prefix is our own code's and is re-raised, as `_proved()` does.
+
+    Called only by the breaker, which never holds its own lock while it runs the
+    probe, so no thread holds both locks (see `CircuitBreaker`).
+    """
+    global _client_key, _client, _client_used_at
+    key = (settings.DATABASE_URL, settings.TURSO_AUTH_TOKEN)
+    with _client_lock:
+        try:
+            client = libsql.connect(key[0], auth_token=key[1])
+            client.execute("SELECT 1").fetchone()
+        except ValueError as exc:
+            if _DRIVER_ERROR not in str(exc):
+                raise
+            return False
+        _client, _client_key, _client_used_at = client, key, time.monotonic()
+        return True
+
+
+# One per process, matching the one client per process (`_shared_client`): `/query`,
+# `/v1` and the chat UI share it in a Reflex deployment. `storage_status()`
+# (STORY-012) reads `.status()`. Tests swap it per test
+# (`tests/conftest.py::_fresh_storage_breaker`).
+_storage_breaker = CircuitBreaker(
+    "storage",
+    _BREAKER_FAILURE_THRESHOLD,
+    _BREAKER_OPEN_SECONDS,
+    probe=_probe_fresh_client,
+)
 
 
 class _Row:
@@ -1042,8 +1094,8 @@ def _unit_of_work(
     attempt *started* more than `_RETRY_START_DEADLINE_SECONDS` after the first.
     The deadline cannot cut a call that is already running (there is no driver
     read timeout, spike F3a/Q3); it only refuses to begin another after a stall.
-    The last attempt's exception is what propagates, same type and message as
-    before this story. The start check projects `now + delay`, so the loop never
+    The last attempt's exception is what propagates as the `__cause__` of a
+    `StorageUnavailableError` carrying its message (see Breaker). The start check projects `now + delay`, so the loop never
     sleeps into a start it would then refuse.
 
     **`fn` must be re-runnable.** Nothing it holds may survive an attempt: values
@@ -1057,11 +1109,28 @@ def _unit_of_work(
     failures and our own `StorageError`s log nothing. The text goes through
     `_retry_detail()`: credential-free, no SQL, no parameters.
 
+    **Breaker (D6, D7).** `_storage_breaker.before()` runs first: open means a
+    `StorageUnavailableError` with no client touched. One `record_failure()` per
+    *operation* whose final failure is an infrastructure class -- retry budget
+    exhausted **or** a retry refused, counted once, never per attempt -- and one
+    `record_success()` otherwise. `STATEMENT` failures and our own errors leave
+    the count alone. Every infrastructure failure leaves as
+    `StorageUnavailableError(str(exc)) from exc`, so it is a `StorageError`
+    whose text is unchanged. `retry_after_seconds` is the breaker's remaining
+    window once this failure has been recorded, or 1 while it is still closed.
+
     `init_db()` and `check_database_reachable()` never come here (D17): the boot
-    guard keeps failing fast and loudly, with no retry in front of it.
+    guard keeps failing fast and loudly, with no retry or breaker in front of it.
     """
-    # PRD-018 STORY-005 hook (entry): _storage_breaker.before() goes here, before
-    # _session() can reach _shared_client().
+    breaker = _storage_breaker  # read once: a test may swap the instance
+    try:
+        breaker.before()
+    except BreakerOpen as refused:
+        raise StorageUnavailableError(
+            f"Storage unavailable: the {refused.name} circuit breaker is open; "
+            f"retry after {refused.retry_after_seconds} s.",
+            retry_after_seconds=refused.retry_after_seconds,
+        ) from refused
     first_started = _retry_clock()
     attempt = 1
     while True:
@@ -1114,10 +1183,13 @@ def _unit_of_work(
                         kind.value,
                         _retry_detail(exc),
                     )
-            # PRD-018 STORY-005 hook (failure): record_failure(failure) when failure
-            # is not STATEMENT -- exactly once per operation, here and nowhere else.
+                breaker.record_failure(failure.value)
+                retry_after = breaker.status().retry_after_seconds or 1
+                raise StorageUnavailableError(
+                    str(exc), retry_after_seconds=retry_after
+                ) from exc
             raise
-        # PRD-018 STORY-005 hook (success): record_success().
+        breaker.record_success()
         return result
 
 

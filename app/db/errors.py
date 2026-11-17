@@ -113,3 +113,28 @@ class DatabaseAuthError(StorageError):
     def __init__(self, endpoint: str, message: str) -> None:
         self.endpoint = endpoint
         super().__init__(message)
+
+
+class StorageUnavailableError(StorageError):
+    """Storage is unavailable right now: refuse and let the caller retry later.
+
+    PRD-018 D7 / Section 6.5. Raised only by `database._unit_of_work()`: the
+    circuit breaker is open, or an infrastructure-class failure (not a
+    statement failure) left the unit -- its retry budget ran out, or it was
+    refused a retry because replaying it could repeat a write. In the second
+    case it is raised `from` the original `StorageError` and carries its message.
+
+    A `StorageError` on purpose ("subclass, don't widen", PRD 6.10): every
+    existing fail-closed arm (`check_duplicate`, `admit`) keeps working with no
+    change, and `MissingRelationError`'s narrow arm never reads an outage as a
+    bad credential.
+
+    `retry_after_seconds` is >= 1: the seconds until the breaker's next
+    half-open, or 1 when only this operation's own budget ran out (PRD 6.7). The
+    message of a budget-exhausted failure may carry driver text; clients are
+    shown fixed copy instead (STORY-006), never this string.
+    """
+
+    def __init__(self, message: str, retry_after_seconds: int) -> None:
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(message)

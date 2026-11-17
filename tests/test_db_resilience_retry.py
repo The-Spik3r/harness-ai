@@ -38,7 +38,12 @@ from app.db.database import (
     _retryable,
     _unit_of_work,
 )
-from app.db.errors import IntegrityError, MissingRelationError, StorageError
+from app.db.errors import (
+    IntegrityError,
+    MissingRelationError,
+    StorageError,
+    StorageUnavailableError,
+)
 from tests.db_faults import (
     CONNECT_REFUSED,
     INVALID_BATON,
@@ -222,7 +227,15 @@ def test_the_kind_by_class_matrix(monkeypatch, name, kind, retried):
     with pytest.raises(StorageError) as direct:
         with database._session() as conn:
             direct_world.fn()(conn)
-    assert type(raised.value) is type(direct.value)
+    if name.startswith("statement"):
+        assert type(raised.value) is type(direct.value)
+    else:
+        # PRD-018 D7 / PRD 6.1 (STORY-005): an infrastructure failure leaves
+        # _unit_of_work as StorageUnavailableError raised from today's exception;
+        # the message is unchanged.
+        assert type(raised.value) is StorageUnavailableError
+        assert type(raised.value.__cause__) is type(direct.value)
+        assert raised.value.retry_after_seconds == 1
     assert str(raised.value) == str(direct.value) == text
     if name == "statement_constraint":
         assert type(raised.value) is IntegrityError
@@ -392,7 +405,9 @@ def test_a_rollback_that_masks_the_body_is_judged_pessimistically(
     assert world.runs == 1
     # what propagates is unchanged: the rollback's own error, as before this story
     assert str(raised.value) == INVALID_BATON
-    assert _phase_of(raised.value) == "rollback"
+    # PRD-018 D7 (STORY-005): the infrastructure failure now propagates as a
+    # StorageUnavailableError; the rollback's own error is its __cause__.
+    assert _phase_of(raised.value.__cause__) == "rollback"
 
 
 def test_a_non_driver_body_error_behind_a_dead_rollback_is_outcome_unknown(monkeypatch):

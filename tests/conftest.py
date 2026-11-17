@@ -36,6 +36,10 @@ storage get one:
   driver wrapped by a `tests/db_faults.py` `FaultScript`, for tests that need a
   storage call to fail on cue. It is a `db` test by fixture closure.
 
+- **The breaker.** The autouse `_fresh_storage_breaker` gives every test, `db` or
+  not, a closed storage circuit breaker of its own (PRD-018 STORY-005), so a test
+  that exhausts a retry budget can never open it for the next one.
+
 A failing `db` test also gets a `libsql diagnostics` section ending in
 `libsql verdict: ...` (see `pytest_runtest_makereport`). The promise the old
 docstring made -- no test reaches another test's rows, or anyone's real
@@ -87,6 +91,7 @@ from app.config import settings  # noqa: E402  -- must follow the bootstrap abov
 from app.db import database  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 from app.services import action_config  # noqa: E402
+from app.services.circuit_breaker import CircuitBreaker  # noqa: E402
 from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
 
@@ -672,6 +677,34 @@ def _storage_policy(request, monkeypatch):
     yield
     if sink and not item.stash.get(_REFUSED, False):
         pytest.fail(_UNDECLARED.format(nodeid=item.nodeid, where=sink[0]), pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_storage_breaker():
+    """Every test starts with a closed storage circuit breaker of its own (PRD-018 STORY-005).
+
+    `database._storage_breaker` is module state that every unit of work records
+    into, so without this the fifth test that exhausts a retry budget would open
+    it for the sixth. It applies to every test, not only `db` ones: the non-`db`
+    retry tests drive `_unit_of_work` through a fake world and record failures
+    too. The original is restored by direct assignment, the way
+    `_default_pattern_policy` restores its policy, because `tests/test_db.py`'s
+    `monkeypatch.undo()` must not be able to leave a test's breaker behind.
+
+    A test that wants an open breaker calls
+    `database._storage_breaker.force_open(seconds)`, or installs one with an
+    injected clock via `monkeypatch.setattr(database, "_storage_breaker",
+    CircuitBreaker("storage", ..., clock=...))`.
+    """
+    original = database._storage_breaker
+    database._storage_breaker = CircuitBreaker(
+        "storage",
+        database._BREAKER_FAILURE_THRESHOLD,
+        database._BREAKER_OPEN_SECONDS,
+        probe=database._probe_fresh_client,
+    )
+    yield
+    database._storage_breaker = original
 
 
 @pytest.fixture(autouse=True)
