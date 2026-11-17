@@ -12,7 +12,7 @@ labels: [backend, storage, schema]
 epic_branch: epic/PRD-018-db-resilience
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-004-write-id-idempotent-audit-inserts.plan.md
 report: .agents/reports/PRD-018-db-resilience/STORY-004-write-id-idempotent-audit-inserts.report.md
-commit: pending
+commit: 6c5ee59
 depends_on: [STORY-003]
 blocks: [STORY-008, STORY-010]
 skills: []
