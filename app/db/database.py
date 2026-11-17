@@ -1499,6 +1499,10 @@ def insert_audit_log(entry: AuditLog) -> int:
 
 def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Optional[str]:
     def _op(conn: _Connection) -> Optional[str]:
+        # PRD-018 D12, Risk 6: audit_journal._is_prior_query is this WHERE
+        # clause over the journal's pending rows (the duplicate overlay). Any
+        # exclusion added here must be added there, in the same order; the
+        # parity test in tests/test_db_resilience_overlay.py fails otherwise.
         # Only a row with a real verdict is a prior query: it reached the model,
         # or a content check blocked it (PRD-009 F4, D1). Failures (success = 0,
         # the output-redaction arm included, T6), policy denials (D1) and

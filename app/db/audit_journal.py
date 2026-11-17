@@ -37,8 +37,8 @@ human. Logs carry the file name, line number and `write_id` when parseable,
 never contents.
 
 Decisions recorded with the orchestrator (plan "Deviations"):
-- `pending_audit_rows(user_id, dedup_key)` is the index STORY-011 reads; the
-  `pending_duplicate` predicate is STORY-011's.
+- `pending_audit_rows(user_id, dedup_key)` is the index; `pending_duplicate` /
+  `_is_prior_query` (STORY-011) apply `find_duplicate_timestamp`'s predicate to it.
 - `bytes()` counts the own file plus every adopted file still held, so a restart
   after an outage does not double the disk budget.
 - `oldest_timestamp()` is the oldest pending entry's `appended_at`.
@@ -52,7 +52,7 @@ Decisions recorded with the orchestrator (plan "Deviations"):
   `_JOURNAL_ENTRY_RESERVE_BYTES` from here, so no import cycle can appear.
 
 Consumers: STORY-009 (open / adopt / pending / mark_drained), STORY-010
-(append), STORY-011 (pending_audit_rows, headroom_ok), STORY-012 (status).
+(append), STORY-011 (pending_duplicate, check_admission_headroom), STORY-012 (status).
 """
 
 import dataclasses
@@ -69,7 +69,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from app.db.errors import AuditUnavailableError
+from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.db.models import ActionDecisionRow, AuditLog
 
 if os.name == "nt":
@@ -669,3 +669,63 @@ def append(*args, **kwargs) -> JournalEntry:
     if journal is None:
         raise AuditUnavailableError("audit journal is not open")
     return journal.append(*args, **kwargs)
+
+
+# PRD-018 D12, Risk 6: the overlay's copy of find_duplicate_timestamp's WHERE
+# clause (app/db/database.py, find_duplicate_timestamp). One operand per SQL
+# clause, in the same order; change both together. The reasons for each
+# exclusion are stated there, not repeated here. tests/test_db_resilience_
+# overlay.py pins the parity row shape by row shape against the real SQL.
+def _is_prior_query(row: AuditLog, user_id: str, dedup_key: str, since: str) -> bool:
+    return (
+        row.user_id == user_id
+        and row.dedup_key == dedup_key
+        and row.timestamp >= since  # same "%Y-%m-%dT%H:%M:%SZ" TEXT order as SQLite's
+        and bool(row.success)  # success = 1
+        and not row.was_duplicate_blocked  # was_duplicate_blocked = 0
+        and row.denied_permission is None  # IS NULL: '' is not NULL
+        and (row.pattern_action is None or row.pattern_action != "flag")
+        and row.limit_exceeded is None
+    )
+
+
+def pending_duplicate(user_id: str, dedup_key: str, since: str) -> Optional[str]:
+    """The earliest pending audit row that counts as a prior query, or None (PRD-018 D12).
+
+    `find_duplicate_timestamp`'s answer over this process's journal: the
+    same predicate (`_is_prior_query`) and the same choice (`ORDER BY
+    timestamp ASC LIMIT 1` -> the minimum timestamp). None when no journal
+    is open (scripts, most tests). In memory only: no I/O, never raises a
+    storage error. Other instances' journals are not visible (T4 residual,
+    accepted; STORY-014 documents it).
+    """
+    journal = _current
+    if journal is None:
+        return None
+    return min(
+        (
+            row.timestamp
+            for row in journal.pending_audit_rows(user_id, dedup_key)
+            if _is_prior_query(row, user_id, dedup_key, since)
+        ),
+        default=None,
+    )
+
+
+def check_admission_headroom() -> None:
+    """Refuse a new request when the journal is above its admission headroom (PRD-018 D10).
+
+    `bytes > AUDIT_BUFFER_MAX_BYTES - PIPELINE_MAX_WORKERS x 64 KiB` raises
+    `AuditHeadroomError`, so every worker already in flight keeps room for
+    its rows and a paid answer is never refused for lack of space. A no-op
+    when no journal is open (scripts, most tests).
+    """
+    journal = _current
+    if journal is None or journal.headroom_ok():
+        return
+    status = journal.status()
+    logger.warning(
+        "journal admission refused bytes=%d max_bytes=%d reserve_bytes=%d",
+        status.bytes, status.max_bytes, status.reserve_bytes,
+    )
+    raise AuditHeadroomError("audit journal is above its admission headroom (AUDIT_BUFFER_MAX_BYTES)")

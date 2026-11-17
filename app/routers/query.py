@@ -7,7 +7,7 @@ from app.models.schemas import QueryRequest, QueryResponse
 from app.services import chat_sessions
 from app.services.audit_logger import log_query
 from app.services.authz import PERMISSION_QUERY_SUBMIT
-from app.db.errors import AuditUnavailableError
+from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
@@ -65,16 +65,20 @@ async def query(
     # neither committed nor journaled, so nothing is released. Fixed copy, and
     # not "not sent": step 8 runs after the upstream call. This also covers the
     # foreign-session refusal row (`_handle_query`): its 403 becomes this 503.
+    # PRD-018 D10 (STORY-011): the headroom refusal is the subclass, raised
+    # before step 2, so "not sent" is true for it.
     except AuditUnavailableError as exc:
         retry_after = audit_unavailable_retry_after(exc)
+        headroom = isinstance(exc, AuditHeadroomError)
         logger.warning(
-            "query request refused: user_id=%s code=audit_unavailable retry_after=%s",
+            "query request refused: user_id=%s code=%s retry_after=%s",
             identity.user_id,
+            "audit_headroom" if headroom else "audit_unavailable",
             retry_after,
         )
         raise HTTPException(
             status_code=503,
-            detail=STORAGE_UNAVAILABLE_DETAIL,
+            detail=STORAGE_UNAVAILABLE_NOT_SENT_DETAIL if headroom else STORAGE_UNAVAILABLE_DETAIL,
             headers={"Retry-After": str(retry_after)},
         ) from exc
     except PiiRedactorError as exc:

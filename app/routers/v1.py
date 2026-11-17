@@ -43,7 +43,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.db.errors import AuditUnavailableError
+from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.middleware.auth import require_permission
 from app.models.schemas import QuerySuccessResponse
 from app.models.v1_schemas import (
@@ -126,6 +126,8 @@ _PIPELINE_FAULTS = (
     ActionAuditError,
     # PRD-018 D10/D13, T5: a row (success or refusal) neither committed nor
     # journaled. Tools requests reach ActionAuditError instead (R2).
+    # `AuditHeadroomError` (STORY-011) is a subclass, raised before step 2, so
+    # tools requests get it as 503 too.
     AuditUnavailableError,
 )
 
@@ -259,10 +261,16 @@ def _outcome(
         logger.warning("v1 request failed: user_id=%s code=%s", identity.user_id, code)
         if isinstance(exc, AuditUnavailableError):
             # PRD-018 D10, T5: fixed copy that does not say "not sent" -- step 8
-            # runs after the upstream call. Retry-After per R5.
+            # runs after the upstream call. Retry-After per R5. PRD-018 D10
+            # (STORY-011): the headroom subclass is refused before step 2, so
+            # the pre-model copy ("not sent") is true for it.
             return translate_fault(
                 code,
-                AUDIT_UNAVAILABLE_MESSAGE,
+                (
+                    STORAGE_UNAVAILABLE_MESSAGE
+                    if isinstance(exc, AuditHeadroomError)
+                    else AUDIT_UNAVAILABLE_MESSAGE
+                ),
                 retry_after_seconds=audit_unavailable_retry_after(exc),
             )
         if code == STORAGE_UNAVAILABLE:

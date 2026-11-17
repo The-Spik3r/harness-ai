@@ -148,5 +148,18 @@ class AuditUnavailableError(StorageError):
     written), the write/flush/fsync failed, or -- at open -- `AUDIT_BUFFER_DIR`
     cannot be created or written. A `StorageError` so the existing fail-closed
     arms see it; the 503 mapping on the ingresses is STORY-010's and the
-    headroom refusal STORY-011's. The message never carries journal contents.
+    headroom refusal is the `AuditHeadroomError` subclass (STORY-011). The
+    message never carries journal contents.
+    """
+
+
+class AuditHeadroomError(AuditUnavailableError):
+    """The journal is above its admission headroom: refuse at pipeline entry (PRD-018 D10, 6.8 Bounds).
+
+    Raised only by `audit_journal.check_admission_headroom()`, which
+    `query_pipeline.run_conversation` calls before step 2, so nothing has run:
+    no row, no upstream call. An `AuditUnavailableError` so every ingress arm
+    that refuses an unrecordable request (503) catches it unchanged; the
+    subclass exists only so those arms can say "not sent to the model",
+    which is true here and not for a step 8 refusal (STORY-011 R2).
     """

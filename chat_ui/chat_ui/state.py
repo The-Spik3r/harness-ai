@@ -6,7 +6,7 @@ from typing import Optional
 import reflex as rx
 
 from app.config import settings
-from app.db.errors import AuditUnavailableError, StorageError
+from app.db.errors import AuditHeadroomError, AuditUnavailableError, StorageError
 from app.db.models import ChatSession, StoredMessage
 from app.models.messages import Message
 from app.models.schemas import (
@@ -1250,17 +1250,25 @@ class ChatState(rx.State):
             # StorageUnavailableError on the step 8 write no longer reaches the
             # catch-all, because log_query journals it; this arm covers the case
             # where the journal cannot take it. No exception text is logged.
-            except AuditUnavailableError:
+            except AuditUnavailableError as exc:
+                # PRD-018 D10 (STORY-011): the headroom refusal happens before
+                # the model, so its bubble says nothing was sent.
+                headroom = isinstance(exc, AuditHeadroomError)
                 logger.warning(
-                    "chat send refused: user_id=%s code=audit_unavailable",
+                    "chat send refused: user_id=%s code=%s",
                     identity.user_id,
+                    "audit_headroom" if headroom else "audit_unavailable",
                 )
                 await self._append_and_persist(
                     ChatMessage(
                         kind="internal_error",
                         content="internal_error",
                         prompt=text,
-                        detail=AUDIT_UNAVAILABLE_NOTICE,
+                        detail=(
+                            STORAGE_UNAVAILABLE_NOT_SENT_NOTICE
+                            if headroom
+                            else AUDIT_UNAVAILABLE_NOTICE
+                        ),
                     ),
                     identity,
                     session_id,

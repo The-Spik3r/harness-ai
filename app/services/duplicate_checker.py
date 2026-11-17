@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Protocol, Sequence
 
+from app.db import audit_journal
 from app.db.database import find_duplicate_timestamp
 from app.db.errors import StorageError
 
@@ -29,11 +30,20 @@ def hash_prompt(prompt: str) -> str:
 def check_duplicate(user_id: str, key: str) -> DuplicateCheckResult:
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime(_TIMESTAMP_FORMAT)
 
+    # PRD-018 D12 (STORY-011 R1): the journal overlay is read BEFORE the lookup
+    # and used only AFTER it succeeded and found nothing. Read after, a row the
+    # drainer commits after the lookup's read and removes from the index before
+    # ours would be invisible to both. The overlay never stands in for the
+    # database: a failed lookup still fails closed below and discards it, and
+    # a row the lookup found is the answer.
+    journaled = audit_journal.pending_duplicate(user_id, key, cutoff)
     try:
         match = find_duplicate_timestamp(user_id, key, cutoff)
     except StorageError as exc:
         raise DuplicateCheckError(f"Duplicate lookup failed: {exc}") from exc
 
+    if match is None:
+        match = journaled
     if match is None:
         return DuplicateCheckResult(is_duplicate=False)
     return DuplicateCheckResult(is_duplicate=True, first_query_at=match)

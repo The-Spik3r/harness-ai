@@ -4,6 +4,7 @@ import logging
 from typing import Any, Callable, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
+from app.db import audit_journal
 from app.db.database import mark_audit_log_failed
 from app.db.errors import AuditUnavailableError, StorageError
 from app.models.messages import Message, conversation_shape_violation
@@ -377,6 +378,16 @@ def run_conversation(
     # PRD-017 D19, the request half of `has_tool_calls`: pure too, so every row
     # below carries it. The response half joins it at step 7c.
     request_has_tool_turns = _has_tool_turns(messages)
+
+    # Step 1c: admission headroom (PRD-018 D10, Section 6.8 Bounds; T5).
+    # Before step 2, so a refused request writes no row (there may be no room
+    # for one) and pays for no upstream call; steps 0-1b above are pure. Every
+    # worker already in flight keeps W x 64 KiB to journal its rows, so a paid
+    # answer is never withheld for lack of space. AuditHeadroomError is an
+    # AuditUnavailableError: /query and /v1 answer 503, the chat UI an
+    # internal_error bubble, through their existing arms (STORY-011 R2). A
+    # no-op when no journal is open.
+    audit_journal.check_admission_headroom()
 
     # Step 2: authorize / model / BYOK.
     try:
