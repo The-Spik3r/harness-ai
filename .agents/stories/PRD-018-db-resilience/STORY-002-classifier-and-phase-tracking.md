@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Retry safely"
-status: in-progress
+status: done
 labels: [backend, storage]
 epic_branch: epic/PRD-018-db-resilience
-plan: .agents/plans/PRD-018-db-resilience/STORY-002-classifier-and-phase-tracking.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-002-classifier-and-phase-tracking.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-002-classifier-and-phase-tracking.report.md
+commit: aa18cea
 depends_on: [STORY-001]
 blocks: [STORY-003]
 skills: []
