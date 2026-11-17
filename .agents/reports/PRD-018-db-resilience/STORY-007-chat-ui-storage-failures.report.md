@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-007-chat-ui-storage-failures.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: 4f1073e
 status: COMPLETE
 completed: 2026-11-17
 ---
