@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: small
 phase: "4 - Never lose a row"
-status: in-progress
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-018-db-resilience
-plan: .agents/plans/PRD-018-db-resilience/STORY-011-duplicate-overlay-and-headroom.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-011-duplicate-overlay-and-headroom.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-011-duplicate-overlay-and-headroom.report.md
+commit: 84a463b
 depends_on: [STORY-006, STORY-008, STORY-009, STORY-010]
 blocks: [STORY-013]
 skills: []
