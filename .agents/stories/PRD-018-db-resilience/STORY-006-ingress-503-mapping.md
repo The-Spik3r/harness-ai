@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Fail fast and say so"
-status: todo
+status: in-progress
 labels: [backend, api, v1]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
+plan: .agents/plans/PRD-018-db-resilience/STORY-006-ingress-503-mapping.plan.md
 report: null
 commit: null
 depends_on: [STORY-005]

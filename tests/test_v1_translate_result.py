@@ -40,6 +40,8 @@ from app.services.v1_translate import (
     INVALID_HEADER,
     MAX_DEVICE_LENGTH,
     REDACTION_FAILED,
+    STORAGE_UNAVAILABLE,
+    STORAGE_UNAVAILABLE_MESSAGE,
     UPSTREAM_ERROR,
     UPSTREAM_UNAVAILABLE,
     QueryBlockedResponse,
@@ -374,6 +376,8 @@ _FAULT_CASES = [
     (UPSTREAM_ERROR, 502, False),
     (INTERNAL_ERROR, 500, True),
     (REDACTION_FAILED, 500, False),
+    # PRD-018 D8: a storage outage is a retryable 503.
+    (STORAGE_UNAVAILABLE, 503, True),
 ]
 
 
@@ -399,11 +403,23 @@ def test_unknown_fault_is_a_type_error():
 
 def test_every_fault_is_a_5xx_and_only_transient_ones_retry():
     assert set(_FAULTS) == {case[0] for case in _FAULT_CASES}
-    assert {row[0] for row in _FAULTS.values()} <= {500, 502}
+    # PRD-018 D8: 503 joins the allowed statuses (storage outage).
+    assert {row[0] for row in _FAULTS.values()} <= {500, 502, 503}
     assert {code for code, row in _FAULTS.items() if row[2]} == {
         UPSTREAM_UNAVAILABLE,
         INTERNAL_ERROR,
+        STORAGE_UNAVAILABLE,  # PRD-018 D8: retryable
     }
+
+
+def test_storage_unavailable_carries_retry_after_and_its_message():
+    # PRD-018 D8: the router sends `retry_after_seconds` as `Retry-After`.
+    error = translate_fault(
+        STORAGE_UNAVAILABLE, STORAGE_UNAVAILABLE_MESSAGE, retry_after_seconds=7
+    )
+    assert error.retry_after_seconds == 7
+    assert error.message == STORAGE_UNAVAILABLE_MESSAGE
+    assert translate_fault(INTERNAL_ERROR, "x").retry_after_seconds is None
 
 
 def test_every_fault_type_fits_the_error_schema():

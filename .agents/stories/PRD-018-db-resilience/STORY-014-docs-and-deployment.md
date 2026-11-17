@@ -39,6 +39,7 @@ As a platform operator, I want the deployment docs, compose file and env templat
 - Docs only, plus compose and `.env.example`. Any test that pins `docker-compose.yml` or `.env.example` contents (search `tests/` for them, e.g. a settings/env census) must be updated with a comment citing PRD-018.
 - Match the docs' existing voice and structure; no marketing tone.
 - Validation: `docker compose config` parses; the relevant config/compose tests pass.
+- Document (STORY-006): the `/v1` 503 error object carries `"harness": null` like every `/v1` error (`ErrorDetail` schema); `/query`'s identity 503 detail is `"Storage unavailable"` while the gate 503 is `"Storage unavailable: the request was not sent to the model."`; a post-commit SSE `storage_unavailable` event cannot carry `Retry-After` (headers already sent). The shared rule lives in `app/services/storage_faults.py`.
 - Known residual to document (STORY-003): `delete_chat_session` is IDEMPOTENT, so after an `OUTCOME_UNKNOWN` commit that actually landed, the retry finds nothing and returns `False`. The data is correct, but the UI may report "not found" for a delete that worked.
 
 ## Dependencies
