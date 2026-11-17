@@ -8,10 +8,22 @@ from datetime import datetime
 import pytest
 
 from app.db.database import get_audit_log
-from app.services.audit_logger import log_query
+from app.services.audit_logger import AuditRef, log_query as _log_query_ref
 from app.services.duplicate_checker import hash_prompt
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def log_query(*args, **kwargs) -> int:
+    """The committed row id of `audit_logger.log_query`.
+
+    PRD-018 F7: `log_query` now returns an `AuditRef`. Every test below reads
+    the id of a row that committed, so this wrapper unwraps it once, and the
+    first test pins the ref itself.
+    """
+    ref = _log_query_ref(*args, **kwargs)
+    assert isinstance(ref, AuditRef) and ref.audit_id is not None  # PRD-018 F7
+    return ref.audit_id
 
 
 def test_success_case_writes_expected_row(temp_db):

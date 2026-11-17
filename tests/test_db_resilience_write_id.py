@@ -54,7 +54,7 @@ from app.services import action_audit
 from app.services.action_adapters import ToolCall
 from app.services.action_config import BUILT_IN_POLICY
 from app.services.action_policy import evaluate
-from app.services.audit_logger import _new_write_id, log_query
+from app.services.audit_logger import AuditRef, _new_write_id, log_query
 from app.services.identity import Identity
 from tests.db_faults import (
     INVALID_BATON,
@@ -440,22 +440,26 @@ def test_a_replay_falls_back_to_one_select_on_the_same_connection(faulty_db):
 # --- AC 5: minting and the unkeyed path -------------------------------------
 
 
-def test_log_query_mints_a_hex_write_id_and_still_returns_int(temp_db):
+def test_log_query_mints_a_hex_write_id_and_returns_its_ref(temp_db):
+    # PRD-018 F7: renamed from `..._and_still_returns_int`; log_query returns an
+    # AuditRef carrying the committed id and the row's key.
     first = log_query("dana", "hello")
     second = log_query("dana", "hello")
 
-    assert isinstance(first, int) and isinstance(second, int)
+    assert isinstance(first, AuditRef) and isinstance(second, AuditRef)
+    assert isinstance(first.audit_id, int) and isinstance(second.audit_id, int)
     with get_connection() as conn:
-        ids = [r["write_id"] for r in conn.execute("SELECT write_id FROM audit_logs")]
+        ids = [r["write_id"] for r in conn.execute("SELECT write_id FROM audit_logs ORDER BY id")]
     assert len(ids) == 2 and all(_HEX.match(i) for i in ids)
     assert ids[0] != ids[1]
+    assert [first.write_id, second.write_id] == ids  # PRD-018 F7: the ref is the key
 
 
 def test_log_query_keeps_one_write_id_across_a_retry(faulty_db):
     """A retry that minted a new key would have left two rows."""
     faulty_db.add(Fault(NAMESPACE_SHUTDOWN_503, op="commit", when="after"))
 
-    audit_id = log_query("dana", "hello")
+    audit_id = log_query("dana", "hello").audit_id  # PRD-018 F7: AuditRef
 
     assert faulty_db.forwarded(_AUDIT_INSERT) == 2
     with get_connection() as conn:
@@ -484,6 +488,17 @@ def test_record_keys_its_rows_batch_colon_index(temp_db):
     assert [k.split(":")[1] for k in keys[:3]] == ["0", "1", "2"]
     assert len(first_batch) == 1 and _HEX.match(first_batch.pop())
     assert keys[3].endswith(":0") and keys[3].split(":")[0] != keys[0].split(":")[0]
+
+    # PRD-018 F7: given the success row's AuditRef, the rows are keyed by that
+    # row's own write_id, linked to its id.
+    ref = log_query("dana", "hello")
+    action_audit.record(decisions, _USER, audit_ref=ref)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT write_id, audit_id FROM action_decisions ORDER BY id DESC LIMIT 3"
+        ).fetchall()
+    assert sorted(r["write_id"] for r in rows) == [f"{ref.write_id}:{i}" for i in range(3)]
+    assert {r["audit_id"] for r in rows} == {ref.audit_id}
 
 
 def test_an_unkeyed_audit_row_is_not_replayed_after_a_landed_commit(faulty_db, caplog):

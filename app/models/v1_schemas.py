@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, model_serializer
 
 CHAT_COMPLETION_ID_PREFIX = "chatcmpl-harness-"
+CHAT_COMPLETION_REF_ID_PREFIX = "chatcmpl-harness-ref-"
 
 
 def chat_completion_id(audit_id: int) -> str:
@@ -31,6 +32,16 @@ def chat_completion_id(audit_id: int) -> str:
     so the three can never spell it differently.
     """
     return f"{CHAT_COMPLETION_ID_PREFIX}{audit_id}"
+
+
+def chat_completion_ref_id(audit_ref: str) -> str:
+    """The completion id of a journaled success (PRD-018 D14, O2).
+
+    Used instead of `chat_completion_id` when the audit row has no id yet. The
+    prefix is distinct on purpose: a client that parses the integer after
+    `chatcmpl-harness-` must not misread a hex `audit_ref` as one.
+    """
+    return f"{CHAT_COMPLETION_REF_ID_PREFIX}{audit_ref}"
 
 
 class ChatCompletionRequest(BaseModel):
@@ -165,12 +176,15 @@ class HarnessCompletionInfo(BaseModel):
     """The `harness` extension object on a success (Section 7.4).
 
     The OpenAI SDK keeps unknown fields (`model_extra`), so clients that do not
-    know it ignore it. The fields are `QuerySuccessResponse`'s. `actions` has
+    know it ignore it. The fields are `QuerySuccessResponse`'s. PRD-018 D14:
+    `audit_id` is `null` (present, never dropped) when the row was only
+    journaled, and `audit_ref` is the row's `write_id` on every success. `actions` has
     one entry per evaluated call, released or not, in model order (PRD-017
     D14); it is absent when no call was evaluated (DD-1).
     """
 
-    audit_id: int
+    audit_id: Optional[int]
+    audit_ref: str
     pii_redacted: bool = False
     pii_entities_masked: List[str] = []
     actions: Optional[List[HarnessAction]] = None
@@ -238,7 +252,8 @@ class ChatCompletionChunk(BaseModel):
 
     Role, tool-call and finish chunks carry no `usage` key; the usage chunk (only with
     `include_usage`) carries `choices: []` and `usage`. Every chunk's `id` is
-    `chat_completion_id(audit_id)`.
+    `chat_completion_id(audit_id)`, or
+    `chat_completion_ref_id(audit_ref)` when the row was journaled (PRD-018 D14).
     """
 
     id: str

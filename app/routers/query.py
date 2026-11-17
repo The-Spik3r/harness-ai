@@ -7,6 +7,7 @@ from app.models.schemas import QueryRequest, QueryResponse
 from app.services import chat_sessions
 from app.services.audit_logger import log_query
 from app.services.authz import PERMISSION_QUERY_SUBMIT
+from app.db.errors import AuditUnavailableError
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
@@ -15,7 +16,9 @@ from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query
 from app.services.storage_faults import (
+    STORAGE_UNAVAILABLE_DETAIL,
     STORAGE_UNAVAILABLE_NOT_SENT_DETAIL,
+    audit_unavailable_retry_after,
     retry_after_headers,
     storage_unavailable_cause,
 )
@@ -58,6 +61,22 @@ async def query(
                 headers=retry_after_headers(cause),
             ) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    # PRD-018 D10/D13, T5: an audit row (a success or a refusal, R1) could be
+    # neither committed nor journaled, so nothing is released. Fixed copy, and
+    # not "not sent": step 8 runs after the upstream call. This also covers the
+    # foreign-session refusal row (`_handle_query`): its 403 becomes this 503.
+    except AuditUnavailableError as exc:
+        retry_after = audit_unavailable_retry_after(exc)
+        logger.warning(
+            "query request refused: user_id=%s code=audit_unavailable retry_after=%s",
+            identity.user_id,
+            retry_after,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=STORAGE_UNAVAILABLE_DETAIL,
+            headers={"Retry-After": str(retry_after)},
+        ) from exc
     except PiiRedactorError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except OpenRouterError as exc:

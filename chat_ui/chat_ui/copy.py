@@ -37,6 +37,16 @@ LOGIN_STORAGE_UNAVAILABLE_ERROR = (
 STORAGE_UNAVAILABLE_NOT_SENT_NOTICE = (
     "The harness's database is unavailable, so nothing was sent. Retry in a moment."
 )
+# PRD-018 T5/T9, D10: the model may already have answered (step 8 runs after the
+# upstream call) but the send could be neither recorded nor journaled, so
+# nothing is shown. This must NOT say "nothing was sent" (the sentence above),
+# and its bubble must not wear the "failed before reaching the model" headline
+# either: the detail and the headline below are a pair.
+AUDIT_UNAVAILABLE_NOTICE = (
+    "The harness's database is unavailable and this send could not be recorded, "
+    "so nothing is shown. Retry in a moment."
+)
+AUDIT_UNAVAILABLE_HEADLINE = "The harness could not record this answer."
 
 # --- Header --------------------------------------------------------------
 SHELL_HEADER_TITLE = "HARNESS"
@@ -94,6 +104,9 @@ PII_BADGE_SINGLE_TEMPLATE = "1 PII type masked in this exchange: {entities}"
 FOOTER_SEPARATOR = " · "
 FOOTER_TOKENS_LABEL = "tokens"
 FOOTER_AUDIT_PREFIX = "#"
+# PRD-018 D14 / O2: a journaled success has no audit id yet (the bubble's 0
+# stands for None), so the footer says so instead of "#0".
+FOOTER_AUDIT_PENDING = "audit pending"
 # What `chat_history.fit` dropped from the send this footer belongs to. The
 # only footer item that is about the send rather than about the answer.
 #

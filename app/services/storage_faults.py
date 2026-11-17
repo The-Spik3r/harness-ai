@@ -13,7 +13,7 @@ coupling `chat_sessions.ChatSessionError` warns about).
 
 from typing import Dict, Optional
 
-from app.db.errors import StorageUnavailableError
+from app.db.errors import AuditUnavailableError, StorageUnavailableError
 
 # Fixed client copy (PRD-018 Section 10). Driver text never reaches a client:
 # it is logged once through `database._redacted()` by the unit of work. The
@@ -40,6 +40,25 @@ def storage_unavailable_cause(exc: BaseException) -> Optional[StorageUnavailable
     if isinstance(cause, StorageUnavailableError):
         return cause
     return None
+
+
+def audit_unavailable_retry_after(exc: AuditUnavailableError) -> int:
+    """Whole seconds for the `Retry-After` of an `AuditUnavailableError` 503 (PRD-018 R5).
+
+    The first `StorageUnavailableError` on the `__context__` chain, else `1`.
+    `__context__`, not `__cause__`: the append runs inside the `except
+    StorageUnavailableError` block that sent the row to the journal, so the
+    outage is the context, and when the journal write failed an `OSError` sits
+    between them (`AuditUnavailableError` is raised `from` it).
+    """
+    seen = 0
+    current = exc.__context__
+    while current is not None and seen < 16:
+        if isinstance(current, StorageUnavailableError):
+            return current.retry_after_seconds
+        current = current.__context__
+        seen += 1
+    return 1
 
 
 def retry_after_headers(cause: StorageUnavailableError) -> Dict[str, str]:

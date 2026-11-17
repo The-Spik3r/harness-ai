@@ -37,6 +37,9 @@ from app.models.v1_schemas import (
     chat_completion_id,
 )
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 _CREATED = 1792569600
 _CONTENT = "def add(a, b):\n    return a + b"
 
@@ -55,7 +58,13 @@ _COMPLETION_EXAMPLE = {
         }
     ],
     "usage": {"prompt_tokens": 812, "completion_tokens": 96, "total_tokens": 908},
-    "harness": {"audit_id": 1842, "pii_redacted": False, "pii_entities_masked": []},
+    # PRD-018 D14: harness.audit_ref is on every success.
+    "harness": {
+        "audit_id": 1842,
+        "audit_ref": _AUDIT_REF,
+        "pii_redacted": False,
+        "pii_entities_masked": [],
+    },
 }
 
 # Section 7.6: content, finish and usage chunks.
@@ -141,7 +150,7 @@ def _completion():
         model="openai/gpt-4o",
         choices=[Choice(message=AssistantMessage(content=_CONTENT), finish_reason="stop")],
         usage=_usage(),
-        harness=HarnessCompletionInfo(audit_id=1842),
+        harness=HarnessCompletionInfo(audit_id=1842, audit_ref=_AUDIT_REF),
     )
 
 
@@ -389,7 +398,7 @@ def _released_completion(**message):
 def test_text_only_message_has_no_tool_calls_key():
     for dumped in _all_dumps(AssistantMessage(content="x")):
         assert dumped == {"role": "assistant", "content": "x"}
-    for dumped in _all_dumps(HarnessCompletionInfo(audit_id=1)):
+    for dumped in _all_dumps(HarnessCompletionInfo(audit_id=1, audit_ref=_AUDIT_REF)):
         assert "actions" not in dumped
 
 
@@ -417,7 +426,7 @@ def test_released_calls_serialize_in_the_section_10_shape():
 
 def test_harness_actions_serialize_one_entry_per_decision():
     info = HarnessCompletionInfo(
-        audit_id=412,
+        audit_id=412, audit_ref=_AUDIT_REF,
         actions=[
             HarnessAction(
                 tool_call_id="call_1", tool_name="read", decision="allow", rule="default.allow",
@@ -433,6 +442,7 @@ def test_harness_actions_serialize_one_entry_per_decision():
     for dumped in _all_dumps(info):
         assert dumped == {
             "audit_id": 412,
+            "audit_ref": _AUDIT_REF,  # PRD-018 D14
             "pii_redacted": False,
             "pii_entities_masked": [],
             "actions": [
@@ -456,7 +466,7 @@ def test_openai_sdk_parses_released_calls():
     openai = pytest.importorskip("openai")
     completion = _released_completion(content=None, tool_calls=_calls())
     completion.harness = HarnessCompletionInfo(
-        audit_id=1842,
+        audit_id=1842, audit_ref=_AUDIT_REF,
         actions=[
             HarnessAction(tool_call_id="call_1", tool_name="read", decision="allow", rule="r", reason="x"),
             HarnessAction(tool_call_id="call_2", tool_name="bash", decision="flag", rule="r", reason="y"),

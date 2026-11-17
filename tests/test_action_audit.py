@@ -57,8 +57,15 @@ from app.services.action_audit import _redact_url, record
 from app.services.action_classifiers import DECISIONS
 from app.services.action_config import BUILT_IN_POLICY, Rule
 from app.services.action_policy import evaluate
+from app.services.audit_logger import AuditRef, _new_write_id
 from app.services.duplicate_checker import hash_prompt
 from app.services.identity import Identity
+
+
+def _ref(audit_id: int) -> AuditRef:
+    """PRD-018 F7: `record` takes the success row's AuditRef, not a bare id."""
+    return AuditRef(audit_id=audit_id, write_id=_new_write_id())
+
 
 USER = Identity("u", "user")
 OTHER = Identity("v", "user")
@@ -266,7 +273,7 @@ def test_the_db_decision_vocabulary_mirrors_the_classifiers():
 def test_record_writes_three_rows_with_the_identity_and_ids_in_order(temp_db):
     ds = _three()
 
-    ids = record(ds, USER, audit_id=7, session_id="s1")
+    ids = record(ds, USER, audit_ref=_ref(7), session_id="s1")
 
     assert len(ids) == 3 and ids == sorted(ids) and len(set(ids)) == 3
     rows = _rows_by_id()
@@ -288,7 +295,7 @@ def test_record_writes_three_rows_with_the_identity_and_ids_in_order(temp_db):
 
 
 def test_record_writes_the_batch_in_one_session(temp_db, sessions):
-    record(_three(), USER, audit_id=7, session_id="s1")
+    record(_three(), USER, audit_ref=_ref(7), session_id="s1")
 
     holding = [s for s in sessions if any("INSERT INTO action_decisions" in sql for sql in s)]
     assert len(holding) == 1
@@ -478,7 +485,7 @@ def test_a_storage_failure_midway_through_record_writes_no_row(temp_db, monkeypa
     )
 
     with pytest.raises(StorageError):
-        record(_three(), USER, audit_id=7, session_id="s1")
+        record(_three(), USER, audit_ref=_ref(7), session_id="s1")
 
     monkeypatch.setattr(database, "get_connection", real)
     assert _count() == 0
@@ -495,14 +502,14 @@ def test_recording_nothing_opens_no_session(temp_db, sessions):
 
 def _seed_two_users():
     """u: allow, flag, deny; v: deny, allow. Returns every id, in insertion order."""
-    ids = record(_three(), USER, audit_id=1)
+    ids = record(_three(), USER, audit_ref=_ref(1))
     ids += record(
         [
             _decide("query", {"sql": "DROP TABLE t"}, OTHER, id="c4"),
             _decide("query", {"sql": "SELECT 2"}, OTHER, id="c5"),
         ],
         OTHER,
-        audit_id=2,
+        audit_ref=_ref(2),  # PRD-018 F7
     )
     return ids
 
@@ -551,7 +558,7 @@ def test_list_limit_returns_the_newest(temp_db):
 
 
 def test_list_returns_frozen_rows_with_every_column(temp_db):
-    ids = record(_three(), USER, audit_id=7, session_id="s1")
+    ids = record(_three(), USER, audit_ref=_ref(7), session_id="s1")
 
     rows = list_action_decisions(100)
 

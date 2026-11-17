@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/14 stories done — 64%
+10/14 stories done — 71%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story
 | STORY-007 | Chat UI — resolve() inside the send's try/finally, sign-in storage notice, fixed storage_unavailable copy | bug | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-007-chat-ui-storage-failures.plan.md) | `4f1073e` |
 | STORY-008 | Audit journal — append/fsync JSON Lines, exclusive lock, checksum, torn-tail recovery, adoption, bounds | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-008-audit-journal.plan.md) | `b319788` |
 | STORY-009 | Journal drainer thread and lifespan wiring (FastAPI and Reflex) | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-009-journal-drainer.plan.md) | `bbeea1a` |
-| STORY-010 | AuditRef, journaled release of step 8, PRD-017 D13 decisions path, audit_ref response fields | feature | ⬜ todo | large | — | — |
+| STORY-010 | AuditRef, journaled release of step 8, PRD-017 D13 decisions path, audit_ref response fields | feature | ✅ done | large | [plan](../../plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md) | `pending` |
 | STORY-011 | Duplicate overlay over journaled rows and the admission headroom check | technical | ⬜ todo | small | — | — |
 | STORY-012 | GET /storage/status, in-memory counters, and the admin console Storage panel | feature | ⬜ todo | medium | — | — |
 | STORY-013 | Success-criteria suite — statements 1–14 under fault injection, outage end-to-end, opt-in chaos, latency | technical | ⬜ todo | medium | — | — |

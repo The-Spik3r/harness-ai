@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "4 - Never lose a row"
-status: todo
+status: done
 labels: [backend, api, v1, audit]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-010-audit-ref-journaled-release.report.md
+commit: pending
 depends_on: [STORY-004, STORY-006, STORY-008, STORY-009]
 blocks: [STORY-011, STORY-013]
 skills: []

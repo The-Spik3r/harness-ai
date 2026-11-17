@@ -6,7 +6,7 @@ from typing import Optional
 import reflex as rx
 
 from app.config import settings
-from app.db.errors import StorageError
+from app.db.errors import AuditUnavailableError, StorageError
 from app.db.models import ChatSession, StoredMessage
 from app.models.messages import Message
 from app.models.schemas import (
@@ -29,6 +29,7 @@ from app.services.storage_faults import storage_unavailable_cause
 from app.services.usage_limits import UsageLimitError
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
+    AUDIT_UNAVAILABLE_NOTICE,
     CONTEXT_LIMIT_DETAIL_TEMPLATE,
     CONTEXT_LIMIT_UNITS,
     LOGIN_INVALID_TOKEN_ERROR,
@@ -1243,6 +1244,28 @@ class ChatState(rx.State):
                     session_id,
                 )
                 return
+            # PRD-018 T5/T9, D10: the send could be neither recorded nor
+            # journaled, so nothing is shown. Fixed copy that does not say
+            # "nothing was sent" (the model may have answered). A raw
+            # StorageUnavailableError on the step 8 write no longer reaches the
+            # catch-all, because log_query journals it; this arm covers the case
+            # where the journal cannot take it. No exception text is logged.
+            except AuditUnavailableError:
+                logger.warning(
+                    "chat send refused: user_id=%s code=audit_unavailable",
+                    identity.user_id,
+                )
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=AUDIT_UNAVAILABLE_NOTICE,
+                    ),
+                    identity,
+                    session_id,
+                )
+                return
             except Exception as exc:
                 await self._append_and_persist(
                     ChatMessage(
@@ -1266,7 +1289,10 @@ class ChatState(rx.State):
                     prompt=text,
                     model_used=result.model_used,
                     tokens_used=result.tokens_used,
-                    audit_id=result.audit_id,
+                    # PRD-018 D14 / 6.7: a journaled success has audit_id None;
+                    # the Var cannot be None, and _to_stored_message writes
+                    # `0 or None` -> NULL on the transcript row.
+                    audit_id=result.audit_id or 0,
                     pii_redacted=result.pii_redacted,
                     pii_entities=result.pii_entities_masked,
                     # On the answer, and on nothing else. `trimmed` is 0 on the

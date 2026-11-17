@@ -42,6 +42,7 @@ def test_query_success_response_shape():
     response = QuerySuccessResponse(
         response="La respuesta del modelo",
         audit_id=1,
+        audit_ref="a" * 32,  # PRD-018 D14: required on every success
         model_used="gpt-4",
         tokens_used=45,
     )
@@ -49,6 +50,7 @@ def test_query_success_response_shape():
         "status": "SUCCESS",
         "response": "La respuesta del modelo",
         "audit_id": 1,
+        "audit_ref": "a" * 32,  # PRD-018 D14
         "model_used": "gpt-4",
         "tokens_used": 45,
         "pii_redacted": False,
@@ -284,6 +286,7 @@ def test_query_success_response_with_pii_signal_shape():
     response = QuerySuccessResponse(
         response="Sure, I'll draft a reply to <EMAIL_ADDRESS>.",
         audit_id=1,
+        audit_ref="a" * 32,  # PRD-018 D14
         model_used="gpt-4",
         tokens_used=45,
         pii_redacted=True,
@@ -293,6 +296,7 @@ def test_query_success_response_with_pii_signal_shape():
         "status": "SUCCESS",
         "response": "Sure, I'll draft a reply to <EMAIL_ADDRESS>.",
         "audit_id": 1,
+        "audit_ref": "a" * 32,  # PRD-018 D14
         "model_used": "gpt-4",
         "tokens_used": 45,
         "pii_redacted": True,
@@ -302,10 +306,10 @@ def test_query_success_response_with_pii_signal_shape():
 
 def test_query_success_response_pii_defaults_are_not_shared_between_instances():
     first = QuerySuccessResponse(
-        response="a", audit_id=1, model_used="gpt-4", tokens_used=1
+        response="a", audit_id=1, audit_ref="a" * 32, model_used="gpt-4", tokens_used=1
     )
     second = QuerySuccessResponse(
-        response="b", audit_id=2, model_used="gpt-4", tokens_used=1
+        response="b", audit_id=2, audit_ref="b" * 32, model_used="gpt-4", tokens_used=1
     )
     first.pii_entities_masked.append("PERSON")
 

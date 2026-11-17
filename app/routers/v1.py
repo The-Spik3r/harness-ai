@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
+from app.db.errors import AuditUnavailableError
 from app.middleware.auth import require_permission
 from app.models.schemas import QuerySuccessResponse
 from app.models.v1_schemas import (
@@ -61,9 +62,13 @@ from app.services.openrouter_client import OpenRouterError, OpenRouterResult, ca
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import ActionAuditError, run_conversation
-from app.services.storage_faults import storage_unavailable_cause
+from app.services.storage_faults import (
+    audit_unavailable_retry_after,
+    storage_unavailable_cause,
+)
 from app.services.usage_limits import UsageLimitError
 from app.services.v1_translate import (
+    AUDIT_UNAVAILABLE_MESSAGE,
     BREAK_GLASS_NOT_PERMITTED,
     DEVICE_HEADER,
     INTERNAL_ERROR,
@@ -119,6 +124,9 @@ _PIPELINE_FAULTS = (
     UsageLimitError,
     PiiRedactorError,
     ActionAuditError,
+    # PRD-018 D10/D13, T5: a row (success or refusal) neither committed nor
+    # journaled. Tools requests reach ActionAuditError instead (R2).
+    AuditUnavailableError,
 )
 
 # The faults PRD-018 D8's outage rule applies to. `ActionAuditError` is
@@ -221,6 +229,8 @@ def _fault_code(exc: Exception) -> str:
     """
     if isinstance(exc, OpenRouterError):
         return UPSTREAM_UNAVAILABLE if exc.retryable else UPSTREAM_ERROR
+    if isinstance(exc, AuditUnavailableError):
+        return STORAGE_UNAVAILABLE
     if isinstance(exc, _STORAGE_GATE_FAULTS) and storage_unavailable_cause(exc) is not None:
         return STORAGE_UNAVAILABLE
     if isinstance(exc, (DuplicateCheckError, UsageLimitError, ActionAuditError)):
@@ -247,6 +257,14 @@ def _outcome(
         # Who and which fault, never the message: a storage error's text is
         # driver output (T9's rule, applied to faults).
         logger.warning("v1 request failed: user_id=%s code=%s", identity.user_id, code)
+        if isinstance(exc, AuditUnavailableError):
+            # PRD-018 D10, T5: fixed copy that does not say "not sent" -- step 8
+            # runs after the upstream call. Retry-After per R5.
+            return translate_fault(
+                code,
+                AUDIT_UNAVAILABLE_MESSAGE,
+                retry_after_seconds=audit_unavailable_retry_after(exc),
+            )
         if code == STORAGE_UNAVAILABLE:
             # Fixed copy, never `str(exc)`: that is driver text (T9, PRD-018 D8).
             cause = storage_unavailable_cause(exc)
@@ -270,10 +288,15 @@ def _json_response(pipeline: asyncio.Future, upstream: _Upstream, identity: Iden
     outcome = _outcome(pipeline, upstream, identity)
     if isinstance(outcome, V1Error):
         return _from_v1_error(outcome)
-    return JSONResponse(
-        outcome.model_dump(mode="json"),
-        headers={"X-Harness-Audit-Id": str(outcome.harness.audit_id)},
+    harness = outcome.harness
+    # PRD-018 D14 (R4): the healthy header is unchanged; a journaled success has
+    # no id, so it sends `X-Harness-Audit-Ref` instead.
+    headers = (
+        {"X-Harness-Audit-Id": str(harness.audit_id)}
+        if harness.audit_id is not None
+        else {"X-Harness-Audit-Ref": harness.audit_ref}
     )
+    return JSONResponse(outcome.model_dump(mode="json"), headers=headers)
 
 
 def _sse_events(
@@ -368,7 +391,7 @@ async def chat_completions(
         return _json_response(pipeline, upstream, identity)
 
     # No X-Harness-Audit-Id: the row does not exist yet. Every chunk's id
-    # carries it (Section 7.6).
+    # carries it, or the ref when the row was journaled (Section 7.6, PRD-018 D14).
     return StreamingResponse(
         v1_sse.stream(
             pipeline,

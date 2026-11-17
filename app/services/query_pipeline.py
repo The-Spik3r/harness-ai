@@ -1,10 +1,11 @@
 import dataclasses
+import functools
 import logging
 from typing import Any, Callable, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
 from app.db.database import mark_audit_log_failed
-from app.db.errors import StorageError
+from app.db.errors import AuditUnavailableError, StorageError
 from app.models.messages import Message, conversation_shape_violation
 from app.models.schemas import (
     QueryBlockedContextLimitResponse,
@@ -80,7 +81,12 @@ _ACTION_AUDIT_FAILED = "action audit failed"
 
 
 class ActionAuditError(Exception):
-    """`action_audit.record()` failed after the success row was written (PRD-017 D8, F7).
+    """The decisions of a tools response could not be recorded (PRD-017 D8, F7; PRD-018 D13).
+
+    Raised after the success row was committed or journaled and its decisions
+    could be neither written nor journaled, or when the row itself could be
+    neither committed nor journaled on a response with decisions (PRD-018 6.7,
+    R2: no row exists then, so nothing is marked failed).
 
     The pipeline logs the user and `audit_id` at ERROR, makes a best-effort
     attempt to mark that row `success = 0` so a retry is not held as a duplicate,
@@ -242,6 +248,11 @@ def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
     return redact_for_policy(text, policy)
 
 
+# PRD-018 D10/T5 (R1): a refusal is a release, and every refusal arm below
+# writes its row through `log_query`. When that row can be neither committed nor
+# journaled, `AuditUnavailableError` propagates and the request is refused with
+# 503 instead of returning the refusal (and, at the upstream-error and
+# output-redaction arms, instead of 502/500).
 def _deny(
     identity: Identity,
     prompt: str,
@@ -890,40 +901,73 @@ def run_conversation(
 
     masked_entities = sorted(set(input_entities) | set(output_entities))
 
-    audit_id = log_query(
-        user_id=identity.user_id,
-        prompt=prompt,
-        device=device,
-        response=openrouter_result.response,
-        model_used=openrouter_result.model_used,
-        tokens_used=openrouter_result.tokens_used,
-        input_tokens=openrouter_result.input_tokens,
-        output_tokens=openrouter_result.output_tokens,
-        # PRD-017 D19: the request carried tool turns, or the response carried
-        # calls (before release). The row's `response` stays what the upstream
-        # said; the decisions live in `action_decisions` (STORY-010 DD-2).
-        has_tool_calls=has_tool_calls,
-        success=True,
-        pii_detected_input=bool(input_entities),
-        pii_detected_output=bool(output_entities),
-        pii_entities=masked_entities,
-        session_id=session_id,
-        dedup_key=key,
-        profile=profile_name,
-        ingress=ingress,
-        message_count=message_count,
-        conversation_key=conv_key,
-        streamed=streamed,
-        ignored_params=ignored_params,
-    )
+    # PRD-018 D13, F7: `log_query` returns an AuditRef. When the row could only
+    # be journaled it carries `audit_id=None`, and (on a response with
+    # decisions) the decisions ride in the same journal entry through
+    # `journal_decisions`, so the release below follows a commit or an fsync.
+    try:
+        audit_ref = log_query(
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            response=openrouter_result.response,
+            model_used=openrouter_result.model_used,
+            tokens_used=openrouter_result.tokens_used,
+            input_tokens=openrouter_result.input_tokens,
+            output_tokens=openrouter_result.output_tokens,
+            # PRD-017 D19: the request carried tool turns, or the response carried
+            # calls (before release). The row's `response` stays what the upstream
+            # said; the decisions live in `action_decisions` (STORY-010 DD-2).
+            has_tool_calls=has_tool_calls,
+            success=True,
+            pii_detected_input=bool(input_entities),
+            pii_detected_output=bool(output_entities),
+            pii_entities=masked_entities,
+            session_id=session_id,
+            dedup_key=key,
+            profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
+            ignored_params=ignored_params,
+            journal_decisions=(
+                None
+                if outcome is None
+                else functools.partial(
+                    action_audit.decision_rows,
+                    outcome.decisions,
+                    identity,
+                    session_id=session_id,
+                )
+            ),
+        )
+    except AuditUnavailableError as exc:
+        if outcome is None:
+            raise  # /query 503, /v1 503 storage_unavailable (6.7)
+        # R2: a response with decisions whose row can be neither committed nor
+        # journaled is PRD-017's 500 internal_error. No row exists, so no mark.
+        logger.error(
+            "action audit failed: user_id=%s audit_id=%s", identity.user_id, None
+        )
+        raise ActionAuditError(
+            "Action audit failed: decisions could not be recorded"
+        ) from exc
 
     # The decision audit (PRD-017 F7, D8; T5): after the row, whose id it needs
     # (PRD-016 6.1). Fail closed: no release without the decision rows. Only the
     # user and `audit_id` are logged, never the arguments or the driver's text.
-    if outcome is not None:
+    #
+    # PRD-018 D13 (R3): a journaled row (`audit_id is None`) already carries its
+    # decisions in its own entry, so `record` is not called for it. Otherwise the
+    # journal is "recorded" for the decisions too: `record` journals them alone
+    # on a StorageUnavailableError, and an AuditUnavailableError from a failed
+    # append is a StorageError, so it takes this arm unchanged.
+    if outcome is not None and audit_ref.audit_id is not None:
+        audit_id = audit_ref.audit_id
         try:
             action_audit.record(
-                outcome.decisions, identity, audit_id=audit_id, session_id=session_id
+                outcome.decisions, identity, audit_ref=audit_ref, session_id=session_id
             )
         except StorageError as exc:
             logger.error(
@@ -947,7 +991,8 @@ def run_conversation(
 
     success = QuerySuccessResponse(
         response=content,
-        audit_id=audit_id,
+        audit_id=audit_ref.audit_id,
+        audit_ref=audit_ref.write_id,
         model_used=openrouter_result.model_used,
         tokens_used=openrouter_result.tokens_used,
         pii_redacted=bool(masked_entities),

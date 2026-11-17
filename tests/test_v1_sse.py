@@ -67,6 +67,9 @@ from app.services.openrouter_client import OpenRouterError, OpenRouterResult
 from app.services.openrouter_client import call_openrouter as _real_call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 _AUTH_USER_ID = "juan@empresa.com"
 _AUTH_TOKEN = "test-user-token"
 _AUTH_HEADERS = {"Authorization": f"Bearer {_AUTH_TOKEN}"}
@@ -178,7 +181,7 @@ def _completion(finish_reason="stop", usage=(812, 96, 908), audit_id=42):
         model=_MODEL,
         choices=[Choice(message=AssistantMessage(content=_ANSWER), finish_reason=finish_reason)],
         usage=Usage(prompt_tokens=usage[0], completion_tokens=usage[1], total_tokens=usage[2]),
-        harness=HarnessCompletionInfo(audit_id=audit_id, pii_redacted=False, pii_entities_masked=[]),
+        harness=HarnessCompletionInfo(audit_id=audit_id, audit_ref=_AUDIT_REF, pii_redacted=False, pii_entities_masked=[]),
     )
 
 
@@ -368,7 +371,7 @@ def _upstream_wrapper(result=None):
 
 def test_sse_events_for_a_success_are_the_chunks():
     success = QuerySuccessResponse(
-        response=_ANSWER, audit_id=7, model_used=_MODEL, tokens_used=908,
+        response=_ANSWER, audit_id=7, audit_ref=_AUDIT_REF, model_used=_MODEL, tokens_used=908,
         pii_redacted=False, pii_entities_masked=[],
     )
     upstream_result = OpenRouterResult(

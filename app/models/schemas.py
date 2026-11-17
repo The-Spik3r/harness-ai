@@ -77,7 +77,12 @@ class QueryRequest(BaseModel):
 class QuerySuccessResponse(BaseModel):
     status: Literal["SUCCESS"] = "SUCCESS"
     response: str
-    audit_id: int
+    # PRD-018 D14 / O2: `audit_id` is an int whenever the row committed and
+    # null when it was only journaled; `audit_ref` is the row's `write_id` on
+    # every success. Both stay required (no default), so a forgotten arm is a
+    # validation error, not a silent null.
+    audit_id: Optional[int]
+    audit_ref: str
     model_used: str
     tokens_used: int
     pii_redacted: bool = False

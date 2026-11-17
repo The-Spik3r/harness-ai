@@ -43,7 +43,9 @@ Decisions recorded with the orchestrator (plan "Deviations"):
   after an outage does not double the disk budget.
 - `oldest_timestamp()` is the oldest pending entry's `appended_at`.
 - The journal never mints a `write_id`: an audit entry uses `audit.write_id`, a
-  decisions-only entry uses the caller's batch hex.
+  decisions-only entry uses the caller's `write_id`: the audit row's own
+  (STORY-010), unique among pending entries because that row committed rather
+  than journaled.
 - `AuditUnavailableError` is also the startup error for an unwritable directory,
   raised at open, never at import.
 - This module imports no settings; `app/config.py` imports

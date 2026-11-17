@@ -56,6 +56,7 @@ from app.models.v1_schemas import (
     ToolCallFunction,
     Usage,
     chat_completion_id,
+    chat_completion_ref_id,
 )
 from app.services.openrouter_client import (
     GenerationParams,
@@ -99,6 +100,11 @@ REDACTION_FAILED = "redaction_failed"
 # text never reaches a client.
 STORAGE_UNAVAILABLE = "storage_unavailable"
 STORAGE_UNAVAILABLE_MESSAGE = "Storage is unavailable; the request was not sent to the model."
+# PRD-018 D10, T5: step 8 runs after the upstream call, so this copy must not
+# say "not sent to the model". Fixed: driver text never reaches a client.
+AUDIT_UNAVAILABLE_MESSAGE = (
+    "Storage is unavailable; the response could not be recorded, so it was not released."
+)
 
 # The forbidden labels the pipeline writes (authz.authorize_model, step 2b).
 _MODEL_PERMISSION_PREFIX = "query:model:"
@@ -590,6 +596,10 @@ def translate_result(
     The stream renders this same message through `v1_sse.completion_events`
     (role chunk, one delta per released call, finish chunk), so both shapes
     follow one release.
+
+    PRD-018 D14, O2: a journaled success (`audit_id is None`) is id
+    `chatcmpl-harness-ref-<audit_ref>`, with `harness.audit_id: null` and
+    `harness.audit_ref` set; `harness.audit_ref` is present on every success.
     """
     outcome = result.tool_outcome
     reported = upstream.finish_reason
@@ -624,7 +634,11 @@ def translate_result(
     prompt_tokens = 0 if upstream.input_tokens is None else upstream.input_tokens
     completion_tokens = 0 if upstream.output_tokens is None else upstream.output_tokens
     return ChatCompletion(
-        id=chat_completion_id(result.audit_id),
+        id=(
+            chat_completion_id(result.audit_id)
+            if result.audit_id is not None
+            else chat_completion_ref_id(result.audit_ref)
+        ),
         created=created,
         model=result.model_used,
         choices=[Choice(message=message, finish_reason=finish_reason)],
@@ -635,6 +649,7 @@ def translate_result(
         ),
         harness=HarnessCompletionInfo(
             audit_id=result.audit_id,
+            audit_ref=result.audit_ref,
             pii_redacted=result.pii_redacted,
             pii_entities_masked=result.pii_entities_masked,
             actions=actions,

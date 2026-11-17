@@ -657,8 +657,8 @@ def test_success_result_carries_the_outcome(temp_db):
     assert [d.decision for d in outcome.decisions] == ["allow", "deny"]
     assert [d.tool_call_id for d in outcome.decisions] == ["call_r", "call_s"]
     assert set(result.model_dump()) == {
-        "status", "response", "audit_id", "model_used", "tokens_used", "pii_redacted", "pii_entities_masked",
-    }
+        "status", "response", "audit_id", "audit_ref", "model_used", "tokens_used", "pii_redacted", "pii_entities_masked",
+    }  # PRD-018 D14: audit_ref is on every success
 
 
 def test_no_calls_means_no_7c(temp_db, monkeypatch):
