@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-008-audit-journal.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: b319788
 status: COMPLETE
 completed: 2026-11-17
 ---

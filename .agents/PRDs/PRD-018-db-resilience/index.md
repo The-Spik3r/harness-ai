@@ -21,7 +21,7 @@ All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story
 | STORY-005 | Reusable CircuitBreaker class, the storage instance, StorageUnavailableError | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-005-circuit-breaker-and-storage-unavailable.plan.md) | `a812587` |
 | STORY-006 | Ingress mapping — require_identity, POST /query and /v1 storage_unavailable with Retry-After | feature | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-006-ingress-503-mapping.plan.md) | `60f2904` |
 | STORY-007 | Chat UI — resolve() inside the send's try/finally, sign-in storage notice, fixed storage_unavailable copy | bug | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-007-chat-ui-storage-failures.plan.md) | `4f1073e` |
-| STORY-008 | Audit journal — append/fsync JSON Lines, exclusive lock, checksum, torn-tail recovery, adoption, bounds | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-008-audit-journal.plan.md) | — |
+| STORY-008 | Audit journal — append/fsync JSON Lines, exclusive lock, checksum, torn-tail recovery, adoption, bounds | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-008-audit-journal.plan.md) | `b319788` |
 | STORY-009 | Journal drainer thread and lifespan wiring (FastAPI and Reflex) | technical | ⬜ todo | medium | — | — |
 | STORY-010 | AuditRef, journaled release of step 8, PRD-017 D13 decisions path, audit_ref response fields | feature | ⬜ todo | large | — | — |
 | STORY-011 | Duplicate overlay over journaled rows and the admission headroom check | technical | ⬜ todo | small | — | — |
