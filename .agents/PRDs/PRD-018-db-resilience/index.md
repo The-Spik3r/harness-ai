@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Driver failure-surface spike — verbatim errors, failing call, and the three open questions | spike | ⬜ todo | small | — | — |
+| STORY-001 | Driver failure-surface spike — verbatim errors, failing call, and the three open questions | spike | 🟡 in-progress | small | [plan](../../plans/PRD-018-db-resilience/STORY-001-driver-failure-surface-spike.plan.md) | — |
 | STORY-002 | _classify(exc, phase), FailureClass and per-call phase tracking in _Connection | technical | ⬜ todo | small | — | — |
 | STORY-003 | _unit_of_work retry boundary, statement kinds on every database.py function, _FaultyClient harness | technical | ⬜ todo | large | — | — |
 | STORY-004 | write_id columns, unique indexes, idempotent insert_audit_log and insert_action_decisions | technical | ⬜ todo | medium | — | — |
