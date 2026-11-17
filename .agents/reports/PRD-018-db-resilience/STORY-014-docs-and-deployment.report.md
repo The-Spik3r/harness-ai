@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-014-docs-and-deployment.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: 62a7167
 status: COMPLETE
 completed: 2026-11-17
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-17
 
 **Plan**: `.agents/plans/PRD-018-db-resilience/completed/STORY-014-docs-and-deployment.plan.md`
 **Epic Branch**: `epic/PRD-018-db-resilience`
-**Commit**: `pending`
+**Commit**: `62a7167`
 
 ## Summary
 

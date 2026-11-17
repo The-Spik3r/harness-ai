@@ -12,7 +12,7 @@ labels: [docs, deployment]
 epic_branch: epic/PRD-018-db-resilience
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-014-docs-and-deployment.plan.md
 report: .agents/reports/PRD-018-db-resilience/STORY-014-docs-and-deployment.report.md
-commit: pending
+commit: 62a7167
 depends_on: [STORY-012, STORY-013]
 blocks: []
 skills: []
