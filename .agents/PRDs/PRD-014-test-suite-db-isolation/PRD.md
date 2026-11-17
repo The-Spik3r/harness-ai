@@ -2,7 +2,7 @@
 id: PRD-014
 slug: test-suite-db-isolation
 title: Test Suite Database Isolation — Only the Tests That Need Storage Touch It, and Their Failures Say Why
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-014-test-suite-db-isolation
 created: 2026-10-20

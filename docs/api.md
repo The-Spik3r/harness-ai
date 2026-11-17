@@ -1,6 +1,6 @@
 # API reference
 
-Every request and response shape for `POST /query`, `GET /audit` and `GET /stats`.
+Every request and response shape for `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, and the OpenAI-compatible `POST /v1/chat/completions` and `GET /v1/models`.
 
 ← Back to the [README](../README.md).
 
@@ -284,5 +284,124 @@ curl http://localhost:8000/stats \
 **`blocked_suspicious` counts blocks only.** It used to count every row with a matched pattern, which was the same thing while every hit blocked. A `flag` row matches a pattern without blocking, so counting it would inflate the security figure an admin watches; flags are excluded here and in the admin console's summary. Rows written before this release carry no `pattern_action` and still count — every one of them was a block — so no historical figure moves, and a deployment with no `tool` traffic sees no change at all.
 
 A missing or invalid credential on any endpoint returns `401`. An authenticated identity that lacks the endpoint's required permission (e.g. a `user` role calling `GET /stats`) returns `403` with `{"detail": "Permission denied: stats:read"}`.
+
+### `POST /v1/chat/completions` — success
+
+Requires a bearer token with `query:submit`. Headers: `Authorization: Bearer <harness token>`, `Content-Type: application/json`, and optionally `X-Harness-Device`. See [OpenAI-compatible endpoint](features.md#openai-compatible-endpoint) for what it accepts and what it does not.
+
+```json
+{
+  "model": "openai/gpt-4o",
+  "messages": [
+    {"role": "system", "content": "You are a careful code reviewer."},
+    {"role": "user", "content": "Review this diff"}
+  ],
+  "temperature": 0.2
+}
+```
+
+```json
+{
+  "id": "chatcmpl-harness-1842",
+  "object": "chat.completion",
+  "created": 1792569600,
+  "model": "openai/gpt-4o",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "..."},
+    "logprobs": null,
+    "finish_reason": "stop"
+  }],
+  "usage": {"prompt_tokens": 812, "completion_tokens": 96, "total_tokens": 908},
+  "harness": {"audit_id": 1842, "pii_redacted": false, "pii_entities_masked": []}
+}
+```
+
+`200`, with an `X-Harness-Audit-Id: 1842` header. `id` is derived from the audit row's id. `model` is the requested name. `finish_reason` is the upstream's (`stop`, `length`, `content_filter`), or `stop` when it sent none. When the provider reported no prompt/completion split, both are `0` and `total_tokens` is still the reported total; the audit row keeps `null` for the split. `harness` is an extension object that clients which do not know it ignore. `content` is the response as the `code` profile leaves it: not masked, unless `PII_CODE_REDACT_OUTPUT=true`. A flagged request (an injection phrase in an `assistant` or `tool` turn) is answered like this and writes its flag on the row.
+
+**With `V1_TOOLS_ENABLED=true`** the request may also carry `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns. A response whose model proposed tool calls carries the released calls in `message.tool_calls`, `finish_reason: "tool_calls"` when at least one was released, a note in `content` for each denied call, and `harness.actions` with one decision per evaluated call. A text-only response is the body above, byte for byte. The full shape, with a denied `DROP TABLE` as the example, is in [Tool calling](features.md#tool-calling).
+
+### `POST /v1/chat/completions` — streamed
+
+The same request with `"stream": true` (and optionally `"stream_options": {"include_usage": true}`) answers `200` with `Content-Type: text/event-stream`, `Cache-Control: no-cache` and `X-Accel-Buffering: no`, once the upstream call has started:
+
+```
+: keep-alive
+
+data: {"id":"chatcmpl-harness-1842","object":"chat.completion.chunk","created":1792569600,"model":"openai/gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"<the whole response>"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-harness-1842","object":"chat.completion.chunk","created":1792569600,"model":"openai/gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-harness-1842","object":"chat.completion.chunk","created":1792569600,"model":"openai/gpt-4o","choices":[],"usage":{"prompt_tokens":812,"completion_tokens":96,"total_tokens":908}}
+
+data: [DONE]
+```
+
+- `: keep-alive` repeats every `V1_SSE_KEEPALIVE_SECONDS` until the pipeline finishes. Clients ignore comment lines.
+- The whole response is **one** content chunk, sent only after every check has passed.
+- With tool calls released, the content chunk is followed by **one chunk per released call carrying its whole `arguments`**. No chunk carries the `harness` object.
+- The usage chunk (empty `choices`) is sent only with `include_usage`.
+- There is no `X-Harness-Audit-Id` header: the row does not exist when the headers go out. Every chunk's `id` carries it.
+- A block decided before the upstream call (every verdict in the table below) is answered as JSON with its own status, exactly as unstreamed. A failure after the stream started is one `data: {"error": {...}}` event, the same object as below, and the stream ends without `[DONE]`.
+
+### `POST /v1/chat/completions` — errors
+
+Every error has the OpenAI shape plus a `harness` object holding the pipeline response's own fields, where there is one:
+
+```json
+{
+  "error": {
+    "message": "Usage limit reached: tokens 1000412 of 1000000; resets at 2026-10-22T00:00:00Z",
+    "type": "permission_error",
+    "param": null,
+    "code": "usage_limit_exceeded",
+    "harness": {"reason": "Usage limit reached", "limit": "tokens", "maximum": 1000000,
+                "actual": 1000412, "resets_at": "2026-10-22T00:00:00Z"}
+  }
+}
+```
+
+| Cause | Status | `type` | `code` | Retried by the OpenAI SDK |
+|---|---|---|---|---|
+| Duplicate within 24 h | `400` | `invalid_request_error` | `duplicate_request` | no |
+| Suspicious pattern in a blocking role | `400` | `invalid_request_error` | `suspicious_pattern` | no |
+| Conversation over `CONTEXT_MAX_MESSAGES` or `CONTEXT_MAX_CHARACTERS` | `400` | `invalid_request_error` | `context_length_exceeded` | no |
+| Over `PII_MAX_CHARACTERS_CODE` | `400` | `invalid_request_error` | `redaction_limit_exceeded` | no |
+| Model not permitted for the caller's role | `403` | `permission_error` | `model_not_permitted` | no |
+| `ADMIN_TOKEN` used | `403` | `permission_error` | `break_glass_not_permitted` | no |
+| Any other missing permission | `403` | `permission_error` | `permission_denied` | no |
+| Usage limit (`requests` or `tokens`) | `403` | `permission_error` | `usage_limit_exceeded` | no |
+| Bad `messages`: empty, last turn not `user` (or `tool`, with tools on), an image part, a `tool` turn that answers no preceding call, no `user` turn at all, … | `400` | `invalid_request_error` | `invalid_messages` | no |
+| A forwarded parameter out of range, `max_tokens` and `max_completion_tokens` disagreeing, or (with tools on) a malformed `tools` item, `tool_choice` or `parallel_tool_calls` | `400` | `invalid_request_error` | `invalid_parameter` | no |
+| A parameter not at its only supported value (`n`, `logprobs`, `top_logprobs`, `response_format`, `modalities`, `audio`) | `400` | `invalid_request_error` | `unsupported_parameter` | no |
+| Tools, tool turns or assistant `tool_calls` with `V1_TOOLS_ENABLED=false`; `functions` or `function_call` always; with tools on, a model not in `V1_TOOL_MODELS` | `400` | `invalid_request_error` | `tools_not_supported` | no |
+| `X-Harness-Device` over 128 characters or not printable | `400` | `invalid_request_error` | `invalid_header` | no |
+| Body not JSON, or not the request schema | `400` | `invalid_request_error` | `invalid_request` | no |
+| Missing or invalid bearer token | `401` | `authentication_error` | `invalid_api_key` | no |
+| Token lacks `query:submit` | `403` | `permission_error` | `permission_denied` | no |
+| Upstream timeout, connection error, `5xx` or `429` | `502` | `api_error` | `upstream_unavailable` | **yes** |
+| Upstream `4xx`, malformed response, no content, or no OpenRouter key | `502` | `api_error` | `upstream_error` | no |
+| The duplicate check or usage gate could not read the database, or the action decisions could not be recorded | `500` | `api_error` | `internal_error` | **yes** |
+| PII redaction failed | `500` | `api_error` | `redaction_failed` | no |
+
+- **Not retried** means a status the OpenAI SDKs never retry (`400`, `401`, `403`) or, for a `5xx`, the `x-should-retry: false` header, which they read before their status rule. Every non-retryable error carries the header, so the rule is one rule. There is never a `429`.
+- `message` is the reason plus its details (`: <pattern>`, `first seen <timestamp>`, `messages 140 > 100`). For an upstream fault it is the harness's own description of the HTTP failure, never the provider's response body.
+- `param` names the offending field on a `400` from the request's shape, for example `"messages[2].role"`, `"temperature"` or `"tools[2].function.name"`.
+- Each pipeline verdict writes the same audit row it writes on `POST /query`, with `ingress='v1'`. A shape refusal (`invalid_*`, `unsupported_parameter`, `tools_not_supported`) runs no pipeline step and writes no row. A retried upstream fault writes one `success=false` row per attempt; such rows are never a prior query for the duplicate check, so the retry is not held as a duplicate.
+- A denied tool call is **not** an error: the response is a `200` with the call dropped and a note in `content` (see [Tool calling](features.md#tool-calling)).
+- An unknown path under `/v1/` is `404` with `"code": "not_found"`, and a wrong method `405` with `"code": "method_not_allowed"`. Outside `/v1/`, every error keeps its existing FastAPI shape.
+
+### `GET /v1/models` and `GET /v1/models/{id}`
+
+Require a bearer token with `query:submit`. They run no pipeline and write no audit row.
+
+```json
+{"object": "list", "data": [
+  {"id": "gpt-4", "object": "model", "created": 0, "owned_by": "harness"},
+  {"id": "openai/gpt-4o", "object": "model", "created": 0, "owned_by": "openai"}
+]}
+```
+
+The entries are `MODEL_ALLOWLIST`, in its order. `owned_by` is the part before the first `/`, or `harness`. `created` is `0`, because the harness does not know it. An `admin` may request models outside the list but sees the same list. There is no capability field: `V1_TOOL_MODELS` is how a deployment says which models may use tools. `GET /v1/models/{id}` returns one entry (ids with `/` work as written, e.g. `/v1/models/openai/gpt-4o`), or `404` with `"code": "model_not_found"` for a name not in the list. `ADMIN_TOKEN` is `403 break_glass_not_permitted` on both.
 
 ---

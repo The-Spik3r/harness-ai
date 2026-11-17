@@ -2,7 +2,7 @@
 id: PRD-009
 slug: duplicate-rescoping
 title: Duplicate Detection Rescoping — Per-Caller, Conversation-Shaped Keys
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-009-duplicate-rescoping
 created: 2026-09-16

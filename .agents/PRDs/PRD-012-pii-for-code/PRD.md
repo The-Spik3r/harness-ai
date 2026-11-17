@@ -2,11 +2,11 @@
 id: PRD-012
 slug: pii-for-code
 title: PII Redaction for Code — Policy by Profile, Role and Direction, Within a Latency Budget
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-012-pii-for-code
 created: 2026-09-23
-updated: 2026-09-25
+updated: 2026-09-28
 ---
 
 ## 1. Executive Summary
