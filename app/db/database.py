@@ -6,7 +6,8 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterator, Mapping, Optional, Sequence
+from enum import Enum
+from typing import Any, Iterator, Literal, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 
 import libsql
@@ -254,6 +255,10 @@ class _Cursor:
     Two gaps to close (STORY-001 §2.5): the driver's cursor is **not iterable**,
     which `_add_missing_columns()` and four test modules rely on, and its rows
     are bare tuples.
+
+    PRD-018 STORY-002 (D2): each driver call labels a `ValueError` it raises with
+    the call's name via `_mark_phase()` and re-raises the same object, exactly as
+    `_Connection` does. `__iter__` goes through `fetchall`, so it is covered.
     """
 
     __slots__ = ("_cursor", "_name_index")
@@ -276,18 +281,37 @@ class _Cursor:
         return None if values is None else _Row(values, self._names())
 
     def execute(self, sql: str, *parameters) -> "_Cursor":
-        self._cursor.execute(sql, *parameters)
+        try:
+            self._cursor.execute(sql, *parameters)
+        except ValueError as exc:
+            _mark_phase(exc, "execute")
+            raise
         self._name_index = None
         return self
 
     def fetchone(self) -> Optional[_Row]:
-        return self._wrap(self._cursor.fetchone())
+        try:
+            values = self._cursor.fetchone()
+        except ValueError as exc:
+            _mark_phase(exc, "fetchone")
+            raise
+        return self._wrap(values)
 
     def fetchall(self) -> list:
-        return [self._wrap(values) for values in self._cursor.fetchall()]
+        try:
+            rows = self._cursor.fetchall()
+        except ValueError as exc:
+            _mark_phase(exc, "fetchall")
+            raise
+        return [self._wrap(values) for values in rows]
 
     def fetchmany(self, *args) -> list:
-        return [self._wrap(values) for values in self._cursor.fetchmany(*args)]
+        try:
+            rows = self._cursor.fetchmany(*args)
+        except ValueError as exc:
+            _mark_phase(exc, "fetchmany")
+            raise
+        return [self._wrap(values) for values in rows]
 
     def __iter__(self):
         return iter(self.fetchall())
@@ -317,6 +341,14 @@ class _Connection:
     driver's own context manager, which is PRD-007 Risk 1's mitigation: a write
     that leaves the block uncommitted is lost with no error and no warning
     (STORY-001 §2.2, re-verified by STORY-006).
+
+    **PRD-018 STORY-002 (D2): each driver call labels a `ValueError` it raises
+    with the call's name (`_mark_phase`) and re-raises the same object.** Type,
+    message, `args` and identity are untouched, so `_translated()` and
+    `_is_dead_stream()` behave as before; `_classify()` reads the label through
+    `_phase_of()`. `__slots__` is unchanged on purpose: the phase rides on the
+    exception, not on the connection, so it stays correct under concurrency and
+    nesting. Do not "simplify" this into `raise StorageError(...) from exc`.
     """
 
     __slots__ = ("_client",)
@@ -325,16 +357,29 @@ class _Connection:
         self._client = client
 
     def execute(self, sql: str, *parameters) -> _Cursor:
-        return _Cursor(self._client.execute(sql, *parameters))
+        try:
+            cursor = self._client.execute(sql, *parameters)
+        except ValueError as exc:
+            _mark_phase(exc, "execute")
+            raise
+        return _Cursor(cursor)
 
     def cursor(self) -> _Cursor:
         return _Cursor(self._client.cursor())
 
     def commit(self) -> None:
-        self._client.commit()
+        try:
+            self._client.commit()
+        except ValueError as exc:
+            _mark_phase(exc, "commit")
+            raise
 
     def rollback(self) -> None:
-        self._client.rollback()
+        try:
+            self._client.rollback()
+        except ValueError as exc:
+            _mark_phase(exc, "rollback")
+            raise
 
     def close(self) -> None:
         """Deliberately a no-op.
@@ -349,10 +394,14 @@ class _Connection:
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
+        # Through `self.commit()` / `self.rollback()` so each call is recorded in
+        # one place (PRD-018 STORY-002). A rollback that fails while the body is
+        # already raising replaces the body's exception, as `with` always did; the
+        # body's exception stays on `__context__` for STORY-003 to read.
         if exc_type is None:
-            self._client.commit()
+            self.commit()
         else:
-            self._client.rollback()
+            self.rollback()
         return False
 
 
@@ -362,8 +411,16 @@ def get_connection() -> _Connection:
     Public because thirteen test modules open one directly. The signature is
     unchanged from the `sqlite3` version; only what it hands back moved, and the
     wrapper above exists so that nothing downstream can tell.
+
+    PRD-018 STORY-002: a failure to obtain the client is labelled `connect`. That
+    covers `libsql.connect` and anything `_proved()` re-raises.
     """
-    return _Connection(_shared_client())
+    try:
+        client = _shared_client()
+    except ValueError as exc:
+        _mark_phase(exc, "connect")
+        raise
+    return _Connection(client)
 
 
 # The driver states both conditions in the exception message and nowhere else.
@@ -626,6 +683,135 @@ def _translated() -> Iterator[None]:
         if _is_dead_stream(message):
             _invalidate_client()
         raise StorageError(message) from exc
+
+
+# PRD-018 STORY-002 (D2, Section 6.2). The one place that sorts a storage failure
+# into "did the statement run?". It lives beside `_translated()` because that is
+# the seam where the driver's failure shape is known (PRD 6.10, PRD-007 §7.2): no
+# module outside `app/db/` learns a driver string. Nothing calls `_classify` yet;
+# STORY-003's `_unit_of_work` is the intended caller.
+
+
+class FailureClass(str, Enum):
+    """What a storage failure says about whether the statement ran (PRD 6.2).
+
+    The values are the names logs and `storage_status()` use.
+
+    - `NOT_SENT`: the request never reached the server; nothing ran.
+    - `DEAD_STREAM`: the server no longer has the stream; the statement did not
+      run, but the stream must be rebuilt.
+    - `OUTCOME_UNKNOWN`: the request may or may not have been applied.
+    - `STATEMENT`: the server refused the statement itself (constraint, missing
+      relation, duplicate column). Never retried, never counts toward the breaker
+      (6.2 rule 2; wired by STORY-003/005).
+    """
+
+    NOT_SENT = "not_sent"
+    DEAD_STREAM = "dead_stream"
+    OUTCOME_UNKNOWN = "outcome_unknown"
+    STATEMENT = "statement"
+
+
+Phase = Literal[
+    "connect", "execute", "fetchone", "fetchall", "fetchmany", "commit", "rollback"
+]
+# `fetchmany` is added to the story's six names because `_Cursor.fetchmany` is a
+# driver call too, and an unrecorded call would classify with phase `None`.
+_PHASES: tuple[str, ...] = (
+    "connect",
+    "execute",
+    "fetchone",
+    "fetchall",
+    "fetchmany",
+    "commit",
+    "rollback",
+)
+_PHASE_ATTRIBUTE = "_db_phase"
+
+
+def _mark_phase(exc: BaseException, phase: Phase) -> None:
+    """Label a driver exception with the call that raised it. First mark wins.
+
+    The innermost (true) call is kept if the same object ever crosses two
+    recording sites. The attribute is the **only** change: type, message, `args`
+    and identity stay as raised, so `_translated()` and `_is_dead_stream()` behave
+    as before (PRD 6.2 last bullet; the PRD-014 `_RecordedClient` same-object rule).
+    """
+    if getattr(exc, _PHASE_ATTRIBUTE, None) is None:
+        setattr(exc, _PHASE_ATTRIBUTE, phase)
+
+
+def _phase_of(exc: BaseException) -> Optional[str]:
+    """The phase `_mark_phase` recorded on `exc`, or on its `__cause__`, else `None`.
+
+    `_translated()` raises `... from exc` in all three arms, so the label on the
+    driver's own exception is reachable from the translated one without changing
+    `_translated()` (D1). A thread-local was rejected: it goes stale on the happy
+    path and can disagree with the exception being classified when
+    `_translated()` nests (`find_user_by_token_hash`) or workers share the client.
+    `None` means "not raised through the wrapper" (a test proxy, a raw client).
+    """
+    phase = getattr(exc, _PHASE_ATTRIBUTE, None)
+    if phase is None and exc.__cause__ is not None:
+        phase = getattr(exc.__cause__, _PHASE_ATTRIBUTE, None)
+    return phase
+
+
+# Lower-case, matched against `message.lower()`. Today's text, captured by
+# STORY-001 (spike row F1), surfaces on `execute` because the client is lazy:
+#   Hrana: `http error: `error trying to connect: tcp connect error: ...``
+# and the older spelling (`tests/test_db.py`, `tests/test_db_isolation_harness.py`):
+#   Hrana: `api error: `error sending request for url (...): client error
+#       (Connect): tcp connect error: ... (os error 10060)``
+# `os error 110` / `10060` / `10061` / `111` all share the `tcp connect error`
+# tail. `error sending request` alone is deliberately **not** a marker: it is
+# reqwest's generic prefix for any request-level failure, including a connection
+# reset after the request was written, and reading it as "never sent" would allow
+# a non-idempotent replay, the miss 6.2's first rule forbids.
+_CONNECT_FAILURE = ("tcp connect error", "client error (connect)")
+
+
+def _classify(exc: BaseException, phase: Optional[str]) -> FailureClass:
+    """Sort a storage failure into a `FailureClass` (PRD-018 D2, Section 6.2).
+
+    **Pure**: a function of the exception and the phase. No I/O, no settings, no
+    client, no logging. Not wired yet: STORY-003's `_unit_of_work` is the only
+    intended caller. It reads `str(exc)`, so the driver's `ValueError` and the
+    translated `StorageError` classify alike.
+
+    **Unrecognised text is `OUTCOME_UNKNOWN`, never `NOT_SENT`**: a miss costs a
+    retry that was skipped, never a replay that should not have happened. This
+    includes the 503 / 404 restart-window texts (spike Recommendation 3),
+    `SQLITE_BUSY` and any unrecognised `Hrana:` text.
+
+    **The order is load-bearing**, as in `_translated()`: statement first, so a
+    constraint can never be read as infrastructure.
+
+    **A dead stream on `commit` is `NOT_SENT`.** Orchestrator decision of
+    2026-11-17, PRD 6.2 amended, spike Verdict V1: DML is not durable before
+    `commit()`, and `commit()` with no open transaction is a local no-op, so a
+    commit-phase dead stream always means an open transaction that was lost
+    (9/9 captures left nothing landed). A reset, a timeout or unrecognised text on
+    `commit` stays `OUTCOME_UNKNOWN`. A dead stream on `rollback` is `DEAD_STREAM`
+    (spike row 9): there is nothing to replay. `phase=None` is safe because only
+    the `commit` rule reads the phase.
+    """
+    if isinstance(exc, (IntegrityError, MissingRelationError)):
+        return FailureClass.STATEMENT
+    message = str(exc)
+    if (
+        _CONSTRAINT.search(message)
+        or _MISSING_RELATION.search(message)
+        or _DUPLICATE_COLUMN.search(message)
+    ):
+        return FailureClass.STATEMENT
+    if any(marker in message.lower() for marker in _CONNECT_FAILURE):
+        return FailureClass.NOT_SENT
+    if _is_dead_stream(message):
+        if phase == "commit":
+            return FailureClass.NOT_SENT
+        return FailureClass.DEAD_STREAM
+    return FailureClass.OUTCOME_UNKNOWN
 
 
 @contextmanager
