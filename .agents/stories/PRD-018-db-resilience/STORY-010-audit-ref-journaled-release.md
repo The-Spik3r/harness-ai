@@ -12,7 +12,7 @@ labels: [backend, api, v1, audit]
 epic_branch: epic/PRD-018-db-resilience
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md
 report: .agents/reports/PRD-018-db-resilience/STORY-010-audit-ref-journaled-release.report.md
-commit: pending
+commit: 4ab037a
 depends_on: [STORY-004, STORY-006, STORY-008, STORY-009]
 blocks: [STORY-011, STORY-013]
 skills: []

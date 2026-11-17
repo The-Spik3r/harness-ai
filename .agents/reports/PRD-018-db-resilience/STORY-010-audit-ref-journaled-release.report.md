@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: 4ab037a
 status: COMPLETE
 completed: 2026-11-17
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-17
 
 **Plan**: `.agents/plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md`
 **Epic Branch**: `epic/PRD-018-db-resilience`
-**Commit**: `pending`
+**Commit**: `4ab037a`
 
 ## Summary
 
