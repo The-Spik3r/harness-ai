@@ -6,7 +6,7 @@
 
 ## Progress
 
-4/14 stories done — 29%
+5/14 stories done — 36%
 
 ## Stories
 
@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story
 | STORY-002 | _classify(exc, phase), FailureClass and per-call phase tracking in _Connection | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-002-classifier-and-phase-tracking.plan.md) | `aa18cea` |
 | STORY-003 | _unit_of_work retry boundary, statement kinds on every database.py function, _FaultyClient harness | technical | ✅ done | large | [plan](../../plans/PRD-018-db-resilience/completed/STORY-003-unit-of-work-and-kinds.plan.md) | `a83d2af` |
 | STORY-004 | write_id columns, unique indexes, idempotent insert_audit_log and insert_action_decisions | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-004-write-id-idempotent-audit-inserts.plan.md) | `6c5ee59` |
-| STORY-005 | Reusable CircuitBreaker class, the storage instance, StorageUnavailableError | technical | 🟡 in-progress | medium | [plan](../../plans/PRD-018-db-resilience/STORY-005-circuit-breaker-and-storage-unavailable.plan.md) | — |
+| STORY-005 | Reusable CircuitBreaker class, the storage instance, StorageUnavailableError | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-005-circuit-breaker-and-storage-unavailable.plan.md) | `a812587` |
 | STORY-006 | Ingress mapping — require_identity, POST /query and /v1 storage_unavailable with Retry-After | feature | ⬜ todo | medium | — | — |
 | STORY-007 | Chat UI — resolve() inside the send's try/finally, sign-in storage notice, fixed storage_unavailable copy | bug | ⬜ todo | small | — | — |
 | STORY-008 | Audit journal — append/fsync JSON Lines, exclusive lock, checksum, torn-tail recovery, adoption, bounds | technical | ⬜ todo | medium | — | — |

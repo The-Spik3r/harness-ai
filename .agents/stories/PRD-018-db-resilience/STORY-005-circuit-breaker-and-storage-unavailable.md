@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "3 - Fail fast and say so"
-status: in-progress
+status: done
 labels: [backend, storage]
 epic_branch: epic/PRD-018-db-resilience
-plan: .agents/plans/PRD-018-db-resilience/STORY-005-circuit-breaker-and-storage-unavailable.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-005-circuit-breaker-and-storage-unavailable.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-005-circuit-breaker-and-storage-unavailable.report.md
+commit: a812587
 depends_on: [STORY-003]
 blocks: [STORY-006, STORY-007, STORY-009, STORY-012]
 skills: []

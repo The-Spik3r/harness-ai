@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-005-circuit-breaker-and-storage-unavailable.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: a812587
 status: COMPLETE
 completed: 2026-11-17
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-17
 
 **Plan**: `.agents/plans/PRD-018-db-resilience/completed/STORY-005-circuit-breaker-and-storage-unavailable.plan.md`
 **Epic Branch**: `epic/PRD-018-db-resilience`
-**Commit**: `pending`
+**Commit**: `a812587`
 
 ## Summary
 
