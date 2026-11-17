@@ -32,6 +32,9 @@ storage get one:
   them.
 - **The lazy endpoint.** `_libsql_endpoint` is probed only when a `db` test or a
   storage fixture asks for it, so `pytest -m "not db"` runs without the server.
+- **The faulty driver.** `faulty_db` (PRD-018 STORY-003) is `temp_db` with the
+  driver wrapped by a `tests/db_faults.py` `FaultScript`, for tests that need a
+  storage call to fail on cue. It is a `db` test by fixture closure.
 
 A failing `db` test also gets a `libsql diagnostics` section ending in
 `libsql verdict: ...` (see `pytest_runtest_makereport`). The promise the old
@@ -745,6 +748,27 @@ def temp_db(database_url) -> str:
     """
     init_db()
     return database_url
+
+
+@pytest.fixture
+def faulty_db(temp_db, monkeypatch):
+    """A `db` database whose driver is wrapped by an empty `FaultScript` (PRD-018 STORY-003, D18).
+
+    Yields the script: `script.add(Fault(...))` arms a failure, `script.forwarded()`
+    and `script.connects` say what reached the real driver. The wrapper sits over
+    whatever `libsql.connect` is at install time, so PRD-014's recorder still sees
+    every forwarded call. The cached client is dropped at install (or the unfaulty
+    one built by `temp_db` would be lent) and at teardown (or the next test would
+    inherit a faulty proxy). Real backoff sleeps run, at most 0.25 s per operation.
+    """
+    # Lazy: `tests/test_db_isolation_harness.py` copies this file into child pytest
+    # runs, and a child that never uses the fixture must still import it.
+    from tests.db_faults import FaultScript
+
+    script = FaultScript()
+    script.install(monkeypatch)
+    yield script
+    script.uninstall()
 
 
 @pytest.fixture

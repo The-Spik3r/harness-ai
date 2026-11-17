@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: large
 phase: "2 - Retry safely"
-status: todo
+status: done
 labels: [backend, storage, tests]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
-report: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-003-unit-of-work-and-kinds.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-003-unit-of-work-and-kinds.report.md
 commit: null
 depends_on: [STORY-002]
 blocks: [STORY-004, STORY-005]

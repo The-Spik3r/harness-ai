@@ -42,6 +42,7 @@ As a compliance admin, I want every audit row and action decision to carry a cli
 - `app/services/audit_logger.py:73-107` and `app/services/action_audit.py:174`.
 - Check every test or guard that enumerates `AuditLog` / `ActionDecisionRow` fields or the `audit_logs` columns (schema census tests, `_row_to_audit_log`, `_row_to_action_decision_row`, `/audit` JSON shape). Decide whether `write_id` is exposed in `/audit` output. Default: not exposed in API responses in this story (STORY-010 exposes `audit_ref`). Register in a census with a comment citing PRD-018 D4.
 - Tests: `tests/test_db_resilience_write_id.py` (`db`), plus the existing `tests/test_db.py` migration tests.
+- Orchestrator decision (STORY-003 plan): STORY-003 registers `insert_audit_log` and `insert_action_decisions` as `NON_IDEMPOTENT` in its name → kind table and AST pin test. This story flips them to IDEMPOTENT-when-`write_id`-present, updating that table and pin test (`tests/test_db_resilience_retry.py`). The `_FaultyClient` harness is `tests/db_faults.py` plus the `faulty_db` fixture in `tests/conftest.py`.
 
 ## Dependencies
 

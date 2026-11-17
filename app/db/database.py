@@ -1,4 +1,6 @@
 import json
+import logging
+import random
 import re
 import threading
 import time
@@ -7,7 +9,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Iterator, Literal, Mapping, Optional, Sequence
+from typing import (
+    Any,
+    Callable,
+    Iterator,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    TypeVar,
+)
 from urllib.parse import urlsplit
 
 import libsql
@@ -48,6 +59,8 @@ from app.db.models import (
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
+logger = logging.getLogger(__name__)
+
 _client_lock = threading.Lock()
 _client_key: Optional[tuple[str, str]] = None
 _client: Optional[Any] = None
@@ -79,6 +92,47 @@ _client_used_at: float = 0.0
 # A module constant rather than a setting on purpose: a deployment knob whose
 # wrong value silently restores the defect is not a knob worth having.
 _IDLE_PROBE_AFTER_SECONDS = 5.0
+
+# PRD-018 D5, Section 6.1 / 6.6. The retry budget of `_unit_of_work()`: how many
+# times one storage operation may be run, how long it waits between runs, and how
+# long after its first run it may still *start* another.
+#
+# Small on purpose. A dead stream is replaced on the first rebuild, so the one
+# retry that matters is the first; the third attempt is slack for a rebuild that
+# itself races a restart. The waits are **full jitter** -- `uniform(0, cap)` --
+# so a burst of requests that all lost the same stream do not all come back on
+# the same millisecond: at most 50 ms before the second attempt and 200 ms before
+# the third, 250 ms of sleeping in the worst case. A budget this small is the
+# point (6.6): a storage outage must be answered quickly with a refusal, not
+# absorbed into a request that hangs.
+#
+# **The deadline gates starting an attempt. It cannot cut one already running.**
+# The driver has no read timeout (spike F3a), so an attempt that stalls -- a
+# contended first write holds ~2.1 s (spike Q3), a connect to a black hole ~21 s
+# -- takes the time it takes, and the loop then sees that the deadline has
+# passed and raises instead of starting another.
+#
+# Module constants rather than settings (O6) for the reason `_IDLE_PROBE_AFTER_SECONDS`
+# is one: a deployment knob whose wrong value silently restores the defect is not
+# a knob worth having.
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_CAPS_SECONDS = (0.05, 0.2)
+_RETRY_START_DEADLINE_SECONDS = 2.0
+
+
+def _full_jitter(cap: float) -> float:
+    return random.uniform(0.0, cap)
+
+
+# The three seams of the retry loop, read at call time so a test can drive it with
+# a fake clock and no real sleeping -- the mechanism every existing test already
+# uses on `_shared_client` / `get_connection`. `_retry_jitter` is handed the
+# **cap**, so a test can ask for the worst case (`lambda cap: cap`), for none
+# (`0.0`), or record which caps were requested. `_retry_clock` is deliberately not
+# `time.monotonic` itself, so a fake clock cannot disturb the idle gate above.
+_retry_sleep: Callable[[float], None] = time.sleep
+_retry_clock: Callable[[], float] = time.monotonic
+_retry_jitter: Callable[[float], float] = _full_jitter
 
 
 def _shared_client() -> Any:
@@ -397,7 +451,7 @@ class _Connection:
         # Through `self.commit()` / `self.rollback()` so each call is recorded in
         # one place (PRD-018 STORY-002). A rollback that fails while the body is
         # already raising replaces the body's exception, as `with` always did; the
-        # body's exception stays on `__context__` for STORY-003 to read.
+        # body's exception stays on `__context__` for `_failure_of()` to read.
         if exc_type is None:
             self.commit()
         else:
@@ -688,8 +742,8 @@ def _translated() -> Iterator[None]:
 # PRD-018 STORY-002 (D2, Section 6.2). The one place that sorts a storage failure
 # into "did the statement run?". It lives beside `_translated()` because that is
 # the seam where the driver's failure shape is known (PRD 6.10, PRD-007 §7.2): no
-# module outside `app/db/` learns a driver string. Nothing calls `_classify` yet;
-# STORY-003's `_unit_of_work` is the intended caller.
+# module outside `app/db/` learns a driver string. Its caller is `_failure_of()`,
+# which `_unit_of_work()` uses.
 
 
 class FailureClass(str, Enum):
@@ -710,6 +764,24 @@ class FailureClass(str, Enum):
     DEAD_STREAM = "dead_stream"
     OUTCOME_UNKNOWN = "outcome_unknown"
     STATEMENT = "statement"
+
+
+class StatementKind(str, Enum):
+    """How safe it is to run a unit of work twice (PRD-018 D3, Section 6.3).
+
+    Declared per public function in `database.py`, at its `_unit_of_work()` call.
+
+    - `READ`: changes nothing, so a replay is always safe.
+    - `IDEMPOTENT`: a replay lands the same state (a fixed-value UPDATE, a DELETE,
+      an INSERT whose duplicate is recognised as the first attempt's).
+    - `NON_IDEMPOTENT`: a replay could land the effect twice (a counter increment,
+      an INSERT with no key to recognise it by), so it is retried only when the
+      failure proves the first attempt did not run.
+    """
+
+    READ = "read"
+    IDEMPOTENT = "idempotent"
+    NON_IDEMPOTENT = "non_idempotent"
 
 
 Phase = Literal[
@@ -775,8 +847,8 @@ def _classify(exc: BaseException, phase: Optional[str]) -> FailureClass:
     """Sort a storage failure into a `FailureClass` (PRD-018 D2, Section 6.2).
 
     **Pure**: a function of the exception and the phase. No I/O, no settings, no
-    client, no logging. Not wired yet: STORY-003's `_unit_of_work` is the only
-    intended caller. It reads `str(exc)`, so the driver's `ValueError` and the
+    client, no logging. Its caller is `_failure_of()`, which `_unit_of_work()`
+    uses. It reads `str(exc)`, so the driver's `ValueError` and the
     translated `StorageError` classify alike.
 
     **Unrecognised text is `OUTCOME_UNKNOWN`, never `NOT_SENT`**: a miss costs a
@@ -814,6 +886,111 @@ def _classify(exc: BaseException, phase: Optional[str]) -> FailureClass:
     return FailureClass.OUTCOME_UNKNOWN
 
 
+# Rank of a failure from "least pessimistic" to "most": what `_failure_of()` takes
+# when a rollback masks the body's own error. `STATEMENT` is on top because "never
+# retried" is the safe end of the scale.
+_FAILURE_RANK = {
+    FailureClass.NOT_SENT: 0,
+    FailureClass.DEAD_STREAM: 1,
+    FailureClass.OUTCOME_UNKNOWN: 2,
+    FailureClass.STATEMENT: 3,
+}
+
+
+def _failure_of(exc: BaseException) -> tuple[FailureClass, Optional[str]]:
+    """The class and phase `_unit_of_work()` decides on (PRD-018 D3, Section 6.2).
+
+    **The open rule STORY-002 left for this story.** `_Connection.__exit__` rolls
+    back when the body raised, and a rollback that fails replaces the body's
+    exception (the body's stays on `__context__`). A dead stream makes exactly
+    that happen: the body's real failure, say an `OUTCOME_UNKNOWN` mid-write, would
+    be read as the rollback's baton text and look like a harmless `DEAD_STREAM`,
+    which a `NON_IDEMPOTENT` unit would then replay. So when the phase is
+    `rollback` the body's failure is classified too, and **the more pessimistic of
+    the two wins**: `NOT_SENT` < `DEAD_STREAM` < `OUTCOME_UNKNOWN` < `STATEMENT`.
+
+    A tie goes to the body, so its phase decides `NON_IDEMPOTENT`'s "`DEAD_STREAM`
+    on `execute` only". A body exception that is not a storage failure (our own
+    `KeyError` mid-block) proves nothing about what the server did, so it counts
+    as `OUTCOME_UNKNOWN`. The exception that propagates is unchanged: this only
+    reads, it never replaces.
+
+    Pure: a function of the exception chain. It lives beside `_classify()` because
+    it is the same knowledge (PRD 6.10).
+    """
+    phase = _phase_of(exc)
+    result = (_classify(exc, phase), phase)
+    if phase != "rollback":
+        return result
+    driver = exc.__cause__ if exc.__cause__ is not None else exc
+    body = driver.__context__
+    if body is None:
+        return result
+    if isinstance(body, StorageError) or (
+        isinstance(body, ValueError) and _DRIVER_ERROR in str(body)
+    ):
+        body_phase = _phase_of(body)
+        body_result = (_classify(body, body_phase), body_phase)
+    else:
+        body_result = (FailureClass.OUTCOME_UNKNOWN, None)
+    if _FAILURE_RANK[result[0]] > _FAILURE_RANK[body_result[0]]:
+        return result
+    return body_result
+
+
+# PRD-018 D3, Section 6.3: which classes each kind may be retried on.
+# `NOT_SENT` covers a dead stream on `commit` too (orchestrator decision, PRD 6.2
+# as amended): so a `NON_IDEMPOTENT` unit is retried after one.
+_RETRIED_ON: Mapping[StatementKind, frozenset[FailureClass]] = {
+    StatementKind.READ: frozenset(
+        {
+            FailureClass.NOT_SENT,
+            FailureClass.DEAD_STREAM,
+            FailureClass.OUTCOME_UNKNOWN,
+        }
+    ),
+    StatementKind.IDEMPOTENT: frozenset(
+        {
+            FailureClass.NOT_SENT,
+            FailureClass.DEAD_STREAM,
+            FailureClass.OUTCOME_UNKNOWN,
+        }
+    ),
+    StatementKind.NON_IDEMPOTENT: frozenset(
+        {FailureClass.NOT_SENT, FailureClass.DEAD_STREAM}
+    ),
+}
+
+
+def _retryable(
+    kind: StatementKind, failure: FailureClass, phase: Optional[str]
+) -> bool:
+    """Whether a unit of this kind may be run again after this failure (D3).
+
+    Pure. `STATEMENT` is never retried (the server refused the statement; running
+    it again refuses it again). `OUTCOME_UNKNOWN` is retried only when a replay is
+    harmless. A `DEAD_STREAM` on a `NON_IDEMPOTENT` unit is proof the statement did
+    not run only when it arrived on `execute`: one on a fetch says the statement
+    was accepted and its answer was lost.
+    """
+    if failure not in _RETRIED_ON[kind]:
+        return False
+    if kind is StatementKind.NON_IDEMPOTENT and failure is FailureClass.DEAD_STREAM:
+        return phase == "execute"
+    return True
+
+
+# SQLite's only statement-echoing form in an error is `near "<token>"` on a syntax
+# error; the infrastructure texts quote no SQL and no parameters (spike captures).
+_STATEMENT_ECHO = re.compile(r'near\s+\\?"[^"\\]*\\?"')
+
+
+def _retry_detail(exc: BaseException) -> str:
+    """The failure text for a retry log line: credential-free, no echoed SQL, short."""
+    text = _STATEMENT_ECHO.sub('near "<elided>"', _redacted(str(exc)))
+    return text[:500]
+
+
 @contextmanager
 def _session() -> Iterator[_Connection]:
     """`with get_connection() as conn:` plus translation.
@@ -826,6 +1003,118 @@ def _session() -> Iterator[_Connection]:
         conn = get_connection()
         with conn:
             yield conn
+
+
+_T = TypeVar("_T")
+
+
+def _unit_of_work(
+    name: str, kind: StatementKind, fn: Callable[[_Connection], _T]
+) -> _T:
+    """Run `fn(conn)` in a fresh `_session()`, again if the failure proves that is safe.
+
+    **The retry boundary of PRD-018 D1.** One attempt is one `_session()`: a new
+    `get_connection()`, a new transaction, and `fn` run from its first statement.
+    `_translated()` stays the inner seam that translates and drops a dead stream;
+    it never retries, because from inside it a replay could repeat half a
+    transaction. This is the only place a retry exists.
+
+    **What is retried is decided by `_retryable(kind, class, phase)` (D3).** The
+    failure is classified by `_failure_of()`, which also resolves a rollback that
+    masked the body's own error. `STATEMENT` failures, and `OUTCOME_UNKNOWN` on a
+    `NON_IDEMPOTENT` unit, raise on the first attempt with the exception they
+    always raised. Anything that is not a driver failure (our own `StorageError`
+    such as `append_chat_message`'s ownership refusal, a `ValueError`, a
+    `KeyError`) passes through untouched and unclassified, exactly as
+    `_translated()` treats a non-driver `ValueError`.
+
+    **A fresh client for every infrastructure failure**, not only a dead stream:
+    `_translated()` already dropped that one, and `NOT_SENT` / `OUTCOME_UNKNOWN`
+    leave a client that may be half-dead. It is dropped here, with an identity
+    guard so a client another thread already rebuilt is kept, and never inside
+    `_translated()` (D1).
+
+    **Budget (D5).** At most `_RETRY_MAX_ATTEMPTS` runs, full-jitter waits, and no
+    attempt *started* more than `_RETRY_START_DEADLINE_SECONDS` after the first.
+    The deadline cannot cut a call that is already running (there is no driver
+    read timeout, spike F3a/Q3); it only refuses to begin another after a stall.
+    The last attempt's exception is what propagates, same type and message as
+    before this story. The start check projects `now + delay`, so the loop never
+    sleeps into a start it would then refuse.
+
+    **`fn` must be re-runnable.** Nothing it holds may survive an attempt: values
+    that must be the same on every attempt (an id, a timestamp) are minted by the
+    caller *before* the unit, and anything accumulated (ids, counts) is created
+    inside `fn`.
+
+    **Logs (AC 5).** One INFO line per retry. One WARNING when a retryable failure
+    runs out of budget, and one when an infrastructure failure is refused a retry
+    (`retry refused`: e.g. `NON_IDEMPOTENT` on `OUTCOME_UNKNOWN`). `STATEMENT`
+    failures and our own `StorageError`s log nothing. The text goes through
+    `_retry_detail()`: credential-free, no SQL, no parameters.
+
+    `init_db()` and `check_database_reachable()` never come here (D17): the boot
+    guard keeps failing fast and loudly, with no retry in front of it.
+    """
+    # PRD-018 STORY-005 hook (entry): _storage_breaker.before() goes here, before
+    # _session() can reach _shared_client().
+    first_started = _retry_clock()
+    attempt = 1
+    while True:
+        stale = None
+        try:
+            with _session() as conn:
+                # `getattr`: a test may install a proxy with no `_client`.
+                stale = getattr(conn, "_client", None)
+                result = fn(conn)
+        except StorageError as exc:
+            if _DRIVER_ERROR not in str(exc):
+                raise
+            failure, phase = _failure_of(exc)
+            if failure is not FailureClass.STATEMENT:
+                _invalidate_client(stale)
+                if _retryable(kind, failure, phase):
+                    delay: Optional[float] = None
+                    reason: Optional[str] = None
+                    if attempt >= _RETRY_MAX_ATTEMPTS:
+                        reason = "max_attempts"
+                    else:
+                        delay = _retry_jitter(_RETRY_BACKOFF_CAPS_SECONDS[attempt - 1])
+                        started_by = _retry_clock() + delay - first_started
+                        if started_by > _RETRY_START_DEADLINE_SECONDS:
+                            reason = "deadline"
+                    if reason is None and delay is not None:
+                        logger.info(
+                            "retry op=%s class=%s attempt=%d detail=%s",
+                            name,
+                            failure.value,
+                            attempt,
+                            _retry_detail(exc),
+                        )
+                        _retry_sleep(delay)
+                        attempt += 1
+                        continue
+                    logger.warning(
+                        "retry exhausted op=%s class=%s attempts=%d reason=%s detail=%s",
+                        name,
+                        failure.value,
+                        attempt,
+                        reason,
+                        _retry_detail(exc),
+                    )
+                else:
+                    logger.warning(
+                        "retry refused op=%s class=%s kind=%s detail=%s",
+                        name,
+                        failure.value,
+                        kind.value,
+                        _retry_detail(exc),
+                    )
+            # PRD-018 STORY-005 hook (failure): record_failure(failure) when failure
+            # is not STATEMENT -- exactly once per operation, here and nowhere else.
+            raise
+        # PRD-018 STORY-005 hook (success): record_success().
+        return result
 
 
 def init_db() -> None:
@@ -986,7 +1275,14 @@ def _add_missing_columns(
 
 
 def insert_audit_log(entry: AuditLog) -> int:
-    with _session() as conn:
+    """Write one audit row and return its id.
+
+    **`NON_IDEMPOTENT` until STORY-004's `write_id` (PRD-018 D4).** No row carries
+    a key a replay could be recognised by yet, so an `OUTCOME_UNKNOWN` commit is
+    never replayed here: a second INSERT would be a second audit row.
+    """
+
+    def _op(conn: _Connection) -> int:
         cursor = conn.execute(
             """
             INSERT INTO audit_logs (
@@ -1039,9 +1335,11 @@ def insert_audit_log(entry: AuditLog) -> int:
         )
         return cursor.lastrowid
 
+    return _unit_of_work("insert_audit_log", StatementKind.NON_IDEMPOTENT, _op)
+
 
 def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Optional[str]:
-    with _session() as conn:
+    def _op(conn: _Connection) -> Optional[str]:
         # Only a row with a real verdict is a prior query: it reached the model,
         # or a content check blocked it (PRD-009 F4, D1). Failures (success = 0,
         # the output-redaction arm included, T6), policy denials (D1) and
@@ -1084,6 +1382,8 @@ def find_duplicate_timestamp(user_id: str, dedup_key: str, since: str) -> Option
         ).fetchone()
         return row["timestamp"] if row is not None else None
 
+    return _unit_of_work("find_duplicate_timestamp", StatementKind.READ, _op)
+
 
 def mark_audit_log_failed(audit_id: int, error_message: str) -> None:
     """Flip one audit row to `success = 0` with `error_message` (PRD-017 D8).
@@ -1096,11 +1396,14 @@ def mark_audit_log_failed(audit_id: int, error_message: str) -> None:
     Raises `StorageError` like every function here; the caller treats it as
     best effort.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> None:
         conn.execute(
             "UPDATE audit_logs SET success = 0, error_message = ? WHERE id = ?",
             (error_message, audit_id),
         )
+
+    return _unit_of_work("mark_audit_log_failed", StatementKind.IDEMPOTENT, _op)
 
 
 def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
@@ -1154,7 +1457,7 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
 
 
 def get_audit_log(audit_id: int) -> Optional[AuditLog]:
-    with _session() as conn:
+    def _op(conn: _Connection) -> Optional[AuditLog]:
         row = conn.execute(
             "SELECT * FROM audit_logs WHERE id = ?", (audit_id,)
         ).fetchone()
@@ -1162,9 +1465,11 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
             return None
         return _row_to_audit_log(row)
 
+    return _unit_of_work("get_audit_log", StatementKind.READ, _op)
+
 
 def count_audit_logs(user_id: Optional[str] = None) -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         if user_id is not None:
             row = conn.execute(
                 "SELECT COUNT(*) AS n FROM audit_logs WHERE user_id = ?",
@@ -1174,9 +1479,11 @@ def count_audit_logs(user_id: Optional[str] = None) -> int:
             row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
         return row["n"]
 
+    return _unit_of_work("count_audit_logs", StatementKind.READ, _op)
+
 
 def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[AuditLog]:
-    with _session() as conn:
+    def _op(conn: _Connection) -> list[AuditLog]:
         if user_id is not None:
             rows = conn.execute(
                 """
@@ -1193,13 +1500,17 @@ def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[Aud
             ).fetchall()
         return [_row_to_audit_log(row) for row in rows]
 
+    return _unit_of_work("list_audit_logs", StatementKind.READ, _op)
+
 
 def count_blocked_duplicates() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM audit_logs WHERE was_duplicate_blocked = 1"
         ).fetchone()
         return row["n"]
+
+    return _unit_of_work("count_blocked_duplicates", StatementKind.READ, _op)
 
 
 # PRD-011 D6: what "blocked as suspicious" means, written once and shared by
@@ -1216,31 +1527,37 @@ _BLOCKED_SUSPICIOUS_WHERE = (
 
 
 def count_blocked_suspicious() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_BLOCKED_SUSPICIOUS_WHERE}"
         ).fetchone()
         return row["n"]
 
+    return _unit_of_work("count_blocked_suspicious", StatementKind.READ, _op)
+
 
 def count_unique_users() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             "SELECT COUNT(DISTINCT user_id) AS n FROM audit_logs"
         ).fetchone()
         return row["n"]
 
+    return _unit_of_work("count_unique_users", StatementKind.READ, _op)
+
 
 def count_successful_queries() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM audit_logs WHERE success = 1"
         ).fetchone()
         return row["n"]
 
+    return _unit_of_work("count_successful_queries", StatementKind.READ, _op)
+
 
 def top_models(limit: int = 5) -> list[str]:
-    with _session() as conn:
+    def _op(conn: _Connection) -> list[str]:
         rows = conn.execute(
             """
             SELECT model_used FROM audit_logs
@@ -1253,9 +1570,11 @@ def top_models(limit: int = 5) -> list[str]:
         ).fetchall()
         return [row["model_used"] for row in rows]
 
+    return _unit_of_work("top_models", StatementKind.READ, _op)
+
 
 def top_users(limit: int = 5) -> list[str]:
-    with _session() as conn:
+    def _op(conn: _Connection) -> list[str]:
         rows = conn.execute(
             """
             SELECT user_id FROM audit_logs
@@ -1267,9 +1586,11 @@ def top_users(limit: int = 5) -> list[str]:
         ).fetchall()
         return [row["user_id"] for row in rows]
 
+    return _unit_of_work("top_users", StatementKind.READ, _op)
+
 
 def count_pii_detected_queries() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             """
             SELECT COUNT(*) AS n FROM audit_logs
@@ -1277,6 +1598,8 @@ def count_pii_detected_queries() -> int:
             """
         ).fetchone()
         return row["n"]
+
+    return _unit_of_work("count_pii_detected_queries", StatementKind.READ, _op)
 
 
 def top_pii_entities(limit: int = 5) -> list[str]:
@@ -1301,7 +1624,8 @@ def top_pii_entities(limit: int = 5) -> list[str]:
     incidental, and not a thing to reproduce across N instances. Equal counts now
     order by entity name (STORY-009).
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> list[str]:
         rows = conn.execute(
             """
             WITH RECURSIVE split(entity, rest) AS (
@@ -1324,6 +1648,8 @@ def top_pii_entities(limit: int = 5) -> list[str]:
         ).fetchall()
         return [row["entity"] for row in rows]
 
+    return _unit_of_work("top_pii_entities", StatementKind.READ, _op)
+
 
 # PRD-013 Section 6.10: the two token totals are sums over every row with NULL
 # as 0. `SUM` alone returns NULL over an empty table or a column that is NULL
@@ -1341,27 +1667,33 @@ _BLOCKED_USAGE_LIMITS_WHERE = "limit_exceeded IS NOT NULL"
 
 
 def sum_input_tokens() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             f"SELECT {_SUM_INPUT_TOKENS} AS n FROM audit_logs"
         ).fetchone()
         return row["n"]
 
+    return _unit_of_work("sum_input_tokens", StatementKind.READ, _op)
+
 
 def sum_output_tokens() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             f"SELECT {_SUM_OUTPUT_TOKENS} AS n FROM audit_logs"
         ).fetchone()
         return row["n"]
 
+    return _unit_of_work("sum_output_tokens", StatementKind.READ, _op)
+
 
 def count_blocked_usage_limits() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_BLOCKED_USAGE_LIMITS_WHERE}"
         ).fetchone()
         return row["n"]
+
+    return _unit_of_work("count_blocked_usage_limits", StatementKind.READ, _op)
 
 
 # --------------------------------------------------------------------------
@@ -1703,13 +2035,20 @@ def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnap
     `row_limit` and `ranked_limit` are parameters, not constants baked into the
     statement: the callers pass `REGISTER_ROW_LIMIT` and `RANKED_LIMIT`. They
     bind **positionally, in column order** -- see `_SUMMARY_SQL`.
+
+    The one statement is one `READ` unit (PRD-018 D3). The fallback is outside it,
+    so it runs once, after the statement's retry budget is spent; decoding is
+    outside it too, so a decode `ValueError` is still one bad figure.
     """
+
+    def _op(conn: _Connection) -> _Row:
+        return conn.execute(
+            _SUMMARY_SQL,
+            (row_limit, ranked_limit, ranked_limit, ranked_limit),
+        ).fetchone()
+
     try:
-        with _session() as conn:
-            row = conn.execute(
-                _SUMMARY_SQL,
-                (row_limit, ranked_limit, ranked_limit, ranked_limit),
-            ).fetchone()
+        row = _unit_of_work("summary_snapshot", StatementKind.READ, _op)
     except StorageError as exc:
         return _summary_figure_by_figure(row_limit, ranked_limit, exc)
 
@@ -1738,13 +2077,16 @@ def _row_to_user(row: _Row) -> User:
 def get_user(user_id: str) -> Optional[User]:
     """Returns the user regardless of active state -- administrative reads
     (CLI list/deactivate) must be able to see a revoked row."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> Optional[User]:
         row = conn.execute(
             "SELECT * FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         if row is None:
             return None
         return _row_to_user(row)
+
+    return _unit_of_work("get_user", StatementKind.READ, _op)
 
 
 def find_user_by_token_hash(token_hash: str) -> Optional[User]:
@@ -1759,7 +2101,8 @@ def find_user_by_token_hash(token_hash: str) -> Optional[User]:
     That arm catches MissingRelationError and nothing wider (PRD-007 STORY-004):
     a storage failure that is not a missing table surfaces as a 500 rather than
     a silent 401, because a real outage must not read as a bad credential."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> Optional[User]:
         try:
             with _translated():
                 row = conn.execute(
@@ -1772,22 +2115,28 @@ def find_user_by_token_hash(token_hash: str) -> Optional[User]:
             return None
         return _row_to_user(row)
 
+    return _unit_of_work("find_user_by_token_hash", StatementKind.READ, _op)
+
 
 def list_users(limit: int = 100) -> list[User]:
-    with _session() as conn:
+    def _op(conn: _Connection) -> list[User]:
         rows = conn.execute(
             "SELECT * FROM users ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [_row_to_user(row) for row in rows]
 
+    return _unit_of_work("list_users", StatementKind.READ, _op)
+
 
 def count_active_users() -> int:
-    with _session() as conn:
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM users WHERE active = 1"
         ).fetchone()
         return row["n"]
+
+    return _unit_of_work("count_active_users", StatementKind.READ, _op)
 
 
 def insert_user(entry: User) -> str:
@@ -1798,7 +2147,8 @@ def insert_user(entry: User) -> str:
     created_at = entry.created_at or datetime.now(timezone.utc).strftime(
         _TIMESTAMP_FORMAT
     )
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> None:
         conn.execute(
             """
             INSERT INTO users (user_id, role, token_hash, active, created_at)
@@ -1812,6 +2162,8 @@ def insert_user(entry: User) -> str:
                 created_at,
             ),
         )
+
+    _unit_of_work("insert_user", StatementKind.NON_IDEMPOTENT, _op)
     return entry.user_id
 
 
@@ -1819,22 +2171,28 @@ def deactivate_user(user_id: str) -> bool:
     """Revocation is not deletion: audit_logs rows carry a bare user_id with no
     foreign key, so removing the row would orphan the audit trail. Returns False
     when no such user exists, so the CLI can report a typo."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         cursor = conn.execute(
             "UPDATE users SET active = 0 WHERE user_id = ?", (user_id,)
         )
         return cursor.rowcount == 1
 
+    return _unit_of_work("deactivate_user", StatementKind.IDEMPOTENT, _op)
+
 
 def set_user_token_hash(user_id: str, token_hash: str) -> bool:
     """Credential rotation (STORY-004 `issue-token`). The old hash stops
     resolving the moment this returns."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         cursor = conn.execute(
             "UPDATE users SET token_hash = ? WHERE user_id = ?",
             (token_hash, user_id),
         )
         return cursor.rowcount == 1
+
+    return _unit_of_work("set_user_token_hash", StatementKind.IDEMPOTENT, _op)
 
 
 # "Leave this column alone" for set_user_limits(). None cannot mean that,
@@ -1870,12 +2228,15 @@ def set_user_limits(
         raise ValueError("set_user_limits() needs at least one limit to set")
 
     set_clause = ", ".join(f"{column} = ?" for column, _ in assignments)
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         cursor = conn.execute(
             f"UPDATE users SET {set_clause} WHERE user_id = ?",
             (*(value for _, value in assignments), user_id),
         )
         return cursor.rowcount == 1
+
+    return _unit_of_work("set_user_limits", StatementKind.IDEMPOTENT, _op)
 
 
 # Usage counters (PRD-013 Section 6.5). One statement each, both on the
@@ -1934,7 +2295,8 @@ def admit_usage(user_id: str) -> UsageAdmission:
     Compares no limit -- STORY-010's usage_limits does that -- and decides
     nothing on failure: a storage error propagates as `StorageError`, and
     failing closed is the caller's rule (D9)."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> UsageAdmission:
         row = conn.execute(_ADMIT_USAGE_SQL, (user_id,)).fetchone()
         return UsageAdmission(
             day=row["day"],
@@ -1942,6 +2304,8 @@ def admit_usage(user_id: str) -> UsageAdmission:
             window_requests=row["window_requests"],
             tokens_today=row["tokens_today"],
         )
+
+    return _unit_of_work("admit_usage", StatementKind.NON_IDEMPOTENT, _op)
 
 
 def charge_usage(
@@ -1960,12 +2324,15 @@ def charge_usage(
     Returns False when there is no row for (user_id, day), which a successful
     admit rules out. What to do with it is STORY-012's call (D9: the charge
     fails open)."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         cursor = conn.execute(
             _CHARGE_USAGE_SQL,
             (input_tokens, output_tokens, unsplit_tokens, user_id, day),
         )
         return cursor.rowcount == 1
+
+    return _unit_of_work("charge_usage", StatementKind.NON_IDEMPOTENT, _op)
 
 
 # The admin console's usage table (PRD-013 STORY-016, Section 6.10): one
@@ -2016,7 +2383,8 @@ def usage_snapshot() -> list[UsageDay]:
     by user_id so the caller's sort has a deterministic tie order. A storage
     failure propagates as StorageError; naming it is the caller's job (the
     console's READ_LABEL_USAGE)."""
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> list[UsageDay]:
         return [
             UsageDay(
                 user_id=row["user_id"],
@@ -2031,6 +2399,8 @@ def usage_snapshot() -> list[UsageDay]:
             )
             for row in conn.execute(_USAGE_SNAPSHOT_SQL).fetchall()
         ]
+
+    return _unit_of_work("usage_snapshot", StatementKind.READ, _op)
 
 
 def _row_to_chat_session(row: _Row) -> ChatSession:
@@ -2066,10 +2436,19 @@ def create_chat_session(user_id: str, title: str) -> str:
     `user_id` is first and undefaulted, as on all six of these -- PRD Risk 2:
     the rule lives in the signature, so an omission is a `TypeError` here rather
     than a leak at runtime.
+
+    **`IDEMPOTENT` through one rule (PRD-018 Section 6.3 row 11).** If an attempt
+    after the first meets this very `session_id` already in the table, the earlier
+    attempt landed and its response was lost, so the call returns the id instead of
+    raising. Every attempt writes the same id and timestamps, minted above.
     """
     session_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
-    with _session() as conn:
+    attempts = 0
+
+    def _op(conn: _Connection) -> None:
+        nonlocal attempts
+        attempts += 1
         conn.execute(
             """
             INSERT INTO chat_sessions
@@ -2078,6 +2457,18 @@ def create_chat_session(user_id: str, title: str) -> str:
             """,
             (session_id, user_id, title, now, now),
         )
+
+    try:
+        _unit_of_work("create_chat_session", StatementKind.IDEMPOTENT, _op)
+    except IntegrityError as exc:
+        # PRD-018 Section 6.3 row 11, D3. The id and both timestamps were minted
+        # above, so every attempt writes the same row. A duplicate `session_id`
+        # on an attempt after the first therefore means an earlier attempt landed
+        # (its response was lost) and the row is ours: that is success. On the
+        # first attempt the same error is a real collision and is raised as ever.
+        if attempts > 1 and exc.constraint == "chat_sessions.session_id":
+            return session_id
+        raise
     return session_id
 
 
@@ -2097,7 +2488,8 @@ def get_chat_session(session_id: str, user_id: str) -> Optional[ChatSession]:
     into "no such session" would render an empty rail on a database that never
     ran `init_db()`.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> Optional[ChatSession]:
         row = conn.execute(
             "SELECT * FROM chat_sessions WHERE session_id = ? AND user_id = ?",
             (session_id, user_id),
@@ -2105,6 +2497,8 @@ def get_chat_session(session_id: str, user_id: str) -> Optional[ChatSession]:
         if row is None:
             return None
         return _row_to_chat_session(row)
+
+    return _unit_of_work("get_chat_session", StatementKind.READ, _op)
 
 
 def list_chat_sessions(user_id: str, limit: int = 50) -> list[ChatSession]:
@@ -2127,7 +2521,8 @@ def list_chat_sessions(user_id: str, limit: int = 50) -> list[ChatSession]:
     cosmetic. For a transcript it would not be, which is why `chat_messages` is
     read by `id` and never by time.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> list[ChatSession]:
         rows = conn.execute(
             """
             SELECT * FROM chat_sessions
@@ -2138,6 +2533,8 @@ def list_chat_sessions(user_id: str, limit: int = 50) -> list[ChatSession]:
             (user_id, limit),
         ).fetchall()
         return [_row_to_chat_session(row) for row in rows]
+
+    return _unit_of_work("list_chat_sessions", StatementKind.READ, _op)
 
 
 def rename_chat_session(session_id: str, user_id: str, title: str) -> bool:
@@ -2155,12 +2552,15 @@ def rename_chat_session(session_id: str, user_id: str, title: str) -> bool:
     the same property `test_deactivate_user_is_idempotent` pins for
     `deactivate_user`.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         cursor = conn.execute(
             "UPDATE chat_sessions SET title = ? WHERE session_id = ? AND user_id = ?",
             (title, session_id, user_id),
         )
         return cursor.rowcount == 1
+
+    return _unit_of_work("rename_chat_session", StatementKind.IDEMPOTENT, _op)
 
 
 def touch_chat_session(session_id: str, user_id: str) -> bool:
@@ -2171,12 +2571,15 @@ def touch_chat_session(session_id: str, user_id: str) -> bool:
     -- `rename_chat_session` above pointedly does not.
     """
     now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         cursor = conn.execute(
             "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
             (now, session_id, user_id),
         )
         return cursor.rowcount == 1
+
+    return _unit_of_work("touch_chat_session", StatementKind.IDEMPOTENT, _op)
 
 
 def delete_chat_session(session_id: str, user_id: str) -> bool:
@@ -2201,8 +2604,15 @@ def delete_chat_session(session_id: str, user_id: str) -> bool:
     orphaned `session_id` on those rows is expected, and it is what preserves
     the evidence when a user tidies their list. Deleting a conversation deletes
     a conversation; it does not edit the record of what was asked.
+
+    **`IDEMPOTENT`, with one accepted residual (PRD-018 Section 6.3).** If the
+    commit lands and its response is lost (`OUTCOME_UNKNOWN`), the retry finds the
+    rows already gone, matches none, and returns `False` for a delete that did
+    happen. The stored state is right; the boolean is not. Fixing that needs a
+    read-back design, not a retry rule; STORY-014 documents it.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> bool:
         conn.execute(
             """
             DELETE FROM chat_messages
@@ -2219,6 +2629,8 @@ def delete_chat_session(session_id: str, user_id: str) -> bool:
             (session_id, user_id),
         )
         return cursor.rowcount == 1
+
+    return _unit_of_work("delete_chat_session", StatementKind.IDEMPOTENT, _op)
 
 
 def _row_to_stored_message(row: _Row) -> StoredMessage:
@@ -2324,7 +2736,8 @@ def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -
     created_at = message.created_at or datetime.now(timezone.utc).strftime(
         _TIMESTAMP_FORMAT
     )
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> int:
         cursor = conn.execute(
             """
             INSERT INTO chat_messages (
@@ -2362,6 +2775,8 @@ def append_chat_message(message: StoredMessage, session_id: str, user_id: str) -
             raise StorageError("chat session not available for this owner")
         return cursor.lastrowid
 
+    return _unit_of_work("append_chat_message", StatementKind.NON_IDEMPOTENT, _op)
+
 
 def list_chat_messages(session_id: str, user_id: str) -> list[StoredMessage]:
     """One owned session's whole transcript, in the order it was written.
@@ -2394,7 +2809,8 @@ def list_chat_messages(session_id: str, user_id: str) -> list[StoredMessage]:
     ever forces the issue it is a paging design with a visible control, not a
     default argument added here.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> list[StoredMessage]:
         rows = conn.execute(
             """
             SELECT * FROM chat_messages
@@ -2408,6 +2824,8 @@ def list_chat_messages(session_id: str, user_id: str) -> list[StoredMessage]:
             (session_id, session_id, user_id),
         ).fetchall()
         return [_row_to_stored_message(row) for row in rows]
+
+    return _unit_of_work("list_chat_messages", StatementKind.READ, _op)
 
 
 def count_chat_sessions(user_id: str) -> int:
@@ -2425,12 +2843,15 @@ def count_chat_sessions(user_id: str) -> int:
     Sessions, not messages. Nothing caps a transcript (`list_chat_messages`
     above), so there is no second number to report.
     """
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM chat_sessions WHERE user_id = ?",
             (user_id,),
         ).fetchone()
         return row["n"]
+
+    return _unit_of_work("count_chat_sessions", StatementKind.READ, _op)
 
 
 # --- Action decisions (PRD-016 STORY-015) ---
@@ -2449,11 +2870,17 @@ def insert_action_decisions(rows: Sequence[ActionDecisionRow]) -> list[int]:
 
     An empty `rows` returns `[]` without opening a session: a response with no
     tool calls costs no round trip.
+
+    **`NON_IDEMPOTENT` until STORY-004's `write_id` (PRD-018 D4).** No row carries
+    a key a replay could be recognised by yet, so an `OUTCOME_UNKNOWN` commit is
+    never replayed. `ids` is created inside the unit: a retry starts the batch
+    over, and a replay must not append a second set of ids.
     """
     if not rows:
         return []
-    ids: list[int] = []
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> list[int]:
+        ids: list[int] = []
         for row in rows:
             cursor = conn.execute(
                 """
@@ -2485,7 +2912,9 @@ def insert_action_decisions(rows: Sequence[ActionDecisionRow]) -> list[int]:
                 ),
             )
             ids.append(cursor.lastrowid)
-    return ids
+        return ids
+
+    return _unit_of_work("insert_action_decisions", StatementKind.NON_IDEMPOTENT, _op)
 
 
 def _row_to_action_decision_row(row: Mapping[str, Any]) -> ActionDecisionRow:
@@ -2546,12 +2975,15 @@ def list_action_decisions(
         params.append(audit_id)
     where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     params.append(limit)
-    with _session() as conn:
+
+    def _op(conn: _Connection) -> list[ActionDecisionRow]:
         rows = conn.execute(
             f"SELECT * FROM action_decisions {where}ORDER BY id DESC LIMIT ?",
             tuple(params),
         ).fetchall()
         return [_row_to_action_decision_row(row) for row in rows]
+
+    return _unit_of_work("list_action_decisions", StatementKind.READ, _op)
 
 
 def count_action_decisions() -> dict[str, int]:
@@ -2562,10 +2994,13 @@ def count_action_decisions() -> dict[str, int]:
     what STORY-016's `/stats` reports.
     """
     counts = {value: 0 for value in ACTION_DECISION_VALUES}
-    with _session() as conn:
-        rows = conn.execute(
+
+    def _op(conn: _Connection) -> list[_Row]:
+        return conn.execute(
             "SELECT decision, COUNT(*) AS n FROM action_decisions GROUP BY decision"
         ).fetchall()
+
+    rows = _unit_of_work("count_action_decisions", StatementKind.READ, _op)
     for row in rows:
         counts[row["decision"]] = row["n"]
     return counts

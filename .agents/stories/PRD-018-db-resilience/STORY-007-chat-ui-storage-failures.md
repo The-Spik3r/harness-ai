@@ -41,6 +41,7 @@ As a chat user, I want a storage failure during sign-in or at the start of a sen
 - Do not add any retry in the UI: storage retries already happened in `_unit_of_work`.
 - Chat UI probe rule from the brief: if you touch `chat_ui/`, run `tests/test_chat_ui_startup_guard.py`.
 - Tests: the existing `tests/test_chat_ui_*.py` state tests (find the one covering `_do_send` and `login`), plus a new focused test.
+- Orchestrator note (STORY-003 plan): `ChatState`'s inline `resolve()` (`state.py:967`) runs on the event loop, so STORY-003's retry backoff (≤ 0.25 s total) now blocks the loop during a retry. When moving `resolve()` inside the `try`, also consider running it off the loop (`asyncio.to_thread`, as the other storage calls in `state.py` do), and say what you chose.
 
 ## Dependencies
 

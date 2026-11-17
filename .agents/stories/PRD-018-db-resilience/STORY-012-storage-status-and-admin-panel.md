@@ -42,6 +42,8 @@ As a platform operator, I want to see breaker state, journal depth and retry cou
 - Admin UI follows the existing admin console components and copy file. The `frontend-design` skill applies to the panel's layout; match the existing panels rather than inventing a style.
 - `docs/api.md` row for the endpoint is STORY-014.
 - Tests: `tests/test_storage_status.py` (non-`db`), plus the admin console state tests.
+- Orchestrator note (STORY-003 plan): `usage_limits.charge` logs the raw `str(exc)` today (`app/services/usage_limits.py:217-227`). PRD Section 11 says every log line carries redacted driver text: route it through `database._redacted()` while touching the logging (cite PRD-018 Quality indicators).
+- Orchestrator decision (STORY-003): a refused infrastructure retry (`NON_IDEMPOTENT` on `OUTCOME_UNKNOWN`) logs one WARNING `retry refused ...`. Count it in `counters.exhausted` under `<op>:<class>`, or add a `refused` map, and say which.
 
 ## Dependencies
 

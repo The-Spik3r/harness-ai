@@ -39,6 +39,7 @@ As a platform operator, I want the deployment docs, compose file and env templat
 - Docs only, plus compose and `.env.example`. Any test that pins `docker-compose.yml` or `.env.example` contents (search `tests/` for them, e.g. a settings/env census) must be updated with a comment citing PRD-018.
 - Match the docs' existing voice and structure; no marketing tone.
 - Validation: `docker compose config` parses; the relevant config/compose tests pass.
+- Known residual to document (STORY-003): `delete_chat_session` is IDEMPOTENT, so after an `OUTCOME_UNKNOWN` commit that actually landed, the retry finds nothing and returns `False`. The data is correct, but the UI may report "not found" for a delete that worked.
 
 ## Dependencies
 

@@ -4334,12 +4334,18 @@ def test_a_second_connection_failure_surfaces_rather_than_looping(
     database._client = dead
     database._client_used_at = 0.0
     built = _counting_connect(monkeypatch, dead)
+    monkeypatch.setattr(database, "_retry_sleep", lambda seconds: None)
 
     with pytest.raises(StorageError) as exc_info:
         count_audit_logs()
 
     assert not isinstance(exc_info.value, (IntegrityError, MissingRelationError))
-    assert len(built) == 1
+    # PRD-018 D5: `count_audit_logs` is a READ unit, retried at most three times,
+    # each attempt on a freshly built client (one from the idle probe's
+    # replacement, two from `_unit_of_work`'s rebuilds after `_translated()`
+    # dropped the dead one). Still bounded, still a `StorageError`: the premise
+    # of "a down database stays visible" holds. This was `== 1` before the retry.
+    assert len(built) == database._RETRY_MAX_ATTEMPTS
     assert database._client is None  # dropped, so the next call rebuilds
 
 
@@ -4443,8 +4449,13 @@ def test_a_dead_stream_mid_statement_invalidates_without_retrying(
 
     _install(monkeypatch, _DyingStream)
 
+    # PRD-018 D1: the no-retry contract belongs to `_translated()` / `_session()`,
+    # and that is what this pins, so it drives them directly. The public read now
+    # retries one level up, in `_unit_of_work`, which
+    # `tests/test_db_resilience_retry.py` covers.
     with pytest.raises(StorageError):
-        count_audit_logs()
+        with database._session() as conn:
+            conn.execute("SELECT COUNT(*) AS n FROM audit_logs")
 
     assert executes == ["SELECT COUNT(*) AS n FROM audit_logs"]
     assert database._client is None
