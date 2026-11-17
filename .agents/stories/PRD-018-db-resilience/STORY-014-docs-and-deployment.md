@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "5 - Visible and documented"
-status: todo
+status: done
 labels: [docs, deployment]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-014-docs-and-deployment.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-014-docs-and-deployment.report.md
+commit: pending
 depends_on: [STORY-012, STORY-013]
 blocks: []
 skills: []
@@ -40,6 +40,7 @@ As a platform operator, I want the deployment docs, compose file and env templat
 - Match the docs' existing voice and structure; no marketing tone.
 - Validation: `docker compose config` parses; the relevant config/compose tests pass.
 - Document (STORY-006): the `/v1` 503 error object carries `"harness": null` like every `/v1` error (`ErrorDetail` schema); `/query`'s identity 503 detail is `"Storage unavailable"` while the gate 503 is `"Storage unavailable: the request was not sent to the model."`; a post-commit SSE `storage_unavailable` event cannot carry `Retry-After` (headers already sent). The shared rule lives in `app/services/storage_faults.py`.
+- Document (STORY-013 measurements, report `.agents/reports/PRD-018-db-resilience/STORY-013-success-criteria-fault-suite.report.md`): healthy-path overhead measured +0.04 ms p50 against a local file database (code overhead); over Docker Desktop's network the 0.5 ms budget is below the noise floor (+0.80 ms with a 1.70 ms spread), stated as unresolvable, not a pass. On a Windows host a refused connect takes ~2 s, so the 2 s start deadline allows a single attempt there (`reason=deadline`); Linux refuses in milliseconds. Mention `--run-chaos` (opt-in, restarts the dev server, never in CI) in the testing docs where `--run-e2e` is described.
 - Known residual to document (STORY-003): `delete_chat_session` is IDEMPOTENT, so after an `OUTCOME_UNKNOWN` commit that actually landed, the retry finds nothing and returns `False`. The data is correct, but the UI may report "not found" for a delete that worked.
 
 ## Dependencies

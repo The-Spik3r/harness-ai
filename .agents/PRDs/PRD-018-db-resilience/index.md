@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-018-db-resilience` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
-13/14 stories done — 93%
+14/14 stories done — 100%
 
 ## Stories
 
@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story
 | STORY-011 | Duplicate overlay over journaled rows and the admission headroom check | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-011-duplicate-overlay-and-headroom.plan.md) | `84a463b` |
 | STORY-012 | GET /storage/status, in-memory counters, and the admin console Storage panel | feature | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-012-storage-status-and-admin-panel.plan.md) | `1c94ed8` |
 | STORY-013 | Success-criteria suite — statements 1–14 under fault injection, outage end-to-end, opt-in chaos, latency | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-013-success-criteria-fault-suite.plan.md) | `2078087` |
-| STORY-014 | Docs, compose volume, .env.example, roadmap, and PRD close-out | technical | ⬜ todo | small | — | — |
+| STORY-014 | Docs, compose volume, .env.example, roadmap, and PRD close-out | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-014-docs-and-deployment.plan.md) | `pending` |
 
 ## Status Icons
 - ⬜ todo

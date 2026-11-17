@@ -28,6 +28,15 @@ pytest tests/ -m db -v                   # only the storage tests
 pytest tests/ --collect-only -q -m db    # list what counts as a db test
 ```
 
+Two kinds of test are opt-in and skipped by default, each behind its own flag (`tests/conftest.py`):
+
+```bash
+pytest tests/e2e -m e2e --run-e2e -v                                   # live client E2E against a subprocess harness and a stub upstream
+pytest tests/test_db_resilience_chaos.py -m chaos --run-chaos -v -s    # PRD-018 chaos: restarts the libSQL dev server
+```
+
+The chaos tests restart or black-hole the dev server (`harness-libsql-dev`) to check the retry, breaker and journal against a real fault, so they are never part of the CI run or of a plain `pytest tests/`. They leave the server running.
+
 About two thirds of the suite never touches storage. Those tests are not `db`: they are not reset, and they cannot reach the server at all, so `-m "not db"` is a fast loop that runs with Docker stopped. A test is `db` when it requests a storage fixture (`temp_db`, `database_url`, `uninitialized_db`, `database_url_factory` or `db_connect`, directly or through another fixture), carries `@pytest.mark.db`, or is listed in `_DB_NODEIDS` in `tests/conftest.py`. The marker is applied at collection, so test files do not declare it. With the server down, a full run stops at the first `db` test with a "libSQL dev server ... is unreachable" message that says how to start it.
 
 **A test failed with "reached storage ... without declaring it".** For example:
@@ -144,7 +153,7 @@ The credential is valid, but the role lacks the permission that endpoint require
 The user is over one of their [usage limits](features.md#usage-limits). `limit` says which — `requests` clears at the next minute, `tokens` at the next 00:00 UTC, both given in `resets_at`. To raise it for one user, `python scripts/manage_users.py set-limits --user-id <id> --token-budget <N>` (or `--requests-per-minute <N>`), which applies to their next request; to raise it for a role, change `USAGE_DAILY_TOKEN_BUDGET` or `USAGE_REQUESTS_PER_MINUTE` and restart. The admin console's Usage page shows who is near their budget.
 
 **`500` on `POST /query` with `Usage admission failed: …`**
-The usage gate could not read its counter in the database, so the request was refused without reaching the model — fail closed by design, like the duplicate check. Check the database as for `DatabaseUnreachableError`; see [The database is a hard dependency of every request](deployment.md#the-database-is-a-hard-dependency-of-every-request). Setting `USAGE_LIMITS_ENABLED=false` removes the dependency, and the limits with it.
+The usage gate could not read its counter in the database, so the request was refused without reaching the model — fail closed by design, like the duplicate check. A storage outage no longer reaches here as a `500`: the gate answers `503` with `Retry-After` and fixed text, and a `500` with this detail now means a cause that is not an outage (a statement the database refused). Check the database as for `DatabaseUnreachableError`; see [What a database outage does](deployment.md#what-a-database-outage-does). Setting `USAGE_LIMITS_ENABLED=false` removes the dependency, and the limits with it.
 
 **`"required_permission": "ingress:break_glass"` when using `ADMIN_TOKEN`**
 `BREAK_GLASS_INGRESSES` does not include the ingress you used. Use an admin user's own token from `scripts/manage_users.py` instead, or add `query` or `chat` back to the setting. On `/v1` the same refusal is `403` with `"code": "break_glass_not_permitted"`, and no setting allows the token there: use a user's token.

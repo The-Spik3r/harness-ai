@@ -1534,3 +1534,35 @@ def test_reserve_constant_is_the_journals():
 
     assert config._JOURNAL_ENTRY_RESERVE_BYTES is audit_journal._JOURNAL_ENTRY_RESERVE_BYTES
     assert audit_journal._JOURNAL_ENTRY_RESERVE_BYTES == 65536
+
+
+# --- PRD-018 STORY-014: .env.example documents the audit journal settings -----
+
+_AUDIT_BUFFER_VARS = ("AUDIT_BUFFER_DIR", "AUDIT_BUFFER_MAX_BYTES")
+
+
+def test_env_example_documents_both_audit_buffer_vars_with_a_comment():
+    """PRD-018 STORY-014 AC 2: both present, each with an explanation directly above it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _AUDIT_BUFFER_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_audit_buffer_vars_appear_in_settings_field_order():
+    """PRD-018 STORY-014 AC 2. The order is read from `Settings.model_fields`."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [name for name in Settings.model_fields if name in _AUDIT_BUFFER_VARS]
+
+    assert sorted(declared_order) == sorted(_AUDIT_BUFFER_VARS)
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_audit_buffer_defaults_match_settings():
+    """PRD-018 STORY-014 AC 2: the template carries the shipped defaults (PRD 9.3)."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert _env_example_value(text, "AUDIT_BUFFER_DIR") == Settings.model_fields["AUDIT_BUFFER_DIR"].default
+    assert int(_env_example_value(text, "AUDIT_BUFFER_MAX_BYTES")) == Settings.model_fields["AUDIT_BUFFER_MAX_BYTES"].default

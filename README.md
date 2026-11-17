@@ -282,7 +282,7 @@ If you point this stack at a libSQL dev server running on your own machine rathe
 
 `--build` is not optional after pulling changes. Compose reuses an existing image rather than rebuilding, and an image built before the Turso migration will now fail at boot rather than silently writing to a file.
 
-The audit trail lives in Turso, reached over the network, so the container holds no database and no volume is involved. Restarting, rebuilding, or tearing the stack down — `docker compose down -v` included — does not touch the audit history. See [Persistence & Deployment](docs/deployment.md#persistence--deployment).
+The audit trail lives in Turso, reached over the network, so the container holds no database. The one local state is the audit journal on the `harness-audit-buffer` volume: empty while the database is reachable, holding audit rows only during an outage until they drain. Restarting or rebuilding does not touch it; `docker compose down -v` removes the volume and any undrained rows, so check that `GET /storage/status` shows `journal.entries` at `0` first. The audit history in Turso is never touched. See [Persistence & Deployment](docs/deployment.md#persistence--deployment).
 
 The image bakes `en_core_web_lg` in at build time, so no model download happens at container start — without it, a fresh container would pull ~400 MB before serving its first request. This makes the image substantially larger: measured with `docker image inspect`, the pre-PII image was 131 MB and the current one is 628 MB (of which ~446 MB is the model layer), and the first build spends ~40 s downloading it. Accepted tradeoff — see PRD-003 Risk 5. (`docker images` reports larger figures for the same images on containerd-backed installs; the numbers above use `docker image inspect`.)
 
@@ -357,7 +357,7 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 | [Features in depth](docs/features.md) | Duplicate-detection scope, multi-turn context, pattern policy, PII redaction, usage limits, the OpenAI-compatible endpoint and its per-client setup, action policy rules and tool calling — full behaviour and the threat reasoning behind each. |
 | [Configuration](docs/configuration.md) | Every environment variable, its default, and what it changes. |
 | [API reference](docs/api.md) | `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, `POST /v1/chat/completions` and `GET /v1/models` — every request and response shape, and the `/v1` error codes. |
-| [Persistence & deployment](docs/deployment.md) | Where state lives, what is stored and who can read it, multi-instance notes, and migrating off SQLite. |
+| [Persistence & deployment](docs/deployment.md) | Where state lives, what is stored and who can read it, what a database outage does, multi-instance notes, and migrating off SQLite. |
 | [Testing](docs/testing.md) | Running the suite, the libSQL diagnostics verdicts, and troubleshooting. |
 | [Roadmap](docs/roadmap.md) | Shipped, next up, and design notes for the planned work. |
 
@@ -365,9 +365,9 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 
 ## Roadmap
 
-**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), action policy rules, and tool calling on `/v1` (OpenCode and Cline in agent mode, off by default).
+**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), action policy rules, tool calling on `/v1` (OpenCode and Cline in agent mode, off by default), and database resilience (retry, circuit breaker, an audit journal and `GET /storage/status`).
 
-**Next up** — provider resilience: retry, circuit breaker and offline buffering in front of the database, a second provider as fallback to OpenRouter, and websocket session affinity so the harness can run behind a load balancer. This is the first work beyond the Turso migration, because today a transient database or provider outage fails requests rather than degrading them — see [The database is a hard dependency of every request](docs/deployment.md#the-database-is-a-hard-dependency-of-every-request).
+**Next up** — provider resilience: a second provider as fallback to OpenRouter, and websocket session affinity so the harness can run behind a load balancer. Database resilience has shipped (retry, circuit breaker and an audit journal, PRD-018): see [What a database outage does](docs/deployment.md#what-a-database-outage-does). A transient OpenRouter outage still fails requests rather than degrading them.
 
 **Planned** — semantic (not just exact-match) duplicate detection, and MCP servers and agent skills behind the same pipeline.
 

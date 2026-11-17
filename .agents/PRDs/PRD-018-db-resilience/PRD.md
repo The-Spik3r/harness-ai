@@ -2,11 +2,11 @@
 id: PRD-018
 slug: db-resilience
 title: Database Resilience — Retry, Circuit Breaker and Buffered Audit Writes
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-018-db-resilience
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 ## 1. Executive Summary

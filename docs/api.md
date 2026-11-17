@@ -1,6 +1,6 @@
 # API reference
 
-Every request and response shape for `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, and the OpenAI-compatible `POST /v1/chat/completions` and `GET /v1/models`.
+Every request and response shape for `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, `GET /storage/status`, and the OpenAI-compatible `POST /v1/chat/completions` and `GET /v1/models`.
 
 ← Back to the [README](../README.md).
 
@@ -22,6 +22,7 @@ curl -X POST http://localhost:8000/query \
   "status": "SUCCESS",
   "response": "Sure — I will reply to <EMAIL_ADDRESS> for <PERSON>.",
   "audit_id": 1,
+  "audit_ref": "3f2a9c1e8b7d4a6f9e0c5d2b1a8f7e63",
   "model_used": "gpt-4",
   "tokens_used": 45,
   "pii_redacted": true,
@@ -30,6 +31,8 @@ curl -X POST http://localhost:8000/query \
 ```
 
 OpenRouter received `my name is <PERSON>, my email is <EMAIL_ADDRESS>` — never the raw text. `pii_entities_masked` is the sorted union of entity types masked in the prompt and in the response; when nothing is detected, `pii_redacted` is `false` and the list is empty. Both fields are additive — clients that ignore unknown fields are unaffected, and the two `BLOCKED` shapes below are unchanged (redaction runs only after both checks pass).
+
+`audit_ref` is on every success and equals the audit row's `write_id`, a client-minted id that lets a replayed write be recognised. `audit_id` is the row's number, and is `null` only when the row was written to the [audit journal](deployment.md#what-a-database-outage-does) because the database could not take it; the answer is still released, and `audit_ref` is how the row is found once it has drained.
 
 The token identifies the caller — the request body's `user_id`, if present, is accepted only for backward compatibility and must match the authenticated identity or the request is refused with `403` (`user_id does not match the authenticated identity`).
 
@@ -136,6 +139,20 @@ The eighth `POST /query` outcome, added by PRD-013; the seven before it are unch
 
 The check sits after authorization and the break-glass check, and before the context limit and every content check. After, so a caller without `query:submit` learns nothing about the deployment's limits and spends nothing; before, so a refused request is never analyzed. The attempt is audited as one row with `success=true` and `limit_exceeded` set to the limit, the way a duplicate block is recorded, and it is never treated as a prior query by the duplicate check. If the usage counter cannot be read, the response is a `500` and nothing is sent upstream.
 
+### `POST /query` — 503 (storage unavailable)
+
+```json
+{"detail": "Storage unavailable"}
+```
+
+```json
+{"detail": "Storage unavailable: the request was not sent to the model."}
+```
+
+Both come with a `Retry-After` header in whole seconds (at least 1). The first answers when the identity read fails; the second when the session-ownership check, the usage gate or the duplicate check fails because the database is unreachable, and it is the harness saying nothing was sent upstream and nothing was spent. `Retry-After` is the time to the storage circuit breaker's next probe, or `1` when the breaker is closed and only the retry budget ran out.
+
+Two more cases answer `503`: the answer was produced but its audit row could be neither written nor journaled (nothing is released), and the audit journal has no headroom for a request (`Retry-After: 1`, checked before the model is called). A failure that is not an outage, such as a statement the database refused, keeps its `500` and its detail. The driver's own text never appears in a response: bodies carry this fixed copy, and the driver text is logged redacted. See [What a database outage does](deployment.md#what-a-database-outage-does).
+
 ### `GET /audit` (requires `audit:read:all` or `audit:read:own`)
 
 ```bash
@@ -181,6 +198,8 @@ curl http://localhost:8000/audit \
 `pii_entities` is the union of types masked in either direction. The audit trail deliberately stores the **raw, unmasked** prompt and response previews in the database — an auditor investigating an incident needs the actual value, not `<EMAIL_ADDRESS>` — but this endpoint exposes neither the raw previews nor the masked text, only the flags above.
 
 `audit:read:all` returns every row; with only `audit:read:own`, the response contains solely the caller's rows and `total` reflects that scoped count. An identity holding neither permission gets `403` `{"detail": "Permission denied: audit:read:own"}` (the last permission attempted). `role` and `denied_permission` are populated on every row — `null` for rows written before this control existed or for a successful, non-denied query.
+
+**`audit_id` is not time order after an outage.** A row that was written to the [audit journal](deployment.md#what-a-database-outage-does) and drained later gets its `audit_id` when it is drained, so it can be higher than rows written after it. The list is ordered by `timestamp`, which the drain preserves; do not sort by `audit_id` to recover time order.
 
 `session_id` names the conversation a row belonged to, so three rows that were one conversation are visibly one conversation instead of a guess. It is `null` for two whole classes of row: everything written before this release, and every send that carried no session — `POST /query` without the field, which keeps working unchanged. **This is the only place a session reaches an admin.** No endpoint and no console surface exposes a transcript; the auditor learns that rows were related, not what was said in them beyond the previews this endpoint already withholds.
 
@@ -285,6 +304,51 @@ curl http://localhost:8000/stats \
 
 A missing or invalid credential on any endpoint returns `401`. An authenticated identity that lacks the endpoint's required permission (e.g. a `user` role calling `GET /stats`) returns `403` with `{"detail": "Permission denied: stats:read"}`.
 
+### `GET /storage/status` (requires `stats:read`)
+
+```bash
+curl http://localhost:8000/storage/status   -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+```json
+{
+  "instance": "harness-7c9d:1",
+  "breaker": {
+    "state": "closed",
+    "since": "2026-11-17T09:12:40Z",
+    "consecutive_failures": 0,
+    "last_failure_class": null,
+    "retry_after_seconds": null
+  },
+  "journal": {
+    "open": true,
+    "entries": 0,
+    "bytes": 0,
+    "max_bytes": 67108864,
+    "headroom_bytes": 2097152,
+    "oldest_timestamp": null,
+    "draining": false,
+    "adopted_files": 0,
+    "held_back_entries": 0,
+    "held_back_files": 0
+  },
+  "counters": {
+    "retries": {"admit_usage:not_sent": 2},
+    "exhausted": {},
+    "breaker_opens": 0,
+    "journal_appended": 0,
+    "journal_drained": 0,
+    "torn_tail_discarded": 0
+  }
+}
+```
+
+What this process's storage layer is doing, answered from memory with **no database call**, so it responds while the breaker is open. `/health` is unchanged. The break-glass `ADMIN_TOKEN` can read it. The admin console shows the same at `/admin/storage`.
+
+- `instance` is `<hostname>:<pid>`. `breaker.state` is `closed`, `open` or `half_open`; `since` is the last transition (UTC); `retry_after_seconds` is set while it is open.
+- `journal.open` is `false` when this process opened no journal. `entries` and `bytes` are what is waiting to drain; both are `0` in steady state. `headroom_bytes` is the admission reserve (pipeline workers × 64 KiB), **not** free bytes. `held_back_files` and `held_back_entries` are what stays on disk and is never retried by this process: see [What a database outage does](deployment.md#what-a-database-outage-does).
+- `counters` are per process and reset on restart. `retries` and `exhausted` are keyed `"<operation>:<failure class>"`.
+
 ### `POST /v1/chat/completions` — success
 
 Requires a bearer token with `query:submit`. Headers: `Authorization: Bearer <harness token>`, `Content-Type: application/json`, and optionally `X-Harness-Device`. See [OpenAI-compatible endpoint](features.md#openai-compatible-endpoint) for what it accepts and what it does not.
@@ -313,11 +377,11 @@ Requires a bearer token with `query:submit`. Headers: `Authorization: Bearer <ha
     "finish_reason": "stop"
   }],
   "usage": {"prompt_tokens": 812, "completion_tokens": 96, "total_tokens": 908},
-  "harness": {"audit_id": 1842, "pii_redacted": false, "pii_entities_masked": []}
+  "harness": {"audit_id": 1842, "audit_ref": "3f2a9c1e8b7d4a6f9e0c5d2b1a8f7e63", "pii_redacted": false, "pii_entities_masked": []}
 }
 ```
 
-`200`, with an `X-Harness-Audit-Id: 1842` header. `id` is derived from the audit row's id. `model` is the requested name. `finish_reason` is the upstream's (`stop`, `length`, `content_filter`), or `stop` when it sent none. When the provider reported no prompt/completion split, both are `0` and `total_tokens` is still the reported total; the audit row keeps `null` for the split. `harness` is an extension object that clients which do not know it ignore. `content` is the response as the `code` profile leaves it: not masked, unless `PII_CODE_REDACT_OUTPUT=true`. A flagged request (an injection phrase in an `assistant` or `tool` turn) is answered like this and writes its flag on the row.
+`200`, with an `X-Harness-Audit-Id: 1842` header. When the audit row was journaled because the database could not take it, `harness.audit_id` is `null`, the header is `X-Harness-Audit-Ref: <write_id>` instead, and `id` is `chatcmpl-harness-ref-<write_id>`; `harness.audit_ref` is present either way. `id` is derived from the audit row's id. `model` is the requested name. `finish_reason` is the upstream's (`stop`, `length`, `content_filter`), or `stop` when it sent none. When the provider reported no prompt/completion split, both are `0` and `total_tokens` is still the reported total; the audit row keeps `null` for the split. `harness` is an extension object that clients which do not know it ignore. `content` is the response as the `code` profile leaves it: not masked, unless `PII_CODE_REDACT_OUTPUT=true`. A flagged request (an injection phrase in an `assistant` or `tool` turn) is answered like this and writes its flag on the row.
 
 **With `V1_TOOLS_ENABLED=true`** the request may also carry `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns. A response whose model proposed tool calls carries the released calls in `message.tool_calls`, `finish_reason: "tool_calls"` when at least one was released, a note in `content` for each denied call, and `harness.actions` with one decision per evaluated call. A text-only response is the body above, byte for byte. The full shape, with a denied `DROP TABLE` as the example, is in [Tool calling](features.md#tool-calling).
 
@@ -341,7 +405,7 @@ data: [DONE]
 - The whole response is **one** content chunk, sent only after every check has passed.
 - With tool calls released, the content chunk is followed by **one chunk per released call carrying its whole `arguments`**. No chunk carries the `harness` object.
 - The usage chunk (empty `choices`) is sent only with `include_usage`.
-- There is no `X-Harness-Audit-Id` header: the row does not exist when the headers go out. Every chunk's `id` carries it.
+- There is no `X-Harness-Audit-Id` header: the row does not exist when the headers go out. Every chunk's `id` carries it (the `chatcmpl-harness-ref-<write_id>` form when the row was journaled).
 - A block decided before the upstream call (every verdict in the table below) is answered as JSON with its own status, exactly as unstreamed. A failure after the stream started is one `data: {"error": {...}}` event, the same object as below, and the stream ends without `[DONE]`.
 
 ### `POST /v1/chat/completions` — errors
@@ -381,11 +445,13 @@ Every error has the OpenAI shape plus a `harness` object holding the pipeline re
 | Token lacks `query:submit` | `403` | `permission_error` | `permission_denied` | no |
 | Upstream timeout, connection error, `5xx` or `429` | `502` | `api_error` | `upstream_unavailable` | **yes** |
 | Upstream `4xx`, malformed response, no content, or no OpenRouter key | `502` | `api_error` | `upstream_error` | no |
-| The duplicate check or usage gate could not read the database, or the action decisions could not be recorded | `500` | `api_error` | `internal_error` | **yes** |
+| The database is unavailable: the identity read, the duplicate check or the usage gate failed, the audit journal is full or has no headroom, or the audit row was neither written nor journaled | `503` | `api_error` | `storage_unavailable` | **yes**, with `Retry-After` |
+| A storage failure that is not an outage (a refused statement) in the duplicate check or usage gate, or the action decisions could not be recorded | `500` | `api_error` | `internal_error` | **yes** |
 | PII redaction failed | `500` | `api_error` | `redaction_failed` | no |
 
 - **Not retried** means a status the OpenAI SDKs never retry (`400`, `401`, `403`) or, for a `5xx`, the `x-should-retry: false` header, which they read before their status rule. Every non-retryable error carries the header, so the rule is one rule. There is never a `429`.
 - `message` is the reason plus its details (`: <pattern>`, `first seen <timestamp>`, `messages 140 > 100`). For an upstream fault it is the harness's own description of the HTTP failure, never the provider's response body.
+- A `storage_unavailable` `503` carries `Retry-After` in whole seconds (at least 1) and no `x-should-retry` header, so the SDKs retry it. Like every `/v1` error it has `"harness": null`; the driver's text is never in `message`. A failure after a stream has started is one SSE `error` event, with no `Retry-After` because the headers are already sent. See [What a database outage does](deployment.md#what-a-database-outage-does).
 - `param` names the offending field on a `400` from the request's shape, for example `"messages[2].role"`, `"temperature"` or `"tools[2].function.name"`.
 - Each pipeline verdict writes the same audit row it writes on `POST /query`, with `ingress='v1'`. A shape refusal (`invalid_*`, `unsupported_parameter`, `tools_not_supported`) runs no pipeline step and writes no row. A retried upstream fault writes one `success=false` row per attempt; such rows are never a prior query for the duplicate check, so the retry is not held as a duplicate.
 - A denied tool call is **not** an error: the response is a `200` with the call dropped and a note in `content` (see [Tool calling](features.md#tool-calling)).
