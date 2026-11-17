@@ -41,7 +41,7 @@ Everything below this line is **intended direction, not current behavior**, exce
 
 ### OpenAI-compatible endpoint
 
-**Shipped (PRD-015).** `POST /v1/chat/completions` and `GET /v1/models` follow the OpenAI Chat Completions standard, so tools that already speak it, such as [OpenCode](https://github.com/sst/opencode), Cline, Continue, Aider and the official OpenAI SDKs, are pointed at the harness by changing one base URL:
+**Shipped (PRD-015).** Full behaviour and per-client setup are in [Features — OpenAI-compatible endpoint](features.md#openai-compatible-endpoint); request, response and error shapes are in the [API reference](api.md#post-v1chatcompletions--success). `POST /v1/chat/completions` and `GET /v1/models` follow the OpenAI Chat Completions standard, so tools that already speak it, such as [OpenCode](https://github.com/sst/opencode), Cline, Continue, Aider and the official OpenAI SDKs, are pointed at the harness by changing one base URL:
 
 ```bash
 OPENAI_BASE_URL=http://localhost:8000/v1

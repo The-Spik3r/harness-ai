@@ -2,7 +2,7 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-011-pattern-policy` (base: `main`)
-**Status**: in-progress
+**Status**: done
 
 ## Progress
 

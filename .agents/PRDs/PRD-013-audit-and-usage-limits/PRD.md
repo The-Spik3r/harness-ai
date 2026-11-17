@@ -2,7 +2,7 @@
 id: PRD-013
 slug: audit-and-usage-limits
 title: Audit for Conversations and Usage Limits — What Was Attempted, Through Which Door, at What Cost, Within a Bound
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-013-audit-and-usage-limits
 created: 2026-10-04

@@ -147,6 +147,12 @@ The user is over one of their [usage limits](features.md#usage-limits). `limit` 
 The usage gate could not read its counter in the database, so the request was refused without reaching the model — fail closed by design, like the duplicate check. Check the database as for `DatabaseUnreachableError`; see [The database is a hard dependency of every request](deployment.md#the-database-is-a-hard-dependency-of-every-request). Setting `USAGE_LIMITS_ENABLED=false` removes the dependency, and the limits with it.
 
 **`"required_permission": "ingress:break_glass"` when using `ADMIN_TOKEN`**
-`BREAK_GLASS_INGRESSES` does not include the ingress you used. Use an admin user's own token from `scripts/manage_users.py` instead, or add `query` or `chat` back to the setting.
+`BREAK_GLASS_INGRESSES` does not include the ingress you used. Use an admin user's own token from `scripts/manage_users.py` instead, or add `query` or `chat` back to the setting. On `/v1` the same refusal is `403` with `"code": "break_glass_not_permitted"`, and no setting allows the token there: use a user's token.
+
+**`/v1` answers `400` with `"code": "tools_not_supported"`**
+The client sent `tools`, an assistant `tool_calls` or a `tool` turn while `V1_TOOLS_ENABLED=false`, or sent the deprecated `functions` / `function_call` (refused either way), or, with tools on, named a model that is not in `V1_TOOL_MODELS`. Continue's `cn` sends its tools in every mode; run it with `--exclude "*"` while tools are off. To use agent modes, turn tool calling on as described in [Tool calling](features.md#tool-calling).
+
+**`/v1` answers `400` `invalid_messages`: "the last message must be a user turn"**
+The client ended the conversation with a `system` or `assistant` turn (with tools on, a `tool` turn is also accepted as the last one). Aider does this for model names it recognises: use `--model openai/openai/gpt-4o` (see [Per-client setup](features.md#per-client-setup)).
 
 ---

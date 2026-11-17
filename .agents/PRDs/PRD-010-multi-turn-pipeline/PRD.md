@@ -2,7 +2,7 @@
 id: PRD-010
 slug: multi-turn-pipeline
 title: Multi-turn Pipeline — Conversations In, Off the Shared Threadpool
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-010-multi-turn-pipeline
 created: 2026-09-17

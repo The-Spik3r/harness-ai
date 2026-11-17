@@ -2,7 +2,7 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-009-duplicate-rescoping` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
