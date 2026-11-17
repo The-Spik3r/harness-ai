@@ -67,6 +67,10 @@ ROUTE_USAGE = "/admin/usage"
 # owns `/audit/actions`), so it falls through the Caddyfile's static matcher and
 # `@backend_routes` is untouched.
 ROUTE_ACTIONS = "/admin/actions"
+# PRD-018 STORY-012: the Storage view (breaker, journal, counters). Its own view:
+# it describes this process's storage health, not a figure over the audit data.
+# Not a backend path (`GET /storage/status` is the router's), so it is static.
+ROUTE_STORAGE = "/admin/storage"
 
 # Which of the two views a page is. Passed down from the page rather than read
 # off the router: the masthead's correctness would otherwise depend on a string
@@ -76,6 +80,7 @@ VIEW_REGISTER = "register"
 VIEW_SUMMARY = "summary"
 VIEW_USAGE = "usage"
 VIEW_ACTIONS = "actions"
+VIEW_STORAGE = "storage"
 
 
 def admin_gate() -> rx.Component:
@@ -502,6 +507,18 @@ def admin_masthead(active: str) -> rx.Component:
                         VIEW_ACTIONS,
                         admin_copy.VIEW_ACTIONS_LABEL,
                         ROUTE_ACTIONS,
+                        active,
+                    ),
+                    padding_left="0.75rem",
+                    margin_left="0.75rem",
+                    border_left=f"1px solid {theme.RULE}",
+                ),
+                # PRD-018 STORY-012: the fifth peer, separated the same way.
+                rx.box(
+                    _view_link(
+                        VIEW_STORAGE,
+                        admin_copy.VIEW_STORAGE_LABEL,
+                        ROUTE_STORAGE,
                         active,
                     ),
                     padding_left="0.75rem",

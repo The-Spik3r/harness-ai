@@ -1,7 +1,9 @@
 import json
 import logging
+import os
 import random
 import re
+import socket
 import threading
 import time
 import uuid
@@ -60,7 +62,9 @@ from app.db.models import (
     UsageDay,
     User,
 )
-from app.services.circuit_breaker import BreakerOpen, CircuitBreaker
+from app.db import audit_journal, storage_counters
+from app.db.storage_counters import CounterSnapshot
+from app.services.circuit_breaker import BreakerOpen, BreakerStatus, CircuitBreaker
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -300,13 +304,26 @@ def _probe_fresh_client() -> bool:
 # One per process, matching the one client per process (`_shared_client`): `/query`,
 # `/v1` and the chat UI share it in a Reflex deployment. `storage_status()`
 # (STORY-012) reads `.status()`. Tests swap it per test
-# (`tests/conftest.py::_fresh_storage_breaker`).
-_storage_breaker = CircuitBreaker(
-    "storage",
-    _BREAKER_FAILURE_THRESHOLD,
-    _BREAKER_OPEN_SECONDS,
-    probe=_probe_fresh_client,
-)
+# (`tests/conftest.py::_fresh_storage_breaker`, which builds through
+# `_new_storage_breaker()` so the swapped instance counts too).
+def _count_breaker_open(frm: str, to: str, cls: str) -> None:
+    """`breaker_opens`: every transition into open, a failed probe's re-open included."""
+    if to == "open":
+        storage_counters.breaker_opened()
+
+
+def _new_storage_breaker() -> CircuitBreaker:
+    """The storage breaker with its counter hook (PRD-018 D16, STORY-012)."""
+    return CircuitBreaker(
+        "storage",
+        _BREAKER_FAILURE_THRESHOLD,
+        _BREAKER_OPEN_SECONDS,
+        probe=_probe_fresh_client,
+        on_transition=_count_breaker_open,
+    )
+
+
+_storage_breaker = _new_storage_breaker()
 
 
 class _Row:
@@ -1107,7 +1124,10 @@ def _unit_of_work(
     runs out of budget, and one when an infrastructure failure is refused a retry
     (`retry refused`: e.g. `NON_IDEMPOTENT` on `OUTCOME_UNKNOWN`). `STATEMENT`
     failures and our own `StorageError`s log nothing. The text goes through
-    `_retry_detail()`: credential-free, no SQL, no parameters.
+    `_retry_detail()`: credential-free, no SQL, no parameters. Each retry and
+    each final infrastructure failure also bumps a `storage_counters` count
+    (PRD-018 D16): `retries` per retry, `exhausted` per operation (refused
+    retries included).
 
     **Breaker (D6, D7).** `_storage_breaker.before()` runs first: open means a
     `StorageUnavailableError` with no client touched. One `record_failure()` per
@@ -1157,6 +1177,7 @@ def _unit_of_work(
                         if started_by > _RETRY_START_DEADLINE_SECONDS:
                             reason = "deadline"
                     if reason is None and delay is not None:
+                        storage_counters.retry(name, failure.value)
                         logger.info(
                             "retry op=%s class=%s attempt=%d detail=%s",
                             name,
@@ -1183,6 +1204,9 @@ def _unit_of_work(
                         kind.value,
                         _retry_detail(exc),
                     )
+                # One per operation ending in an infrastructure failure (budget spent
+                # or retry refused), so it equals the `record_failure` calls (D16).
+                storage_counters.exhausted(name, failure.value)
                 breaker.record_failure(failure.value)
                 retry_after = breaker.status().retry_after_seconds or 1
                 raise StorageUnavailableError(
@@ -1191,6 +1215,93 @@ def _unit_of_work(
             raise
         breaker.record_success()
         return result
+
+
+@dataclass(frozen=True)
+class JournalView:
+    """The journal as `storage_status()` reports it (PRD-018 Section 10).
+
+    `open` is False when this process opened no journal (the zero shape).
+    `headroom_bytes` is the admission reserve (workers x 64 KiB): admission is
+    refused once `bytes > max_bytes - headroom_bytes`; it is not free bytes.
+    `held_back_*` are entries/files kept on disk that this process will not retry.
+    """
+
+    open: bool
+    entries: int
+    bytes: int
+    max_bytes: int
+    headroom_bytes: int
+    oldest_timestamp: Optional[str]
+    draining: bool
+    adopted_files: int
+    held_back_entries: int
+    held_back_files: int
+
+
+@dataclass(frozen=True)
+class StorageStatus:
+    """What `GET /storage/status` and the admin Storage view serialize as is."""
+
+    instance: str
+    breaker: BreakerStatus
+    journal: JournalView
+    counters: CounterSnapshot
+
+
+def storage_status() -> StorageStatus:
+    """Breaker, journal and counters of this process (PRD-018 F8, D16).
+
+    **Zero driver calls and never `_client_lock`**: it reads only in-memory state
+    (the breaker's lock, the journal's mutex, the drainer's lock and the counter
+    lock, none held across a driver call), so it answers during a 21 s stall
+    and while the breaker is open. Never raises.
+
+    `draining` is true iff the drainer thread runs AND the breaker is closed AND
+    some entry is not held back: while the breaker is open the drainer idles, and
+    a held-back entry is never retried by this process.
+    """
+    from app.db import journal_drainer  # function-local: journal_drainer imports database
+
+    breaker = _storage_breaker.status()  # one read: `breaker` and `draining` agree
+    journal = audit_journal.current()
+    if journal is None:
+        view = JournalView(
+            open=False,
+            entries=0,
+            bytes=0,
+            max_bytes=settings.AUDIT_BUFFER_MAX_BYTES,
+            headroom_bytes=settings.PIPELINE_MAX_WORKERS
+            * audit_journal._JOURNAL_ENTRY_RESERVE_BYTES,
+            oldest_timestamp=None,
+            draining=False,
+            adopted_files=0,
+            held_back_entries=0,
+            held_back_files=0,
+        )
+    else:
+        snap = journal.status()
+        held = journal_drainer.held_back()
+        view = JournalView(
+            open=True,
+            entries=snap.entries,
+            bytes=snap.bytes,
+            max_bytes=snap.max_bytes,
+            headroom_bytes=snap.headroom_bytes,
+            oldest_timestamp=snap.oldest_timestamp,
+            draining=journal_drainer.running()
+            and breaker.state == "closed"
+            and snap.entries - held > 0,
+            adopted_files=snap.adopted_files,
+            held_back_entries=held,
+            held_back_files=snap.held_back_files,
+        )
+    return StorageStatus(
+        instance=f"{socket.gethostname()}:{os.getpid()}",
+        breaker=breaker,
+        journal=view,
+        counters=storage_counters.snapshot(),
+    )
 
 
 def init_db() -> None:

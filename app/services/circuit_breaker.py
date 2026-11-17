@@ -98,6 +98,12 @@ class CircuitBreaker:
     run once by the caller that finds the open window elapsed; it returns True
     to close the circuit, False to reopen it, and if it raises the circuit is
     reopened and the exception propagates (never stuck half-open).
+
+    `on_transition`, when set, is called with `(from, to, class)` for every
+    transition after the lock is released (same place as the log line), so a
+    caller can count transitions without this class knowing what it protects
+    (PRD-018 STORY-012: storage counts `breaker_opens`). A hook that raises is
+    logged and swallowed: it can never break the breaker.
     """
 
     def __init__(
@@ -107,6 +113,7 @@ class CircuitBreaker:
         open_seconds: float,
         clock: Callable[[], float] = time.monotonic,
         probe: Optional[Callable[[], bool]] = None,
+        on_transition: Optional[Callable[[str, str, str], None]] = None,
     ) -> None:
         if failure_threshold < 1:
             raise ValueError(
@@ -123,6 +130,7 @@ class CircuitBreaker:
         self._open_seconds = float(open_seconds)
         self._clock = clock
         self._probe = probe
+        self._on_transition = on_transition
         self._lock = threading.Lock()
         self._state: BreakerState = "closed"
         self._since = _wall_clock().strftime(_TIMESTAMP_FORMAT)
@@ -164,6 +172,11 @@ class CircuitBreaker:
                 to,
                 cls,
             )
+            if self._on_transition is not None:
+                try:
+                    self._on_transition(frm, to, cls)
+                except Exception:
+                    logger.exception("breaker name=%s on_transition hook failed", self._name)
 
     # -- public ------------------------------------------------------------------
 

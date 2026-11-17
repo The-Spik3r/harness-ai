@@ -425,3 +425,33 @@ def test_the_module_is_pure():
     names = {n.id for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Name)}
     attrs = {n.attr for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Attribute)}
     assert not ({"open", "socket", "settings"} & (names | attrs))
+
+
+# --- PRD-018 STORY-012: the generic transition hook -----------------------------
+
+
+def test_on_transition_gets_from_to_class_after_the_lock_is_released(now):
+    seen = []
+
+    def hook(frm, to, cls):
+        # The lock is free here: a status() read would deadlock if it were held.
+        seen.append((frm, to, cls, breaker.status().state))
+
+    breaker = CircuitBreaker(
+        "storage", 2, 10.0, clock=lambda: now[0], on_transition=hook
+    )
+    _open(breaker, failures=2)
+    assert seen == [("closed", "open", "not_sent", "open")]
+
+
+def test_a_raising_on_transition_hook_leaves_the_breaker_working(now, caplog):
+    def hook(frm, to, cls):
+        raise RuntimeError("hook bug")
+
+    breaker = CircuitBreaker("storage", 2, 10.0, clock=lambda: now[0], on_transition=hook)
+    with caplog.at_level(logging.ERROR, logger=_LOG):
+        _open(breaker, failures=2)
+    assert breaker.status().state == "open"
+    with pytest.raises(BreakerOpen):
+        breaker.before()
+    assert any("on_transition hook failed" in r.getMessage() for r in caplog.records)

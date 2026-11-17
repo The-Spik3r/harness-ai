@@ -320,6 +320,51 @@ class ActionsResponse(BaseModel):
     entries: List[ActionDecisionEntry]
 
 
+class StorageBreakerResponse(BaseModel):
+    """`BreakerStatus` as is (PRD-018 Section 10)."""
+
+    state: Literal["closed", "open", "half_open"]
+    since: str
+    consecutive_failures: int
+    last_failure_class: Optional[str] = None
+    retry_after_seconds: Optional[int] = None
+
+
+class StorageJournalResponse(BaseModel):
+    # `open` is False when this process opened no journal; `headroom_bytes` is
+    # the admission reserve (workers x 64 KiB), not free bytes; the held_back_*
+    # pair is what stays on disk and is never retried by this process.
+    open: bool
+    entries: int
+    bytes: int
+    max_bytes: int
+    headroom_bytes: int
+    oldest_timestamp: Optional[str] = None
+    draining: bool
+    adopted_files: int
+    held_back_entries: int
+    held_back_files: int
+
+
+class StorageCountersResponse(BaseModel):
+    # Keys are "<op>:<class>"; process-local, reset on restart (PRD-018 D16).
+    retries: dict[str, int]
+    exhausted: dict[str, int]
+    breaker_opens: int
+    journal_appended: int
+    journal_drained: int
+    torn_tail_discarded: int
+
+
+class StorageStatusResponse(BaseModel):
+    """GET /storage/status (PRD-018 F8, Section 10)."""
+
+    instance: str
+    breaker: StorageBreakerResponse
+    journal: StorageJournalResponse
+    counters: StorageCountersResponse
+
+
 class StatsResponse(BaseModel):
     total_queries: int
     blocked_duplicates: int

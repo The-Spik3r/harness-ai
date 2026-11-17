@@ -52,7 +52,9 @@ Decisions recorded with the orchestrator (plan "Deviations"):
   `_JOURNAL_ENTRY_RESERVE_BYTES` from here, so no import cycle can appear.
 
 Consumers: STORY-009 (open / adopt / pending / mark_drained), STORY-010
-(append), STORY-011 (pending_duplicate, check_admission_headroom), STORY-012 (status).
+(append), STORY-011 (pending_duplicate, check_admission_headroom), STORY-012 (status;
+counts `journal_appended` / `journal_drained` / `torn_tail_discarded` into
+`app.db.storage_counters`, a leaf module, so this file still imports no `database`).
 """
 
 import dataclasses
@@ -69,6 +71,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from app.db import storage_counters
 from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.db.models import ActionDecisionRow, AuditLog
 
@@ -116,6 +119,7 @@ class JournalStatus:
     bytes: int
     max_bytes: int
     reserve_bytes: int
+    headroom_bytes: int  # the admission reserve (workers x reserve_bytes), PRD-018 Section 10
     oldest_timestamp: Optional[str]
     adopted_files: int
     torn_tail_discarded: int
@@ -341,6 +345,7 @@ class AuditJournal:
             own.size = previous + len(line)
             own.records.append([entry_write_id, own.size, False])
             self._index(entry, own)
+            storage_counters.journal_appended()  # after fsync + index: a refused append counts nothing
             logger.info(
                 "journal append write_id=%s user_id=%s decisions=%d bytes=%d",
                 entry_write_id, user, len(decisions), len(line),
@@ -417,6 +422,7 @@ class AuditJournal:
                 self._compact(jfile)
             elif advanced:
                 self._write_checkpoint(jfile)
+            storage_counters.journal_drained()  # not on KeyError: only a real drain counts
 
     def _write_checkpoint(self, jfile: _JournalFile) -> None:
         # No fsync: a lost checkpoint replays an entry and write_id makes the
@@ -511,6 +517,7 @@ class AuditJournal:
                 bytes=self._bytes_locked(),
                 max_bytes=self._max_bytes,
                 reserve_bytes=_JOURNAL_ENTRY_RESERVE_BYTES,
+                headroom_bytes=self._workers * _JOURNAL_ENTRY_RESERVE_BYTES,
                 oldest_timestamp=self._oldest_locked(),
                 adopted_files=len(self._adopted),
                 torn_tail_discarded=self._torn_tail_discarded,
@@ -559,6 +566,8 @@ class AuditJournal:
             return False
         entries, discarded = loaded
         self._torn_tail_discarded += discarded
+        if discarded > 0:
+            storage_counters.torn_tail_discarded(discarded)
         for entry, end in entries:
             if entry.write_id in self._pending:
                 jfile.records.append([entry.write_id, end, True])  # replayed copy, already queued

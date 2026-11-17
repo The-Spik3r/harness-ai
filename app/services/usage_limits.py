@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from app.config import settings
-from app.db.database import admit_usage, charge_usage
+from app.db.database import _retry_detail, admit_usage, charge_usage
 from app.db.errors import StorageError
 from app.services.identity import Identity
 
@@ -222,7 +222,9 @@ def charge(
             input_tokens,
             output_tokens,
             total_tokens,
-            exc,
+            # Driver text only through the redaction (PRD-018 Section 11, Quality
+            # indicators): credential-free, no echoed SQL, short.
+            _retry_detail(exc),
         )
         return
 

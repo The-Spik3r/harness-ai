@@ -685,7 +685,8 @@ _PER_CALL_KIND = {
 }
 # D17: the boot path keeps its direct session and fails fast; `get_connection` is the
 # raw transaction handle thirteen test modules open themselves.
-_EXEMPT = {"get_connection", "check_database_reachable", "init_db"}
+# PRD-018 STORY-012: `storage_status` reads memory only (D16), so it runs no unit.
+_EXEMPT = {"get_connection", "check_database_reachable", "init_db", "storage_status"}
 
 
 def _top_level_functions():

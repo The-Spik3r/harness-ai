@@ -26,10 +26,12 @@ from chat_ui.components.actions import actions
 from chat_ui.components.admin_shell import (
     ROUTE_ACTIONS,
     ROUTE_REGISTER,
+    ROUTE_STORAGE,
     ROUTE_SUMMARY,
     ROUTE_USAGE,
     VIEW_ACTIONS,
     VIEW_REGISTER,
+    VIEW_STORAGE,
     VIEW_SUMMARY,
     VIEW_USAGE,
     admin_page,
@@ -37,6 +39,7 @@ from chat_ui.components.admin_shell import (
 from chat_ui.components.register import register
 from chat_ui.components.reports import reports_detail_page, reports_feed_page
 from chat_ui.components.shell import header, login_gate, shell_body
+from chat_ui.components.storage import storage
 from chat_ui.components.summary import summary
 from chat_ui.components.usage import usage
 from chat_ui import reports_copy
@@ -115,6 +118,11 @@ def admin_actions_page() -> rx.Component:
     return admin_page(actions(), VIEW_ACTIONS)
 
 
+# PRD-018 STORY-012: the fifth view, the storage breaker, the journal and the counters.
+def admin_storage_page() -> rx.Component:
+    return admin_page(storage(), VIEW_STORAGE)
+
+
 # Radix resolves its own colour tokens from the theme's appearance, and this
 # line used to read `appearance="light"`. The reason it did is worth keeping,
 # because it is the same reason it now reads "inherit": on a machine set to dark
@@ -183,6 +191,13 @@ app.add_page(
 app.add_page(
     admin_actions_page,
     route=ROUTE_ACTIONS,
+    context={"sitemap": None},
+)
+# PRD-018 STORY-012: a Reflex page like the others, so it falls through the
+# Caddyfile's static matcher (`GET /storage/status` is the backend route).
+app.add_page(
+    admin_storage_page,
+    route=ROUTE_STORAGE,
     context={"sitemap": None},
 )
 # /admin is a landing route, not a third view: it renders the same shell (so an

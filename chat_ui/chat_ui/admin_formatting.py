@@ -24,9 +24,12 @@ arguments preview, the arguments hash, the session or the classifications.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from app.db.models import ActionDecisionRow, AuditLog, UsageDay
+
+if TYPE_CHECKING:  # annotation only: the console imports read functions by name
+    from app.db.database import StorageStatus
 
 # By name, never the module: `usage_limits` also holds the counter writers
 # (`admit`, `charge`), and the console must not be able to reach them
@@ -37,9 +40,40 @@ from app.services.usage_limits import limits_for
 from .admin_copy import (
     DETAIL_FLAG_NO_LABEL,
     DETAIL_FLAG_YES_LABEL,
+    STORAGE_CAPTION_TEMPLATE,
+    STORAGE_HELD_BACK_TEMPLATE,
+    STORAGE_LABEL_ADOPTED,
+    STORAGE_LABEL_APPENDED,
+    STORAGE_LABEL_BREAKER_OPENS,
+    STORAGE_LABEL_DRAINED,
+    STORAGE_LABEL_DRAINING,
+    STORAGE_LABEL_ENTRIES,
+    STORAGE_LABEL_FAILURES,
+    STORAGE_LABEL_HELD_ENTRIES,
+    STORAGE_LABEL_HELD_FILES,
+    STORAGE_LABEL_LAST_CLASS,
+    STORAGE_LABEL_OLDEST,
+    STORAGE_LABEL_SINCE,
+    STORAGE_LABEL_SIZE,
+    STORAGE_LABEL_STATE,
+    STORAGE_LABEL_TORN,
+    STORAGE_NO,
+    STORAGE_NO_JOURNAL,
+    STORAGE_SIZE_TEMPLATE,
+    STORAGE_VERDICT_CLOSED,
+    STORAGE_VERDICT_HALF_OPEN_TEMPLATE,
+    STORAGE_VERDICT_OPEN_TEMPLATE,
+    STORAGE_YES,
     USAGE_BUDGET_UNLIMITED,
 )
-from .admin_models import ActionRow, AuditRow, UsageRow
+from .admin_models import (
+    ActionRow,
+    AuditRow,
+    StorageCounterRow,
+    StorageFact,
+    StorageView,
+    UsageRow,
+)
 from .formatting import humanize_compact
 
 # The register's outcome vocabulary (PRD-006 Section 6). These are values, not
@@ -416,3 +450,121 @@ def to_action_rows(
             )
         )
     return rows
+
+
+# --- The Storage view (PRD-018 STORY-012) -----------------------------------
+
+
+def _yes_no(flag: bool) -> str:
+    return STORAGE_YES if flag else STORAGE_NO
+
+
+def _keyed_rows(counts: dict[str, int]) -> list[StorageCounterRow]:
+    """`"<op>:<class>"` counts as rows, in key order (stable between Refreshes)."""
+    rows = []
+    for key in sorted(counts):
+        operation, _, failure_class = key.partition(":")
+        rows.append(
+            StorageCounterRow(
+                operation=operation,
+                failure_class=failure_class,
+                count=format_count(counts[key]),
+            )
+        )
+    return rows
+
+
+def to_storage_view(status: "StorageStatus") -> StorageView:
+    """One `storage_status()` reading as the Storage view's strings.
+
+    The verdict comes first and says it in words: reachable, circuit open (since
+    when, for how long more) or probing. The held-back sentence is present only
+    while an entry or file is kept on disk that this process will not retry; it
+    is empty otherwise. A process with no journal says so instead of showing
+    zeros that read as an empty backlog.
+    """
+    breaker, journal, counters = status.breaker, status.journal, status.counters
+    if breaker.state == "open":
+        verdict = STORAGE_VERDICT_OPEN_TEMPLATE.format(
+            since=breaker.since, seconds=breaker.retry_after_seconds or 1
+        )
+    elif breaker.state == "half_open":
+        verdict = STORAGE_VERDICT_HALF_OPEN_TEMPLATE.format(since=breaker.since)
+    else:
+        verdict = STORAGE_VERDICT_CLOSED
+
+    breaker_facts = [
+        StorageFact(label=STORAGE_LABEL_STATE, value=breaker.state),
+        StorageFact(label=STORAGE_LABEL_SINCE, value=breaker.since),
+        StorageFact(
+            label=STORAGE_LABEL_FAILURES,
+            value=format_count(breaker.consecutive_failures),
+        ),
+        StorageFact(
+            label=STORAGE_LABEL_LAST_CLASS,
+            value=_text(breaker.last_failure_class),
+        ),
+    ]
+
+    if journal.open:
+        journal_facts = [
+            StorageFact(label=STORAGE_LABEL_ENTRIES, value=format_count(journal.entries)),
+            StorageFact(
+                label=STORAGE_LABEL_SIZE,
+                value=STORAGE_SIZE_TEMPLATE.format(
+                    used=format_count(journal.bytes), limit=format_count(journal.max_bytes)
+                ),
+            ),
+            StorageFact(
+                label=STORAGE_LABEL_OLDEST, value=_text(journal.oldest_timestamp)
+            ),
+            StorageFact(label=STORAGE_LABEL_DRAINING, value=_yes_no(journal.draining)),
+            StorageFact(
+                label=STORAGE_LABEL_ADOPTED, value=format_count(journal.adopted_files)
+            ),
+            StorageFact(
+                label=STORAGE_LABEL_HELD_ENTRIES,
+                value=format_count(journal.held_back_entries),
+            ),
+            StorageFact(
+                label=STORAGE_LABEL_HELD_FILES,
+                value=format_count(journal.held_back_files),
+            ),
+        ]
+    else:
+        journal_facts = [StorageFact(label="", value=STORAGE_NO_JOURNAL)]
+
+    notice = ""
+    if journal.held_back_entries or journal.held_back_files:
+        notice = STORAGE_HELD_BACK_TEMPLATE.format(
+            entries=format_count(journal.held_back_entries),
+            files=format_count(journal.held_back_files),
+        )
+
+    return StorageView(
+        verdict=verdict,
+        caption=STORAGE_CAPTION_TEMPLATE.format(instance=status.instance),
+        notice=notice,
+        breaker=breaker_facts,
+        journal=journal_facts,
+        counters=[
+            StorageFact(
+                label=STORAGE_LABEL_BREAKER_OPENS,
+                value=format_count(counters.breaker_opens),
+            ),
+            StorageFact(
+                label=STORAGE_LABEL_APPENDED,
+                value=format_count(counters.journal_appended),
+            ),
+            StorageFact(
+                label=STORAGE_LABEL_DRAINED,
+                value=format_count(counters.journal_drained),
+            ),
+            StorageFact(
+                label=STORAGE_LABEL_TORN,
+                value=format_count(counters.torn_tail_discarded),
+            ),
+        ],
+        retries=_keyed_rows(counters.retries),
+        exhausted=_keyed_rows(counters.exhausted),
+    )

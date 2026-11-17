@@ -443,3 +443,20 @@ def test_admit_and_charge_against_the_real_statements(temp_db, monkeypatch):
             actual=16,
             resets_at=usage_limits._next_utc_midnight(first.day),
         )
+
+
+def test_charge_logs_driver_text_only_through_the_redaction(monkeypatch, caplog):
+    """PRD-018 Section 11 (Quality indicators), STORY-012: a credential in the driver
+    text never reaches the log; the rest of the message still does."""
+    def failing(*args):
+        raise StorageError("boom echoed SECRET-TOKEN-123")
+
+    monkeypatch.setattr(usage_limits, "charge_usage", failing)
+    monkeypatch.setattr(settings, "TURSO_AUTH_TOKEN", "SECRET-TOKEN-123")
+
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        assert charge("u1", _DAY, 10, 20, 30) is None
+
+    message = _records(caplog)[0].getMessage()
+    assert "SECRET-TOKEN-123" not in message
+    assert "boom" in message

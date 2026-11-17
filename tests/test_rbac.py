@@ -323,3 +323,20 @@ async def test_chat_state_never_forwards_a_byok_key_so_query_byok_has_no_chat_in
 
     assert "openrouter_api_key" in captured
     assert captured["openrouter_api_key"] is None
+
+
+@pytest.mark.parametrize("role", _ROLES)
+def test_storage_status_read_matrix(role, temp_db):
+    """PRD-018 STORY-012 (F8): GET /storage/status needs `stats:read`, the same
+    gate as /stats."""
+    token = f"{role}-token"
+    insert_user(User(user_id=f"{role}-id", role=role, token_hash=hash_token(token)))
+    expected_allowed = PERMISSION_STATS_READ in ROLE_PERMISSIONS[role]
+
+    response = client.get("/storage/status", headers={"Authorization": f"Bearer {token}"})
+
+    if expected_allowed:
+        assert response.status_code == 200
+    else:
+        assert response.status_code == 403
+        assert response.json() == {"detail": f"Permission denied: {PERMISSION_STATS_READ}"}

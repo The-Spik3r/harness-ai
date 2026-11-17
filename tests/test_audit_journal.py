@@ -535,3 +535,12 @@ def test_concurrent_appends_all_verify(journals):
     lines = _lines(journal.path)
     assert len(lines) == 160 and all(_verifies(line) for line in lines)
     assert journal.entries() == 160
+
+
+def test_status_reports_the_admission_reserve_as_headroom_bytes(journals):
+    """PRD-018 STORY-012 (Section 10): `headroom_bytes` is workers x 64 KiB, the
+    reserve admission applies, not the free bytes."""
+    journal = journals(workers=3)
+    assert journal.status().headroom_bytes == 3 * _JOURNAL_ENTRY_RESERVE_BYTES
+    journal.append(_audit())
+    assert journal.status().headroom_bytes == 3 * _JOURNAL_ENTRY_RESERVE_BYTES

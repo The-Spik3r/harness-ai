@@ -38,7 +38,8 @@ storage get one:
 
 - **The breaker.** The autouse `_fresh_storage_breaker` gives every test, `db` or
   not, a closed storage circuit breaker of its own (PRD-018 STORY-005), so a test
-  that exhausts a retry budget can never open it for the next one.
+  that exhausts a retry budget can never open it for the next one. The autouse
+  `_fresh_storage_counters` zeroes the storage counters the same way (STORY-012).
 
 - **The audit journal.** The autouse `_isolated_audit_buffer` (PRD-018 STORY-009)
   points `AUDIT_BUFFER_DIR` at a per-test path under pytest's base temp (created
@@ -97,6 +98,7 @@ from app.config import settings  # noqa: E402  -- must follow the bootstrap abov
 from app.db import audit_journal, database, journal_drainer  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 from app.services import action_config  # noqa: E402
+from app.db import storage_counters  # noqa: E402
 from app.services.circuit_breaker import CircuitBreaker  # noqa: E402
 from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
@@ -703,14 +705,23 @@ def _fresh_storage_breaker():
     CircuitBreaker("storage", ..., clock=...))`.
     """
     original = database._storage_breaker
-    database._storage_breaker = CircuitBreaker(
-        "storage",
-        database._BREAKER_FAILURE_THRESHOLD,
-        database._BREAKER_OPEN_SECONDS,
-        probe=database._probe_fresh_client,
-    )
+    # PRD-018 STORY-012: built through the factory so the swapped instance carries
+    # the `breaker_opens` hook, as the production one does.
+    database._storage_breaker = database._new_storage_breaker()
     yield
     database._storage_breaker = original
+
+
+@pytest.fixture(autouse=True)
+def _fresh_storage_counters():
+    """Zero the process-local storage counters around every test (PRD-018 STORY-012).
+
+    They are module globals (`app/db/storage_counters.py`), so without this a
+    test's retries would show up in the next test's `/storage/status`.
+    """
+    storage_counters._reset()
+    yield
+    storage_counters._reset()
 
 
 _audit_buffer_numbers = itertools.count(1)

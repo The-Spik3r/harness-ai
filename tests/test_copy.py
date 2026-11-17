@@ -403,6 +403,44 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert admin_copy.USAGE_BUDGET_UNLIMITED
     assert admin_copy.EMPTY_USAGE_TITLE
     assert admin_copy.EMPTY_USAGE_BODY
+    # PRD-018 (STORY-012): the Storage view's copy, read off the module.
+    assert admin_copy.VIEW_STORAGE_LABEL
+    assert admin_copy.READ_LABEL_STORAGE
+    assert admin_copy.STORAGE_CAPTION_TEMPLATE
+    assert admin_copy.STORAGE_VERDICT_CLOSED
+    assert admin_copy.STORAGE_VERDICT_OPEN_TEMPLATE
+    assert admin_copy.STORAGE_VERDICT_HALF_OPEN_TEMPLATE
+    assert admin_copy.STORAGE_HELD_BACK_TEMPLATE
+    assert admin_copy.STORAGE_NO_JOURNAL
+    assert admin_copy.STORAGE_HEADING_BREAKER
+    assert admin_copy.STORAGE_HEADING_JOURNAL
+    assert admin_copy.STORAGE_HEADING_COUNTERS
+    assert admin_copy.STORAGE_HEADING_RETRIES
+    assert admin_copy.STORAGE_HEADING_EXHAUSTED
+    assert admin_copy.STORAGE_RETRIES_TITLE
+    assert admin_copy.STORAGE_EXHAUSTED_TITLE
+    assert admin_copy.STORAGE_KEYED_EMPTY
+    assert admin_copy.STORAGE_LABEL_STATE
+    assert admin_copy.STORAGE_LABEL_SINCE
+    assert admin_copy.STORAGE_LABEL_FAILURES
+    assert admin_copy.STORAGE_LABEL_LAST_CLASS
+    assert admin_copy.STORAGE_LABEL_ENTRIES
+    assert admin_copy.STORAGE_LABEL_SIZE
+    assert admin_copy.STORAGE_LABEL_OLDEST
+    assert admin_copy.STORAGE_LABEL_DRAINING
+    assert admin_copy.STORAGE_LABEL_ADOPTED
+    assert admin_copy.STORAGE_LABEL_HELD_ENTRIES
+    assert admin_copy.STORAGE_LABEL_HELD_FILES
+    assert admin_copy.STORAGE_LABEL_BREAKER_OPENS
+    assert admin_copy.STORAGE_LABEL_APPENDED
+    assert admin_copy.STORAGE_LABEL_DRAINED
+    assert admin_copy.STORAGE_LABEL_TORN
+    assert admin_copy.STORAGE_SIZE_TEMPLATE
+    assert admin_copy.STORAGE_YES
+    assert admin_copy.STORAGE_NO
+    assert admin_copy.STORAGE_COLUMN_OPERATION
+    assert admin_copy.STORAGE_COLUMN_FAILURE_CLASS
+    assert admin_copy.STORAGE_COLUMN_COUNT
     # And nothing is missing from the list: a constant added to admin_copy.py
     # without an assertion here would otherwise ship untested, which is the
     # failure mode "each constant is asserted non-empty" exists to prevent.
@@ -499,6 +537,45 @@ def test_admin_copy_constants_exist_and_not_empty():
         "COLUMN_OPERATION_TITLE",
         "COLUMN_RULE_TITLE",
         "COLUMN_ALLOWED_BY_TITLE",
+        # PRD-018 (STORY-012): the Storage view. A pinned census extended with
+        # the new names; no existing name changes.
+        "VIEW_STORAGE_LABEL",
+        "READ_LABEL_STORAGE",
+        "STORAGE_CAPTION_TEMPLATE",
+        "STORAGE_VERDICT_CLOSED",
+        "STORAGE_VERDICT_OPEN_TEMPLATE",
+        "STORAGE_VERDICT_HALF_OPEN_TEMPLATE",
+        "STORAGE_HELD_BACK_TEMPLATE",
+        "STORAGE_NO_JOURNAL",
+        "STORAGE_HEADING_BREAKER",
+        "STORAGE_HEADING_JOURNAL",
+        "STORAGE_HEADING_COUNTERS",
+        "STORAGE_HEADING_RETRIES",
+        "STORAGE_HEADING_EXHAUSTED",
+        "STORAGE_RETRIES_TITLE",
+        "STORAGE_EXHAUSTED_TITLE",
+        "STORAGE_KEYED_EMPTY",
+        "STORAGE_LABEL_STATE",
+        "STORAGE_LABEL_SINCE",
+        "STORAGE_LABEL_FAILURES",
+        "STORAGE_LABEL_LAST_CLASS",
+        "STORAGE_LABEL_ENTRIES",
+        "STORAGE_LABEL_SIZE",
+        "STORAGE_LABEL_OLDEST",
+        "STORAGE_LABEL_DRAINING",
+        "STORAGE_LABEL_ADOPTED",
+        "STORAGE_LABEL_HELD_ENTRIES",
+        "STORAGE_LABEL_HELD_FILES",
+        "STORAGE_LABEL_BREAKER_OPENS",
+        "STORAGE_LABEL_APPENDED",
+        "STORAGE_LABEL_DRAINED",
+        "STORAGE_LABEL_TORN",
+        "STORAGE_SIZE_TEMPLATE",
+        "STORAGE_YES",
+        "STORAGE_NO",
+        "STORAGE_COLUMN_OPERATION",
+        "STORAGE_COLUMN_FAILURE_CLASS",
+        "STORAGE_COLUMN_COUNT",
         "DECISION_DENY_LABEL",
         "DECISION_FLAG_LABEL",
         "DECISION_ALLOW_LABEL",

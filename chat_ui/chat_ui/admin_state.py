@@ -21,6 +21,9 @@ table's read (PRD-013 STORY-016) is imported the same way, by name:
 from this module. So are the Actions view's two reads (PRD-016 STORY-019),
 `list_action_decisions` and `count_action_decisions`; `insert_action_decisions`
 is not imported.
+The Storage view's read (PRD-018 STORY-012) is `storage_status`, imported the
+same way: it reads the breaker, the journal and the counters from memory, with
+no driver call, and no journal, drainer or counters module is reachable here.
 
 The gate is **not an oracle**. Every failure — an empty token, a wrong-length
 token, a wrong token of the right length — sets the same message and leaves
@@ -52,6 +55,8 @@ from app.db.database import (
     list_audit_logs,
     sum_input_tokens,
     sum_output_tokens,
+    # PRD-018 STORY-012: the Storage view's read: in-memory state, no driver call.
+    storage_status,
     summary_snapshot,
     # PRD-013 STORY-016: the Usage table's one statement. A read, like the rest.
     usage_snapshot,
@@ -116,6 +121,7 @@ from .admin_copy import (
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOTAL,
     READ_LABEL_UNIQUE_USERS,
+    READ_LABEL_STORAGE,
     READ_LABEL_USAGE,
     READ_LABEL_USAGE_LIMITS,
     # Aliased to the name this module has used since STORY-004: `load()` formats
@@ -138,9 +144,17 @@ from .admin_formatting import (
     format_share,
     to_action_rows,
     to_audit_row,
+    to_storage_view,
     to_usage_rows,
 )
-from .admin_models import ActionRow, AuditRow, SummaryFigure, UsageRow
+from .admin_models import (
+    ActionRow,
+    AuditRow,
+    StorageCounterRow,
+    StorageFact,
+    SummaryFigure,
+    UsageRow,
+)
 
 # The register's window, and the only ceiling there is: PRD-006 Section 4 puts
 # pagination past 100 rows out of scope, and `list_audit_logs` is the only
@@ -219,6 +233,13 @@ USAGE_STATES = (
     USAGE_STATE_EMPTY,
     USAGE_STATE_ROWS,
 )
+
+# The Storage view's two render states (PRD-018 STORY-012). There is no empty
+# state: the read cannot come back empty. A fault keeps the last good reading
+# standing under the panel that names the failed read.
+STORAGE_STATE_FAULT = "read_failed"
+STORAGE_STATE_READY = "ready"
+STORAGE_STATES = (STORAGE_STATE_FAULT, STORAGE_STATE_READY)
 
 # The Actions view's window (PRD-016 STORY-019): the newest this many decisions of
 # the chosen kind. Equal to `app.routers.admin.ACTIONS_LIMIT_MAX`, the ceiling
@@ -609,6 +630,21 @@ class AdminState(rx.State):
     # falsy, so `sign_out()`'s `reset()` clears them with no edit there.
     usage_rows: list[UsageRow] = []
     usage_error: str = ""
+
+    # --- Storage (PRD-018 STORY-012) ---------------------------------------
+    # The breaker, the journal and the counters of this process, from
+    # `storage_status()` (in memory, no driver call), failing under its own label:
+    # `storage_error`, never `error`. Strings and lists only (the `UsageRow`
+    # rule), all falsy by default, so `sign_out()`'s `reset()` clears them.
+    storage_verdict: str = ""
+    storage_caption: str = ""
+    storage_notice: str = ""
+    storage_breaker: list[StorageFact] = []
+    storage_journal: list[StorageFact] = []
+    storage_counters: list[StorageFact] = []
+    storage_retries: list[StorageCounterRow] = []
+    storage_exhausted: list[StorageCounterRow] = []
+    storage_error: str = ""
 
     # --- Actions (PRD-016 STORY-019) ---------------------------------------
     # What agents tried to do and what the policy decided, read by their own
@@ -1082,6 +1118,17 @@ class AdminState(rx.State):
         return USAGE_STATE_ROWS
 
     @rx.var
+    def storage_state(self) -> str:
+        """Which of the two states the Storage view is showing: fault or ready.
+
+        The fault arm still renders the last good reading, under the panel that
+        names the read. Reads `storage_error`, never `error`.
+        """
+        if self.storage_error:
+            return STORAGE_STATE_FAULT
+        return STORAGE_STATE_READY
+
+    @rx.var
     def actions_state(self) -> str:
         """Which of the three states the Actions view is showing.
 
@@ -1404,6 +1451,7 @@ class AdminState(rx.State):
             self.loading = True
             self.error = ""
             self.usage_error = ""
+            self.storage_error = ""
             self.actions_error = ""
             actions_key = self.actions_filter
 
@@ -1411,6 +1459,29 @@ class AdminState(rx.State):
             # One clock read for the whole batch, so the rows' relative times and
             # the refresh stamp cannot disagree by a straggling second.
             now = datetime.now(timezone.utc)
+
+            # The Storage view (PRD-018 STORY-012), before the usage read for the
+            # reason that one precedes the summary: an outage that fails the
+            # summary read must still refresh it. `storage_status()` makes no
+            # driver call, so it is called directly, not through a thread.
+            try:
+                storage = to_storage_view(storage_status())
+            except Exception as exc:
+                async with self:
+                    self.storage_error = LOAD_FAILED_MESSAGE.format(
+                        read=READ_LABEL_STORAGE, detail=exc
+                    )
+            else:
+                async with self:
+                    self.storage_verdict = storage.verdict
+                    self.storage_caption = storage.caption
+                    self.storage_notice = storage.notice
+                    self.storage_breaker = storage.breaker
+                    self.storage_journal = storage.journal
+                    self.storage_counters = storage.counters
+                    self.storage_retries = storage.retries
+                    self.storage_exhausted = storage.exhausted
+                    self.storage_error = ""
 
             # Today's usage, first and on its own (see the docstring). The
             # formatting is inside the `try` too: `to_usage_rows` resolves

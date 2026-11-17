@@ -97,10 +97,20 @@ def test_exactly_one_storage_breaker_with_the_prd_arguments():
         and n.func.id == "CircuitBreaker"
     ]
     assert len(calls) == 1
+    # PRD-018 STORY-012: the one construction moved into the factory
+    # `_new_storage_breaker()` (so tests can build a counting breaker); the
+    # module-level instance is still the factory's single product.
+    (factory,) = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef)
+        and any(c is calls[0] for c in ast.walk(n))
+    ]
+    assert factory.name == "_new_storage_breaker"
     (assign,) = [
         n
         for n in tree.body
-        if isinstance(n, ast.Assign) and any(c is calls[0] for c in ast.walk(n))
+        if isinstance(n, ast.Assign) and ast.unparse(n.value) == "_new_storage_breaker()"
     ]
     assert [t.id for t in assign.targets] == ["_storage_breaker"]
     call = calls[0]
@@ -110,7 +120,8 @@ def test_exactly_one_storage_breaker_with_the_prd_arguments():
         "_BREAKER_OPEN_SECONDS",
     ]
     assert {k.arg: ast.unparse(k.value) for k in call.keywords} == {
-        "probe": "_probe_fresh_client"
+        "probe": "_probe_fresh_client",
+        "on_transition": "_count_breaker_open",  # PRD-018 STORY-012: breaker_opens
     }
     assert database._BREAKER_FAILURE_THRESHOLD == 5
     assert database._BREAKER_OPEN_SECONDS == 10.0
@@ -364,7 +375,9 @@ def test_only_the_unit_of_work_consults_the_breaker():
             for n in ast.walk(function)
         )
     }
-    assert users == {"_unit_of_work"}
+    # PRD-018 STORY-012: `storage_status()` reads `.status()` only (D16); the
+    # docstring above announced it.
+    assert users == {"_unit_of_work", "storage_status"}
     functions = _top_level_functions()
     for name in ("init_db", "check_database_reachable"):
         assert _calls_to(functions[name], "_unit_of_work") == [], name
