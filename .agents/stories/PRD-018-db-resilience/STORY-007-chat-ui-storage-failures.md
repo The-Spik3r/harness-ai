@@ -7,10 +7,10 @@ type: bug
 priority: high
 complexity: small
 phase: "3 - Fail fast and say so"
-status: todo
+status: in-progress
 labels: [frontend, chat-ui]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
+plan: .agents/plans/PRD-018-db-resilience/STORY-007-chat-ui-storage-failures.plan.md
 report: null
 commit: null
 depends_on: [STORY-005, STORY-006]

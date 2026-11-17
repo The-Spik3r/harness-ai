@@ -57,6 +57,10 @@ from chat_ui.chat_ui.copy import (
     SESSION_RENAME_PLACEHOLDER,
     SESSION_DELETE_CANCEL_LABEL,
     SESSION_RAIL_SHOW_LABEL,
+    # PRD-018 STORY-007: the storage-outage notices.
+    LOGIN_STORAGE_UNAVAILABLE_ERROR,
+    STORAGE_UNAVAILABLE_NOT_SENT_NOTICE,
+    LOGIN_INVALID_TOKEN_ERROR,
 )
 from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 
@@ -1309,3 +1313,22 @@ def test_the_usage_limit_tokens_notice_formats_the_reset_in_utc():
     assert format_usage_limit_notice("requests", "2026-10-19T14:23:00Z") == (
         USAGE_LIMIT_REQUESTS_NOTICE
     )
+
+
+def test_storage_unavailable_copy_names_the_outage_and_not_the_credential():
+    """PRD-018 Section 6.7: the two outage sentences say the database is
+    unavailable, never read as a bad credential, never carry driver text, and
+    do not apologize (frontend-design: errors don't apologize). "database" is
+    allowed here, unlike the transcript notices: the PRD fixed the wording."""
+    for text in (LOGIN_STORAGE_UNAVAILABLE_ERROR, STORAGE_UNAVAILABLE_NOT_SENT_NOTICE):
+        assert text and text.isascii()
+        assert text[0].isupper() and text.endswith(".")
+        assert "unavailable" in text
+        lowered = text.lower()
+        for word in (
+            "invalid", "token is", "hrana", "storageerror", "exception", "sql",
+            "sorry", "apologise", "apologize", "oops", "unfortunately",
+        ):
+            assert word not in lowered
+    assert "nothing was sent" in STORAGE_UNAVAILABLE_NOT_SENT_NOTICE
+    assert LOGIN_STORAGE_UNAVAILABLE_ERROR != LOGIN_INVALID_TOKEN_ERROR

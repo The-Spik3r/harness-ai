@@ -1866,7 +1866,9 @@ def test_every_bubble_append_in_do_send_goes_through_the_helper():
     ]
     # The eight append sites the story enumerates, collapsed to six calls: the
     # four isinstance branches already share one.
-    assert len(helper_calls) == 6
+    # PRD-018 STORY-007: +1 for the resolve() StorageError bubble (fixed copy,
+    # T9), still through the helper: 7.
+    assert len(helper_calls) == 7
 
 
 # ---------------------------------------------------------------------------

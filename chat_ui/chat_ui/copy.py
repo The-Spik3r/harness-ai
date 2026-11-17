@@ -25,6 +25,18 @@ LOGIN_INVALID_TOKEN_ERROR = "Invalid or deactivated token."
 SESSION_INVALIDATED_ERROR = (
     "Your session credential is no longer valid. Sign out and sign in again."
 )
+# PRD-018 Section 6.7 / T9: the database did not answer. Fixed sentences, never
+# the storage error's text (which can carry the driver's), and never the
+# invalid-token sentence above: an outage must not read as a bad credential.
+# "Retry" is the bubble's own button (RETRY_LABEL), so the next step carries
+# the control's name. No retry happens here: storage already retried.
+LOGIN_STORAGE_UNAVAILABLE_ERROR = (
+    "The harness's database is unavailable, so your token could not be "
+    "checked. Sign in again in a moment."
+)
+STORAGE_UNAVAILABLE_NOT_SENT_NOTICE = (
+    "The harness's database is unavailable, so nothing was sent. Retry in a moment."
+)
 
 # --- Header --------------------------------------------------------------
 SHELL_HEADER_TITLE = "HARNESS"
