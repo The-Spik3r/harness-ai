@@ -8,6 +8,8 @@ if str(REPO_ROOT) not in sys.path:
 
 import reflex as rx
 
+from app.config import settings
+from app.db import journal_drainer
 from app.db.database import init_db
 from app.main import app as fastapi_app
 from app.services import (
@@ -253,6 +255,26 @@ app.register_lifespan_task(action_config.load)
 # seeded users would boot the chat UI straight into a silent 401 wall
 # instead of refusing to start.
 app.register_lifespan_task(authz.check_bootstrap)
+
+
+# Same bypass again (PRD-018 STORY-009): app.main's lifespan opens the audit
+# journal and starts the drainer, and this ingress never runs it. init_db()
+# already ran at import (D17), so storage is up before this task. Registered
+# BEFORE _pipeline_executor_lifespan on purpose: Reflex's AsyncExitStack tears
+# tasks down in reverse order, so the executor (which waits for in-flight
+# calls that may still journal) shuts down first and the journal closes second.
+# journal_drainer is reference counted, so a mounted app.main lifespan that
+# also ran would share this journal instead of raising.
+@asynccontextmanager
+async def _audit_journal_lifespan():
+    journal_drainer.start(
+        settings.AUDIT_BUFFER_DIR, settings.AUDIT_BUFFER_MAX_BYTES, settings.PIPELINE_MAX_WORKERS
+    )
+    yield
+    journal_drainer.stop()
+
+
+app.register_lifespan_task(_audit_journal_lifespan)
 
 # Same bypass again (STORY-006): app.main's lifespan shuts the pipeline
 # executor down on exit, and this ingress never runs app.main's lifespan. A

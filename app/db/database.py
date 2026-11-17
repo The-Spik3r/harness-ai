@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from typing import (
@@ -3106,6 +3106,54 @@ def insert_action_decisions(rows: Sequence[ActionDecisionRow]) -> list[int]:
     return _unit_of_work(
         "insert_action_decisions", _keyed_kind([row.write_id for row in rows]), _op
     )
+
+
+def drain_journal_entry(
+    audit: Optional[AuditLog],
+    decisions: Sequence[ActionDecisionRow],
+    *,
+    audit_id: Optional[int] = None,
+) -> int:
+    """Replay one journal entry into the database; return the audit row id
+    (PRD-018 F6 drain half, D11, STORY-009).
+
+    **One transaction per entry (D11).** The audit row (when there is one) is
+    inserted keyed (`ON CONFLICT(write_id) DO NOTHING RETURNING id`, then one
+    `SELECT id` on conflict, see `_keyed_row_id`), and every decision is
+    rebuilt with `audit_id` set to THAT id and inserted keyed in the same unit.
+    The id is always resolved here by `write_id`, never taken from a cache: the
+    journal cannot know the id the database will assign. A decisions-only entry
+    (`audit is None`) carries the `audit_id` its audit row already has and
+    inserts the decisions alone. The audit row keeps its original `timestamp`
+    (`_insert_audit_row` writes `entry.timestamp`).
+
+    A replay is a no-op: every row meets `ON CONFLICT DO NOTHING`, so a crash
+    between this commit and the journal's checkpoint costs nothing at the next
+    boot. The kind is a literal `IDEMPOTENT`, not `_keyed_kind(...)`: the
+    journal refuses an unkeyed row at append (`audit_journal._validate`), and a
+    hand-built unkeyed call is refused here with `ValueError` before any
+    session opens. The rows are rebuilt inside `_op`, so a retried unit starts
+    over from the immutable inputs.
+    """
+    decisions = tuple(decisions)
+    if (audit is None) == (audit_id is None):
+        raise ValueError("drain_journal_entry needs exactly one of audit or audit_id")
+    if audit is not None and not audit.write_id:
+        raise ValueError("drain_journal_entry: the audit row needs a write_id")
+    if audit is None and not decisions:
+        raise ValueError("drain_journal_entry: a decisions-only entry needs decisions")
+    if any(not d.write_id for d in decisions):
+        raise ValueError("drain_journal_entry: every decision needs a write_id")
+
+    def _op(conn: _Connection) -> int:
+        row_id = _insert_audit_row(conn, audit) if audit is not None else audit_id
+        if decisions:
+            _insert_action_decision_rows(
+                conn, [replace(d, audit_id=row_id) for d in decisions]
+            )
+        return row_id
+
+    return _unit_of_work("drain_journal_entry", StatementKind.IDEMPOTENT, _op)
 
 
 def _row_to_action_decision_row(row: Mapping[str, Any]) -> ActionDecisionRow:

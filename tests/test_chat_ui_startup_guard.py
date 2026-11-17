@@ -1,6 +1,6 @@
 """Startup-guard coverage for the chat UI entry point.
 
-Five lifespan concerns live here now:
+Six lifespan concerns live here now:
 
   * PRD-005 STORY-016's RBAC bootstrap guard, registered as a lifespan task.
   * PRD-007 STORY-008's database reachability guard, which fires from init_db()
@@ -16,11 +16,15 @@ Five lifespan concerns live here now:
   * PRD-016 STORY-006's `action_config.load()`, registered as a lifespan task
     after `authz.load` (PRD-016 Section 6.11). A set ACTION_POLICY_FILE that
     cannot be loaded must stop this ingress too.
+  * PRD-018 STORY-009's audit journal and drainer, registered as an
+    `@asynccontextmanager` lifespan task after `authz.check_bootstrap` and before
+    the pipeline executor's task, so the executor shuts down first. Nothing is
+    opened at import.
 
 app/main.py's lifespan never runs under Reflex's api_transformer mount (see
 chat_ui/chat_ui/chat_ui.py's comments) -- init_db(), pii_redactor.load(),
 authz.load(), pattern_config.load(), action_config.load(),
-authz.check_bootstrap(), and the
+authz.check_bootstrap(), the audit journal drainer and the
 pipeline executor's shutdown are all duplicated there. This runs in a subprocess with PYTHONPATH
 set to chat_ui/, exactly like tests/test_chat_components_import.py, so
 importing chat_ui.chat_ui here never puts the inner package on this process's
@@ -121,6 +125,20 @@ except Exception as exc:
     result["action_raised"] = type(exc).__name__
     result["action_message"] = str(exc)
 
+# PRD-018 STORY-009 (D11, D17). After the bootstrap guard, before the
+# executor's task (Reflex tears down in reverse, so the executor stops first);
+# and nothing opened at import.
+journal_task = chat_ui_module._audit_journal_lifespan
+result["journal_lifespan_registered"] = journal_task in tasks
+result["journal_lifespan_order_ok"] = (
+    journal_task in tasks
+    and tasks.index(chat_ui_module.authz.check_bootstrap) < tasks.index(journal_task)
+    < tasks.index(chat_ui_module._pipeline_executor_lifespan)
+)
+result["journal_open_at_import"] = (
+    __import__("app.db.audit_journal", fromlist=["x"]).current() is not None
+)
+
 try:
     chat_ui_module.authz.check_bootstrap()
     result["raised"] = False
@@ -179,6 +197,15 @@ def test_pipeline_executor_shutdown_registered_as_chat_ui_lifespan_task(_empty_r
     result = _run_probe(_empty_rbac_env)
     assert not result["errors"], result["errors"]
     assert result["pipeline_shutdown_registered"] is True
+
+
+# PRD-018 STORY-009 (D11, D17): the audit journal drainer on the Reflex path.
+def test_audit_journal_lifespan_registered_after_bootstrap_before_executor_shutdown(_empty_rbac_env):
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["journal_lifespan_registered"] is True
+    assert result["journal_lifespan_order_ok"] is True
+    assert result["journal_open_at_import"] is False
 
 
 # --------------------------------------------------------------------------

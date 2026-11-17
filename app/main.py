@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
+from app.db import journal_drainer
 from app.db.database import init_db
 from app.routers import admin as admin_router
 from app.routers import query as query_router
@@ -19,8 +20,16 @@ async def lifespan(app: FastAPI):
     pii_policy.load()
     action_config.load()
     authz.check_bootstrap()
+    # PRD-018 D11/D17: the journal opens only after init_db() succeeded and every
+    # fail-fast check passed, so a refused startup leaks no journal or thread.
+    journal_drainer.start(
+        settings.AUDIT_BUFFER_DIR, settings.AUDIT_BUFFER_MAX_BYTES, settings.PIPELINE_MAX_WORKERS
+    )
     yield
+    # The executor first (it waits for in-flight calls, which may still journal
+    # their rows), then the journal.
     pipeline_executor.shutdown()
+    journal_drainer.stop()
 
 
 app = FastAPI(title="Harness IA", lifespan=lifespan)

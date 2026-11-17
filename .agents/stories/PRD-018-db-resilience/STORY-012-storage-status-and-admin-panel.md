@@ -43,6 +43,7 @@ As a platform operator, I want to see breaker state, journal depth and retry cou
 - `docs/api.md` row for the endpoint is STORY-014.
 - Tests: `tests/test_storage_status.py` (non-`db`), plus the admin console state tests.
 - Orchestrator note (STORY-003 plan): `usage_limits.charge` logs the raw `str(exc)` today (`app/services/usage_limits.py:217-227`). PRD Section 11 says every log line carries redacted driver text: route it through `database._redacted()` while touching the logging (cite PRD-018 Quality indicators).
+- Orchestrator decision (STORY-009 plan): the drainer (`app/db/journal_drainer.py`) holds back an entry that fails with a non-infrastructure error for the rest of the process (`held_back()`), and the journal holds back corrupt/undecodable files (`JournalStatus.held_back_files`, STORY-008). Expose both in `journal` of `storage_status()` (e.g. `held_back_entries`, `held_back_files`) and in the admin panel: they mean "an operator must look", unlike a normal backlog.
 - Orchestrator decision (STORY-003): a refused infrastructure retry (`NON_IDEMPOTENT` on `OUTCOME_UNKNOWN`) logs one WARNING `retry refused ...`. Count it in `counters.exhausted` under `<op>:<class>`, or add a `refused` map, and say which.
 
 ## Dependencies

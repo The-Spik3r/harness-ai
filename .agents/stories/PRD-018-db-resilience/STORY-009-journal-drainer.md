@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Never lose a row"
-status: todo
+status: done
 labels: [backend, storage, chat-ui]
 epic_branch: epic/PRD-018-db-resilience
-plan: null
-report: null
+plan: .agents/plans/PRD-018-db-resilience/completed/STORY-009-journal-drainer.plan.md
+report: .agents/reports/PRD-018-db-resilience/STORY-009-journal-drainer.report.md
 commit: null
 depends_on: [STORY-005, STORY-008]
 blocks: [STORY-010, STORY-011, STORY-012]

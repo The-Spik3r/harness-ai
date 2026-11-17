@@ -40,6 +40,11 @@ storage get one:
   not, a closed storage circuit breaker of its own (PRD-018 STORY-005), so a test
   that exhausts a retry budget can never open it for the next one.
 
+- **The audit journal.** The autouse `_isolated_audit_buffer` (PRD-018 STORY-009)
+  points `AUDIT_BUFFER_DIR` at a per-test path under pytest's base temp (created
+  only when a journal opens) and fails any test that leaves a journal open or the
+  drainer thread running, or a non-`db` test that meets that thread.
+
 A failing `db` test also gets a `libsql diagnostics` section ending in
 `libsql verdict: ...` (see `pytest_runtest_makereport`). The promise the old
 docstring made -- no test reaches another test's rows, or anyone's real
@@ -58,6 +63,7 @@ Point the suite somewhere else with `HARNESS_TEST_LIBSQL_URL`.
 
 import itertools
 import os
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -88,7 +94,7 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import libsql  # noqa: E402  -- after the bootstrap, for symmetry with the rest
 
 from app.config import settings  # noqa: E402  -- must follow the bootstrap above
-from app.db import database  # noqa: E402
+from app.db import audit_journal, database, journal_drainer  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 from app.services import action_config  # noqa: E402
 from app.services.circuit_breaker import CircuitBreaker  # noqa: E402
@@ -705,6 +711,44 @@ def _fresh_storage_breaker():
     )
     yield
     database._storage_breaker = original
+
+
+_audit_buffer_numbers = itertools.count(1)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_audit_buffer(request, monkeypatch, tmp_path_factory):
+    """Every test gets its own AUDIT_BUFFER_DIR and leaks no journal or drainer (PRD-018 STORY-009).
+
+    The lifespans open the audit journal and start the drainer thread, so a
+    lifespan test would otherwise write `./var/audit-buffer` in the repo. The
+    path is under pytest's base temp and is NOT created here: the journal
+    creates it on open, so a test that never opens one costs nothing. At
+    teardown a journal or thread left open is force-cleaned (so the next test's
+    `open_journal` cannot fail with "already open") and the leaking test fails
+    by name. A non-`db` test must never meet the drainer thread (PRD-014 D2:
+    nothing starts at import; only a lifespan starts it, and every lifespan test
+    is a `db` test).
+    """
+    path = tmp_path_factory.getbasetemp() / "audit-buffer" / str(next(_audit_buffer_numbers))
+    monkeypatch.setattr(settings, "AUDIT_BUFFER_DIR", str(path))
+    yield
+    leaked = journal_drainer.running() or audit_journal.current() is not None
+    threads = [t for t in threading.enumerate() if t.name == "audit-journal-drainer" and t.is_alive()]
+    if leaked or threads:
+        journal_drainer._stop_all()
+        if request.node.get_closest_marker(_DB_MARKER) is None:
+            pytest.fail(
+                "a non-db test met the audit-journal-drainer thread or journal "
+                "(PRD-014 D2: only a lifespan starts it, and lifespan tests are db tests)",
+                pytrace=False,
+            )
+        pytest.fail(
+            "this test left the audit journal open or the audit-journal-drainer thread running "
+            "(PRD-018 STORY-009): call journal_drainer.stop() / close_journal(), or exit the "
+            "lifespan, before the test ends",
+            pytrace=False,
+        )
 
 
 @pytest.fixture(autouse=True)

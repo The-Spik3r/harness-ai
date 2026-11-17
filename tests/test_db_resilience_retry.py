@@ -632,6 +632,9 @@ _EXPECTED_KINDS = {
     # expression, and an unkeyed call is NON_IDEMPOTENT (tests/
     # test_db_resilience_write_id.py).
     "insert_audit_log": K.IDEMPOTENT,  # rows 6, 8
+    # PRD-018 D11 (STORY-009): every journaled row is keyed, so the drain unit is
+    # a literal IDEMPOTENT, not _keyed_kind(...).
+    "drain_journal_entry": K.IDEMPOTENT,
     "find_duplicate_timestamp": K.READ,  # row 5
     "mark_audit_log_failed": K.IDEMPOTENT,  # row 10
     "get_audit_log": K.READ,  # admin read
@@ -709,7 +712,8 @@ def test_the_table_covers_the_modules_public_functions():
         and obj.__module__ == database.__name__
         and not name.startswith("_")
     }
-    assert len(_EXPECTED_KINDS) == 41
+    # PRD-018 STORY-009: 41 -> 42 with drain_journal_entry.
+    assert len(_EXPECTED_KINDS) == 42
     assert public == set(_EXPECTED_KINDS) | _EXEMPT
 
 
