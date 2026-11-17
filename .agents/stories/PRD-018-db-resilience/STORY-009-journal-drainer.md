@@ -12,7 +12,7 @@ labels: [backend, storage, chat-ui]
 epic_branch: epic/PRD-018-db-resilience
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-009-journal-drainer.plan.md
 report: .agents/reports/PRD-018-db-resilience/STORY-009-journal-drainer.report.md
-commit: null
+commit: bbeea1a
 depends_on: [STORY-005, STORY-008]
 blocks: [STORY-010, STORY-011, STORY-012]
 skills: []

@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-018
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-009-journal-drainer.plan.md
 epic_branch: epic/PRD-018-db-resilience
-commit: pending
+commit: bbeea1a
 status: COMPLETE
 completed: 2026-11-17
 ---
