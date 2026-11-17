@@ -8,3 +8,6 @@ venv/
 
 # PRD-017 STORY-001: pinned client installs for the E2E (never npm -g)
 tests/e2e/.clients/
+
+# PRD-018 STORY-008: default AUDIT_BUFFER_DIR (./var/audit-buffer), local journal files
+var/

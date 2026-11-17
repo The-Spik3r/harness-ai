@@ -1490,3 +1490,47 @@ def test_env_example_tool_defaults_match_settings():
     assert positions == sorted(positions)
     assert text.index("V1_SSE_KEEPALIVE_SECONDS=") < positions[0]
     assert positions[-1] < text.index("ACTION_POLICY_FILE=")
+
+
+# --- PRD-018 STORY-008: audit journal settings ---
+
+
+def test_audit_buffer_settings_have_the_documented_defaults():
+    """PRD-018 9.3: the defaults, and they satisfy the minimum for the default worker count."""
+    config = _settings()
+    assert config.AUDIT_BUFFER_DIR == "./var/audit-buffer"
+    assert config.AUDIT_BUFFER_MAX_BYTES == 67108864  # 32 x 131072 = 4 MiB <= 64 MiB
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_audit_buffer_dir_empty_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(AUDIT_BUFFER_DIR=value)
+    assert "AUDIT_BUFFER_DIR" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("value", [4 * 65536 * 2 - 1, "0"])
+def test_audit_buffer_max_bytes_below_two_reserves_per_worker_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(PIPELINE_MAX_WORKERS=4, AUDIT_BUFFER_MAX_BYTES=value)
+    message = str(exc_info.value)
+    assert "AUDIT_BUFFER_MAX_BYTES" in message and "PIPELINE_MAX_WORKERS" in message
+
+
+def test_audit_buffer_max_bytes_exact_minimum_is_accepted():
+    assert _settings(PIPELINE_MAX_WORKERS=4, AUDIT_BUFFER_MAX_BYTES=4 * 65536 * 2).AUDIT_BUFFER_MAX_BYTES == 524288
+
+
+def test_settings_construction_does_not_touch_the_audit_buffer_dir(tmp_path):
+    """PRD-018 STORY-008: the directory is created when the journal opens, never at settings load."""
+    target = tmp_path / "never"
+    _settings(AUDIT_BUFFER_DIR=str(target))
+    assert not target.exists()
+
+
+def test_reserve_constant_is_the_journals():
+    from app import config
+    from app.db import audit_journal
+
+    assert config._JOURNAL_ENTRY_RESERVE_BYTES is audit_journal._JOURNAL_ENTRY_RESERVE_BYTES
+    assert audit_journal._JOURNAL_ENTRY_RESERVE_BYTES == 65536

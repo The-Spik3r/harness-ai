@@ -138,3 +138,15 @@ class StorageUnavailableError(StorageError):
     def __init__(self, message: str, retry_after_seconds: int) -> None:
         self.retry_after_seconds = retry_after_seconds
         super().__init__(message)
+
+
+class AuditUnavailableError(StorageError):
+    """The audit journal cannot take an entry (PRD-018 D10 / D13, T5).
+
+    Raised only by `app/db/audit_journal.py`: the journal is not open or is
+    closed, the append would exceed `AUDIT_BUFFER_MAX_BYTES` (nothing is
+    written), the write/flush/fsync failed, or -- at open -- `AUDIT_BUFFER_DIR`
+    cannot be created or written. A `StorageError` so the existing fail-closed
+    arms see it; the 503 mapping on the ingresses is STORY-010's and the
+    headroom refusal STORY-011's. The message never carries journal contents.
+    """
