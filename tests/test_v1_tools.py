@@ -1018,6 +1018,8 @@ def test_flag_on_text_only_body_is_the_flag_off_body(temp_db, monkeypatch):
         for key in ("id", "created"):
             body.pop(key)
         body["harness"].pop("audit_id")
+        # PRD-018 D14: audit_ref is the row's write_id, minted per request.
+        body["harness"].pop("audit_ref")
         bodies.append(body)
 
     assert bodies[0] == bodies[1]

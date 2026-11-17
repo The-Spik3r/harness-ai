@@ -283,8 +283,11 @@ def test_the_response_and_the_audit_row_are_what_they_were_with_history_on(
     on_row = dataclasses.asdict(_last_audit_row())
 
     assert off_body["status"] == "SUCCESS"
-    assert {k: v for k, v in off_body.items() if k != "audit_id"} == {
-        k: v for k, v in on_body.items() if k != "audit_id"
+    # PRD-018 D14: audit_ref (the row's write_id) is minted per request, like
+    # audit_id, so it differs between the two bodies and is excluded too.
+    per_request = ("audit_id", "audit_ref")
+    assert {k: v for k, v in off_body.items() if k not in per_request} == {
+        k: v for k, v in on_body.items() if k not in per_request
     }
     assert isinstance(off_body["audit_id"], int)
 
