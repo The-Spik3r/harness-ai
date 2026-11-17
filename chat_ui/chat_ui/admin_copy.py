@@ -529,7 +529,9 @@ STORAGE_EXHAUSTED_TITLE = (
 )
 STORAGE_KEYED_EMPTY = "None"
 
-STORAGE_LABEL_STATE = "State"
+# PRD-018 STORY-012: "State" alone is quoted by a theme.GLOBAL_CSS comment,
+# which tests/test_ground.py forbids for any label of five or more letters.
+STORAGE_LABEL_STATE = "Breaker state"
 STORAGE_LABEL_SINCE = "Since"
 STORAGE_LABEL_FAILURES = "Consecutive failures"
 STORAGE_LABEL_LAST_CLASS = "Last failure"
