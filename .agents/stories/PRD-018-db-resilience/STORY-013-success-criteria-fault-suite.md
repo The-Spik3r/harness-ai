@@ -12,7 +12,7 @@ labels: [tests, storage]
 epic_branch: epic/PRD-018-db-resilience
 plan: .agents/plans/PRD-018-db-resilience/completed/STORY-013-success-criteria-fault-suite.plan.md
 report: .agents/reports/PRD-018-db-resilience/STORY-013-success-criteria-fault-suite.report.md
-commit: pending
+commit: 2078087
 depends_on: [STORY-010, STORY-011]
 blocks: [STORY-014]
 skills: []
