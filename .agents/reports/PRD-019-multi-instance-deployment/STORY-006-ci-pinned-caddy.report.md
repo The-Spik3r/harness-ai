@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-006-ci-pinned-caddy.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: a5ea151
 status: COMPLETE
 completed: 2026-11-17
 ---
@@ -11,7 +11,7 @@ completed: 2026-11-17
 # Implementation Report - STORY-006: CI installs a pinned Caddy
 
 **Plan**: `.agents/plans/PRD-019-multi-instance-deployment/completed/STORY-006-ci-pinned-caddy.plan.md`
-**Commit**: `pending`
+**Commit**: `a5ea151`
 
 ## Summary
 

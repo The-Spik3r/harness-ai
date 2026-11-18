@@ -12,7 +12,7 @@ labels: [ci, tests, caddy]
 epic_branch: epic/PRD-019-multi-instance-deployment
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-006-ci-pinned-caddy.plan.md
 report: .agents/reports/PRD-019-multi-instance-deployment/STORY-006-ci-pinned-caddy.report.md
-commit: null
+commit: a5ea151
 depends_on: [STORY-005]
 blocks: [STORY-007]
 skills: []
