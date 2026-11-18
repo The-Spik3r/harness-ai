@@ -58,12 +58,14 @@ from app.models.v1_schemas import (
     chat_completion_id,
     chat_completion_ref_id,
 )
-from app.services.upstream import (
+# PRD-020 STORY-005: the pure submodules, not the package (`upstream/__init__`
+# imports httpx and the registry), so this module stays pure.
+from app.services.upstream.params import (
     GenerationParams,
     ToolParams,
     UnsupportedParameterError,
-    UpstreamResult as OpenRouterResult,
 )
+from app.services.upstream.types import UpstreamResult as OpenRouterResult
 
 INVALID_MESSAGES = "invalid_messages"
 INVALID_PARAMETER = "invalid_parameter"
