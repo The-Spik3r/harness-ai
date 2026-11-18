@@ -2,11 +2,11 @@
 id: PRD-019
 slug: multi-instance-deployment
 title: Multi-Instance Deployment — Load Balancer, Health Checks and Websocket Session Affinity
-status: draft
+status: in-progress
 base_branch: main
 epic_branch: epic/PRD-019-multi-instance-deployment
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 ## 1. Executive Summary
@@ -37,7 +37,7 @@ Core principles:
 
 **Integrating Developer (`/v1`, `POST /query`).** Points an OpenAI SDK, Aider or OpenCode at the balancer. Needs long non-streaming calls (up to `OPENROUTER_TIMEOUT_SECONDS`) and buffered SSE streams to survive two proxy hops, and usage limits that hold across instances (already true, PRD-013).
 
-**PRD-018 (database resilience, draft).** Lands before this PRD. It adds one process-local breaker (`closed | open | half_open`), `StorageUnavailableError` and 503 + `Retry-After` on every ingress. `/ready` reads that breaker through `database.storage_status()`, never adds to its failure count, and keeps the 503s it produces intact on their way through the balancer (D5, D9).
+**PRD-018 (database resilience, done, merged in #27).** Landed before this PRD. It adds one process-local breaker (`closed | open | half_open`), `StorageUnavailableError` and 503 + `Retry-After` on every ingress. `/ready` reads that breaker through `database.storage_status()`, never adds to its failure count, and keeps the 503s it produces intact on their way through the balancer (D5, D9).
 
 ## 4. MVP Scope
 
@@ -323,13 +323,13 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 ### Phase 1 — Probes (Stories 1–3)
 `DRAIN_FILE` and `READY_DB_TIMEOUT_SECONDS` settings; `check_ready()`; `GET /ready`; Caddyfile matcher plus the route tests; image `HEALTHCHECK`. *Validation:* unit tests against the libSQL CI service and a blackholed URL; `docker build` passes.
 
-### Phase 2 — Balancer (Stories 4–6)
+### Phase 2 — Balancer (Stories 4–6: STORY-004 spike, STORY-005 Caddyfile + compose, STORY-006 CI Caddy)
 `deploy/lb/Caddyfile`; `docker-compose.lb.yml`; `tests/test_lb_caddyfile.py`; CI installs pinned Caddy. *Validation:* the static test passes; `docker compose -f docker-compose.lb.yml config` is valid.
 
-### Phase 3 — Proof (Stories 7–9)
+### Phase 3 — Proof (Stories 7–10: STORY-007 routing, STORY-008 drain/kill/long calls, STORY-009 rolling restart, STORY-010 Docker E2E)
 `tests/test_two_instance_balancer.py` (stickiness, limits, drain, kill, long calls, SSE); Docker E2E for the websocket and failover; `scripts/rolling_restart.sh`, exercised by the E2E. *Validation:* CI green; E2E green locally with `--run-e2e`.
 
-### Phase 4 — Docs (Story 10)
+### Phase 4 — Docs (Story 11)
 `docs/deployment.md`, `docs/configuration.md`, `docs/roadmap.md`, README, `.env.example`. *Validation:* every setting named in the docs exists in `app/config.py` or the compose file.
 
 ## 13. Future Considerations
@@ -399,10 +399,10 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 - PRD-008 (chat sessions): transcripts in the database, which is why failover loses no chat
 - PRD-013 (usage limits): limits shared across instances
 - PRD-015 (OpenAI-compatible endpoint): buffered SSE, keep-alives, the Docker smoke and probe
-- [PRD-018](../PRD-018-db-resilience/PRD.md) (database resilience, **draft**): D6 (process-local breaker, half-open `SELECT 1`), D7 (`StorageUnavailableError`), D8 (503 + `Retry-After` on every ingress), D16 (`/storage/status`, `/health` unchanged), D17 (boot unchanged). Consumed by D3, D5 and D9 and by the journal volume in F4
+- [PRD-018](../PRD-018-db-resilience/PRD.md) (database resilience, **done**): D6 (process-local breaker, half-open `SELECT 1`), D7 (`StorageUnavailableError`), D8 (503 + `Retry-After` on every ingress), D16 (`/storage/status`, `/health` unchanged), D17 (boot unchanged). Consumed by D3, D5 and D9 and by the journal volume in F4
 
 ### Dependencies
-- Depends on: PRD-007 (done) and PRD-018 (draft, to land first). It needs `database.storage_status()` and the breaker states, the shared `AUDIT_BUFFER_DIR` volume and PRD-018's ingress 503s. If this PRD is started first, step 2 of `/ready` is stubbed as `closed` and the D9 pass-through tests wait for PRD-018.
+- Depends on: PRD-007 (done) and PRD-018 (done, merged in #27). It needs `database.storage_status()` and the breaker states, the shared `AUDIT_BUFFER_DIR` volume and PRD-018's ingress 503s.
 - Blocks: none.
 
 **Skills referenced:** none
