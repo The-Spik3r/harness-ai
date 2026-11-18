@@ -166,6 +166,8 @@ _LEGACY_TOOLS_RULE = "the deprecated function-calling API is not supported; use 
 _FLAG_ON_REJECTED_RULES = {**_REJECTED_RULES, TOOLS_NOT_SUPPORTED: _LEGACY_TOOLS_RULE}
 # PRD-017 D16: exactly this text, no location prefix.
 _TOOL_MODEL_RULE = "model is not enabled for tool calling (V1_TOOL_MODELS)"
+# PRD-020 D6: file mode has no V1_TOOL_MODELS list, so the rule names no setting.
+_TOOL_CAPABILITY_RULE = "model is not enabled for tool calling"
 
 # Check order, and the rule each 400 names. The rule is the translator's own
 # text: GenerationParams' messages end with the value (`got ...`), and `stop`
@@ -493,6 +495,7 @@ def translate_request(
     *,
     tools_enabled: bool = False,
     tool_models: Sequence[str] = (),
+    tools_supported: Optional[bool] = None,
 ) -> V1Call:
     """The parsed request as pipeline arguments (PRD-015 Sections 7.1, 7.3).
 
@@ -517,6 +520,13 @@ def translate_request(
     describes a model's capability, not a caller's permission, so it holds for
     every caller. Tool history alone is not a `tools` request and is not
     checked.
+
+    `tools_supported` (PRD-020 D6, T3) is the router's per-request verdict from
+    the registry in file mode: None (legacy) keeps the `tool_models` rule above;
+    False refuses a tools request with `_TOOL_CAPABILITY_RULE`, at the same spot
+    and with the same code and param. The router passes True for a model the
+    caller may not use, so the pipeline's single denial answers. Ignored with
+    the flag off.
     """
     sent = frozenset(body.model_fields_set)
     # Declared fields are attributes; extras live only in model_extra.
@@ -530,6 +540,8 @@ def translate_request(
         tools, tool_ignored = _tool_params(sent, values)
         if tools is not None and tool_models and body.model not in tool_models:
             raise V1RequestError(TOOLS_NOT_SUPPORTED, _TOOL_MODEL_RULE, "tools")
+        if tools is not None and tools_supported is False:
+            raise V1RequestError(TOOLS_NOT_SUPPORTED, _TOOL_CAPABILITY_RULE, "tools")
     else:
         _check_rejected(sent, values)
     params = _forwarded_params(sent, values)

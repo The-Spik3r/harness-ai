@@ -51,10 +51,12 @@ from app.models.v1_schemas import (
     ChatCompletionRequest,
     ErrorDetail,
     ErrorResponse,
+    ModelCapabilities,
     ModelEntry,
+    ModelHarness,
     ModelList,
 )
-from app.services import v1_sse
+from app.services import authz, provider_registry, v1_sse
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
@@ -343,6 +345,17 @@ def _sse_events(
     )]
 
 
+def _tools_supported(identity: Identity, model: str) -> bool:
+    """File-mode tool capability of `model`, decided only for a model the caller
+    may use (PRD-020 T3). `authorize_route` is pure; a denial answers True so the
+    pipeline's step-2 denial is the one verdict for an uncatalogued, forbidden or
+    unlisted passthrough id, and a forbidden model's flag never leaks."""
+    try:
+        return authz.authorize_route(identity, model).capabilities.tools
+    except authz.PermissionDenied:
+        return True
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     body: ChatCompletionRequest,
@@ -355,10 +368,14 @@ async def chat_completions(
         # Read per request, so a flipped flag takes effect without a restart
         # and tests monkeypatch it (PRD-017 Section 6.7). The translator reads
         # no settings.
+        # PRD-020 D6: in file mode the capability comes from the registry and
+        # V1_TOOL_MODELS is not read; legacy passes the list and None.
+        file_mode = not provider_registry.current().is_legacy
         call = translate_request(
             body,
             tools_enabled=settings.V1_TOOLS_ENABLED,
-            tool_models=settings.v1_tool_models_list,
+            tool_models=() if file_mode else settings.v1_tool_models_list,
+            tools_supported=_tools_supported(identity, body.model) if file_mode else None,
         )
     except V1RequestError as exc:
         # T9: who and which rule, never the message, param value or body.
@@ -427,6 +444,24 @@ def _model_entry(model_id: str) -> ModelEntry:
     return ModelEntry(id=model_id, owned_by=prefix if sep and prefix else "harness")
 
 
+def _registry_entry(model: provider_registry.CatalogModel) -> ModelEntry:
+    """A catalogued model as its file-mode entry (PRD-020 Section 10)."""
+    caps = model.capabilities
+    return ModelEntry(
+        id=model.id,
+        owned_by=model.provider_name,
+        harness=ModelHarness(
+            provider=model.provider_name,
+            capabilities=ModelCapabilities(
+                tools=caps.tools,
+                streaming=caps.streaming,
+                reasoning=caps.reasoning,
+                max_context_tokens=caps.max_context_tokens,
+            ),
+        ),
+    )
+
+
 def _refuse_break_glass(identity: Identity) -> Optional[JSONResponse]:
     """The break-glass refusal for a route that runs no pipeline (PRD-015 Section 7.2).
 
@@ -455,6 +490,11 @@ async def list_models(
     refusal = _refuse_break_glass(identity)
     if refusal is not None:
         return refusal
+    if not provider_registry.current().is_legacy:
+        # PRD-020 D4: the catalogued models this role may use, in registry order.
+        return JSONResponse(ModelList(
+            data=[_registry_entry(m) for m in provider_registry.visible_models(identity)]
+        ).model_dump(mode="json"))
     # Read per request (tests monkeypatch it). An `admin` may send any model,
     # but "any" cannot be listed, so every role sees the configured entries.
     models = ModelList(data=[_model_entry(model) for model in settings.model_allowlist_list])
@@ -473,6 +513,16 @@ async def retrieve_model(
         return refusal
     # Exact match, no aliasing (D4). Neither the body nor the log names the
     # id: the rule is enough, and the id is the caller's input.
+    if not provider_registry.current().is_legacy:
+        # PRD-020 T3: uncatalogued, not-visible and passthrough ids share this
+        # one branch, so the bodies are equal.
+        for entry in provider_registry.visible_models(identity):
+            if entry.id == model_id:
+                return JSONResponse(_registry_entry(entry).model_dump(mode="json"))
+        logger.info(
+            "v1 request refused: user_id=%s code=%s", identity.user_id, MODEL_NOT_FOUND
+        )
+        return _error(404, "invalid_request_error", MODEL_NOT_FOUND, "model not found")
     if model_id not in settings.model_allowlist_list:
         logger.info(
             "v1 request refused: user_id=%s code=%s", identity.user_id, MODEL_NOT_FOUND
