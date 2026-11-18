@@ -12,7 +12,7 @@ labels: [testing, backend]
 epic_branch: epic/PRD-020-provider-registry
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-001-legacy-byte-identical-fixtures.plan.md
 report: .agents/reports/PRD-020-provider-registry/STORY-001-legacy-byte-identical-fixtures.report.md
-commit: null
+commit: 130bbee
 depends_on: []
 blocks: [STORY-005]
 skills: []

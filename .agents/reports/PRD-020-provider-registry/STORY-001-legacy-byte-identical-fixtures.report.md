@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-001-legacy-byte-identical-fixtures.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 130bbee
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-020-provider-registry/completed/STORY-001-legacy-byte-identical-fixtures.plan.md`
 **Epic Branch**: `epic/PRD-020-provider-registry`
-**Commit**: `pending`
+**Commit**: `130bbee`
 
 ## Summary
 
@@ -66,3 +66,7 @@ Added `tests/fixtures/prd020_legacy/` and `tests/test_prd020_legacy_fixtures.py`
 - [x] AC3 `/v1/models` bodies: `test_v1_models_bodies_match_recorded`
 - [x] AC4 `/query` success, `query:model:`, `query:byok`: `test_query_bodies_match_recorded`
 - [x] AC5 README + empty `app/` diff: `test_readme_documents_normalization`
+
+## Follow-up
+
+`.gitattributes` marks `tests/fixtures/prd020_legacy/**` as `-text`: the repo checks out with CRLF conversion on Windows (autocrlf), which would break the raw-byte comparison of `/v1` and `/query` fixtures on a fresh checkout.
