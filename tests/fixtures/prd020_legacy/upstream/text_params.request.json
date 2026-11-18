@@ -1,0 +1,28 @@
+{
+  "model": "openai/gpt-4o",
+  "messages": [
+    {
+      "role": "system",
+      "content": "be brief"
+    },
+    {
+      "role": "user",
+      "content": "first"
+    },
+    {
+      "role": "assistant",
+      "content": "answer"
+    },
+    {
+      "role": "user",
+      "content": "second"
+    }
+  ],
+  "temperature": 0.5,
+  "max_tokens": 64,
+  "top_p": 0.9,
+  "stop": [
+    "END",
+    "STOP"
+  ]
+}

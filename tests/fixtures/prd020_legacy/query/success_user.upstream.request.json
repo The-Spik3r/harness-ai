@@ -1,0 +1,9 @@
+{
+  "model": "gpt-4",
+  "messages": [
+    {
+      "role": "user",
+      "content": "legacy prompt a"
+    }
+  ]
+}

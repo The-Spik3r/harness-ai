@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: medium
 phase: "1 - Registry and legacy equivalence"
-status: todo
+status: done
 labels: [testing, backend]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
-report: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-001-legacy-byte-identical-fixtures.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-001-legacy-byte-identical-fixtures.report.md
 commit: null
 depends_on: []
 blocks: [STORY-005]

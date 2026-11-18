@@ -1,0 +1,26 @@
+{
+  "list.admin": {
+    "status": 200,
+    "x-should-retry": null
+  },
+  "list.user": {
+    "status": 200,
+    "x-should-retry": null
+  },
+  "missing.admin": {
+    "status": 404,
+    "x-should-retry": "false"
+  },
+  "missing.user": {
+    "status": 404,
+    "x-should-retry": "false"
+  },
+  "one.admin": {
+    "status": 200,
+    "x-should-retry": null
+  },
+  "one.user": {
+    "status": 200,
+    "x-should-retry": null
+  }
+}

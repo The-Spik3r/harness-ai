@@ -1,0 +1,1 @@
+{"object":"list","data":[{"id":"gpt-4","object":"model","created":0,"owned_by":"harness"},{"id":"claude-3-sonnet","object":"model","created":0,"owned_by":"harness"},{"id":"openai/gpt-4o","object":"model","created":0,"owned_by":"openai"},{"id":"anthropic/claude-3.5-sonnet","object":"model","created":0,"owned_by":"anthropic"}]}

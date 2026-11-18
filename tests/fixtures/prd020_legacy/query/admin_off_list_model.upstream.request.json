@@ -1,0 +1,9 @@
+{
+  "model": "some/off-list-model",
+  "messages": [
+    {
+      "role": "user",
+      "content": "legacy prompt f"
+    }
+  ]
+}
