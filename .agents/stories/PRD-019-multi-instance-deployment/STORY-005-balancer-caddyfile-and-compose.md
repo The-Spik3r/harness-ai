@@ -39,6 +39,7 @@ As a platform operator, I want one compose file that starts two instances behind
 - Read STORY-004's report first: version/digest, the verified error status, and the verified way to override upstreams for STORY-007's test (the shipped file must be runnable by the test with only the upstream addresses substituted).
 - Parsing in the test: plain text/regex over the Caddyfile and `yaml.safe_load` (check that PyYAML is already installed; no new dependency) over the compose file.
 - D7: two named services, no `--scale`; the balancer publishes the build-time `$PORT` (Section 6.1).
+- **Orchestrator decision (from STORY-004 findings, to confirm)**: pin `caddy:2.11.7@sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e`. The no-upstream status is 503 after about 5 s as the AC says. `handle_errors 502 503` also answers a request an instance broke mid-flight (the `/v1` body then wrongly says it was not sent to the model), and a `response_header_timeout` is an empty 504 that it does not catch. Decide: add 504 to `handle_errors` and/or reword the `/v1` body. The shipped file keeps the literal F3 upstream line (no env default; see STORY-007). Do not add `Secure`; Caddy sets none.
 
 ## Dependencies
 

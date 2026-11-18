@@ -41,6 +41,7 @@ As a maintainer, I want two real uvicorn instances, the stub upstream and a real
 - Forcing a PRD-018 503 inside one child: an env/test hook only active in tests (check for an existing one from PRD-018 first, e.g. `force_open`), never a production route.
 - Ports: pick free ports at runtime; on Windows, make sure caddy and uvicorn children are terminated (`Popen.kill` + wait).
 - Keep the module's runtime reasonable (< ~2 min here); STORY-008 adds the slow cases to the same module.
+- **Orchestrator decision (from STORY-004)**: the upstream override is a textual one-line replacement of `reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {` (an `{$LB_UPSTREAMS:...}` default does not parse). Assert exactly one occurrence and that the rest is byte-identical. Give each `caddy run` child env `CADDY_ADMIN=localhost:<free port>` (default admin `:2019` collides) plus `PORT` and `LB_COOKIE_SECRET`. A no-healthy-upstream case takes about 5 s; cookie-less selection is random.
 
 ## Dependencies
 

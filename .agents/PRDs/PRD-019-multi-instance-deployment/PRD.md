@@ -213,7 +213,9 @@ handle_errors 502 503 {
 }
 ```
 
-`handle_errors` only fires for errors the balancer generates itself, such as no healthy upstream or a failed dial. A 503 returned by an instance is a proxied response, so it passes through untouched with its own `Retry-After` (D9). `Retry-After: 10` is PRD-018's `_BREAKER_OPEN_SECONDS`.
+`handle_errors` fires for errors the balancer raises: no healthy upstream (503 after `lb_try_duration`, about 5 s) and a failed dial, and also a connection an instance breaks after receiving the request (Caddy raises 502, rewritten to this 503, never replayed). A 503 returned by an instance is a proxied response, so it passes through untouched with its own `Retry-After` (D9); verified in STORY-004. `response_header_timeout` expiry is a **504 with an empty body** that `handle_errors 502 503` does not catch (open point for STORY-005: add 504, or accept it). The `/v1` body's "the request was not sent to the model" is false for the mid-flight break, which has already reached an instance. `Retry-After: 10` is PRD-018's `_BREAKER_OPEN_SECONDS`.
+
+Verified against Caddy 2.11.7 (STORY-004): every directive above is accepted as written. The cookie is `harness_lb=<64 hex, HMAC-SHA-256 of the upstream>; Path=/; HttpOnly; SameSite=Lax` (no `Secure`, session cookie), re-set when the pinned upstream is unhealthy or dead, and an empty `LB_COOKIE_SECRET` is silently accepted (compose's `${LB_COOKIE_SECRET:?}` is the only guard). Upstream override for tests: an env default does not parse (`{$X:a:{$PORT} b:{$PORT}}` stops at the first `}`), so the test replaces the one line `reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {` textually and asserts everything else is byte-identical. Parallel `caddy run` processes collide on the admin port `localhost:2019`; set env `CADDY_ADMIN=localhost:<free port>` per process.
 
 `response_header_timeout` is `OPENROUTER_TIMEOUT_SECONDS` (120) + 30 s (D6). `stream_close_delay` keeps websockets open across a balancer config reload instead of dropping every chat at once. The final directive set is pinned by `tests/test_lb_caddyfile.py`.
 
@@ -244,7 +246,7 @@ The script refuses to start if any instance is not ready, so it never drains the
 |---|---|---|
 | Reflex | `0.9.6.post1` (`requirements.txt`, `chat_ui/requirements.txt`) | disk state manager, websocket-only transport; unchanged |
 | Caddy (in image) | unpinned, Cloudsmith `stable` apt repo ([Dockerfile:44-50](../../../Dockerfile)) | unchanged by this PRD (Risk 5) |
-| Caddy (balancer) | official `caddy:2.<minor>` image, pinned by digest | new; same binary version pinned in CI |
+| Caddy (balancer) | official `caddy:2.11.7` image, pinned by digest `sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e` | new; same binary version (`v2.11.7`) pinned in CI; its Linux tarball SHA-256 `727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b` goes in STORY-006's workflow (STORY-004) |
 | FastAPI / uvicorn[standard] | as in `requirements.txt` | uvicorn runs the instances in `test_two_instance_balancer.py`; `websockets` (from `[standard]`) drives the E2E upgrade check |
 | libSQL dev server | CI service, pinned by digest (`ci.yml`) | shared by both instances in tests |
 
@@ -349,7 +351,7 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 | 3 | **A third-party balancer's idle timeout (often 60 s) cuts long non-streaming calls** | High / Medium | Timeout invariant in D6, with numbers. `/v1` streaming is already covered by keep-alives |
 | 4 | **Instances run with different policy files or `.env`**, so the answer depends on which instance a request hits | Medium / High | One YAML anchor and one `env_file` in `docker-compose.lb.yml`. A config fingerprint is future work |
 | 5 | **Unpinned in-image Caddy and pinned balancer Caddy drift** in websocket or flush behaviour | Low / Medium | The E2E runs the real image behind the pinned balancer; pinning the in-image Caddy is noted as follow-up |
-| 6 | **Caddy cookie-policy details** (attributes, fallback on an unhealthy upstream) differ from this PRD's assumptions | Medium / Medium | STORY-004 verifies them against the pinned Caddy version before the tests are written; the PRD is corrected if they differ |
+| 6 | **Caddy cookie-policy details** (attributes, fallback on an unhealthy upstream) differ from this PRD's assumptions | Medium / Medium | **Verified in STORY-004 against Caddy 2.11.7.** Fallback and re-set work as assumed; differences: no `Secure` attribute, an empty secret is accepted silently, and a header timeout is an empty 504 outside `handle_errors` (see F3) |
 
 ## 15. Appendix
 
@@ -388,10 +390,15 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 - `tests/test_two_instance_smoke.py`: `subprocess.Popen` children speaking JSON over pipes via `TestClient`; no HTTP ports.
 - `scripts/stub_openrouter.py`: `delay_seconds` rules and `GET /health`, used for the long-call tests.
 
-### Not verified in code (to confirm in STORY-004)
-- Caddy `lb_policy cookie`: the cookie's attributes (HttpOnly, SameSite) and that it re-selects and re-sets the cookie when the pinned upstream is unhealthy.
-- The exact status Caddy returns when no upstream is healthy (502 vs 503), that `handle_errors` catches it but not a proxied upstream 503, that a sent non-GET request is never retried on another upstream without `retry_match`, and that `stream_close_delay` is available in the pinned version.
-- That the disk state manager's pickle includes backend vars such as `_token` (inferred from state persistence semantics; T5 holds either way for the in-memory copy).
+### Verified (STORY-004, Caddy 2.11.7)
+- `lb_policy cookie`: `Set-Cookie: harness_lb=<64 hex>; Path=/; HttpOnly; SameSite=Lax`; no re-set on a valid cookie; garbage cookie ignored and re-set; pinned upstream unhealthy or dead: another upstream answers (0.25 s for a dead one, one health interval for an unready one) with a new cookie.
+- No healthy upstream: **503** (not 502) after 5.01 s (`lb_try_duration`); `handle_errors 502 503` catches it with `Retry-After: 10` and the fixed bodies, and `@v1 path /v1/*` sees the original path. A proxied instance 503 passes through byte-identical (`Retry-After: 7` kept) and the instance stays in rotation.
+- Retry: with no `retry_match`, a POST that reached an instance is never replayed (instance drops the connection: 503 from `handle_errors`, other instance got 0 requests; header timeout: 504, other instance 0). GET is retried. Dial failures are retried for any method.
+- `stream_close_delay`, `lb_try_duration`, `health_*`, `fail_duration`, `transport http {dial_timeout response_header_timeout}` and `handle_errors 502 503` are all accepted (`caddy validate`, `caddy adapt`).
+
+### Not verified
+- That the disk state manager's pickle includes backend vars such as `_token`: read from code only (`reflex/state.py:2051-2072` `__getstate__` copies `__dict__`, so backend vars are included), not run. T5 holds either way for the in-memory copy.
+- Websocket pass-through and `stream_close_delay` on a config reload (only the directive's acceptance was checked); the Docker image as a balancer upstream (only `caddy version` was run in the image).
 
 ### Related documents
 - PRD-002 (Reflex chat UI): single-port Caddy layout, the `@backend_routes` matcher

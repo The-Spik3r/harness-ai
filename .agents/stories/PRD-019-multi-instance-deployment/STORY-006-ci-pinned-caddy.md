@@ -38,6 +38,7 @@ As a maintainer, I want CI to install the same Caddy version the balancer image 
 - One pin, two places: the compose image digest and the CI binary. Consider one constant the test reads (e.g. in the test helper) and the static test (STORY-005) asserting the compose tag matches.
 - Keep the CI change minimal; do not restructure existing steps (`ci.yml` has the libSQL service pinned by digest at `ci.yml:27`).
 - This push is the first one with `HARNESS_REQUIRE_CADDY=1`: read its CI run before STORY-007 is planned.
+- **Orchestrator decision (from STORY-004)**: version `2.11.7`; Linux `caddy_2.11.7_linux_amd64.tar.gz` SHA-256 `727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b`. The release checksums file is SHA-512 only, so pin the SHA-256 in the workflow. `caddy version` starts with `v2.11.7 `.
 
 ## Dependencies
 
