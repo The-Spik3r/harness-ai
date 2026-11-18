@@ -42,6 +42,7 @@ As an integrating developer, I want the pipeline to consume the upstream as a st
 - `OperationKind` mapping: `app/services/action_classifiers/__init__.py:31`; phases carry no text (T4).
 - Audit columns are STORY-009; this story keeps `completion_id` and the flags on a local/result object for STORY-008/009 to persist. Do not add DB columns here.
 - One total deadline: the provider's `timeout_seconds` bounds the whole stream (D20). If `httpx`'s timeout is per-read, enforce the total in `stream_upstream`/the adapter loop and test it with the stub's `delay_ms`.
+- Orchestrator decision (STORY-001 findings): `phase_of` must not treat an empty `TextDelta` as `writing` (if STORY-003 has not removed them at the parser); a reasoning model can spend the whole `max_tokens` on reasoning and end with `finish_reason: length` and empty content.
 
 ## Dependencies
 

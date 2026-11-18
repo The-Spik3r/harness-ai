@@ -36,6 +36,7 @@ As an integrating developer using Cline, I want the same real-time proof as for 
 ## Technical Notes
 
 - Reuse `tests/test_e2e_cline_script.py`. If Cline is not installed or cannot be scripted on this machine, record that in the report (the story is done when the scripted test exists, is skipped by default, and the report states the outcome) — do not install global tooling without telling the orchestrator.
+- Orchestrator note (STORY-001): Cline 3.0.74 is installed at `tests/e2e/.clients/cline`; its AI SDK reads `delta.reasoning_content ?? delta.reasoning`.
 
 ## Dependencies
 

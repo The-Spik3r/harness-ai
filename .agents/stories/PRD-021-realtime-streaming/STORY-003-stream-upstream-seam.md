@@ -42,6 +42,7 @@ As the pipeline author, I want a `stream_upstream` function beside `call_upstrea
 - The PRD's open choice "which field": accept every field STORY-001 observed; if STORY-001 is inconclusive, accept both `delta.reasoning` and `delta.reasoning_content` (Risk 3: an unknown field is dropped, never forwarded).
 - Pure modules stay pure: `collect.py` imports no HTTP client and no settings; `v1_translate.py` must not import the package `__init__`.
 - Legacy mode (no `PROVIDERS_FILE`) keeps `streaming=False`, `reasoning=False` for every model (user decision, see PRD D4 amendment); do not change `provider_registry`'s legacy capabilities.
+- Orchestrator decision (STORY-001 findings): OpenRouter streams reasoning as `delta.reasoning` (plus `delta.reasoning_details[]`), never `reasoning_content`, and without any reasoning request parameter; map `delta.reasoning` and, for DeepSeek-style servers, `delta.reasoning_content`; ignore `reasoning_details` (structured duplicate). Current `parse_events` also yields `TextDelta("")` for every empty `content` (38 on the reasoning fixture) and can yield **two `Finish` events** on one OpenRouter stream (usage rides on the last chunk with non-empty `choices`); make the parser skip empty text and keep `collect()`/stream-end rules correct with duplicate `Finish` (last non-null reason wins), and test both with `tests/fixtures/prd021_survey/*.sse`.
 
 ## Dependencies
 

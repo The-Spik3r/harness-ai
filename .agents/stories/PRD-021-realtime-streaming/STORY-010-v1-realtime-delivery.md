@@ -41,6 +41,7 @@ As an integrating developer with `stream:realtime`, I want my OpenAI SDK stream 
 - The router's sink drops stage and phase events (T5): `/v1` renders keep-alives only.
 - `v1_translate.py` is pure (AST purity test): it must not import the `upstream` package `__init__`.
 - O5 follows STORY-001's verdict: emit `reasoning` beside `reasoning_content` only if STORY-001 found a target client that needs it.
+- Orchestrator decision (STORY-001, O5): emit only `reasoning_content`; Cline (AI SDK) reads `reasoning_content ?? reasoning`, OpenCode's catalog uses `reasoning_content`, the OpenAI SDK displays neither. OpenRouter sends `: OPENROUTER PROCESSING` comments upstream; they are never forwarded.
 
 ## Dependencies
 

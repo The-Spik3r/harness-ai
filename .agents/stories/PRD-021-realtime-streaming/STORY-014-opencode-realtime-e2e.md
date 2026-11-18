@@ -38,6 +38,7 @@ As an integrating developer using OpenCode, I want proof that a real-time stream
 - Reuse `tests/test_e2e_opencode_script.py` and the `e2e` marker setup (`tests/test_e2e_marker.py`); OpenCode is installed globally on the dev machine.
 - STORY-001's survey says which reasoning field OpenCode reads; the assertion follows it.
 - Report the OpenCode version.
+- Orchestrator note (STORY-001): OpenCode 2.3.2; for a user-defined provider without `reasoning_field`, which field it reads was inconclusive from the binary — check OpenCode's provider docs/config and record it; set the field explicitly in the E2E config if needed.
 
 ## Dependencies
 
