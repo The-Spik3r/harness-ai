@@ -50,6 +50,9 @@ import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.formatting import format_usage_limit_notice
 from chat_ui.chat_ui.state import ChatState
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 _AUTH_USER_ID = "juan@empresa.com"
 _AUTH_TOKEN = "test-user-token"
 
@@ -148,7 +151,7 @@ def _capturing_run_conversation(captured):
               params=None, call_openrouter=None, session_id=None, ingress=None):
         captured["messages"] = list(messages)
         return QuerySuccessResponse(
-            response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+            response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1
         )
 
     return _fake

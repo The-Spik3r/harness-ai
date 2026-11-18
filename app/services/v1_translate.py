@@ -56,6 +56,7 @@ from app.models.v1_schemas import (
     ToolCallFunction,
     Usage,
     chat_completion_id,
+    chat_completion_ref_id,
 )
 from app.services.openrouter_client import (
     GenerationParams,
@@ -94,6 +95,16 @@ UPSTREAM_UNAVAILABLE = "upstream_unavailable"
 UPSTREAM_ERROR = "upstream_error"
 INTERNAL_ERROR = "internal_error"
 REDACTION_FAILED = "redaction_failed"
+# PRD-018 D8, O4: a storage outage (the unit of work's `StorageUnavailableError`),
+# as opposed to `internal_error`'s other storage faults. Fixed copy: driver
+# text never reaches a client.
+STORAGE_UNAVAILABLE = "storage_unavailable"
+STORAGE_UNAVAILABLE_MESSAGE = "Storage is unavailable; the request was not sent to the model."
+# PRD-018 D10, T5: step 8 runs after the upstream call, so this copy must not
+# say "not sent to the model". Fixed: driver text never reaches a client.
+AUDIT_UNAVAILABLE_MESSAGE = (
+    "Storage is unavailable; the response could not be recorded, so it was not released."
+)
 
 # The forbidden labels the pipeline writes (authz.authorize_model, step 2b).
 _MODEL_PERMISSION_PREFIX = "query:model:"
@@ -213,7 +224,8 @@ class V1Error:
     pipeline response. `message` names the rule and its details, never content
     (T6). `retryable` is True only for a fault the same request may get past
     (D7); every verdict is False, and the router sends `x-should-retry: false`
-    for any error that is not retryable.
+    for any error that is not retryable. `retry_after_seconds` is set only for
+    `storage_unavailable` (PRD-018 D8); the router sends it as `Retry-After`.
     """
 
     status_code: int
@@ -223,6 +235,7 @@ class V1Error:
     harness: Optional[Dict[str, Any]] = None
     param: Optional[str] = None
     retryable: bool = False
+    retry_after_seconds: Optional[int] = None
 
 
 def translate_messages(
@@ -583,6 +596,10 @@ def translate_result(
     The stream renders this same message through `v1_sse.completion_events`
     (role chunk, one delta per released call, finish chunk), so both shapes
     follow one release.
+
+    PRD-018 D14, O2: a journaled success (`audit_id is None`) is id
+    `chatcmpl-harness-ref-<audit_ref>`, with `harness.audit_id: null` and
+    `harness.audit_ref` set; `harness.audit_ref` is present on every success.
     """
     outcome = result.tool_outcome
     reported = upstream.finish_reason
@@ -617,7 +634,11 @@ def translate_result(
     prompt_tokens = 0 if upstream.input_tokens is None else upstream.input_tokens
     completion_tokens = 0 if upstream.output_tokens is None else upstream.output_tokens
     return ChatCompletion(
-        id=chat_completion_id(result.audit_id),
+        id=(
+            chat_completion_id(result.audit_id)
+            if result.audit_id is not None
+            else chat_completion_ref_id(result.audit_ref)
+        ),
         created=created,
         model=result.model_used,
         choices=[Choice(message=message, finish_reason=finish_reason)],
@@ -628,6 +649,7 @@ def translate_result(
         ),
         harness=HarnessCompletionInfo(
             audit_id=result.audit_id,
+            audit_ref=result.audit_ref,
             pii_redacted=result.pii_redacted,
             pii_entities_masked=result.pii_entities_masked,
             actions=actions,
@@ -715,16 +737,20 @@ def translate_verdict(result: QueryBlockedResponse) -> V1Error:
 # so the same request is never sent again to fail the same way. Keyed by code,
 # not exception type: three of the four exceptions live beside storage or the
 # PII engines, whose import would end this module's purity. The router maps
-# the exception to its code.
+# the exception to its code. PRD-018 D8: a storage *outage* is 503, retryable,
+# with `Retry-After`; any other storage fault stays `internal_error` (500).
 _FAULTS: Mapping[str, Tuple[int, str, bool]] = {
     UPSTREAM_UNAVAILABLE: (502, "api_error", True),
     UPSTREAM_ERROR: (502, "api_error", False),
     INTERNAL_ERROR: (500, "api_error", True),
     REDACTION_FAILED: (500, "api_error", False),
+    STORAGE_UNAVAILABLE: (503, "api_error", True),
 }
 
 
-def translate_fault(code: str, message: str) -> V1Error:
+def translate_fault(
+    code: str, message: str, retry_after_seconds: Optional[int] = None
+) -> V1Error:
     """A pipeline fault as the error the client reads (PRD-015 Section 7.5, D7).
 
     The router names the code from the exception. `message` is the
@@ -743,4 +769,5 @@ def translate_fault(code: str, message: str) -> V1Error:
         code=code,
         message=message,
         retryable=retryable,
+        retry_after_seconds=retry_after_seconds,
     )

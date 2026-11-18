@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     has_tool_calls INTEGER NOT NULL DEFAULT 0,
     conversation_key TEXT,
     limit_exceeded TEXT,
-    ignored_params TEXT
+    ignored_params TEXT,
+    write_id TEXT
 )
 """
 
@@ -45,7 +46,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 # pattern_action; PRD-012 STORY-011 adds profile; PRD-013 STORY-002 adds
 # ingress, message_count, input_tokens, output_tokens, streamed,
 # has_tool_calls, conversation_key and limit_exceeded; PRD-015 STORY-007 adds
-# ignored_params). CREATE TABLE IF NOT
+# ignored_params; PRD-018 STORY-004 adds write_id). CREATE TABLE IF NOT
 # EXISTS is a no-op against a database created before they existed, so
 # init_db() ALTERs in whichever of these an old file is missing.
 #
@@ -133,6 +134,14 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # true of every `/query` and chat row and of every row written before
     # PRD-015, so it is never backfilled.
     "ignored_params": "TEXT",
+    # PRD-018 (D4, Section 6.4): the client-minted idempotency key of one audit
+    # write -- 32 lowercase hex characters, minted once per log_query() call
+    # before its first attempt. It is what lets a retried or drained write land
+    # exactly once even when the first attempt did commit. Nullable with no
+    # default and no backfill on purpose, like dedup_key: every row written
+    # before PRD-018 reads NULL, and a UNIQUE index admits any number of NULLs.
+    # Indexed by CREATE_AUDIT_LOGS_WRITE_ID_INDEX below.
+    "write_id": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -148,6 +157,18 @@ AUDIT_LOGS_ADDED_COLUMNS = {
 CREATE_AUDIT_LOGS_DEDUP_INDEX = (
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_dedup "
     "ON audit_logs(user_id, dedup_key, timestamp)"
+)
+
+# PRD-018 (D4): the replay's identity. UNIQUE on purpose, unlike the dedup index
+# above: a second row for the same write_id is exactly what a retried or drained
+# write must never produce, and `ON CONFLICT(write_id) DO NOTHING` needs the
+# constraint to act on. NULL rows (every pre-PRD-018 row, every unkeyed call)
+# never conflict. Like the dedup index it must run *after*
+# _add_missing_columns(), because the column does not exist on an older
+# database until then.
+CREATE_AUDIT_LOGS_WRITE_ID_INDEX = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_logs_write_id "
+    "ON audit_logs(write_id)"
 )
 
 # Identity store (PRD-005). Lives in the same SQLite file as audit_logs -- no
@@ -365,7 +386,9 @@ CREATE_CHAT_MESSAGES_SESSION_INDEX = (
 # Rows are read ORDER BY id and never by the TEXT timestamp, which ties within
 # one second (PRD-006 Section 13), as chat_messages is read.
 #
-# A new table, so it arrives by CREATE alone and has no added-columns mapping.
+# The table arrives by CREATE; PRD-018 STORY-004 adds write_id after the fact,
+# so ACTION_DECISIONS_ADDED_COLUMNS (below the table) brings a database that
+# already has it up to date.
 CREATE_ACTION_DECISIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS action_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -385,9 +408,20 @@ CREATE TABLE IF NOT EXISTS action_decisions (
     reason TEXT NOT NULL,             -- the fixed-template reason (orchestrator decision)
     granted_by TEXT,                  -- the action permission, when one lifted the rule
     classifications TEXT NOT NULL,    -- JSON array: [{rule, kind, detail}], every one
-    policy_digest TEXT NOT NULL
+    policy_digest TEXT NOT NULL,
+    write_id TEXT                     -- "<batch hex>:<index>"; NULL for an unkeyed direct call
 )
 """
+
+# The fourth added-columns mapping (after audit_logs, users and chat_messages):
+# PRD-018 STORY-004 gives action_decisions its first added column.
+# The same convergence AUDIT_LOGS_ADDED_COLUMNS describes, run for a table that
+# shipped without the column. Also declared in CREATE_ACTION_DECISIONS_TABLE
+# above, for the reason the audit mapping gives. Nullable with no default and no
+# backfill: every row written before PRD-018 reads NULL. Additive only; a NOT
+# NULL entry would need a non-NULL DEFAULT, since SQLite rejects ADD COLUMN NOT
+# NULL without one.
+ACTION_DECISIONS_ADDED_COLUMNS = {"write_id": "TEXT"}
 
 # STORY-016's per-user read (`audit:read:own`) filters on user_id; its
 # ORDER BY id reads the rowid SQLite appends to every secondary index.
@@ -400,6 +434,14 @@ CREATE_ACTION_DECISIONS_USER_TS_INDEX = (
 CREATE_ACTION_DECISIONS_AUDIT_INDEX = (
     "CREATE INDEX IF NOT EXISTS idx_action_decisions_audit "
     "ON action_decisions(audit_id)"
+)
+
+# PRD-018 (D4): the same replay identity as idx_audit_logs_write_id, one per
+# decision row ("<batch hex>:<index>"). UNIQUE for `ON CONFLICT(write_id) DO
+# NOTHING`; NULL rows never conflict. Must run after the added-columns pass.
+CREATE_ACTION_DECISIONS_WRITE_ID_INDEX = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_action_decisions_write_id "
+    "ON action_decisions(write_id)"
 )
 
 # The closed decision vocabulary, mirrored from
@@ -470,6 +512,13 @@ class AuditLog:
     # Declared after limit_exceeded to mirror the table, so id stays the
     # trailing field.
     ignored_params: Optional[str] = None
+    # PRD-018 STORY-004 (D4). Same pattern as ignored_params: insert_audit_log()
+    # writes it and _row_to_audit_log() maps it back on both read shapes.
+    # log_query() mints it once per call alongside the timestamp. Never exposed
+    # on GET /audit (STORY-010 adds `audit_ref`, a response field, not this
+    # one). Declared after ignored_params to mirror the table, so id stays the
+    # trailing field.
+    write_id: Optional[str] = None
     id: Optional[int] = None
 
 
@@ -583,6 +632,10 @@ class ActionDecisionRow:
     the reader (STORY-016's API), not here: this dataclass mirrors the table,
     as StoredMessage does. Fields are in column order; `id` is last because
     insert_action_decisions() assigns it.
+
+    `write_id` (PRD-018 D4) is `"<batch hex>:<index>"` from `record()`, and
+    `None` for an unkeyed direct call. It defaults so every existing
+    construction keeps working, and sits before `id` so `id` stays last.
     """
 
     timestamp: str
@@ -602,4 +655,5 @@ class ActionDecisionRow:
     granted_by: Optional[str]
     classifications: str
     policy_digest: str
+    write_id: Optional[str] = None
     id: Optional[int] = None

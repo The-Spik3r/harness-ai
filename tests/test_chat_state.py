@@ -60,6 +60,9 @@ from chat_ui.chat_ui.copy import (
 from chat_ui.chat_ui.formatting import derive_title, format_duplicate_info
 from chat_ui.chat_ui.models import ChatMessage, ChatSessionSummary
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 client = TestClient(app)
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -363,7 +366,7 @@ async def test_chat_state_send_reresolves_role_on_every_call(temp_db, monkeypatc
 
     def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None):
         recorded_roles.append(identity.role)
-        return QuerySuccessResponse(response="ok", audit_id=1, model_used=model, tokens_used=1)
+        return QuerySuccessResponse(response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used=model, tokens_used=1)
 
     _stub_pipeline(monkeypatch, _fake_run_query)
 
@@ -556,7 +559,7 @@ async def test_chat_state_send_passes_resolved_identity_and_prompt_to_run_query(
         recorded["identity"] = identity
         recorded["prompt"] = prompt
         return QuerySuccessResponse(
-            response="ok", audit_id=1, model_used=model, tokens_used=1
+            response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used=model, tokens_used=1
         )
 
     _stub_pipeline(monkeypatch, _fake_run_query)
@@ -705,7 +708,7 @@ async def test_chat_state_concurrent_send_guard(temp_db, monkeypatch):
         nonlocal called_count
         await asyncio.sleep(0.05)
         called_count += 1
-        return QuerySuccessResponse(response="ok", audit_id=1, model_used="gpt-4", tokens_used=1)
+        return QuerySuccessResponse(response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1)
 
     monkeypatch.setattr(chat_state_mod, "run_in_pipeline", _slow_run_in_pipeline)
 
@@ -829,7 +832,7 @@ async def test_chat_state_send_passes_selected_model(temp_db, monkeypatch):
         captured_model.append(model)
         return QuerySuccessResponse(
             response="ok",
-            audit_id=1,
+            audit_id=1, audit_ref=_AUDIT_REF,
             model_used=model,
             tokens_used=10,
         )
@@ -852,7 +855,7 @@ async def test_chat_state_send_populates_device_from_router_headers(temp_db, mon
         captured_device.append(device)
         return QuerySuccessResponse(
             response="ok",
-            audit_id=1,
+            audit_id=1, audit_ref=_AUDIT_REF,
             model_used=model,
             tokens_used=10,
         )
@@ -879,7 +882,7 @@ async def test_chat_state_send_device_fallback_when_headers_missing(temp_db, mon
         captured_device.append(device)
         return QuerySuccessResponse(
             response="ok",
-            audit_id=1,
+            audit_id=1, audit_ref=_AUDIT_REF,
             model_used=model,
             tokens_used=10,
         )
@@ -1133,7 +1136,7 @@ def _capturing_run_query(result=None, captured=None):
     """A run_query stand-in that records the session_id it was handed."""
     if result is None:
         result = QuerySuccessResponse(
-            response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+            response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1
         )
 
     def _fake(identity, prompt, device, model, openrouter_api_key,
@@ -1284,7 +1287,7 @@ async def test_second_send_reuses_the_session_and_creates_no_second_row(
     "result",
     [
         QuerySuccessResponse(
-            response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+            response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1
         ),
         QueryBlockedDuplicateResponse(
             reason="Duplicate", first_query_at="2026-09-04T10:00:00Z"
@@ -1526,7 +1529,7 @@ async def test_the_bubble_is_appended_before_it_is_written(temp_db, monkeypatch)
     [
         (
             QuerySuccessResponse(
-                response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+                response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1
             ),
             "assistant",
         ),
@@ -1617,7 +1620,7 @@ async def test_the_assistant_row_stores_the_redacted_response(temp_db, monkeypat
     the presence of the redacted string in this one."""
     raw = "reach me at juan@empresa.com"
     redacted = "reach me at <EMAIL>"
-    _stub_pipeline(monkeypatch, _capturing_run_query( QuerySuccessResponse( response=redacted, audit_id=1, model_used="gpt-4", tokens_used=1)
+    _stub_pipeline(monkeypatch, _capturing_run_query( QuerySuccessResponse( response=redacted, audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1)
         ),
     )
 
@@ -1866,7 +1869,11 @@ def test_every_bubble_append_in_do_send_goes_through_the_helper():
     ]
     # The eight append sites the story enumerates, collapsed to six calls: the
     # four isinstance branches already share one.
-    assert len(helper_calls) == 6
+    # PRD-018 STORY-007: +1 for the resolve() StorageError bubble (fixed copy,
+    # T9), still through the helper: 7.
+    # PRD-018 STORY-010 (T5/T9): +1 for the AuditUnavailableError bubble (fixed
+    # copy, nothing shown), still through the helper: 8.
+    assert len(helper_calls) == 8
 
 
 # ---------------------------------------------------------------------------
@@ -1915,7 +1922,7 @@ def _fields(bubble: ChatMessage) -> dict:
     [
         (
             QuerySuccessResponse(
-                response="ok", audit_id=7, model_used="gpt-4", tokens_used=42
+                response="ok", audit_id=7, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=42
             ),
             "assistant",
         ),
@@ -2101,7 +2108,7 @@ async def test_a_restored_assistant_keeps_its_footer_and_pii_badge(
 ):
     """AC 6: the same model_used, tokens_used and #audit_id, and the same
     entity list in the PII badge."""
-    _stub_pipeline(monkeypatch, _capturing_run_query( QuerySuccessResponse( response="redacted answer", audit_id=99, model_used="gpt-4", tokens_used=123, pii_redacted=True, pii_entities_masked=["EMAIL", "PHONE"],)
+    _stub_pipeline(monkeypatch, _capturing_run_query( QuerySuccessResponse( response="redacted answer", audit_id=99, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=123, pii_redacted=True, pii_entities_masked=["EMAIL", "PHONE"],)
         ),
     )
 

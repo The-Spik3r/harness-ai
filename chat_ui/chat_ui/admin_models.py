@@ -138,3 +138,35 @@ class ActionRow(pydantic.BaseModel):
     decision: str = ""
     # The permission that lifted the rule (`granted_by`), or the absent mark.
     allowed_by: str = ""
+
+
+class StorageFact(pydantic.BaseModel):
+    """One label and value of the Storage view (PRD-018 STORY-012).
+
+    The `AuditRow` rule: both are pre-formatted strings; the component reads
+    fields and computes nothing.
+    """
+
+    label: str = ""
+    value: str = ""
+
+
+class StorageCounterRow(pydantic.BaseModel):
+    """One `<operation>:<class>` count of the Storage view's retry tables."""
+
+    operation: str = ""
+    failure_class: str = ""
+    count: str = ""
+
+
+class StorageView(pydantic.BaseModel):
+    """Everything the Storage view shows, as strings, from one `StorageStatus`."""
+
+    verdict: str = ""
+    caption: str = ""
+    notice: str = ""
+    breaker: list[StorageFact] = []
+    journal: list[StorageFact] = []
+    counters: list[StorageFact] = []
+    retries: list[StorageCounterRow] = []
+    exhausted: list[StorageCounterRow] = []

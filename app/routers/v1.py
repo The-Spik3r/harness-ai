@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
+from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.middleware.auth import require_permission
 from app.models.schemas import QuerySuccessResponse
 from app.models.v1_schemas import (
@@ -61,8 +62,13 @@ from app.services.openrouter_client import OpenRouterError, OpenRouterResult, ca
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import ActionAuditError, run_conversation
+from app.services.storage_faults import (
+    audit_unavailable_retry_after,
+    storage_unavailable_cause,
+)
 from app.services.usage_limits import UsageLimitError
 from app.services.v1_translate import (
+    AUDIT_UNAVAILABLE_MESSAGE,
     BREAK_GLASS_NOT_PERMITTED,
     DEVICE_HEADER,
     INTERNAL_ERROR,
@@ -71,6 +77,8 @@ from app.services.v1_translate import (
     MODEL_NOT_FOUND,
     PERMISSION_DENIED,
     REDACTION_FAILED,
+    STORAGE_UNAVAILABLE,
+    STORAGE_UNAVAILABLE_MESSAGE,
     UPSTREAM_ERROR,
     UPSTREAM_UNAVAILABLE,
     V1Error,
@@ -93,13 +101,15 @@ _V1_PREFIX = "/v1/"
 # are routing (an unknown path, a wrong method). `model_not_found` is not
 # here: `retrieve_model` builds that 404 itself. Any other 4xx is
 # `_OTHER_CLIENT_ERROR`, any 5xx `_SERVER_ERROR`: nothing under `/v1/` raises
-# one today. The deliberate 5xx are the pipeline faults, which
-# `chat_completions` maps itself (`_PIPELINE_FAULTS`).
+# one but `require_identity`'s storage refusal (503, PRD-018 D8). The
+# deliberate 5xx are the pipeline faults, which `chat_completions` maps itself
+# (`_PIPELINE_FAULTS`).
 _HTTP_ERRORS: Dict[int, Tuple[str, str]] = {
     401: ("authentication_error", INVALID_API_KEY),
     403: ("permission_error", PERMISSION_DENIED),
     404: ("invalid_request_error", "not_found"),
     405: ("invalid_request_error", "method_not_allowed"),
+    503: ("api_error", STORAGE_UNAVAILABLE),
 }
 _OTHER_CLIENT_ERROR = ("invalid_request_error", INVALID_REQUEST)
 _SERVER_ERROR = ("api_error", INTERNAL_ERROR)
@@ -114,7 +124,17 @@ _PIPELINE_FAULTS = (
     UsageLimitError,
     PiiRedactorError,
     ActionAuditError,
+    # PRD-018 D10/D13, T5: a row (success or refusal) neither committed nor
+    # journaled. Tools requests reach ActionAuditError instead (R2).
+    # `AuditHeadroomError` (STORY-011) is a subclass, raised before step 2, so
+    # tools requests get it as 503 too.
+    AuditUnavailableError,
 )
+
+# The faults PRD-018 D8's outage rule applies to. `ActionAuditError` is
+# deliberately absent: tools keep PRD-017's 500 `internal_error` (PRD-018
+# Section 6.7). `ChatSessionError` is unreachable on `/v1` (no session).
+_STORAGE_GATE_FAULTS = (DuplicateCheckError, UsageLimitError)
 
 
 class _Upstream:
@@ -188,9 +208,13 @@ def _error(
 def _from_v1_error(error: V1Error) -> JSONResponse:
     # A retryable fault carries no header, so the SDK's status rule retries
     # it; `true` would force a retry the status rule might not make (D7).
+    headers: Optional[Dict[str, str]] = None if error.retryable else {"x-should-retry": "false"}
+    if error.retry_after_seconds is not None:
+        # PRD-018 D8: the outage tells the client when to come back.
+        headers = {**(headers or {}), "Retry-After": str(error.retry_after_seconds)}
     return _error(
         error.status_code, error.type, error.code, error.message, error.param,
-        headers=None if error.retryable else {"x-should-retry": "false"},
+        headers=headers,
         harness=error.harness,
     )
 
@@ -201,10 +225,16 @@ def _fault_code(exc: Exception) -> str:
     An upstream fault is retryable exactly when the client says so
     (`_classify_http_error`). A storage fault is transient by nature. A
     redaction failure repeats on the same text. A post-commit fault on a
-    stream is the same code, sent as an SSE `error` event (Section 7.6).
+    stream is the same code, sent as an SSE `error` event (Section 7.6). A gate
+    that failed because storage is unavailable is `storage_unavailable` (503,
+    PRD-018 D8); any other storage fault stays `internal_error`.
     """
     if isinstance(exc, OpenRouterError):
         return UPSTREAM_UNAVAILABLE if exc.retryable else UPSTREAM_ERROR
+    if isinstance(exc, AuditUnavailableError):
+        return STORAGE_UNAVAILABLE
+    if isinstance(exc, _STORAGE_GATE_FAULTS) and storage_unavailable_cause(exc) is not None:
+        return STORAGE_UNAVAILABLE
     if isinstance(exc, (DuplicateCheckError, UsageLimitError, ActionAuditError)):
         return INTERNAL_ERROR
     if isinstance(exc, PiiRedactorError):
@@ -229,6 +259,27 @@ def _outcome(
         # Who and which fault, never the message: a storage error's text is
         # driver output (T9's rule, applied to faults).
         logger.warning("v1 request failed: user_id=%s code=%s", identity.user_id, code)
+        if isinstance(exc, AuditUnavailableError):
+            # PRD-018 D10, T5: fixed copy that does not say "not sent" -- step 8
+            # runs after the upstream call. Retry-After per R5. PRD-018 D10
+            # (STORY-011): the headroom subclass is refused before step 2, so
+            # the pre-model copy ("not sent") is true for it.
+            return translate_fault(
+                code,
+                (
+                    STORAGE_UNAVAILABLE_MESSAGE
+                    if isinstance(exc, AuditHeadroomError)
+                    else AUDIT_UNAVAILABLE_MESSAGE
+                ),
+                retry_after_seconds=audit_unavailable_retry_after(exc),
+            )
+        if code == STORAGE_UNAVAILABLE:
+            # Fixed copy, never `str(exc)`: that is driver text (T9, PRD-018 D8).
+            cause = storage_unavailable_cause(exc)
+            assert cause is not None  # `_fault_code` named it from this cause
+            return translate_fault(
+                code, STORAGE_UNAVAILABLE_MESSAGE, retry_after_seconds=cause.retry_after_seconds
+            )
         return translate_fault(code, str(exc))
 
     if not isinstance(result, QuerySuccessResponse):
@@ -245,10 +296,15 @@ def _json_response(pipeline: asyncio.Future, upstream: _Upstream, identity: Iden
     outcome = _outcome(pipeline, upstream, identity)
     if isinstance(outcome, V1Error):
         return _from_v1_error(outcome)
-    return JSONResponse(
-        outcome.model_dump(mode="json"),
-        headers={"X-Harness-Audit-Id": str(outcome.harness.audit_id)},
+    harness = outcome.harness
+    # PRD-018 D14 (R4): the healthy header is unchanged; a journaled success has
+    # no id, so it sends `X-Harness-Audit-Ref` instead.
+    headers = (
+        {"X-Harness-Audit-Id": str(harness.audit_id)}
+        if harness.audit_id is not None
+        else {"X-Harness-Audit-Ref": harness.audit_ref}
     )
+    return JSONResponse(outcome.model_dump(mode="json"), headers=headers)
 
 
 def _sse_events(
@@ -259,7 +315,9 @@ def _sse_events(
     The `200` is already sent, so there is no status left to fall back on:
     an exception outside `_PIPELINE_FAULTS` (a bug, which the JSON path
     leaves to Starlette's 500) is logged and sent as `internal_error`, so the
-    stream ends with an event rather than a torn body.
+    stream ends with an event rather than a torn body. A post-commit
+    `storage_unavailable` is sent the same way, without `Retry-After`: the
+    headers are gone (PRD-018 Section 6.7).
     """
     try:
         outcome = _outcome(pipeline, upstream, identity)
@@ -341,7 +399,7 @@ async def chat_completions(
         return _json_response(pipeline, upstream, identity)
 
     # No X-Harness-Audit-Id: the row does not exist yet. Every chunk's id
-    # carries it (Section 7.6).
+    # carries it, or the ref when the row was journaled (Section 7.6, PRD-018 D14).
     return StreamingResponse(
         v1_sse.stream(
             pipeline,
@@ -457,7 +515,11 @@ async def _http_exception(request: Request, exc: StarletteHTTPException):
         type_, code = _SERVER_ERROR
     # The dependencies' details name the rule ("Permission denied: query:submit");
     # a non-string detail is replaced by the status phrase.
-    if isinstance(exc.detail, str):
+    if code == STORAGE_UNAVAILABLE:
+        # PRD-018 D8: the identity refusal's detail is `/query`'s copy; `/v1`
+        # sends its own fixed sentence. `headers=exc.headers` carries `Retry-After`.
+        message = STORAGE_UNAVAILABLE_MESSAGE
+    elif isinstance(exc.detail, str):
         message = exc.detail
     else:
         message = HTTPStatus(exc.status_code).phrase

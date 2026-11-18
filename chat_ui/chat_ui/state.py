@@ -1,10 +1,12 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 import reflex as rx
 
 from app.config import settings
+from app.db.errors import AuditHeadroomError, AuditUnavailableError, StorageError
 from app.db.models import ChatSession, StoredMessage
 from app.models.messages import Message
 from app.models.schemas import (
@@ -23,16 +25,20 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation, run_query
+from app.services.storage_faults import storage_unavailable_cause
 from app.services.usage_limits import UsageLimitError
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
+    AUDIT_UNAVAILABLE_NOTICE,
     CONTEXT_LIMIT_DETAIL_TEMPLATE,
     CONTEXT_LIMIT_UNITS,
     LOGIN_INVALID_TOKEN_ERROR,
+    LOGIN_STORAGE_UNAVAILABLE_ERROR,
     LOGIN_TOKEN_REQUIRED_ERROR,
     SESSION_INVALIDATED_ERROR,
     SESSION_ORDER_STALE_NOTICE,
     SESSION_RAIL_SCOPE_TEMPLATE,
+    STORAGE_UNAVAILABLE_NOT_SENT_NOTICE,
     TRANSCRIPT_NOT_LOADED_NOTICE,
     TRANSCRIPT_NOT_SAVED_NOTICE,
 )
@@ -43,6 +49,24 @@ from .formatting import (
     format_usage_limit_notice,
 )
 from .config import DEFAULT_MODEL
+
+logger = logging.getLogger(__name__)
+
+# The gate errors whose cause decides the bubble's detail (PRD-018 D8, 6.7):
+# the /query set (routers/query.py). PiiRedactorError is not a storage gate.
+_STORAGE_GATE_FAULTS = (ChatSessionError, DuplicateCheckError, UsageLimitError)
+
+
+def _gate_fault_detail(exc: Exception) -> str:
+    """The `internal_error` detail for a gate fault (PRD-018 T9, Section 6.7).
+
+    Fixed copy when `storage_unavailable_cause` finds the outage behind it, so
+    driver text never reaches the bubble; otherwise `str(exc)`, today's detail.
+    """
+    if isinstance(exc, _STORAGE_GATE_FAULTS) and storage_unavailable_cause(exc) is not None:
+        return STORAGE_UNAVAILABLE_NOT_SENT_NOTICE
+    return str(exc)
+
 
 def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
     """One bubble as one `chat_messages` row.
@@ -159,7 +183,8 @@ class ChatState(rx.State):
     can produce -- four response types, three named exceptions, and a
     catch-all -- appending exactly one typed ChatMessage for each. That
     exhaustiveness is what makes PRD-004's "no silent drops" structural
-    rather than aspirational. The call itself runs on a worker thread, so a
+    rather than aspirational. Gate faults caused by an unavailable database
+    show fixed copy, never driver text (PRD-018 6.7). The call itself runs on a worker thread, so a
     30-second OpenRouter round trip never blocks the Reflex event loop.
 
     PRD-005 Risk 5: a role read from a Reflex state var is cosmetic, not a
@@ -308,7 +333,15 @@ class ChatState(rx.State):
             self.login_error = LOGIN_TOKEN_REQUIRED_ERROR
             return
 
-        identity = resolve(token)
+        # PRD-018 Section 6.7: off the event loop (the read can wait out a retry
+        # or a stalled connection), and a storage failure is a notice, never
+        # "invalid token" and never an unhandled event. Not signed in.
+        try:
+            identity = await asyncio.to_thread(resolve, token)
+        except StorageError as exc:
+            logger.warning("chat sign-in: identity read failed (%s)", type(exc).__name__)
+            self.login_error = LOGIN_STORAGE_UNAVAILABLE_ERROR
+            return
         if identity is None:
             self.login_error = LOGIN_INVALID_TOKEN_ERROR
             return
@@ -950,7 +983,8 @@ class ChatState(rx.State):
     async def _do_send(self, text: str):
         # Claim the in-flight slot first and on its own, so everything that can
         # raise afterwards is inside the try/finally that clears `pending`
-        # (PRD-004 Risk 3: a stuck flag locks the composer permanently).
+        # (PRD-004 Risk 3: a stuck flag locks the composer permanently). The
+        # identity read is inside it too (PRD-018 STORY-007).
         async with self:
             if not self.user_id.strip():
                 return
@@ -962,27 +996,6 @@ class ChatState(rx.State):
             self.pending = True
             token = self._token
 
-        # PRD-005 Risk 5: re-resolved fresh on every call, never cached --
-        # there is no role field anywhere on this class to read one from.
-        identity = resolve(token)
-        if identity is None:
-            # Through the same helper as every other bubble, even though its
-            # guard will return before any write: there is no Identity here, so
-            # there is no owner to file a row under. One append path, not two.
-            await self._append_and_persist(
-                ChatMessage(
-                    kind="internal_error",
-                    content="internal_error",
-                    prompt=text,
-                    detail=SESSION_INVALIDATED_ERROR,
-                ),
-                None,
-                None,
-            )
-            async with self:
-                self.pending = False
-            return
-
         # Survives the rest of this send, and is re-applied in `finally`.
         # `_append_and_persist`'s successful `touch` clears `sessions_error` --
         # correctly, it has just proved the rail writable -- and would otherwise
@@ -993,6 +1006,45 @@ class ChatState(rx.State):
         history_error = ""
 
         try:
+            # PRD-005 Risk 5: re-resolved fresh on every call, never cached --
+            # there is no role field anywhere on this class to read one from.
+            # PRD-018 (STORY-007): inside the try/finally, so a storage failure
+            # here cannot leave `pending` set (PRD-004 Risk 3), and off the
+            # event loop, like every other storage call in this class.
+            try:
+                identity = await asyncio.to_thread(resolve, token)
+            except StorageError as exc:
+                # Any storage failure, transient or not: the send never started,
+                # and the bubble carries fixed copy, never the storage error's
+                # text (PRD-018 T9).
+                logger.warning("chat send: identity read failed (%s)", type(exc).__name__)
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=STORAGE_UNAVAILABLE_NOT_SENT_NOTICE,
+                    ),
+                    None,
+                    None,
+                )
+                return
+            if identity is None:
+                # Through the same helper as every other bubble, even though its
+                # guard will return before any write: there is no Identity here,
+                # so there is no owner to file a row under. One append path.
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=SESSION_INVALIDATED_ERROR,
+                    ),
+                    None,
+                    None,
+                )
+                return
+
             async with self:
                 self.input_text = ""
                 model = self.selected_model
@@ -1171,14 +1223,52 @@ class ChatState(rx.State):
             # UsageLimitError (PRD-013 F10): the usage counter could not be
             # read, so the gate failed closed before anything left the
             # process. Named here rather than left to the bare `except`
-            # below, so the routing reads as a decision.
-            except (DuplicateCheckError, PiiRedactorError, UsageLimitError) as exc:
+            # below, so the routing reads as a decision. PRD-018 D8 / T9: a gate
+            # fault caused by StorageUnavailableError shows fixed copy; any other
+            # cause keeps str(exc), today's bubble. ChatSessionError sits here
+            # for parity with /query (the chat path's own are caught earlier).
+            except (
+                ChatSessionError,
+                DuplicateCheckError,
+                PiiRedactorError,
+                UsageLimitError,
+            ) as exc:
                 await self._append_and_persist(
                     ChatMessage(
                         kind="internal_error",
                         content="internal_error",
                         prompt=text,
-                        detail=str(exc),
+                        detail=_gate_fault_detail(exc),
+                    ),
+                    identity,
+                    session_id,
+                )
+                return
+            # PRD-018 T5/T9, D10: the send could be neither recorded nor
+            # journaled, so nothing is shown. Fixed copy that does not say
+            # "nothing was sent" (the model may have answered). A raw
+            # StorageUnavailableError on the step 8 write no longer reaches the
+            # catch-all, because log_query journals it; this arm covers the case
+            # where the journal cannot take it. No exception text is logged.
+            except AuditUnavailableError as exc:
+                # PRD-018 D10 (STORY-011): the headroom refusal happens before
+                # the model, so its bubble says nothing was sent.
+                headroom = isinstance(exc, AuditHeadroomError)
+                logger.warning(
+                    "chat send refused: user_id=%s code=%s",
+                    identity.user_id,
+                    "audit_headroom" if headroom else "audit_unavailable",
+                )
+                await self._append_and_persist(
+                    ChatMessage(
+                        kind="internal_error",
+                        content="internal_error",
+                        prompt=text,
+                        detail=(
+                            STORAGE_UNAVAILABLE_NOT_SENT_NOTICE
+                            if headroom
+                            else AUDIT_UNAVAILABLE_NOTICE
+                        ),
                     ),
                     identity,
                     session_id,
@@ -1207,7 +1297,10 @@ class ChatState(rx.State):
                     prompt=text,
                     model_used=result.model_used,
                     tokens_used=result.tokens_used,
-                    audit_id=result.audit_id,
+                    # PRD-018 D14 / 6.7: a journaled success has audit_id None;
+                    # the Var cannot be None, and _to_stored_message writes
+                    # `0 or None` -> NULL on the transcript row.
+                    audit_id=result.audit_id or 0,
                     pii_redacted=result.pii_redacted,
                     pii_entities=result.pii_entities_masked,
                     # On the answer, and on nothing else. `trimmed` is 0 on the

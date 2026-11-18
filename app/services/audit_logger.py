@@ -1,12 +1,45 @@
+import dataclasses
+import logging
+import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional, Sequence
 
+from app.db import audit_journal
 from app.db.database import insert_audit_log
-from app.db.models import AuditLog
+from app.db.errors import StorageUnavailableError
+from app.db.models import ActionDecisionRow, AuditLog
 from app.services.duplicate_checker import hash_prompt
+
+logger = logging.getLogger(__name__)
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _PREVIEW_LENGTH = 500
+
+
+@dataclasses.dataclass(frozen=True)
+class AuditRef:
+    """Where an audit row is recorded (PRD-018 F7, D13, D14).
+
+    `audit_id` is the committed row's id, or None when the row is only fsynced
+    to the journal (released with `audit_id: null`, O2). `write_id` is always
+    set: the row's key and the client-facing `audit_ref`.
+    """
+
+    audit_id: Optional[int]
+    write_id: str
+
+
+def _new_write_id() -> str:
+    """A fresh idempotency key: `uuid.uuid4().hex`, 32 lowercase hex characters.
+
+    The PRD-wide `write_id` convention (PRD-018 D4, STORY-004); STORY-008/009/010
+    reuse this one helper rather than minting their own. Hex rather than
+    `str(uuid4())` because the key appears verbatim in client-facing strings
+    (`audit_ref`, `X-Harness-Audit-Ref`, `chatcmpl-harness-ref-<write_id>`) and a
+    `"<batch>:<index>"` decision key reads unambiguously with no hyphen inside
+    the batch part.
+    """
+    return uuid.uuid4().hex
 
 
 def log_query(
@@ -69,7 +102,15 @@ def log_query(
     # (app/routers/query.py), the test suite and scripts/, where NULL is the
     # truth. Stored verbatim: v1_translate builds the string, not this module.
     ignored_params: Optional[str] = None,
-) -> int:
+    # PRD-018 D13. Step 8 of a request with tool decisions only: a journaled
+    # row carries its decisions in the SAME journal entry, so the callable gets
+    # the row's write_id and returns the decision rows keyed `<write_id>:<i>`.
+    # It runs only on the journal path (the healthy path builds no extra rows)
+    # and every other caller leaves it None.
+    journal_decisions: Optional[
+        Callable[[str], Sequence[ActionDecisionRow]]
+    ] = None,
+) -> AuditRef:
     entry = AuditLog(
         timestamp=datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT),
         user_id=user_id,
@@ -103,5 +144,33 @@ def log_query(
         conversation_key=conversation_key,
         limit_exceeded=limit_exceeded,
         ignored_params=ignored_params,
+        # PRD-018 D4 (Section 6.4): minted once per call, beside the one
+        # timestamp stamp and before the first attempt, so every retry (and,
+        # from STORY-008, the journal entry and the drain) carries the same
+        # pair.
+        write_id=_new_write_id(),
     )
-    return insert_audit_log(entry)
+    # PRD-018 F7, D13: only a StorageUnavailableError (retry budget spent,
+    # retry refused, breaker open) is journaled. A STATEMENT failure or any
+    # other StorageError is a bug or a bad row, not an outage, and propagates
+    # as before. When the append fails (journal full or broken, or none open)
+    # AuditUnavailableError propagates: nothing is released without a record
+    # (D10, T5). The unit of work has already logged the driver text through
+    # database._redacted(), so nothing driver-shaped is logged here.
+    try:
+        audit_id = insert_audit_log(entry)
+    except StorageUnavailableError:
+        decisions = (
+            tuple(journal_decisions(entry.write_id))
+            if journal_decisions is not None
+            else ()
+        )
+        audit_journal.append(entry, decisions)
+        logger.warning(
+            "audit row journaled: user_id=%s write_id=%s decisions=%d",
+            user_id,
+            entry.write_id,
+            len(decisions),
+        )
+        return AuditRef(None, entry.write_id)
+    return AuditRef(audit_id, entry.write_id)

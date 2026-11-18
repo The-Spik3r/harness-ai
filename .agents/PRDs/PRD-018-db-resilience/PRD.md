@@ -2,11 +2,11 @@
 id: PRD-018
 slug: db-resilience
 title: Database Resilience — Retry, Circuit Breaker and Buffered Audit Writes
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-018-db-resilience
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 ## 1. Executive Summary
@@ -165,7 +165,8 @@ The driver raises a bare `ValueError` prefixed `Hrana:` for everything ([app/db/
 Rules:
 - **Unrecognised text is `OUTCOME_UNKNOWN`, never `NOT_SENT`.** That way a classifier miss costs a retry that did not happen, never a replay that did.
 - **`STATEMENT` failures are never retried and never count toward the breaker.** `_translated()` already classifies them first ([:609-612](../../../app/db/database.py)), and STORY-024 AC 3 keeps a working client cached on a constraint violation. A breaker that opened on `UNIQUE constraint failed` would turn a correctly refused write into an outage.
-- **A dead-stream marker on `commit` is `OUTCOME_UNKNOWN`** until STORY-001 proves that `commit()` on an expired stream means "not committed". If the driver autocommits DML (open question 1), the `INSERT` may already have landed.
+- ~~**A dead-stream marker on `commit` is `OUTCOME_UNKNOWN`** until STORY-001 proves that `commit()` on an expired stream means "not committed".~~ **Orchestrator decision (STORY-001, 2026-11-17): a dead-stream marker on `commit` is `NOT_SENT`.** The [spike](../../spikes/PRD-018-driver-failure-surface.md) showed DML is not durable before `commit()` (Q1: 6/6 not landed without commit, 3/3 landed with it), `commit()`/`rollback()` with no open transaction never touch the network (Q2), and 9/9 dead-stream commits (F4b, F5b, F5c) left nothing landed. Only the dead-stream marker moves: a reset, a timeout or unrecognised text on `commit` stays `OUTCOME_UNKNOWN`.
+- **STORY-001 corrections to the rows above.** Today's connect-failure text is ``Hrana: `http error: `error trying to connect: tcp connect error: ... (os error N)`` `` and it surfaces on **`execute`** (the client connects lazily), not on `connect`; `NOT_SENT` is recognised by `tcp connect error` (the older `error sending request ... client error (Connect)` spelling is kept as a second marker) whatever the phase. `os error 110` was not produced in-network (Docker Desktop turns an unroutable address into `os error 111` after 21 s). A server restart under a queued request yields `503 ... Namespace store has shutdown` / `404 ... Namespace \`default\` doesn't exist`: these stay `OUTCOME_UNKNOWN` (not landed 6/6, but only in a restart window), so reads and idempotent writes retry them and non-idempotent ones do not. `TRANSACTION_TIMEOUT` was never produced: a fresh writer behind an abandoned transaction waited ~2.1 s and succeeded (Risk 3). There is no driver read timeout (a paused server blocked a call for the full 60 s) and `connect(timeout=...)` does not bound it, which confirms Risk 2.
 - The `phase` comes from a thin wrapper inside `_Connection`, which records the last driver call before re-raising. Same object, same message, so `_translated()` and `_is_dead_stream()` behave exactly as now (the PRD-014 `_RecordedClient` rule).
 
 ### 6.3 Statement kinds and the per-request classification (D3)
@@ -225,7 +226,7 @@ open ──(10 s elapsed)──▶ half_open ──(probe SELECT 1 on a fresh cl
 ```
 
 - **Process-local.** One breaker per process, matching the one client per process ([database.py:90-97](../../../app/db/database.py)). Instances do not share state (sharing it would need the database). In a Reflex deployment the FastAPI app is mounted into the same process, so `/query`, `/v1` and the chat UI share one breaker.
-- **Counts operations, not attempts.** An operation that exhausted its retries is one failure. A `STATEMENT` failure, and a `NON_IDEMPOTENT` operation refused retry on `OUTCOME_UNKNOWN`, also leave the count unchanged: the first says nothing about reachability, and the second is counted once, as the failure it is.
+- **Counts operations, not attempts.** An operation that exhausted its retries is one failure. A `STATEMENT` failure leaves the count unchanged: it says nothing about reachability. A `NON_IDEMPOTENT` operation refused retry on `OUTCOME_UNKNOWN` counts once, as the one infrastructure failure it is. *(Amended 2026-11-17 at story creation: the earlier wording said both "unchanged" and "counted once".)*
 - **Open is fail fast, not fail open.** `_unit_of_work` raises `StorageUnavailableError(retry_after_seconds=...)` before touching `_shared_client()`. It is a `StorageError`, so `check_duplicate` ([duplicate_checker.py:34-35](../../../app/services/duplicate_checker.py)) and `admit` ([usage_limits.py:161-162](../../../app/services/usage_limits.py)) turn it into their fail-closed errors with no code change. `find_user_by_token_hash`'s `MissingRelationError` arm ([database.py:1583](../../../app/db/database.py)) does not match it, so an outage can never read as a bad credential (the PRD-007 STORY-004 rule).
 - **Half-open admits one probe, not one request.** The probe is the breaker's own `SELECT 1`, issued under `_client_lock` on a new client, as `_proved()` does. While it runs, other callers still get `StorageUnavailableError`, so a recovering database meets one statement, not a herd.
 - **Constants, not settings** (`_BREAKER_FAILURE_THRESHOLD = 5`, `_BREAKER_OPEN_SECONDS = 10.0`), on the `_IDLE_PROBE_AFTER_SECONDS` precedent ([:78-80](../../../app/db/database.py)): *"a deployment knob whose wrong value silently restores the defect is not a knob worth having."* (O6) They are the storage instance's arguments, not the class's defaults.
@@ -491,7 +492,7 @@ audit_journal.pending_duplicate(user_id, dedup_key, since) -> Optional[str]
 ### Phase 1 — Measure the driver (Story 1)
 **Goal:** replace the three open questions and the `OUTCOME_UNKNOWN` examples with captured facts.
 **Deliverables:** F1 spike report. Classifier fixtures.
-**Validation:** each Section 6.2 row cites a captured string and the call that raised it. If commit-on-expired-stream proves "not committed", the `DEAD_STREAM`@commit rule may move to `NOT_SENT` by an orchestrator decision recorded here.
+**Validation:** each Section 6.2 row cites a captured string and the call that raised it. If commit-on-expired-stream proves "not committed", the `DEAD_STREAM`@commit rule may move to `NOT_SENT` by an orchestrator decision recorded here. **Recorded (2026-11-17): it moves to `NOT_SENT`; see Section 6.2.**
 
 ### Phase 2 — Retry safely (Stories 2–4)
 **Goal:** blips absorbed, nothing replayed unsafely.
@@ -556,8 +557,8 @@ audit_journal.pending_duplicate(user_id, dedup_key, since) -> Optional[str]
 | D9 | **Audit journal on local disk**: JSON Lines, fsync per append, one file per process under an exclusive lock, orphan adoption at boot, torn-tail discard |
 | D10 | **Bounded by `AUDIT_BUFFER_MAX_BYTES`. Full → fail closed** (`AuditUnavailableError`, nothing released). Admission headroom (`PIPELINE_MAX_WORKERS × 64 KiB`) checked at pipeline entry, so a paid answer is never withheld for lack of space |
 | D11 | **Drain**: daemon thread from the lifespans, FIFO, one idempotent transaction per entry, checkpoint after commit. New writes go direct when healthy. `id` order ≠ time order for drained rows |
-| D12 | **Duplicate overlay** over this process's journaled rows, same predicate, consulted only after a successful DB lookup that found nothing. Cross-instance gap accepted (T4) |
-| D13 | **PRD-017 D8 restated**: "recorded" means committed *or* fsynced to the journal, audit row and decisions in one entry when the row is journaled. Release allowed then. Neither possible → today's fail-closed path |
+| D12 | **Duplicate overlay** over this process's journaled rows, same predicate, consulted only after a successful DB lookup that found nothing. Cross-instance gap accepted (T4). *Orchestrator decision (STORY-011 plan): the overlay is **read** before the DB lookup and **used** only after it succeeds and finds nothing, so a drain that commits between the two reads cannot hide the row from both* |
+| D13 | **PRD-017 D8 restated**: "recorded" means committed *or* fsynced to the journal, audit row and decisions in one entry when the row is journaled. Release allowed then. Neither possible → today's fail-closed path. **Scope (O8, user 2026-11-17):** only PRD-017's post-response release; a pre-execution decision write must commit to the database |
 | D14 | **Journaled success**: `audit_id: null`, `audit_ref: <write_id>` on every success. `/v1` `X-Harness-Audit-Ref` and `chatcmpl-harness-ref-<write_id>` |
 | D15 | **Not buffered and not cached**: identity, ownership, history, admit, duplicate reads, the charge (stays fail-open), transcripts. A storage-unavailable refusal writes no audit row (today's contract) |
 | D16 | **Observability without a dependency**: structured logs, `GET /storage/status` (`stats:read`, no DB call), an admin console Storage panel, in-memory counters. `/health` unchanged |
@@ -569,13 +570,13 @@ audit_journal.pending_duplicate(user_id, dedup_key, since) -> Optional[str]
 These are the calls the user may reasonably make differently. Each has a default the stories will implement unless overruled.
 
 - **O1 — Journal on disk, not in memory.** *Default: disk.* Memory would keep the container stateless but lose rows on a crash during an outage, which breaks "never lost". Disk needs a volume and puts raw prompt previews on it (T6).
-- **O2 — Release a response whose success row is only journaled.** *Default: release, with `audit_id: null` + `audit_ref`.* Alternative: withhold it (fail closed), which keeps `audit_id: int` but costs the user an answer already paid for and makes the journal useful only for refusal rows.
+- **O2 — Release a response whose success row is only journaled.** **Resolved by the user (2026-11-17): release, with `audit_id: null` + `audit_ref`.** *Default was: release.* Alternative: withhold it (fail closed), which keeps `audit_id: int` but costs the user an answer already paid for and makes the journal useful only for refusal rows.
 - **O3 — `admit_usage` is not retried after `OUTCOME_UNKNOWN`.** *Default: not retried, fail closed with 503.* Alternative: retry and accept at most one over-counted attempt per retry. That error is in the fail-closed direction and would absorb more blips.
 - **O4 — `/v1` storage faults become `503 storage_unavailable`.** *Default: yes.* Alternative: keep PRD-015 D7's `500 internal_error` (retryable) for byte compatibility, adding only `Retry-After`.
 - **O5 — The usage charge is not journaled.** *Default: not journaled, stays fail-open.* A replayed charge needs an idempotency key (Section 13's ledger). Until then the audit row's token columns are the record (PRD-013 T8).
 - **O6 — Retry and breaker parameters are module constants.** *Default: constants* (PRD-008 precedent). Alternative: settings, for operators on high-latency links.
 - **O7 — A storage-unavailable refusal writes no audit row.** *Default: none*, as today for `DuplicateCheckError` / `UsageLimitError` ([v1.py:225-227](../../../app/routers/v1.py)). Journaling one per refused request during an outage would turn the journal into a traffic log and fill it.
-- **O8 — Does the journal count as "recorded" for a decision written *before* an action is executed?** *Not resolved here: needs the user's call.* D13 lets a fsynced journal entry stand in for a committed `action_decisions` write. That is defensible for PRD-017's step 8, where the harness *releases* calls to a client after the model produced them. PRD-023 T9 ("executed but not recorded") requires the opposite for the MCP gateway's pre-forward decision write: the harness itself forwards the call, and PRD-023 says this PRD's offline buffering "must not apply to the pre-forward write". The two conflict if D13 is read as a general rule. Options: (a) scope D13 explicitly to PRD-017's post-response release, so any pre-execution decision write must commit to the database or fail closed (consistent with PRD-023 T9); (b) let the journal satisfy pre-forward writes too, for availability, and amend PRD-023 T9; (c) leave the journal opt-in per call site, with pre-forward sites opting out. *Proposed default, pending the user:* (a). The journal API gives no call site a way to journal a pre-forward write, and PRD-023's gateway calls the non-journaling `insert_action_decisions` path directly.
+- **O8 — Does the journal count as "recorded" for a decision written *before* an action is executed?** **Resolved by the user (2026-11-17): option (a).** D13 is scoped to PRD-017's post-response release; a pre-execution decision write commits to the database or fails closed (consistent with PRD-023 T9). Original framing follows. D13 lets a fsynced journal entry stand in for a committed `action_decisions` write. That is defensible for PRD-017's step 8, where the harness *releases* calls to a client after the model produced them. PRD-023 T9 ("executed but not recorded") requires the opposite for the MCP gateway's pre-forward decision write: the harness itself forwards the call, and PRD-023 says this PRD's offline buffering "must not apply to the pre-forward write". The two conflict if D13 is read as a general rule. Options: (a) scope D13 explicitly to PRD-017's post-response release, so any pre-execution decision write must commit to the database or fail closed (consistent with PRD-023 T9); (b) let the journal satisfy pre-forward writes too, for availability, and amend PRD-023 T9; (c) leave the journal opt-in per call site, with pre-forward sites opting out. *Proposed default, pending the user:* (a). The journal API gives no call site a way to journal a pre-forward write, and PRD-023's gateway calls the non-journaling `insert_action_decisions` path directly.
 
 ### Evidence (verified against `main` @ `2253871`)
 
@@ -603,6 +604,8 @@ These are the calls the user may reasonably make differently. Each has a default
 - `libsql.connect` is called with `(url, auth_token=...)` only ([database.py:127, 173](../../../app/db/database.py)). No client-side timeout is configured, and whether the driver offers one is unverified.
 
 ### Tentative story breakdown (to be generated by `/create-stories`)
+
+*Generated 2026-11-17 as 14 stories (see the [board](./index.md)): the request-level success-criteria suite (statements 1–14, outage end-to-end, `--run-chaos`, latency) became its own STORY-013, and docs moved to STORY-014.*
 
 | # | Story | Type | Size |
 |---|---|---|---|
@@ -635,7 +638,7 @@ These are the calls the user may reasonably make differently. Each has a default
 
 - **PRD-022 (provider fallback)** reuses `CircuitBreaker`, one instance per upstream provider, with this PRD's numbers as its defaults (its Section 6.10, O10). It uses `probe=None` (the next live request is the probe) and `force_open(seconds)` for a provider answering `401`. Its `GET /providers/status` returns one `BreakerStatus` per provider, shaped like `storage_status().breaker`.
 - **PRD-019 (multi-instance deployment)**: `/ready` reads `storage_status().breaker.state` (its D5). It never records a failure or success on the breaker, and it keeps this PRD's 503 + `Retry-After` intact through the balancer. So `BreakerStatus.state` and `retry_after_seconds` are a contract with PRD-019, not an internal detail.
-- **PRD-023 (MCP and skills)**: its T9 requires that the MCP pre-forward decision write is **not** satisfied by the journal. This conflicts with a general reading of D13. The tension is recorded as Open decision O8 and is not resolved here.
+- **PRD-023 (MCP and skills)**: its T9 requires that the MCP pre-forward decision write is **not** satisfied by the journal. This conflicts with a general reading of D13. The tension was recorded as Open decision O8, resolved by the user on 2026-11-17 as option (a): the journal never satisfies a pre-forward write.
 - [docs/deployment.md — The database is a hard dependency of every request](../../../docs/deployment.md), [docs/roadmap.md — Next up: resilience](../../../docs/roadmap.md)
 
 ### Dependencies

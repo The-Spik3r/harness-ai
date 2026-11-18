@@ -64,6 +64,8 @@ CONSOLE_VIEW_SUMMARY = "SUMMARY"
 VIEW_REGISTER_LABEL = "Register"
 VIEW_SUMMARY_LABEL = "Summary"
 VIEW_USAGE_LABEL = "Usage"
+# PRD-018 STORY-012: the fifth peer.
+VIEW_STORAGE_LABEL = "Storage"
 
 SIGN_OUT_LABEL = "Sign out"
 
@@ -195,6 +197,8 @@ READ_LABEL_USAGE_LIMITS = "the usage-limit blocks"
 # not in `admin_state._READS`: it is a separate read with its own fault (F16), so
 # a failure here names itself and never blanks the summary or the Register.
 READ_LABEL_USAGE = "the usage for today"
+# PRD-018 STORY-012: the Storage view's read, its own fault like the usage read.
+READ_LABEL_STORAGE = "the storage status"
 
 # --- The three empty states ----------------------------------------------
 # PRD-006 Section 4 names three register states — no rows recorded, rows recorded
@@ -491,3 +495,61 @@ SHARE_TEMPLATE = "{share} of all queries"
 # A ranked list with nothing in it yet. Shorter than the three empty states
 # above because it is one figure, not a page.
 RANKED_EMPTY_LABEL = "Nothing ranked yet"
+
+# --- Storage (PRD-018 STORY-012) -----------------------------------------
+# The Storage view: the storage circuit breaker, the audit journal and the retry
+# counters of the process serving this console. Plain words for what an operator
+# controls and recognises (frontend-design). "Turned away", never the refusal
+# word: GATE_REFUSED_MESSAGE must stay the only string that mentions one.
+STORAGE_CAPTION_TEMPLATE = "This process: {instance}. Counters reset when it restarts."
+STORAGE_VERDICT_CLOSED = "Storage is reachable."
+STORAGE_VERDICT_OPEN_TEMPLATE = (
+    "Storage circuit open since {since}. Requests are turned away for another "
+    "{seconds} s."
+)
+STORAGE_VERDICT_HALF_OPEN_TEMPLATE = (
+    "Storage circuit probing since {since}. One request is testing the database."
+)
+# Shown only while an entry is kept on disk that this process will not retry.
+STORAGE_HELD_BACK_TEMPLATE = (
+    "{entries} journal entries and {files} journal files are kept on disk and "
+    "are not retried. An operator must look at them."
+)
+STORAGE_NO_JOURNAL = "No audit journal is open in this process."
+
+STORAGE_HEADING_BREAKER = "Circuit breaker"
+STORAGE_HEADING_JOURNAL = "Audit journal"
+STORAGE_HEADING_COUNTERS = "Counters"
+STORAGE_HEADING_RETRIES = "Retries"
+STORAGE_HEADING_EXHAUSTED = "Gave up"
+STORAGE_RETRIES_TITLE = "Retries made, by operation and failure class"
+STORAGE_EXHAUSTED_TITLE = (
+    "Operations that ended in an infrastructure failure, by operation and "
+    "failure class, retries that were not allowed included"
+)
+STORAGE_KEYED_EMPTY = "None"
+
+# PRD-018 STORY-012: "State" alone is quoted by a theme.GLOBAL_CSS comment,
+# which tests/test_ground.py forbids for any label of five or more letters.
+STORAGE_LABEL_STATE = "Breaker state"
+STORAGE_LABEL_SINCE = "Since"
+STORAGE_LABEL_FAILURES = "Consecutive failures"
+STORAGE_LABEL_LAST_CLASS = "Last failure"
+STORAGE_LABEL_ENTRIES = "Entries"
+STORAGE_LABEL_SIZE = "Size"
+STORAGE_LABEL_OLDEST = "Oldest entry"
+STORAGE_LABEL_DRAINING = "Draining"
+STORAGE_LABEL_ADOPTED = "Adopted files"
+STORAGE_LABEL_HELD_ENTRIES = "Held back entries"
+STORAGE_LABEL_HELD_FILES = "Held back files"
+STORAGE_LABEL_BREAKER_OPENS = "Times the circuit opened"
+STORAGE_LABEL_APPENDED = "Entries journaled"
+STORAGE_LABEL_DRAINED = "Entries drained"
+STORAGE_LABEL_TORN = "Torn entries discarded"
+STORAGE_SIZE_TEMPLATE = "{used} of {limit} bytes"
+STORAGE_YES = "yes"
+STORAGE_NO = "no"
+
+STORAGE_COLUMN_OPERATION = "Operation"
+STORAGE_COLUMN_FAILURE_CLASS = "Class"
+STORAGE_COLUMN_COUNT = "Count"

@@ -7,8 +7,20 @@ services:
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     # DATABASE_URL and TURSO_AUTH_TOKEN come from .env, like OPENROUTER_API_KEY
-    # and ADMIN_TOKEN -- PRD-007 Section 9. No volume: the audit trail lives in
-    # Turso, so the container is stateless and `docker compose down -v` has
-    # nothing of ours to destroy (PRD Section 5, story 1).
+    # and ADMIN_TOKEN -- PRD-007 Section 9. The audit trail and every table live
+    # in Turso. The one piece of local state is the audit journal (PRD-018): it is
+    # empty in steady state and holds audit rows only while the database is
+    # unreachable, until they drain. `docker compose down -v` destroys undrained
+    # entries, so check `GET /storage/status` shows journal.entries == 0 first.
+    # The image runs as root, so the volume is writable as it is.
     env_file:
       - .env
+    # `environment` wins over `env_file`, so a stray AUDIT_BUFFER_DIR in .env
+    # cannot point the journal off the volume.
+    environment:
+      - AUDIT_BUFFER_DIR=/var/lib/harness/audit-buffer
+    volumes:
+      - harness-audit-buffer:/var/lib/harness/audit-buffer
+
+volumes:
+  harness-audit-buffer:

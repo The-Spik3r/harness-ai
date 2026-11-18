@@ -47,6 +47,9 @@ import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
 from tests.test_db import _create_pre_rbac_database
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 client = TestClient(app)
 
 _ROLES = ("admin", "auditor", "user")
@@ -311,7 +314,7 @@ async def test_chat_state_never_forwards_a_byok_key_so_query_byok_has_no_chat_in
     # `ingress` accepted since PRD-013 STORY-005; ChatState passes "chat".
     def _fake_run_query(identity, prompt, device, model, openrouter_api_key, call_openrouter, session_id=None, ingress=None):
         captured["openrouter_api_key"] = openrouter_api_key
-        return QuerySuccessResponse(response="ok", audit_id=1, model_used=model, tokens_used=1)
+        return QuerySuccessResponse(response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used=model, tokens_used=1)
 
     monkeypatch.setattr(chat_state_mod, "run_query", _fake_run_query)
 
@@ -320,3 +323,20 @@ async def test_chat_state_never_forwards_a_byok_key_so_query_byok_has_no_chat_in
 
     assert "openrouter_api_key" in captured
     assert captured["openrouter_api_key"] is None
+
+
+@pytest.mark.parametrize("role", _ROLES)
+def test_storage_status_read_matrix(role, temp_db):
+    """PRD-018 STORY-012 (F8): GET /storage/status needs `stats:read`, the same
+    gate as /stats."""
+    token = f"{role}-token"
+    insert_user(User(user_id=f"{role}-id", role=role, token_hash=hash_token(token)))
+    expected_allowed = PERMISSION_STATS_READ in ROLE_PERMISSIONS[role]
+
+    response = client.get("/storage/status", headers={"Authorization": f"Bearer {token}"})
+
+    if expected_allowed:
+        assert response.status_code == 200
+    else:
+        assert response.status_code == 403
+        assert response.json() == {"detail": f"Permission denied: {PERMISSION_STATS_READ}"}

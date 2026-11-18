@@ -50,6 +50,9 @@ import app.services.query_pipeline as query_pipeline
 import chat_ui.chat_ui.state as chat_state_mod
 from chat_ui.chat_ui.state import ChatState
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 #: Captured at import, before any test can monkeypatch it: the `internal_error`
 #: arm replaces `query_pipeline.redact` for its outcome send, and the send after
 #: it has to run against the real one.
@@ -144,7 +147,7 @@ def _capturing_run_conversation(captured):
               params=None, call_openrouter=None, session_id=None, ingress=None):
         captured["messages"] = list(messages)
         return QuerySuccessResponse(
-            response="ok", audit_id=1, model_used="gpt-4", tokens_used=1
+            response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1
         )
 
     return _fake

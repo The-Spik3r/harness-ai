@@ -120,6 +120,7 @@ def test_response_body_matches_prd_section_10_shape(temp_db, monkeypatch):
         "status": "SUCCESS",
         "response": _REDACTED_RESPONSE,
         "audit_id": body["audit_id"],
+        "audit_ref": body["audit_ref"],  # PRD-018 D14: the healthy body plus audit_ref
         "model_used": "gpt-4",
         "tokens_used": 9,
         "pii_redacted": True,
@@ -478,7 +479,15 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_dedup_key.py:
 #       test_tool_turn_anywhere_is_refused_naming_prd_017 ->
 #         test_tool_turns_are_keyed_not_refused
+#
+# PRD-018 STORY-010 (F7): log_query returns an AuditRef, not an int.
+#   - test_db_resilience_write_id.py:
+#       test_log_query_mints_a_hex_write_id_and_still_returns_int ->
+#         test_log_query_mints_a_hex_write_id_and_returns_its_ref
 _DELIBERATELY_SUPERSEDED_TESTS = {
+    "tests/test_db_resilience_write_id.py": {
+        "test_log_query_mints_a_hex_write_id_and_still_returns_int",
+    },
     "tests/test_admin_state.py": {
         "test_the_sheet_carries_all_nine_stats_response_figures",
         "test_the_blocked_figures_are_the_two_that_indent",

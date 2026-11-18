@@ -24,6 +24,11 @@ What each column holds, for decision `d` and identity `i`:
   cut to 500 -- `audit_logger`'s preview length, imported rather than copied.
 - `classifications`: a JSON array of `{rule, kind, detail}`, every
   classification in order; `kind` is the operation's kind, or null.
+- `write_id`: `<audit write_id>:<index>` (0-based, input order) when `record()`
+  is given the success row's `AuditRef`; a fresh batch hex plus `:<index>` for a
+  direct call with no ref. The key a replay of a landed batch is recognised by,
+  so it lands exactly once (PRD-018 D4, STORY-010). NULL only for a row built
+  without one.
 
 Redaction (STORY-012/015 orchestrator decisions). An `http` target is the whole
 URL, and a query string can carry a token. So the stored target of an `http`
@@ -36,28 +41,41 @@ Redaction runs **before** truncation, so a cut never separates a key from its
 `***`. Apart from URLs the preview stays raw, as T10 accepts: the hash is over
 the unredacted string, so identical calls still group.
 
-No catch. A storage failure surfaces as `app.db.errors.StorageError` (or
-`IntegrityError`) from `_session()`. What the live path does is PRD-017 D8's
-decision, made in the pipeline, not here: it turns the failure into
+One catch (PRD-018 F7, D13, O8). Given an `AuditRef` whose row committed, a
+`StorageUnavailableError` on the decisions write is journaled as a
+decisions-only entry (`audit_id` known, `write_id` the row's own) and `record`
+returns `[]`; `AuditUnavailableError` from a failed append propagates. Any other
+`StorageError` (or `IntegrityError`) surfaces untouched. What the live path does
+with a failure is PRD-017 D8's decision, made in the pipeline: it turns it into
 `ActionAuditError` and fails closed.
 """
 
 import json
 import re
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, Sequence
 
+from app.db import audit_journal
 from app.db.database import insert_action_decisions
+from app.db.errors import StorageUnavailableError
 from app.db.models import ActionDecisionRow
 
 # Section 6.12: the action audit reuses audit_logger's preview convention -- one
 # 500, not a copy that can drift. Underscore names by convention only.
-from app.services.audit_logger import _PREVIEW_LENGTH, _TIMESTAMP_FORMAT
+from app.services.audit_logger import (
+    AuditRef,
+    _PREVIEW_LENGTH,
+    _TIMESTAMP_FORMAT,
+    _new_write_id,
+)
 from app.services.duplicate_checker import hash_prompt
 
 if TYPE_CHECKING:
     from app.services.action_policy import ActionDecision
     from app.services.identity import Identity
+
+logger = logging.getLogger(__name__)
 
 #: The repo's redaction marker (`app/db/database.py`'s `_REDACTED`).
 _REDACTED = "***"
@@ -149,6 +167,7 @@ def _row_of(
     timestamp: str,
     audit_id: Optional[int],
     session_id: Optional[str],
+    write_id: Optional[str] = None,
 ) -> ActionDecisionRow:
     return ActionDecisionRow(
         timestamp=timestamp,
@@ -168,13 +187,34 @@ def _row_of(
         granted_by=d.granted_by,
         classifications=_classifications_json(d),
         policy_digest=d.policy_digest,
+        write_id=write_id,
     )
+
+
+def decision_rows(
+    decisions: Sequence["ActionDecision"],
+    identity: "Identity",
+    write_id: str,
+    audit_id: Optional[int] = None,
+    session_id: Optional[str] = None,
+) -> list[ActionDecisionRow]:
+    """One row per decision, keyed `"<write_id>:<i>"`, sharing one UTC timestamp.
+
+    PRD-018 D13. The one builder both paths use: `record` for the rows it
+    writes, and step 8's `log_query(journal_decisions=...)` for the rows that
+    ride in a journaled audit entry, so the two are identical.
+    """
+    timestamp = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    return [
+        _row_of(d, identity, timestamp, audit_id, session_id, f"{write_id}:{index}")
+        for index, d in enumerate(decisions)
+    ]
 
 
 def record(
     decisions: Sequence["ActionDecision"],
     identity: "Identity",
-    audit_id: Optional[int] = None,
+    audit_ref: Optional[AuditRef] = None,
     session_id: Optional[str] = None,
 ) -> list[int]:
     """Store one row per decision; return the new ids, in input order (Section 10).
@@ -182,9 +222,52 @@ def record(
     One transaction (`insert_action_decisions`): every row of the batch lands,
     or none does. All rows share one UTC timestamp. `record([])` returns `[]`
     and writes nothing.
+
+    PRD-018 D4, F7: with an `audit_ref`, row *i* is keyed
+    `"<audit_ref.write_id>:<i>"` and linked to `audit_ref.audit_id`. With none (a
+    direct call) a fresh batch hex is minted and `audit_id` is NULL. Every row
+    carries a key, so the unit is retried from row 1 on any infrastructure
+    failure and a replay of a landed batch lands each row once.
+
+    O8 rule (PRD-018 O8, D13): the journal satisfies "recorded" only for
+    PRD-017's post-response release -- step 8, with the ref `log_query`
+    returned. If that write raises `StorageUnavailableError`, the decisions are
+    journaled alone (`audit_id` known) and `[]` is returned. A pre-execution
+    decision write (PRD-023's MCP pre-forward write, PRD-023 T9) must call
+    without a ref, or `database.insert_action_decisions` directly: that path
+    commits or raises and never journals.
+
+    A journaled ref (`audit_id is None`) is a caller bug: its decisions already
+    went into the row's journal entry (D13), so the pipeline does not call
+    `record` and this raises `ValueError` (orchestrator ruling R3).
     """
+    if audit_ref is not None and audit_ref.audit_id is None:
+        raise ValueError(
+            "record() was given a journaled AuditRef (audit_id None): its "
+            "decisions already ride in the row's journal entry (PRD-018 D13)"
+        )
     if not decisions:
         return []
-    timestamp = datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
-    rows = [_row_of(d, identity, timestamp, audit_id, session_id) for d in decisions]
-    return insert_action_decisions(rows)
+    if audit_ref is None:
+        rows = decision_rows(decisions, identity, _new_write_id(), None, session_id)
+        return insert_action_decisions(rows)
+    rows = decision_rows(
+        decisions, identity, audit_ref.write_id, audit_ref.audit_id, session_id
+    )
+    try:
+        return insert_action_decisions(rows)
+    except StorageUnavailableError:
+        # R6: the entry's write_id is the audit row's own. It was never
+        # journaled (the row committed), so it cannot collide with a pending
+        # entry. AuditUnavailableError from a failed append propagates.
+        audit_journal.append(
+            None, rows, audit_id=audit_ref.audit_id, write_id=audit_ref.write_id
+        )
+        logger.warning(
+            "action decisions journaled: user_id=%s audit_id=%s write_id=%s decisions=%d",
+            identity.user_id,
+            audit_ref.audit_id,
+            audit_ref.write_id,
+            len(rows),
+        )
+        return []

@@ -63,6 +63,9 @@ from app.services.v1_translate import (
     translate_request,
 )
 
+# PRD-018 D14: `audit_ref` is required on every success (the row's write_id).
+_AUDIT_REF = "0" * 32
+
 _MODEL = "openai/gpt-4o"
 _PROMPT = "list the files"
 _USER = {"role": "user", "content": _PROMPT}
@@ -1015,6 +1018,8 @@ def test_flag_on_text_only_body_is_the_flag_off_body(temp_db, monkeypatch):
         for key in ("id", "created"):
             body.pop(key)
         body["harness"].pop("audit_id")
+        # PRD-018 D14: audit_ref is the row's write_id, minted per request.
+        body["harness"].pop("audit_ref")
         bodies.append(body)
 
     assert bodies[0] == bodies[1]
@@ -1055,7 +1060,7 @@ def _two_call_completion():
             finish_reason="tool_calls",
         )],
         usage=Usage(**_STREAM_USAGE),
-        harness=HarnessCompletionInfo(audit_id=42, actions=[
+        harness=HarnessCompletionInfo(audit_id=42, audit_ref=_AUDIT_REF, actions=[
             HarnessAction(tool_call_id="call_1", tool_name="read", decision="allow", rule="r", reason="x"),
             HarnessAction(tool_call_id="call_2", tool_name="bash", decision="allow", rule="r", reason="x"),
         ]),
@@ -1364,9 +1369,10 @@ def test_router_never_reads_raw_upstream_tool_calls():
 
 def test_query_body_and_schema_ignore_the_tool_outcome(temp_db, monkeypatch):
     """D17, DD-1: a private attribute is never serialized and never in the OpenAPI schema."""
-    fields = {"status", "response", "audit_id", "model_used", "tokens_used", "pii_redacted", "pii_entities_masked"}
-    plain = QuerySuccessResponse(response="r", audit_id=1, model_used="m", tokens_used=2)
-    carrying = QuerySuccessResponse(response="r", audit_id=1, model_used="m", tokens_used=2)
+    # PRD-018 D14: audit_ref is on every success.
+    fields = {"status", "response", "audit_id", "audit_ref", "model_used", "tokens_used", "pii_redacted", "pii_entities_masked"}
+    plain = QuerySuccessResponse(response="r", audit_id=1, audit_ref=_AUDIT_REF, model_used="m", tokens_used=2)
+    carrying = QuerySuccessResponse(response="r", audit_id=1, audit_ref=_AUDIT_REF, model_used="m", tokens_used=2)
     carrying._tool_outcome = tool_release.ToolOutcome(tool_release.Release((), (), None), ())
 
     assert carrying.tool_outcome is not None and plain.tool_outcome is None

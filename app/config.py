@@ -5,6 +5,10 @@ from urllib.parse import urlsplit
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# One constant, owned by the journal (PRD-018 Section 9.3). audit_journal imports
+# no settings, so this import cannot form a cycle.
+from app.db.audit_journal import _JOURNAL_ENTRY_RESERVE_BYTES
+
 # Accepted DATABASE_URL schemes (PRD-007 Section 4). Remote endpoints carry TLS
 # or the libSQL protocol and require a token; plaintext http:// is permitted
 # only for the local development server, which takes no token (PRD Section 9,
@@ -418,6 +422,17 @@ class Settings(BaseSettings):
     # pattern_config.load(). Consumed by STORY-008.
     ACTION_SQL_DIALECT: str = ""
 
+    # Audit journal (PRD-018 Section 9.3, D9, D10). Where an audit row is written
+    # when the database cannot take it. Created when STORY-009's lifespans open
+    # the journal, never at import; 0700 on POSIX (it holds raw prompt previews,
+    # T6). Compose mounts a named volume here in STORY-014.
+    AUDIT_BUFFER_DIR: str = "./var/audit-buffer"
+
+    # The journal's capacity (64 MiB). An append past it fails closed. The
+    # minimum is two reserved entries per pipeline worker (model validator below).
+    # Consumed by STORY-009 (open) and STORY-011 (headroom).
+    AUDIT_BUFFER_MAX_BYTES: int = 67_108_864
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -572,6 +587,19 @@ class Settings(BaseSettings):
             )
         return name
 
+    @field_validator("AUDIT_BUFFER_DIR")
+    @classmethod
+    def _validate_audit_buffer_dir(cls, value: str) -> str:
+        """Non-empty and nothing more: the directory is created at journal open (PRD-018 D9)."""
+        directory = value.strip()
+        if not directory:
+            raise ValueError(
+                "AUDIT_BUFFER_DIR must name a directory, got an empty value. It is "
+                "where the audit journal is written when the database cannot take "
+                "a row (PRD-018 D9). Example: AUDIT_BUFFER_DIR=./var/audit-buffer."
+            )
+        return directory
+
     @field_validator("PII_ENTITIES_CODE")
     @classmethod
     def _validate_pii_entities_code(cls, value: str) -> str:
@@ -705,6 +733,24 @@ class Settings(BaseSettings):
                 "Each entry must also be listed in MODEL_ALLOWLIST (exact, "
                 "case-sensitive match); leave V1_TOOL_MODELS empty for no extra "
                 "restriction. Example: V1_TOOL_MODELS=openai/gpt-4o,anthropic/claude-3.5-sonnet."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_audit_buffer_max_bytes(self) -> "Settings":
+        """At least two reserved journal entries per pipeline worker (PRD-018 9.3, D10).
+
+        Both fields are needed, so this is a model validator, the way
+        `_validate_v1_tool_models` is.
+        """
+        minimum = self.PIPELINE_MAX_WORKERS * _JOURNAL_ENTRY_RESERVE_BYTES * 2
+        if self.AUDIT_BUFFER_MAX_BYTES < minimum:
+            raise ValueError(
+                f"AUDIT_BUFFER_MAX_BYTES must be at least {minimum} "
+                f"(PIPELINE_MAX_WORKERS={self.PIPELINE_MAX_WORKERS} x {_JOURNAL_ENTRY_RESERVE_BYTES} x 2), "
+                f"got {self.AUDIT_BUFFER_MAX_BYTES}. It is the audit journal's capacity in bytes; "
+                "each pipeline worker needs a reserved entry plus room to spare, or a paid answer "
+                "could be refused for lack of space (PRD-018 D10). Example: AUDIT_BUFFER_MAX_BYTES=67108864."
             )
         return self
 

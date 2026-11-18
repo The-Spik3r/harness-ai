@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.middleware.auth import require_permission
@@ -5,6 +7,7 @@ from app.models.schemas import QueryRequest, QueryResponse
 from app.services import chat_sessions
 from app.services.audit_logger import log_query
 from app.services.authz import PERMISSION_QUERY_SUBMIT
+from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
@@ -12,7 +15,16 @@ from app.services.openrouter_client import OpenRouterError, call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query
+from app.services.storage_faults import (
+    STORAGE_UNAVAILABLE_DETAIL,
+    STORAGE_UNAVAILABLE_NOT_SENT_DETAIL,
+    audit_unavailable_retry_after,
+    retry_after_headers,
+    storage_unavailable_cause,
+)
 from app.services.usage_limits import UsageLimitError
+
+logger = logging.getLogger(__name__)
 
 _FOREIGN_SESSION_DETAIL = "session_id does not belong to the authenticated identity"
 
@@ -26,15 +38,49 @@ async def query(
 ) -> QueryResponse:
     try:
         return await run_in_pipeline(_handle_query, request, identity)
-    except ChatSessionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except DuplicateCheckError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
     # PRD-013 T7, D9: the usage counter could not be read. The gate fails
     # closed -- nothing was sent upstream and no row was written -- exactly as
     # a failed duplicate lookup does.
-    except UsageLimitError as exc:
+    # PRD-018 D8 / O7: when the gate failed because storage is unavailable
+    # (`StorageUnavailableError` is its cause), the answer is a retryable 503
+    # with fixed text and `Retry-After`. All three gates run before the
+    # upstream call and before any row (`owns` in `_handle_query`, `admit` and
+    # `check_duplicate` in `run_query`), so "not sent to the model" is true.
+    # Any other cause keeps the 500 and its text.
+    except (ChatSessionError, DuplicateCheckError, UsageLimitError) as exc:
+        cause = storage_unavailable_cause(exc)
+        if cause is not None:
+            logger.warning(
+                "query request refused: user_id=%s code=storage_unavailable retry_after=%s",
+                identity.user_id,
+                cause.retry_after_seconds,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=STORAGE_UNAVAILABLE_NOT_SENT_DETAIL,
+                headers=retry_after_headers(cause),
+            ) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    # PRD-018 D10/D13, T5: an audit row (a success or a refusal, R1) could be
+    # neither committed nor journaled, so nothing is released. Fixed copy, and
+    # not "not sent": step 8 runs after the upstream call. This also covers the
+    # foreign-session refusal row (`_handle_query`): its 403 becomes this 503.
+    # PRD-018 D10 (STORY-011): the headroom refusal is the subclass, raised
+    # before step 2, so "not sent" is true for it.
+    except AuditUnavailableError as exc:
+        retry_after = audit_unavailable_retry_after(exc)
+        headroom = isinstance(exc, AuditHeadroomError)
+        logger.warning(
+            "query request refused: user_id=%s code=%s retry_after=%s",
+            identity.user_id,
+            "audit_headroom" if headroom else "audit_unavailable",
+            retry_after,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=STORAGE_UNAVAILABLE_NOT_SENT_DETAIL if headroom else STORAGE_UNAVAILABLE_DETAIL,
+            headers={"Retry-After": str(retry_after)},
+        ) from exc
     except PiiRedactorError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except OpenRouterError as exc:

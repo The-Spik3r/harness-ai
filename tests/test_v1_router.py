@@ -133,7 +133,13 @@ def test_success_returns_chat_completion(temp_db, upstream):
             }
         ],
         "usage": {"prompt_tokens": 812, "completion_tokens": 96, "total_tokens": 908},
-        "harness": {"audit_id": row.id, "pii_redacted": False, "pii_entities_masked": []},
+        # PRD-018 D14: harness.audit_ref is the row's write_id on every success.
+        "harness": {
+            "audit_id": row.id,
+            "audit_ref": row.write_id,
+            "pii_redacted": False,
+            "pii_entities_masked": [],
+        },
     }
     assert response.headers["X-Harness-Audit-Id"] == str(row.id)
     assert response.headers["content-type"] == "application/json"

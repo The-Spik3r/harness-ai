@@ -8,6 +8,8 @@ if str(REPO_ROOT) not in sys.path:
 
 import reflex as rx
 
+from app.config import settings
+from app.db import journal_drainer
 from app.db.database import init_db
 from app.main import app as fastapi_app
 from app.services import (
@@ -24,10 +26,12 @@ from chat_ui.components.actions import actions
 from chat_ui.components.admin_shell import (
     ROUTE_ACTIONS,
     ROUTE_REGISTER,
+    ROUTE_STORAGE,
     ROUTE_SUMMARY,
     ROUTE_USAGE,
     VIEW_ACTIONS,
     VIEW_REGISTER,
+    VIEW_STORAGE,
     VIEW_SUMMARY,
     VIEW_USAGE,
     admin_page,
@@ -35,6 +39,7 @@ from chat_ui.components.admin_shell import (
 from chat_ui.components.register import register
 from chat_ui.components.reports import reports_detail_page, reports_feed_page
 from chat_ui.components.shell import header, login_gate, shell_body
+from chat_ui.components.storage import storage
 from chat_ui.components.summary import summary
 from chat_ui.components.usage import usage
 from chat_ui import reports_copy
@@ -113,6 +118,11 @@ def admin_actions_page() -> rx.Component:
     return admin_page(actions(), VIEW_ACTIONS)
 
 
+# PRD-018 STORY-012: the fifth view, the storage breaker, the journal and the counters.
+def admin_storage_page() -> rx.Component:
+    return admin_page(storage(), VIEW_STORAGE)
+
+
 # Radix resolves its own colour tokens from the theme's appearance, and this
 # line used to read `appearance="light"`. The reason it did is worth keeping,
 # because it is the same reason it now reads "inherit": on a machine set to dark
@@ -181,6 +191,13 @@ app.add_page(
 app.add_page(
     admin_actions_page,
     route=ROUTE_ACTIONS,
+    context={"sitemap": None},
+)
+# PRD-018 STORY-012: a Reflex page like the others, so it falls through the
+# Caddyfile's static matcher (`GET /storage/status` is the backend route).
+app.add_page(
+    admin_storage_page,
+    route=ROUTE_STORAGE,
     context={"sitemap": None},
 )
 # /admin is a landing route, not a third view: it renders the same shell (so an
@@ -253,6 +270,26 @@ app.register_lifespan_task(action_config.load)
 # seeded users would boot the chat UI straight into a silent 401 wall
 # instead of refusing to start.
 app.register_lifespan_task(authz.check_bootstrap)
+
+
+# Same bypass again (PRD-018 STORY-009): app.main's lifespan opens the audit
+# journal and starts the drainer, and this ingress never runs it. init_db()
+# already ran at import (D17), so storage is up before this task. Registered
+# BEFORE _pipeline_executor_lifespan on purpose: Reflex's AsyncExitStack tears
+# tasks down in reverse order, so the executor (which waits for in-flight
+# calls that may still journal) shuts down first and the journal closes second.
+# journal_drainer is reference counted, so a mounted app.main lifespan that
+# also ran would share this journal instead of raising.
+@asynccontextmanager
+async def _audit_journal_lifespan():
+    journal_drainer.start(
+        settings.AUDIT_BUFFER_DIR, settings.AUDIT_BUFFER_MAX_BYTES, settings.PIPELINE_MAX_WORKERS
+    )
+    yield
+    journal_drainer.stop()
+
+
+app.register_lifespan_task(_audit_journal_lifespan)
 
 # Same bypass again (STORY-006): app.main's lifespan shuts the pipeline
 # executor down on exit, and this ingress never runs app.main's lifespan. A

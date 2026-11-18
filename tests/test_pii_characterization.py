@@ -332,7 +332,9 @@ def test_chat_conversation_is_pinned(temp_db, case, profile):
 
     assert isinstance(result, QuerySuccessResponse)
     assert calls == [list(case.expected_sent)]
-    assert result.model_dump(exclude={"audit_id"}) == case.expected_result
+    # PRD-018 D14: audit_ref is the row's write_id, minted per request like
+    # audit_id, so it is excluded from the pinned body the same way.
+    assert result.model_dump(exclude={"audit_id", "audit_ref"}) == case.expected_result
 
     row = get_audit_log(result.audit_id)
     assert {

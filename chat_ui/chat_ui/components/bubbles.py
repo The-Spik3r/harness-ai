@@ -214,9 +214,16 @@ def render_assistant(message) -> rx.Component:
             message.tokens_used,
             " ",
             copy.FOOTER_TOKENS_LABEL,
-            copy.FOOTER_SEPARATOR,
-            copy.FOOTER_AUDIT_PREFIX,
-            message.audit_id,
+            # PRD-018 D14: a journaled success carries audit_id 0 (None on the
+            # wire), which must not read "#0". The separator travels inside
+            # the conditional so neither arm dangles one.
+            rx.cond(
+                message.audit_id > 0,
+                rx.el.span(
+                    copy.FOOTER_SEPARATOR, copy.FOOTER_AUDIT_PREFIX, message.audit_id
+                ),
+                rx.el.span(copy.FOOTER_SEPARATOR, copy.FOOTER_AUDIT_PENDING),
+            ),
             # STORY-013: the only footer item about the send rather than the
             # answer, so it comes last. The separator travels inside the
             # conditional with the note, so a footer can never end on a
@@ -472,12 +479,19 @@ def render_upstream_error(message) -> rx.Component:
 
 
 def render_internal_error(message) -> rx.Component:
+    # PRD-018 T5: the audit-unavailable bubble (detail AUDIT_UNAVAILABLE_NOTICE,
+    # persisted with the bubble, so it survives a reload) must not claim the
+    # harness failed before the model: step 8 runs after the model answered.
     return _failure(
         message,
         theme.INK_FAULT,
         theme.TINT_FAULT,
         copy.TAG_INTERNAL,
-        copy.INTERNAL_ERROR_HEADLINE,
+        rx.cond(
+            message.detail == copy.AUDIT_UNAVAILABLE_NOTICE,
+            copy.AUDIT_UNAVAILABLE_HEADLINE,
+            copy.INTERNAL_ERROR_HEADLINE,
+        ),
     )
 
 

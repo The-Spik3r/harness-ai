@@ -63,6 +63,8 @@ EXPECTED_ROUTES = {
     # PRD-016 (STORY-019): the Actions view. A pinned set extended, as
     # PRD-013 STORY-016 extended it for Usage; no existing entry changes.
     "ROUTE_ACTIONS": "/admin/actions",
+    # PRD-018 (STORY-012): the Storage view. A pinned set extended; no entry changes.
+    "ROUTE_STORAGE": "/admin/storage",
 }
 
 # Taken by app/routers/admin.py, tests/test_route_reservations.py and the
@@ -104,6 +106,8 @@ ADMIN_MODULE_PATTERNS = (
     # PRD-016 (STORY-019): the Actions view is an admin module too, so the
     # focus-ring, width-pin and no-auto-refresh guards cover it.
     "chat_ui/chat_ui/components/actions.py",
+    # PRD-018 (STORY-012): and the Storage view, for the same guards.
+    "chat_ui/chat_ui/components/storage.py",
 )
 
 # PRD-006 Section 4, out of scope, verbatim: "Auto-refresh, polling, or push
@@ -161,6 +165,8 @@ EXPECTED_PAGE_KEYS = [
     "admin/actions",
     "admin/audit",
     "admin/stats",
+    # PRD-018 (STORY-012): the Storage view.
+    "admin/storage",
     # PRD-013 (STORY-016): the Usage view.
     "admin/usage",
     "index",
@@ -178,6 +184,7 @@ CONSOLE_PAGE_KEYS = [
     "admin/actions",
     "admin/audit",
     "admin/stats",
+    "admin/storage",  # PRD-018 (STORY-012)
     "admin/usage",
 ]
 
@@ -203,10 +210,12 @@ try:
     from chat_ui.components.admin_shell import (
         ROUTE_ACTIONS,
         ROUTE_REGISTER,
+        ROUTE_STORAGE,
         ROUTE_SUMMARY,
         ROUTE_USAGE,
         VIEW_ACTIONS,
         VIEW_REGISTER,
+        VIEW_STORAGE,
         VIEW_SUMMARY,
         VIEW_USAGE,
         admin_gate,
@@ -243,6 +252,9 @@ factories = [
     # PRD-016 (STORY-019): the fourth view's masthead and page.
     ("admin_masthead(actions)", lambda: admin_masthead(VIEW_ACTIONS)),
     ("admin_page(actions)", lambda: admin_page(rx.box("x"), VIEW_ACTIONS)),
+    # PRD-018 (STORY-012): the fifth view's masthead and page.
+    ("admin_masthead(storage)", lambda: admin_masthead(VIEW_STORAGE)),
+    ("admin_page(storage)", lambda: admin_page(rx.box("x"), VIEW_STORAGE)),
     ("refresh_control", lambda: refresh_control()),
     ("refreshed_stamp", lambda: refreshed_stamp()),
     ("fault_panel", lambda: fault_panel()),
@@ -275,6 +287,7 @@ register_masthead = built.get("admin_masthead(register)", "")
 summary_masthead = built.get("admin_masthead(summary)", "")
 usage_masthead = built.get("admin_masthead(usage)", "")
 actions_masthead = built.get("admin_masthead(actions)", "")
+storage_masthead = built.get("admin_masthead(storage)", "")
 result["masthead_words"] = {
     "register_has_register": admin_copy.CONSOLE_VIEW_REGISTER in register_masthead,
     "register_has_summary_word": admin_copy.CONSOLE_VIEW_SUMMARY in register_masthead,
@@ -298,12 +311,14 @@ result["masthead_words"] = {
             summary_masthead,
             usage_masthead,
             actions_masthead,
+            storage_masthead,  # PRD-018 (STORY-012): five destinations
         )
         for label in (
             admin_copy.VIEW_REGISTER_LABEL,
             admin_copy.VIEW_SUMMARY_LABEL,
             admin_copy.VIEW_USAGE_LABEL,
             admin_copy.VIEW_ACTIONS_LABEL,
+            admin_copy.VIEW_STORAGE_LABEL,
         )
     ),
     "both_mark_current": all(
@@ -313,6 +328,7 @@ result["masthead_words"] = {
             summary_masthead,
             usage_masthead,
             actions_masthead,
+            storage_masthead,
         )
     ),
 }
@@ -330,12 +346,14 @@ result["routes"] = {
     "ROUTE_SUMMARY": ROUTE_SUMMARY,
     "ROUTE_USAGE": ROUTE_USAGE,
     "ROUTE_ACTIONS": ROUTE_ACTIONS,
+    "ROUTE_STORAGE": ROUTE_STORAGE,
 }
 result["views"] = {
     "VIEW_REGISTER": VIEW_REGISTER,
     "VIEW_SUMMARY": VIEW_SUMMARY,
     "VIEW_USAGE": VIEW_USAGE,
     "VIEW_ACTIONS": VIEW_ACTIONS,
+    "VIEW_STORAGE": VIEW_STORAGE,
 }
 
 print(json.dumps(result))
@@ -473,7 +491,8 @@ def test_view_keys_are_distinct(probe):
     assert not probe["errors"], probe["errors"]
     assert probe["views"]["VIEW_REGISTER"] != probe["views"]["VIEW_SUMMARY"]
     # PRD-013 (STORY-016): three keys, all distinct. PRD-016 (STORY-019): four.
-    assert len(set(probe["views"].values())) == 4
+    # PRD-018 (STORY-012): five, with the Storage view.
+    assert len(set(probe["views"].values())) == 5
 
 
 # --- The source assertions ------------------------------------------------

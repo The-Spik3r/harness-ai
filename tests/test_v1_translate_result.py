@@ -40,6 +40,8 @@ from app.services.v1_translate import (
     INVALID_HEADER,
     MAX_DEVICE_LENGTH,
     REDACTION_FAILED,
+    STORAGE_UNAVAILABLE,
+    STORAGE_UNAVAILABLE_MESSAGE,
     UPSTREAM_ERROR,
     UPSTREAM_UNAVAILABLE,
     QueryBlockedResponse,
@@ -52,12 +54,14 @@ from app.services.v1_translate import (
 )
 
 _CREATED = 1792569600
+_AUDIT_REF = "0" * 32  # PRD-018 D14: required on every success
 
 
 def _success(**overrides):
     fields = {
         "response": "Hello from the model.",
         "audit_id": 1842,
+        "audit_ref": _AUDIT_REF,  # PRD-018 D14
         "model_used": "openai/gpt-4o",
         "tokens_used": 908,
     }
@@ -102,7 +106,13 @@ def test_builds_the_section_7_4_example():
             }
         ],
         "usage": {"prompt_tokens": 812, "completion_tokens": 96, "total_tokens": 908},
-        "harness": {"audit_id": 1842, "pii_redacted": False, "pii_entities_masked": []},
+        # PRD-018 D14: harness.audit_ref is on every success.
+        "harness": {
+            "audit_id": 1842,
+            "audit_ref": _AUDIT_REF,
+            "pii_redacted": False,
+            "pii_entities_masked": [],
+        },
     }
 
 
@@ -148,7 +158,13 @@ def test_harness_carries_the_pii_fields():
         "harness"
     ]
 
-    assert harness == {"audit_id": 1842, "pii_redacted": True, "pii_entities_masked": ["EMAIL_ADDRESS"]}
+    # PRD-018 D14: harness.audit_ref is on every success.
+    assert harness == {
+        "audit_id": 1842,
+        "audit_ref": _AUDIT_REF,
+        "pii_redacted": True,
+        "pii_entities_masked": ["EMAIL_ADDRESS"],
+    }
 
 
 def test_id_and_model_come_from_the_pipeline_result():
@@ -374,6 +390,8 @@ _FAULT_CASES = [
     (UPSTREAM_ERROR, 502, False),
     (INTERNAL_ERROR, 500, True),
     (REDACTION_FAILED, 500, False),
+    # PRD-018 D8: a storage outage is a retryable 503.
+    (STORAGE_UNAVAILABLE, 503, True),
 ]
 
 
@@ -399,11 +417,23 @@ def test_unknown_fault_is_a_type_error():
 
 def test_every_fault_is_a_5xx_and_only_transient_ones_retry():
     assert set(_FAULTS) == {case[0] for case in _FAULT_CASES}
-    assert {row[0] for row in _FAULTS.values()} <= {500, 502}
+    # PRD-018 D8: 503 joins the allowed statuses (storage outage).
+    assert {row[0] for row in _FAULTS.values()} <= {500, 502, 503}
     assert {code for code, row in _FAULTS.items() if row[2]} == {
         UPSTREAM_UNAVAILABLE,
         INTERNAL_ERROR,
+        STORAGE_UNAVAILABLE,  # PRD-018 D8: retryable
     }
+
+
+def test_storage_unavailable_carries_retry_after_and_its_message():
+    # PRD-018 D8: the router sends `retry_after_seconds` as `Retry-After`.
+    error = translate_fault(
+        STORAGE_UNAVAILABLE, STORAGE_UNAVAILABLE_MESSAGE, retry_after_seconds=7
+    )
+    assert error.retry_after_seconds == 7
+    assert error.message == STORAGE_UNAVAILABLE_MESSAGE
+    assert translate_fault(INTERNAL_ERROR, "x").retry_after_seconds is None
 
 
 def test_every_fault_type_fits_the_error_schema():
@@ -533,7 +563,7 @@ def test_without_an_outcome_the_body_is_prd_015s(response):
     dumped = _dump(result=_success(response=response))
 
     assert dumped["choices"][0]["message"] == {"role": "assistant", "content": response}
-    assert set(dumped["harness"]) == {"audit_id", "pii_redacted", "pii_entities_masked"}
+    assert set(dumped["harness"]) == {"audit_id", "audit_ref", "pii_redacted", "pii_entities_masked"}  # PRD-018 D14
     assert "tool_calls" not in json.dumps(dumped) and "actions" not in json.dumps(dumped)
 
 
@@ -564,3 +594,14 @@ def test_completion_with_calls_parses_in_the_openai_sdk():
 
     assert parsed.choices[0].finish_reason == "tool_calls"
     assert [c.function.arguments for c in parsed.choices[0].message.tool_calls] == [_ARGS_1, _ARGS_2]
+
+
+def test_a_journaled_success_has_a_null_audit_id_a_ref_and_a_ref_completion_id():
+    # PRD-018 D14, O2: the id is `chatcmpl-harness-ref-<write_id>`, which a client
+    # parsing the integer after `chatcmpl-harness-` cannot mistake for an audit id.
+    ref = "ab" * 16
+    body = _dump(result=_success(audit_id=None, audit_ref=ref))
+
+    assert body["id"] == f"chatcmpl-harness-ref-{ref}"
+    assert body["harness"]["audit_id"] is None and body["harness"]["audit_ref"] == ref
+    assert "audit_id" in body["harness"]  # present as null, never dropped

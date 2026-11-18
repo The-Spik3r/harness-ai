@@ -265,7 +265,8 @@ def test_the_response_and_the_audit_row_are_what_they_were_with_history_on(
     `dataclasses.asdict` makes the audit comparison one `==` over twenty fields
     rather than twenty assertions, so a column this story never thought about is
     covered too. `id` and `timestamp` are dropped because they are the two
-    values that *must* differ between two rows written at two moments.
+    values that *must* differ between two rows written at two moments (and,
+    from PRD-018 STORY-004, `write_id`, which is minted fresh per call).
     """
     monkeypatch.setattr("app.routers.query.call_openrouter", _fake_call_openrouter)
     prompt = "the same question, asked under both flag states"
@@ -282,12 +283,17 @@ def test_the_response_and_the_audit_row_are_what_they_were_with_history_on(
     on_row = dataclasses.asdict(_last_audit_row())
 
     assert off_body["status"] == "SUCCESS"
-    assert {k: v for k, v in off_body.items() if k != "audit_id"} == {
-        k: v for k, v in on_body.items() if k != "audit_id"
+    # PRD-018 D14: audit_ref (the row's write_id) is minted per request, like
+    # audit_id, so it differs between the two bodies and is excluded too.
+    per_request = ("audit_id", "audit_ref")
+    assert {k: v for k, v in off_body.items() if k not in per_request} == {
+        k: v for k, v in on_body.items() if k not in per_request
     }
     assert isinstance(off_body["audit_id"], int)
 
-    volatile = ("id", "timestamp")
+    # PRD-018 STORY-004 (D4): write_id is minted per log_query call, so it must
+    # differ between the two rows like id and timestamp do.
+    volatile = ("id", "timestamp", "write_id")
     assert {k: v for k, v in off_row.items() if k not in volatile} == {
         k: v for k, v in on_row.items() if k not in volatile
     }

@@ -2,19 +2,51 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-018-db-resilience` (base: `main`)
-**Status**: draft
+**Status**: done
+
+## Progress
+
+14/14 stories done — 100%
 
 ## Stories
 
-_No stories yet. Run `/create-stories .agents/PRDs/PRD-018-db-resilience/PRD.md` to generate._
-
 All stories commit on the epic branch `epic/PRD-018-db-resilience`. No per-story branches.
 
-| ID | Title | Status | Plan | Commit |
-|----|-------|--------|------|--------|
+| ID | Title | Type | Status | Complexity | Plan | Commit |
+|----|-------|------|--------|------------|------|--------|
+| STORY-001 | Driver failure-surface spike — verbatim errors, failing call, and the three open questions | spike | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-001-driver-failure-surface-spike.plan.md) | `07bd37f` |
+| STORY-002 | _classify(exc, phase), FailureClass and per-call phase tracking in _Connection | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-002-classifier-and-phase-tracking.plan.md) | `aa18cea` |
+| STORY-003 | _unit_of_work retry boundary, statement kinds on every database.py function, _FaultyClient harness | technical | ✅ done | large | [plan](../../plans/PRD-018-db-resilience/completed/STORY-003-unit-of-work-and-kinds.plan.md) | `a83d2af` |
+| STORY-004 | write_id columns, unique indexes, idempotent insert_audit_log and insert_action_decisions | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-004-write-id-idempotent-audit-inserts.plan.md) | `6c5ee59` |
+| STORY-005 | Reusable CircuitBreaker class, the storage instance, StorageUnavailableError | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-005-circuit-breaker-and-storage-unavailable.plan.md) | `a812587` |
+| STORY-006 | Ingress mapping — require_identity, POST /query and /v1 storage_unavailable with Retry-After | feature | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-006-ingress-503-mapping.plan.md) | `60f2904` |
+| STORY-007 | Chat UI — resolve() inside the send's try/finally, sign-in storage notice, fixed storage_unavailable copy | bug | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-007-chat-ui-storage-failures.plan.md) | `4f1073e` |
+| STORY-008 | Audit journal — append/fsync JSON Lines, exclusive lock, checksum, torn-tail recovery, adoption, bounds | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-008-audit-journal.plan.md) | `b319788` |
+| STORY-009 | Journal drainer thread and lifespan wiring (FastAPI and Reflex) | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-009-journal-drainer.plan.md) | `bbeea1a` |
+| STORY-010 | AuditRef, journaled release of step 8, PRD-017 D13 decisions path, audit_ref response fields | feature | ✅ done | large | [plan](../../plans/PRD-018-db-resilience/completed/STORY-010-audit-ref-journaled-release.plan.md) | `4ab037a` |
+| STORY-011 | Duplicate overlay over journaled rows and the admission headroom check | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-011-duplicate-overlay-and-headroom.plan.md) | `84a463b` |
+| STORY-012 | GET /storage/status, in-memory counters, and the admin console Storage panel | feature | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-012-storage-status-and-admin-panel.plan.md) | `1c94ed8` |
+| STORY-013 | Success-criteria suite — statements 1–14 under fault injection, outage end-to-end, opt-in chaos, latency | technical | ✅ done | medium | [plan](../../plans/PRD-018-db-resilience/completed/STORY-013-success-criteria-fault-suite.plan.md) | `2078087` |
+| STORY-014 | Docs, compose volume, .env.example, roadmap, and PRD close-out | technical | ✅ done | small | [plan](../../plans/PRD-018-db-resilience/completed/STORY-014-docs-and-deployment.plan.md) | `62a7167` |
 
-## Legend
-- `todo` — not started
-- `in-progress` — plan exists, work underway
-- `done` — committed on epic branch
-- `blocked` — waiting on dependency
+## Status Icons
+- ⬜ todo
+- 🟡 in-progress
+- ✅ done
+- 🔴 blocked
+
+## Dependencies
+
+- STORY-002 blocked by STORY-001
+- STORY-003 blocked by STORY-002
+- STORY-004 blocked by STORY-003
+- STORY-005 blocked by STORY-003
+- STORY-006 blocked by STORY-005
+- STORY-007 blocked by STORY-005, STORY-006
+- STORY-008 blocked by STORY-004
+- STORY-009 blocked by STORY-005, STORY-008
+- STORY-010 blocked by STORY-004, STORY-006, STORY-008, STORY-009
+- STORY-011 blocked by STORY-006, STORY-008, STORY-009, STORY-010
+- STORY-012 blocked by STORY-005, STORY-008, STORY-009
+- STORY-013 blocked by STORY-010, STORY-011
+- STORY-014 blocked by STORY-012, STORY-013

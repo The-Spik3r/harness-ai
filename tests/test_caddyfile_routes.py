@@ -41,6 +41,9 @@ EXPECTED_MATCHER = (
     "/audit/actions",
     "/stats",
     "/health",
+    # PRD-018 STORY-012 (F8): GET /storage/status; exact token, so a near-miss
+    # such as /storage/statusx still reaches the static server.
+    "/storage/status",
     "/v1/*",
 )
 
@@ -54,7 +57,9 @@ FASTAPI_DOC_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc
 
 # Paths that must reach the static file server: Reflex pages (the chat at `/`,
 # the console under `/admin/`, the Reports section) and near-misses of `/v1/*`.
-STATIC_PATHS = ("/", "/admin/audit", "/admin/usage", "/reports", "/v1", "/v1x", "/v10/models")
+STATIC_PATHS = ("/", "/admin/audit", "/admin/usage",
+    # PRD-018 STORY-012: the Storage view is a Reflex page, not a harness route.
+    "/admin/storage", "/reports", "/v1", "/v1x", "/v10/models")
 
 # Sample values for path parameters, so `/v1/models/{model_id:path}` is checked
 # with a slash in the id, as a real model id has.

@@ -32,6 +32,19 @@ storage get one:
   them.
 - **The lazy endpoint.** `_libsql_endpoint` is probed only when a `db` test or a
   storage fixture asks for it, so `pytest -m "not db"` runs without the server.
+- **The faulty driver.** `faulty_db` (PRD-018 STORY-003) is `temp_db` with the
+  driver wrapped by a `tests/db_faults.py` `FaultScript`, for tests that need a
+  storage call to fail on cue. It is a `db` test by fixture closure.
+
+- **The breaker.** The autouse `_fresh_storage_breaker` gives every test, `db` or
+  not, a closed storage circuit breaker of its own (PRD-018 STORY-005), so a test
+  that exhausts a retry budget can never open it for the next one. The autouse
+  `_fresh_storage_counters` zeroes the storage counters the same way (STORY-012).
+
+- **The audit journal.** The autouse `_isolated_audit_buffer` (PRD-018 STORY-009)
+  points `AUDIT_BUFFER_DIR` at a per-test path under pytest's base temp (created
+  only when a journal opens) and fails any test that leaves a journal open or the
+  drainer thread running, or a non-`db` test that meets that thread.
 
 A failing `db` test also gets a `libsql diagnostics` section ending in
 `libsql verdict: ...` (see `pytest_runtest_makereport`). The promise the old
@@ -51,6 +64,7 @@ Point the suite somewhere else with `HARNESS_TEST_LIBSQL_URL`.
 
 import itertools
 import os
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -81,9 +95,11 @@ os.environ.setdefault("ADMIN_TOKEN", "test-token")
 import libsql  # noqa: E402  -- after the bootstrap, for symmetry with the rest
 
 from app.config import settings  # noqa: E402  -- must follow the bootstrap above
-from app.db import database  # noqa: E402
+from app.db import audit_journal, database, journal_drainer  # noqa: E402
 from app.db.database import get_connection, init_db  # noqa: E402
 from app.services import action_config  # noqa: E402
+from app.db import storage_counters  # noqa: E402
+from app.services.circuit_breaker import CircuitBreaker  # noqa: E402
 from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
 
@@ -93,6 +109,9 @@ _BENCHMARK_MARKER = "benchmark"
 
 #: The marker on live-client E2E tests (PRD-015 STORY-015).
 _E2E_MARKER = "e2e"
+
+#: The marker on real-fault tests that restart the shared libSQL dev server (PRD-018 STORY-013).
+_CHAOS_MARKER = "chaos"
 
 #: The marker on tests that reach storage (PRD-014 STORY-002), applied at collection.
 _DB_MARKER = "db"
@@ -154,11 +173,18 @@ def pytest_addoption(parser) -> None:
         default=False,
         help="run @pytest.mark.e2e live-client tests; needs HARNESS_E2E_LIBSQL_URL (PRD-015 STORY-015)",
     )
+    parser.addoption(
+        "--run-chaos",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.chaos real-fault tests; they restart the shared libSQL dev server (PRD-018 STORY-013)",
+    )
 
 
 def pytest_configure(config) -> None:
     config.addinivalue_line("markers", f"{_BENCHMARK_MARKER}: latency-budget assertion; skipped unless --run-benchmark")
     config.addinivalue_line("markers", f"{_E2E_MARKER}: live client E2E against a subprocess harness and stub; skipped unless --run-e2e")
+    config.addinivalue_line("markers", f"{_CHAOS_MARKER}: real-fault test that restarts or blackholes the libSQL dev server; skipped unless --run-chaos")
     config.addinivalue_line("markers", f"{_DB_MARKER}: reaches storage (a storage fixture, or listed in _DB_NODEIDS); applied at collection")
 
 
@@ -188,12 +214,18 @@ def pytest_collection_modifyitems(config, items) -> None:
     libSQL endpoint (see `tests/e2e/test_openai_sdk.py`):
 
         HARNESS_E2E_LIBSQL_URL=http://127.0.0.1:8088 pytest tests/e2e -m e2e --run-e2e -v
+
+    `@pytest.mark.chaos` (PRD-018 STORY-013) is skipped unless `--run-chaos` is given.
+    Those tests restart the shared `harness-libsql-dev` container, so they never run
+    by default or in CI, and must not run beside another pytest process:
+
+        pytest tests/test_db_resilience_chaos.py -m chaos --run-chaos -v -s
     """
     db = getattr(pytest.mark, _DB_MARKER)
     for item in items:
         if _STORAGE_FIXTURES.intersection(getattr(item, "fixturenames", ())) or _in_db_nodeids(item.nodeid):
             item.add_marker(db)
-    for marker, option in ((_BENCHMARK_MARKER, "--run-benchmark"), (_E2E_MARKER, "--run-e2e")):
+    for marker, option in ((_BENCHMARK_MARKER, "--run-benchmark"), (_E2E_MARKER, "--run-e2e"), (_CHAOS_MARKER, "--run-chaos")):
         if config.getoption(option):
             continue
         skip = pytest.mark.skip(reason=f"{marker}: pass {option}")
@@ -672,6 +704,81 @@ def _storage_policy(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_storage_breaker():
+    """Every test starts with a closed storage circuit breaker of its own (PRD-018 STORY-005).
+
+    `database._storage_breaker` is module state that every unit of work records
+    into, so without this the fifth test that exhausts a retry budget would open
+    it for the sixth. It applies to every test, not only `db` ones: the non-`db`
+    retry tests drive `_unit_of_work` through a fake world and record failures
+    too. The original is restored by direct assignment, the way
+    `_default_pattern_policy` restores its policy, because `tests/test_db.py`'s
+    `monkeypatch.undo()` must not be able to leave a test's breaker behind.
+
+    A test that wants an open breaker calls
+    `database._storage_breaker.force_open(seconds)`, or installs one with an
+    injected clock via `monkeypatch.setattr(database, "_storage_breaker",
+    CircuitBreaker("storage", ..., clock=...))`.
+    """
+    original = database._storage_breaker
+    # PRD-018 STORY-012: built through the factory so the swapped instance carries
+    # the `breaker_opens` hook, as the production one does.
+    database._storage_breaker = database._new_storage_breaker()
+    yield
+    database._storage_breaker = original
+
+
+@pytest.fixture(autouse=True)
+def _fresh_storage_counters():
+    """Zero the process-local storage counters around every test (PRD-018 STORY-012).
+
+    They are module globals (`app/db/storage_counters.py`), so without this a
+    test's retries would show up in the next test's `/storage/status`.
+    """
+    storage_counters._reset()
+    yield
+    storage_counters._reset()
+
+
+_audit_buffer_numbers = itertools.count(1)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_audit_buffer(request, monkeypatch, tmp_path_factory):
+    """Every test gets its own AUDIT_BUFFER_DIR and leaks no journal or drainer (PRD-018 STORY-009).
+
+    The lifespans open the audit journal and start the drainer thread, so a
+    lifespan test would otherwise write `./var/audit-buffer` in the repo. The
+    path is under pytest's base temp and is NOT created here: the journal
+    creates it on open, so a test that never opens one costs nothing. At
+    teardown a journal or thread left open is force-cleaned (so the next test's
+    `open_journal` cannot fail with "already open") and the leaking test fails
+    by name. A non-`db` test must never meet the drainer thread (PRD-014 D2:
+    nothing starts at import; only a lifespan starts it, and every lifespan test
+    is a `db` test).
+    """
+    path = tmp_path_factory.getbasetemp() / "audit-buffer" / str(next(_audit_buffer_numbers))
+    monkeypatch.setattr(settings, "AUDIT_BUFFER_DIR", str(path))
+    yield
+    leaked = journal_drainer.running() or audit_journal.current() is not None
+    threads = [t for t in threading.enumerate() if t.name == "audit-journal-drainer" and t.is_alive()]
+    if leaked or threads:
+        journal_drainer._stop_all()
+        if request.node.get_closest_marker(_DB_MARKER) is None:
+            pytest.fail(
+                "a non-db test met the audit-journal-drainer thread or journal "
+                "(PRD-014 D2: only a lifespan starts it, and lifespan tests are db tests)",
+                pytrace=False,
+            )
+        pytest.fail(
+            "this test left the audit journal open or the audit-journal-drainer thread running "
+            "(PRD-018 STORY-009): call journal_drainer.stop() / close_journal(), or exit the "
+            "lifespan, before the test ends",
+            pytrace=False,
+        )
+
+
+@pytest.fixture(autouse=True)
 def _default_pattern_policy(monkeypatch):
     """Every test starts under the default pattern configuration (PRD-011 STORY-013).
 
@@ -745,6 +852,27 @@ def temp_db(database_url) -> str:
     """
     init_db()
     return database_url
+
+
+@pytest.fixture
+def faulty_db(temp_db, monkeypatch):
+    """A `db` database whose driver is wrapped by an empty `FaultScript` (PRD-018 STORY-003, D18).
+
+    Yields the script: `script.add(Fault(...))` arms a failure, `script.forwarded()`
+    and `script.connects` say what reached the real driver. The wrapper sits over
+    whatever `libsql.connect` is at install time, so PRD-014's recorder still sees
+    every forwarded call. The cached client is dropped at install (or the unfaulty
+    one built by `temp_db` would be lent) and at teardown (or the next test would
+    inherit a faulty proxy). Real backoff sleeps run, at most 0.25 s per operation.
+    """
+    # Lazy: `tests/test_db_isolation_harness.py` copies this file into child pytest
+    # runs, and a child that never uses the fixture must still import it.
+    from tests.db_faults import FaultScript
+
+    script = FaultScript()
+    script.install(monkeypatch)
+    yield script
+    script.uninstall()
 
 
 @pytest.fixture

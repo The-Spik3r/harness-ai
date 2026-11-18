@@ -119,6 +119,8 @@ FIELDS_ADDED_SINCE: frozenset[str] = frozenset({
     "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
     # PRD-015 STORY-007.
     "ignored_params",
+    # PRD-018 STORY-004 (D4): the idempotency key.
+    "write_id",
 })
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

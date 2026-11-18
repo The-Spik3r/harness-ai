@@ -181,6 +181,7 @@ def test_clean_prompt_success_returns_expected_shape_and_logs_row(temp_db, monke
         "status": "SUCCESS",
         "response": "Hi there!",
         "audit_id": body["audit_id"],
+        "audit_ref": body["audit_ref"],  # PRD-018 D14: the healthy body plus audit_ref
         "model_used": "gpt-4",
         "tokens_used": 12,
         "pii_redacted": False,
@@ -765,6 +766,7 @@ def test_existing_success_fields_unchanged_alongside_new_signal(temp_db, monkeyp
         "status": "SUCCESS",
         "response": "drafted",
         "audit_id": body["audit_id"],
+        "audit_ref": body["audit_ref"],  # PRD-018 D14: the healthy body plus audit_ref
         "model_used": "gpt-4",
         "tokens_used": 9,
         "pii_redacted": True,

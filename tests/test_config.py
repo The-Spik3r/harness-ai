@@ -1490,3 +1490,79 @@ def test_env_example_tool_defaults_match_settings():
     assert positions == sorted(positions)
     assert text.index("V1_SSE_KEEPALIVE_SECONDS=") < positions[0]
     assert positions[-1] < text.index("ACTION_POLICY_FILE=")
+
+
+# --- PRD-018 STORY-008: audit journal settings ---
+
+
+def test_audit_buffer_settings_have_the_documented_defaults():
+    """PRD-018 9.3: the defaults, and they satisfy the minimum for the default worker count."""
+    config = _settings()
+    assert config.AUDIT_BUFFER_DIR == "./var/audit-buffer"
+    assert config.AUDIT_BUFFER_MAX_BYTES == 67108864  # 32 x 131072 = 4 MiB <= 64 MiB
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_audit_buffer_dir_empty_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(AUDIT_BUFFER_DIR=value)
+    assert "AUDIT_BUFFER_DIR" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("value", [4 * 65536 * 2 - 1, "0"])
+def test_audit_buffer_max_bytes_below_two_reserves_per_worker_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(PIPELINE_MAX_WORKERS=4, AUDIT_BUFFER_MAX_BYTES=value)
+    message = str(exc_info.value)
+    assert "AUDIT_BUFFER_MAX_BYTES" in message and "PIPELINE_MAX_WORKERS" in message
+
+
+def test_audit_buffer_max_bytes_exact_minimum_is_accepted():
+    assert _settings(PIPELINE_MAX_WORKERS=4, AUDIT_BUFFER_MAX_BYTES=4 * 65536 * 2).AUDIT_BUFFER_MAX_BYTES == 524288
+
+
+def test_settings_construction_does_not_touch_the_audit_buffer_dir(tmp_path):
+    """PRD-018 STORY-008: the directory is created when the journal opens, never at settings load."""
+    target = tmp_path / "never"
+    _settings(AUDIT_BUFFER_DIR=str(target))
+    assert not target.exists()
+
+
+def test_reserve_constant_is_the_journals():
+    from app import config
+    from app.db import audit_journal
+
+    assert config._JOURNAL_ENTRY_RESERVE_BYTES is audit_journal._JOURNAL_ENTRY_RESERVE_BYTES
+    assert audit_journal._JOURNAL_ENTRY_RESERVE_BYTES == 65536
+
+
+# --- PRD-018 STORY-014: .env.example documents the audit journal settings -----
+
+_AUDIT_BUFFER_VARS = ("AUDIT_BUFFER_DIR", "AUDIT_BUFFER_MAX_BYTES")
+
+
+def test_env_example_documents_both_audit_buffer_vars_with_a_comment():
+    """PRD-018 STORY-014 AC 2: both present, each with an explanation directly above it."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _AUDIT_BUFFER_VARS:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or missing its comment line"
+
+
+def test_env_example_audit_buffer_vars_appear_in_settings_field_order():
+    """PRD-018 STORY-014 AC 2. The order is read from `Settings.model_fields`."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    declared_order = [name for name in Settings.model_fields if name in _AUDIT_BUFFER_VARS]
+
+    assert sorted(declared_order) == sorted(_AUDIT_BUFFER_VARS)
+    positions = [text.index(f"{var}=") for var in declared_order]
+
+    assert positions == sorted(positions)
+
+
+def test_env_example_audit_buffer_defaults_match_settings():
+    """PRD-018 STORY-014 AC 2: the template carries the shipped defaults (PRD 9.3)."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert _env_example_value(text, "AUDIT_BUFFER_DIR") == Settings.model_fields["AUDIT_BUFFER_DIR"].default
+    assert int(_env_example_value(text, "AUDIT_BUFFER_MAX_BYTES")) == Settings.model_fields["AUDIT_BUFFER_MAX_BYTES"].default

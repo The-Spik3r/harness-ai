@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from typing import Literal, Optional
 
@@ -8,6 +9,7 @@ from app.db.database import (
     count_audit_logs,
     list_action_decisions,
     list_audit_logs,
+    storage_status,
     summary_snapshot,
 )
 from app.db.models import ActionDecisionRow
@@ -19,6 +21,7 @@ from app.models.schemas import (
     AuditQueryEntry,
     AuditResponse,
     StatsResponse,
+    StorageStatusResponse,
 )
 from app.services.authz import (
     PERMISSION_AUDIT_READ_ALL,
@@ -175,6 +178,20 @@ def _action_entry(row: ActionDecisionRow) -> ActionDecisionEntry:
         ],
         policy_digest=row.policy_digest,
     )
+
+
+@router.get(
+    "/storage/status",
+    response_model=StorageStatusResponse,
+    dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
+)
+def get_storage_status() -> StorageStatusResponse:
+    """Breaker, journal and counters of this process (PRD-018 F8, D16).
+
+    In-memory only: no driver call, so it answers with the breaker open. The
+    break-glass `ADMIN_TOKEN` resolves with no database read (PRD-018 auth).
+    """
+    return StorageStatusResponse(**dataclasses.asdict(storage_status()))
 
 
 @router.get(
