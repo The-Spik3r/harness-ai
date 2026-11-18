@@ -7,10 +7,10 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Streaming interface, E2E, docs"
-status: todo
+status: in-progress
 labels: [testing, e2e]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
+plan: .agents/plans/PRD-020-provider-registry/STORY-014-local-model-e2e.plan.md
 report: null
 commit: null
 depends_on: [STORY-008, STORY-009, STORY-011, STORY-013]
@@ -28,11 +28,11 @@ As a maintainer, I want an opt-in E2E run against a real local model server, so 
 
 ## Acceptance Criteria
 
-- [ ] Given `--run-e2e` and a reachable server (base URL from an env var, default Ollama `http://127.0.0.1:11434/v1`) with the pinned model (from an env var), when a `/query` request is sent, then it is answered and the audit row has `provider='ollama'` (the registry's name for it).
+- [ ] Given `--run-e2e` and a reachable server (base URL from `HARNESS_E2E_LOCAL_BASE_URL`, default LM Studio `http://localhost:1235/v1`) with the pinned model (from `HARNESS_E2E_LOCAL_MODEL`, default `google/gemma-4-e4b`), when a `/query` request is sent, then it is answered and the audit row has `provider='local'` (the registry's name for it; amended 2026-11-18 from `ollama`, user decision in Technical Notes).
 - [ ] Given the same server, when a `/v1` request is made through the OpenAI SDK (buffered to the client), then it is answered with the model's text and the row says the provider.
 - [ ] Given the same server, when a `/v1` tool-call request is made and the model returns one tool call, then it is released through the action policy (the existing `tests/e2e` policy style) and recorded.
 - [ ] Given no server, no model, or no `--run-e2e`, when the suite runs, then the tests are skipped (never failed) with a reason naming what is missing.
-- [ ] Given a completed run, when the report is written, then it records the server version, the model digest and whether `usage` was reported (estimated or real).
+- [ ] Given a completed run, when the report is written, then it records what the server exposes (Ollama: `/api/version` and the `/api/tags` digest; LM Studio: `/api/v0/models` arch, quantization, state; else "not exposed") and whether `usage` was reported (estimated or real).
 
 ## Technical Notes
 
