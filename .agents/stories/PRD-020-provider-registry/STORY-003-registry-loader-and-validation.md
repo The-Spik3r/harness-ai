@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "1 - Registry and legacy equivalence"
-status: in-progress
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-020-provider-registry
-plan: .agents/plans/PRD-020-provider-registry/STORY-003-registry-loader-and-validation.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-003-registry-loader-and-validation.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-003-registry-loader-and-validation.report.md
+commit: 5dc69fe
 depends_on: [STORY-002]
 blocks: [STORY-004, STORY-005]
 skills: []
@@ -28,12 +28,12 @@ As a platform operator, I want `PROVIDERS_FILE` parsed and validated at startup 
 
 ## Acceptance Criteria
 
-- [ ] Given a registry YAML with every F1 field, when `provider_registry.load()` runs, then frozen dataclasses expose each provider and model with its documented default (`label`=name, `trust=external`, `pii=standard`, `byok=false`, `passthrough=false`, `usage_missing=estimate`, `estimate_chars_per_token=4`, `timeout_seconds`=`OPENROUTER_TIMEOUT_SECONDS`, model `upstream`=id, capabilities all false/unset), and the snapshot cannot be mutated.
-- [ ] Given each F1 startup error (unknown key at any level; missing `name`/`type`/`base_url`/`models`; `version` != 1; duplicate provider name or model id; more than one `passthrough`; `default_model` neither catalogued nor passthrough-routable; `type` != `openai_compatible` naming PRD-022; bad `base_url`; unset/empty `key_env`; `pii: relaxed` without internal; internal on a public IP literal; `byok` unusable; `max_context_tokens` < 1; `estimate_chars_per_token` outside (0, 8]; `timeout_seconds` <= 0), when `load()` runs, then each raises a startup error that names the file, the provider or model and the rule, and a test per error asserts the message contains neither a key value nor a whole URL.
-- [ ] Given `base_url` values, when validated, then `https://<any>` and loopback `http://` pass; `http://` on a private IP literal (10/8, 172.16/12, 192.168/16, fc00::/7) passes only with `insecure_http: true`; `http://` on a hostname or a public IP is refused even with it.
-- [ ] Given the three F1 WARNING conditions (an `insecure_http` provider, `trust: internal` on a hostname, a `key_env` not matched by the action policy's `secrets.env` globs), when `load()` runs, then each logs one WARNING (caplog) naming scheme+host or the variable name, never the key, and does not fail startup.
-- [ ] Given `PROVIDERS_FILE` empty, when the accessors are used, then the legacy implicit provider (section 6.2: `openrouter`, label `OpenRouter`, `passthrough: true`, `usage_missing: error`, `byok: true`, one model per `MODEL_ALLOWLIST` entry with `tools` from `V1_TOOL_MODELS`) is derived from the live settings (OD1), and `load()` is called after `action_config.load()` in both lifespans.
-- [ ] Given the shared fixture `tests/_providers.py`, when a test writes a registry YAML to `tmp_path` through it, then the registry is loaded for the test and legacy mode is restored afterwards, including when the test fails.
+- [x] Given a registry YAML with every F1 field, when `provider_registry.load()` runs, then frozen dataclasses expose each provider and model with its documented default (`label`=name, `trust=external`, `pii=standard`, `byok=false`, `passthrough=false`, `usage_missing=estimate`, `estimate_chars_per_token=4`, `timeout_seconds`=`OPENROUTER_TIMEOUT_SECONDS`, model `upstream`=id, capabilities all false/unset), and the snapshot cannot be mutated.
+- [x] Given each F1 startup error (unknown key at any level; missing `name`/`type`/`base_url`/`models`; `version` != 1; duplicate provider name or model id; more than one `passthrough`; `default_model` neither catalogued nor passthrough-routable; `type` != `openai_compatible` naming PRD-022; bad `base_url`; unset/empty `key_env`; `pii: relaxed` without internal; internal on a public IP literal; `byok` unusable; `max_context_tokens` < 1; `estimate_chars_per_token` outside (0, 8]; `timeout_seconds` <= 0), when `load()` runs, then each raises a startup error that names the file, the provider or model and the rule, and a test per error asserts the message contains neither a key value nor a whole URL.
+- [x] Given `base_url` values, when validated, then `https://<any>` and loopback `http://` pass; `http://` on a private IP literal (10/8, 172.16/12, 192.168/16, fc00::/7) passes only with `insecure_http: true`; `http://` on a hostname or a public IP is refused even with it.
+- [x] Given the three F1 WARNING conditions (an `insecure_http` provider, `trust: internal` on a hostname, a `key_env` not matched by the action policy's `secrets.env` globs), when `load()` runs, then each logs one WARNING (caplog) naming scheme+host or the variable name, never the key, and does not fail startup.
+- [x] Given `PROVIDERS_FILE` empty, when the accessors are used, then the legacy implicit provider (section 6.2: `openrouter`, label `OpenRouter`, `passthrough: true`, `usage_missing: error`, `byok: true`, one model per `MODEL_ALLOWLIST` entry with `tools` from `V1_TOOL_MODELS`) is derived from the live settings (OD1), and `load()` is called after `action_config.load()` in both lifespans.
+- [x] Given the shared fixture `tests/_providers.py`, when a test writes a registry YAML to `tmp_path` through it, then the registry is loaded for the test and legacy mode is restored afterwards, including when the test fails.
 
 ## Technical Notes
 

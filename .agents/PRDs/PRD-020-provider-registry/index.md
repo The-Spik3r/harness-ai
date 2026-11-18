@@ -6,7 +6,7 @@
 
 ## Progress
 
-2/15 stories done — 13%
+3/15 stories done — 20%
 
 ## Stories
 
@@ -16,7 +16,7 @@ All stories commit on the epic branch `epic/PRD-020-provider-registry`. No per-s
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Record the legacy byte-identical fixtures before any refactor | technical | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-001-legacy-byte-identical-fixtures.plan.md) | `130bbee` |
 | STORY-002 | PROVIDERS_FILE setting and the conditional OPENROUTER_API_KEY requirement | feature | ✅ done | small | [plan](../../plans/PRD-020-provider-registry/completed/STORY-002-providers-file-settings.plan.md) | `6586c45` |
-| STORY-003 | Provider registry loader, validation and the legacy implicit provider | feature | 🟡 in-progress | large | [plan](../../plans/PRD-020-provider-registry/STORY-003-registry-loader-and-validation.plan.md) | — |
+| STORY-003 | Provider registry loader, validation and the legacy implicit provider | feature | ✅ done | large | [plan](../../plans/PRD-020-provider-registry/completed/STORY-003-registry-loader-and-validation.plan.md) | `5dc69fe` |
 | STORY-004 | Route resolution, visible models and authorize_route | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Upstream package, OpenAI-compatible adapter and call_upstream | technical | ⬜ todo | large | — | — |
 | STORY-006 | Five provider columns on the audit table and log_query | feature | ⬜ todo | medium | — | — |

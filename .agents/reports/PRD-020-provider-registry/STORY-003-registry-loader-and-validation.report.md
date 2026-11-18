@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-003-registry-loader-and-validation.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 5dc69fe
 status: COMPLETE
 completed: 2026-11-18
 ---
