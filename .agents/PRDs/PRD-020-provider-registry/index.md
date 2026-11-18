@@ -6,7 +6,7 @@
 
 ## Progress
 
-13/15 stories done — 87%
+14/15 stories done — 93%
 
 ## Stories
 
@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-020-provider-registry`. No per-s
 | STORY-011 | /v1 tool capability from the registry and per-role GET /v1/models | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-011-v1-capabilities-and-models.plan.md) | `593cfc4` |
 | STORY-012 | /query default model, chat UI model selector and Register provider column | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-012-query-default-model-chat-ui-register.plan.md) | `9dba70d` |
 | STORY-013 | Adapter stream() with normalized events and pure collect() | feature | ✅ done | large | [plan](../../plans/PRD-020-provider-registry/completed/STORY-013-stream-and-collect.plan.md) | `bfef207` |
-| STORY-014 | Opt-in end-to-end run against a real local OpenAI-compatible server | technical | 🟡 in-progress | medium | [plan](../../plans/PRD-020-provider-registry/STORY-014-local-model-e2e.plan.md) | — |
+| STORY-014 | Opt-in end-to-end run against a real local OpenAI-compatible server | technical | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-014-local-model-e2e.plan.md) | `54ad114` |
 | STORY-015 | Providers documentation, example registry, .env.example and README | technical | ⬜ todo | medium | — | — |
 
 ## Status Icons

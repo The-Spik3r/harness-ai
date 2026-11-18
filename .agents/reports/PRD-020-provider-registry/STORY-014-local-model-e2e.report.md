@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-014-local-model-e2e.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 54ad114
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-020-provider-registry/completed/STORY-014-local-model-e2e.plan.md`
 **Epic Branch**: `epic/PRD-020-provider-registry`
-**Commit**: `pending`
+**Commit**: `54ad114`
 
 ## Summary
 
