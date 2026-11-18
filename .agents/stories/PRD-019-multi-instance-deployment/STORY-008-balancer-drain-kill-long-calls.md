@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Proof"
-status: in-progress
+status: done
 labels: [tests, caddy, integration]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-008-balancer-drain-kill-long-calls.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-008-balancer-drain-kill-long-calls.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-008-balancer-drain-kill-long-calls.report.md
+commit: a366a81
 depends_on: [STORY-007]
 blocks: [STORY-010]
 skills: []
@@ -28,11 +28,11 @@ As an operator and integrating developer, I want drain, instance death, slow com
 
 ## Acceptance Criteria
 
-- [ ] Given a request in flight on instance A (stub delay), when A's drain file is touched, then within `health_interval × 2` no new request reaches A, and the in-flight request completes with 200.
-- [ ] Given instance A is killed (`SIGKILL` / `Popen.kill`), when requests continue, then they succeed through B within `lb_try_duration`, and no 5xx is seen after the first health interval.
-- [ ] Given a 100 s stub delay, when non-streaming `/v1/chat/completions` and `POST /query` are sent through the balancer, then both return 200 (run concurrently, so the module pays ~100 s once).
-- [ ] Given a 30 s stub delay, `V1_SSE_KEEPALIVE_SECONDS=10` and `Accept-Encoding: gzip`, when a streaming `/v1` call goes through the balancer **and** a per-instance Caddy running the repo's in-container `Caddyfile` (gzip on), then every `: keep-alive` arrives within 2 s of its interval and the final chunk arrives.
-- [ ] Given the module, when it finishes, then every process is gone and the killed instance does not break later tests (fixture scope chosen so the kill case does not poison the STORY-007 cases).
+- [x] Given a request in flight on instance A (stub delay), when A's drain file is touched, then within `health_interval × 2` no new request reaches A, and the in-flight request completes with 200.
+- [x] Given instance A is killed (`SIGKILL` / `Popen.kill`), when requests continue, then they succeed through B within `lb_try_duration`, and no 5xx is seen after the first health interval.
+- [x] Given a 100 s stub delay, when non-streaming `/v1/chat/completions` and `POST /query` are sent through the balancer, then both return 200 (run concurrently, so the module pays ~100 s once).
+- [x] Given a 30 s stub delay, `V1_SSE_KEEPALIVE_SECONDS=10` and `Accept-Encoding: gzip`, when a streaming `/v1` call goes through the balancer **and** a per-instance Caddy running the repo's in-container `Caddyfile` (gzip on), then every `: keep-alive` arrives within 2 s of its interval and the final chunk arrives.
+- [x] Given the module, when it finishes, then every process is gone and the killed instance does not break later tests (fixture scope chosen so the kill case does not poison the STORY-007 cases).
 
 ## Technical Notes
 

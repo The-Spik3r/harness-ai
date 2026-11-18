@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-008-balancer-drain-kill-long-calls.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: a366a81
 status: COMPLETE
 completed: 2026-11-17
 ---
