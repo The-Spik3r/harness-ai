@@ -62,8 +62,12 @@ function of this name, so one script can serve OpenCode and Cline). `{"regex":
 ""}` is the "any content" matcher. To end a loop, answer with text (OpenCode
 stops on it) or, for Cline, with a `submit_and_exit` call gated by `advertises`.
 
-The stub never streams: `call_openrouter` never sends `stream` upstream, so a
-`stream` key is only another parameter key in the log.
+The stub streams when asked (PRD-020 STORY-013): a body with `"stream": true`
+is answered as server-sent events carrying the same reply (content in two
+deltas, each tool call in two fragments, a finish chunk, the usage chunk only
+when `stream_options.include_usage` is true and the reply has usage, then
+`data: [DONE]`). `complete()` never sends `stream`, so every other request is
+answered as before.
 
 Each request is logged as one ASCII line on stderr: the model, the message
 count, the request's other parameter keys, the rule that answered, and the
@@ -430,6 +434,8 @@ class _StubHandler(BaseHTTPRequestHandler):
     hits: dict
     hits_lock: threading.Lock
     require_key: Optional[str] = None
+    # One small write per SSE frame: without this, Nagle plus delayed ACK costs ~40 ms a frame.
+    disable_nagle_algorithm = True
 
     def log_message(self, *args):  # the access log would be a second, unscrubbed line
         pass
@@ -461,6 +467,66 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        except _DISCONNECTS:
+            pass
+
+    def _send_sse(self, model: Any, reply: Reply, wire_calls: list, include_usage: bool) -> None:
+        """The reply as chat.completion.chunk frames (PRD-020 STORY-013).
+
+        No Content-Length and `Connection: close`, so the client sees EOF at the
+        end; one flush per frame.
+        """
+        stream_id = f"chatcmpl-stub-{next(self.ids)}"
+        created = int(time.time())
+
+        def frame(choices: list, usage: Any = None) -> bytes:
+            chunk: dict = {
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": choices,
+            }
+            if usage is not None:
+                chunk["usage"] = usage
+            return b"data: " + json.dumps(chunk).encode("utf-8") + b"\n\n"
+
+        def delta_choice(delta: dict, finish: Optional[str] = None) -> list:
+            return [{"index": 0, "delta": delta, "finish_reason": finish}]
+
+        frames: list = []
+        content = reply.content
+        if isinstance(content, str):
+            half = len(content) // 2
+            parts = [content[:half], content[half:]] if half else [content]
+            for part in parts:
+                frames.append(frame(delta_choice({"content": part})))
+        for index, call in enumerate(wire_calls):
+            arguments = call["function"]["arguments"]
+            half = len(arguments) // 2
+            first = {
+                "index": index,
+                "id": call["id"],
+                "type": "function",
+                "function": {"name": call["function"]["name"], "arguments": arguments[:half]},
+            }
+            rest = {"index": index, "function": {"arguments": arguments[half:]}}
+            frames.append(frame(delta_choice({"tool_calls": [first]})))
+            frames.append(frame(delta_choice({"tool_calls": [rest]})))
+        frames.append(frame(delta_choice({}, reply.finish_reason)))
+        if include_usage and reply.usage is not None:
+            frames.append(frame([], dict(reply.usage)))
+        frames.append(b"data: [DONE]\n\n")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            for data in frames:
+                self.wfile.write(data)
+                self.wfile.flush()
         except _DISCONNECTS:
             pass
 
@@ -503,12 +569,13 @@ class _StubHandler(BaseHTTPRequestHandler):
         authorization = self.headers.get("Authorization")
         auth = "yes" if authorization is not None else "no"
         unauthorized = self.require_key is not None and authorization != f"Bearer {self.require_key}"
+        streaming = body.get("stream") is True
         status = 401 if unauthorized else (reply.redirect_status or reply.fail_status or 200)
         # Counts only: never a tool name, argument or content (PRD-017 D13, PRD-015 T6).
         self._log(
             f"{_PREFIX}: POST {ascii(self.path)} model={ascii(model)} messages={len(messages)} "
             f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} auth={auth} "
-            f"tools={offered} calls={len(reply.tool_calls)} -> {status}"
+            f"stream={'yes' if streaming else 'no'} tools={offered} calls={len(reply.tool_calls)} -> {status}"
         )
 
         if reply.delay_seconds:
@@ -523,16 +590,22 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send_error_body(reply.fail_status, "scripted failure")
             return
         message: dict = {"role": "assistant", "content": reply.content}
-        if reply.tool_calls:
-            # Ids are generated per answer, so a rule answering twice yields fresh ones.
-            message["tool_calls"] = [
-                {
-                    "id": call.id or f"call_{next(self.call_ids)}",
-                    "type": "function",
-                    "function": {"name": call.name, "arguments": call.arguments},
-                }
-                for call in reply.tool_calls
-            ]
+        # Ids are generated per answer, so a rule answering twice yields fresh ones.
+        wire_calls = [
+            {
+                "id": call.id or f"call_{next(self.call_ids)}",
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in reply.tool_calls
+        ]
+        if wire_calls:
+            message["tool_calls"] = wire_calls
+        if streaming:
+            options = body.get("stream_options")
+            include_usage = isinstance(options, dict) and options.get("include_usage") is True
+            self._send_sse(model, reply, wire_calls, include_usage)
+            return
         self._send_json(
             200,
             {

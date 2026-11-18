@@ -7,10 +7,10 @@ type: feature
 priority: medium
 complexity: large
 phase: "4 - Streaming interface, E2E, docs"
-status: todo
+status: in-progress
 labels: [backend, streaming]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
+plan: .agents/plans/PRD-020-provider-registry/STORY-013-stream-and-collect.plan.md
 report: null
 commit: null
 depends_on: [STORY-005, STORY-009]
@@ -28,11 +28,11 @@ As the author of PRD-021, I want the adapter to expose a tested `stream()` of no
 
 ## Acceptance Criteria
 
-- [ ] Given an `UpstreamRequest`, when `stream()` runs, then it sends `stream: true` and `stream_options: {include_usage: true}` and yields normalized events (`TextDelta`, `ToolCallDelta(index, id?, name?, arguments_fragment)`, `UsageReport`, `Finish`); `complete()` still sends no `stream` key.
-- [ ] Given the stub's SSE mode (F6: content in two deltas, each call's arguments in two fragments, a usage chunk when `include_usage` is set, then `[DONE]`), when a request with `"stream": true` is made, then the stub answers SSE and logs `stream=yes`; a request without it logs `stream=no` and is answered as today.
-- [ ] Given `collect(events)`, when applied, then it is pure and applies `complete()`'s exact rules: `content: null` with calls -> `""`, arguments as given and never parsed, duplicate call ids refused, and the D8 usage rule including `usage_estimated`.
-- [ ] Given every stub script in `tests/e2e/scripts/` and the suite's tool scripts, when run through both paths, then `collect(stream(r)) == complete(r)` as a property test for each reply rule.
-- [ ] Given a malformed stream (a non-JSON data line, a missing `[DONE]`, an arguments fragment for an unseen index), when parsed, then a non-retryable `UpstreamError` names the field, never a value.
+- [x] Given an `UpstreamRequest`, when `stream()` runs, then it sends `stream: true` and `stream_options: {include_usage: true}` and yields normalized events (`TextDelta`, `ToolCallDelta(index, id?, name?, arguments_fragment)`, `UsageReport`, `Finish`); `complete()` still sends no `stream` key.
+- [x] Given the stub's SSE mode (F6: content in two deltas, each call's arguments in two fragments, a usage chunk when `include_usage` is set, then `[DONE]`), when a request with `"stream": true` is made, then the stub answers SSE and logs `stream=yes`; a request without it logs `stream=no` and is answered as today.
+- [x] Given `collect(events)`, when applied, then it is pure and applies `complete()`'s exact rules: `content: null` with calls -> `""`, arguments as given and never parsed, duplicate call ids refused, and the D8 usage rule including `usage_estimated`.
+- [x] Given every stub script in `tests/e2e/scripts/` and the suite's tool scripts, when run through both paths, then `collect(stream(r)) == complete(r)` as a property test for each reply rule.
+- [x] Given a malformed stream (a non-JSON data line, a missing `[DONE]`, an arguments fragment for an unseen index), when parsed, then a non-retryable `UpstreamError` names the field, never a value.
 
 ## Technical Notes
 

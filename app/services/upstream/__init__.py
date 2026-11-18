@@ -13,6 +13,7 @@ import httpx
 
 from app.models.messages import Message
 from app.services import provider_registry
+from app.services.upstream.collect import collect
 from app.services.upstream.openai_compatible import OpenAICompatibleAdapter
 from app.services.upstream.params import (
     GenerationParams,
@@ -20,22 +21,33 @@ from app.services.upstream.params import (
     UnsupportedParameterError,
 )
 from app.services.upstream.types import (
+    Finish,
     ProviderAdapter,
+    TextDelta,
+    ToolCallDelta,
     UpstreamError,
+    UpstreamEvent,
     UpstreamRequest,
     UpstreamResult,
+    UsageReport,
 )
 
 __all__ = [
+    "Finish",
     "GenerationParams",
     "OpenAICompatibleAdapter",
     "ProviderAdapter",
+    "TextDelta",
+    "ToolCallDelta",
     "ToolParams",
     "UnsupportedParameterError",
     "UpstreamError",
+    "UpstreamEvent",
     "UpstreamRequest",
     "UpstreamResult",
+    "UsageReport",
     "call_upstream",
+    "collect",
 ]
 
 _DEFAULT_MODEL = "gpt-4"

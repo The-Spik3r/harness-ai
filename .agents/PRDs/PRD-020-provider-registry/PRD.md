@@ -59,7 +59,7 @@ Core principles:
 - [ ] `resolve(model) -> Route` (exact lookup, then the single `passthrough` provider, else unresolved), `visible_models(identity)`, `supports_tools(model)`.
 
 **Adapter (`app/services/upstream/`, new package; `openrouter_client.py` becomes a shim)**
-- [ ] `ProviderAdapter` protocol: `complete(request) -> UpstreamResult` and `stream(request) -> Iterator[UpstreamEvent]`, plus `collect(events) -> UpstreamResult` (D11, Section 6.4).
+- [ ] `ProviderAdapter` protocol: `complete(request) -> UpstreamResult` and `stream(request) -> Iterator[UpstreamEvent]`, plus `collect(events, *, provider, request) -> UpstreamResult` (D11, Section 6.4; the keywords carry the D8 estimate and the tools= gate, STORY-013).
 - [ ] `OpenAICompatibleAdapter`: today's `call_openrouter` body, parameterized by provider. `complete()` is what the pipeline calls. `stream()` is implemented and tested against the stub, but no production code calls it in this PRD.
 - [ ] Keyless providers send no `Authorization` header. `follow_redirects=False` is stated and tested (T1).
 - [ ] `usage_missing: estimate | error` (D8). Error strings are prefixed with the provider's `label` (the implicit `"OpenRouter"` keeps today's strings).
@@ -209,7 +209,9 @@ class ProviderAdapter(Protocol):
 UpstreamEvent = TextDelta(text) | ToolCallDelta(index, id?, name?, arguments_fragment)
               | UsageReport(prompt?, completion?, total?) | Finish(reason?)
 
-def collect(events: Iterable[UpstreamEvent]) -> UpstreamResult   # pure; same parsing rules as complete()
+def collect(events: Iterable[UpstreamEvent], *, provider: Provider, request: UpstreamRequest) -> UpstreamResult
+                                                                # pure; same parsing rules as complete()
+                                                                # (STORY-013: keyword-only provider/request for the D8 estimate and the tools= gate)
 ```
 
 - **Synchronous iterators, not async.** The pipeline runs synchronously on the dedicated executor (`pipeline_executor.py:3-11`). PRD-021 consumes the iterator on that thread and hands deltas to the event loop. An async interface would force a rewrite of the pipeline, not of the adapter.

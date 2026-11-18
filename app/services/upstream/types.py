@@ -6,7 +6,7 @@ OpenRouterError / OpenRouterResult, unchanged (PRD-020 D12).
 """
 
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
+from typing import Iterator, Optional, Protocol, Sequence, Union
 
 from app.models.messages import Message, ToolCallSpec
 from app.services.upstream.params import GenerationParams, ToolParams
@@ -70,7 +70,47 @@ class UpstreamRequest:
     tools: Optional[ToolParams] = None
 
 
+# PRD-020 STORY-013 (D11): what a streaming adapter yields. The wire's chunks are
+# normalized here, so `collect()` and the later pipeline never see SSE or JSON.
+@dataclass(frozen=True)
+class TextDelta:
+    """A fragment of the answer text (`choices[0].delta.content`)."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class ToolCallDelta:
+    """A fragment of one tool call, keyed by `index`. `arguments` is never parsed (D13)."""
+
+    index: int
+    id: Optional[str] = None
+    name: Optional[str] = None
+    arguments: str = ""
+
+
+@dataclass(frozen=True)
+class UsageReport:
+    """The provider's usage chunk, wire values passed through unvalidated (D8)."""
+
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class Finish:
+    """`choices[0].finish_reason`."""
+
+    reason: str
+
+
+UpstreamEvent = Union[TextDelta, ToolCallDelta, UsageReport, Finish]
+
+
 class ProviderAdapter(Protocol):
-    """One wire protocol (PRD-020 6.4). STORY-013 adds streaming; only `complete` exists now."""
+    """One wire protocol (PRD-020 6.4): a whole answer, or the same answer as events (D11)."""
 
     def complete(self, request: UpstreamRequest, api_key: Optional[str]) -> UpstreamResult: ...
+
+    def stream(self, request: UpstreamRequest, api_key: Optional[str]) -> Iterator[UpstreamEvent]: ...
