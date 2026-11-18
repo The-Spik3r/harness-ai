@@ -206,8 +206,8 @@ class ProviderAdapter(Protocol):
     def complete(self, request: UpstreamRequest, api_key: Optional[str]) -> UpstreamResult: ...
     def stream(self, request: UpstreamRequest, api_key: Optional[str]) -> Iterator[UpstreamEvent]: ...
 
-UpstreamEvent = TextDelta(text) | ToolCallDelta(index, id?, name?, arguments_fragment)
-              | UsageReport(prompt?, completion?, total?) | Finish(reason?)
+UpstreamEvent = TextDelta(text) | ToolCallDelta(index, id?, name?, arguments)   # STORY-013: one fragment per event
+              | UsageReport(prompt_tokens?, completion_tokens?, total_tokens?) | Finish(reason?)
 
 def collect(events: Iterable[UpstreamEvent], *, provider: Provider, request: UpstreamRequest) -> UpstreamResult
                                                                 # pure; same parsing rules as complete()
