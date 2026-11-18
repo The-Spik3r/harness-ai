@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policies that depend on the provider"
-status: todo
+status: done
 labels: [backend, security, pii]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-008-pii-input-relaxation.plan.md
+report: 
+commit: 8ab795e
 depends_on: [STORY-007]
 blocks: [STORY-014]
 skills: []
