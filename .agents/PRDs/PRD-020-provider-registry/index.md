@@ -6,7 +6,7 @@
 
 ## Progress
 
-10/15 stories done — 67%
+11/15 stories done — 73%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-020-provider-registry`. No per-s
 | STORY-008 | PII input relaxation for an internal, relaxed provider | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-008-pii-input-relaxation.plan.md) | `8ab795e` |
 | STORY-009 | Estimate usage when a provider reports none | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-009-usage-estimate.plan.md) | `3b12ec1` |
 | STORY-010 | Refuse a conversation that exceeds a model's max_context_tokens | feature | ✅ done | small | [plan](../../plans/PRD-020-provider-registry/completed/STORY-010-max-context-tokens.plan.md) | `c0ebdd2` |
-| STORY-011 | /v1 tool capability from the registry and per-role GET /v1/models | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-020-provider-registry/STORY-011-v1-capabilities-and-models.plan.md) | — |
+| STORY-011 | /v1 tool capability from the registry and per-role GET /v1/models | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-011-v1-capabilities-and-models.plan.md) | `593cfc4` |
 | STORY-012 | /query default model, chat UI model selector and Register provider column | feature | ⬜ todo | medium | — | — |
 | STORY-013 | Adapter stream() with normalized events and pure collect() | feature | ⬜ todo | large | — | — |
 | STORY-014 | Opt-in end-to-end run against a real local OpenAI-compatible server | technical | ⬜ todo | medium | — | — |

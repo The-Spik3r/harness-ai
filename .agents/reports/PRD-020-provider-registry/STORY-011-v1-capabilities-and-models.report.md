@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-011-v1-capabilities-and-models.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 593cfc4
 status: COMPLETE
 completed: 2026-11-18
 ---

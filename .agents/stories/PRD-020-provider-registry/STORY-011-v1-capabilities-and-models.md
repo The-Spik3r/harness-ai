@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policies that depend on the provider"
-status: in-progress
+status: done
 labels: [backend, api]
 epic_branch: epic/PRD-020-provider-registry
-plan: .agents/plans/PRD-020-provider-registry/STORY-011-v1-capabilities-and-models.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-011-v1-capabilities-and-models.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-011-v1-capabilities-and-models.report.md
+commit: 593cfc4
 depends_on: [STORY-007, STORY-004]
 blocks: [STORY-014]
 skills: []
