@@ -20,8 +20,11 @@ Deliver a whole PRD on its epic branch. You are the **orchestrator**: you create
 | Role | Model | Why |
 |------|-------|-----|
 | Orchestrator (you) | session model | Holds the PRD-wide context, verifies, fixes carried-over errors |
-| Plan subagent | `opus` | The plan carries the design decisions |
+| Plan subagent | `sonnet` | Explores the code and writes the plan; the orchestrator supplies the hard design decisions (3.1) and checks them (3.2) |
+| Plan subagent, escalated | `opus` | Only for a story whose Sonnet plan failed its design points twice (3.2) |
 | Implement subagent | `sonnet` | Executes a verified plan; cheaper on usage limits |
+
+**Context economy**: the orchestrator's context is the dominant cost, because everything it reads stays in it for the rest of the session. Read the parts you need, not whole files: grep or use offset/limit on PRDs, plans and reports; read the core files of a diff, not the whole diff; filter CI logs. Checkpoint and restart the session every few stories (3.8).
 
 ---
 
@@ -40,7 +43,7 @@ Read the full PRD. Extract `id`, `slug`, `title`, `status`, `base_branch`, `epic
 | PRD state | Action |
 |-----------|--------|
 | `status: done` and every story `done` | STOP: "Nothing to orchestrate" |
-| Stories exist under `.agents/stories/{PRD-ID}/` | **Resume**: skip Phase 1 except its push and draft PR (`gh pr view {epic_branch}`; push and create it if missing), continue from the first story not `done` |
+| Stories exist under `.agents/stories/{PRD-ID}/` | **Resume**: skip Phase 1 except its push and draft PR (`gh pr view {epic_branch}`; push and create it if missing). Read the brief and its `## Checkpoint` section (Phase 2) instead of re-deriving the run's history; skip Phase 2 if the brief exists. Continue from the first story not `done` |
 | No stories | Full run |
 
 ### 0.2 Git state
@@ -109,7 +112,7 @@ Do not pause for review here; continue to Phase 2.
 
 ## Phase 2: WRITE THE SUBAGENT BRIEF
 
-Write `{scratchpad}/SUBAGENT_BRIEF.md` from the template below, filling every `{…}`. Every subagent prompt tells it to read the brief first. When you learn a rule during the run (a wrong command, an environmental failure, a convention), **append it to the brief** so later subagents inherit it.
+Write `.agents/PRDs/{PRD-dir}/SUBAGENT_BRIEF.md` (`{brief}` below) from the template below, filling every `{…}`. It lives in the repo, not the scratchpad, so it survives a session restart (3.8); commit it as `docs({PRD-ID}): subagent brief`. Every subagent prompt tells it to read the brief first. When you learn a rule during the run (a wrong command, an environmental failure, a convention), **append it to the brief** so later subagents inherit it, and commit it before launching the next subagent (3.6).
 
 ````markdown
 # Shared brief for {PRD-ID} subagents (read fully before starting)
@@ -123,6 +126,9 @@ You are one subagent in an orchestrated run. An orchestrator verifies your outpu
 
 ## Commands you follow
 - PLAN subagent: follow `.agents/commands/plan.md` phase by phase, skipping nothing (including SCAN SKILLS and UPDATE STORY FILE + index). PLAN ONLY: no application code, tests or docs, and no commits. If you cannot spawn Explore agents, explore with Grep/Glob/Read yourself. The plan must cite real `file:line` references that you opened.
+  - **Do not read the whole PRD** (this overrides plan.md's "Read parent PRD"). Read the story, its Technical Notes, and only the PRD sections the orchestrator names in your prompt: find them with `grep -n "^#" <PRD>` and read them with offset/limit. Read the PRD frontmatter if you need it.
+  - **Design decisions in your prompt are binding.** If the code makes one impossible, say so in your final message instead of choosing another design.
+  - **Keep the plan under ~12 KB.** Cite patterns as `file:line` with an excerpt of at most 5 lines; never paste whole functions or files (the implementer opens them anyway).
 - IMPLEMENT subagent: follow `.agents/commands/implement.md` phase by phase, skipping nothing.
   - The working tree will contain this story's plan plus the story/index edits the planner made. They belong to this story; do not stop for them.
   - Validation for this repo: there is no `frontend/` and no npm lint. Use:
@@ -153,7 +159,7 @@ It must print `errors: none`.
 - Do not implement work that belongs to a later story. If the story text conflicts with the PRD or the real code, follow the code's reality, document the deviation in the plan or report, and tell the orchestrator.
 {PRD-specific rules, e.g. "pure modules X, Y import no settings and do no I/O"}
 
-## What to return (your final message)
+## What to return (your final message, at most ~30 lines)
 - PLAN subagent: the plan path, a 3–5 line summary, the files to CREATE/UPDATE, one line per AC saying how it is covered, open risks/questions, and confirmation that the story frontmatter (`plan`, `status: in-progress`) and the index were updated.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
 ````
@@ -168,35 +174,42 @@ Process stories **strictly sequentially** in dependency order (lowest ID whose `
 
 For each story:
 
-### 3.1 Plan subagent (`model: opus`)
+### 3.1 Plan subagent (`model: sonnet`)
+
+First decide whether the story is **critical**: its plan fixes something that is expensive to change later. That covers a contract that later stories consume, concurrency/transactions/idempotency/retries, a data model or persisted format, security (PII, RBAC, auth, what gets logged or exposed), or a design that spans several modules. `complexity: large` is usually critical; a spike whose findings shape the epic is too.
+
+For a critical story, write the **design points** yourself before launching: 3–5 bullets with the key decisions (contract and signatures, concurrency strategy, failure semantics) and the edge cases the plan must cover. You hold the PRD-wide context, so this is a few lines from you instead of a full Opus plan.
 
 Prompt (adapt, keep every element):
 
 ```
-Read {scratchpad}/SUBAGENT_BRIEF.md fully first. You are the PLAN subagent for
+Read {brief} fully first. You are the PLAN subagent for
 {STORY-ID} of {PRD-ID}. Run /plan on .agents/stories/{PRD-dir}/{STORY-file}
-by following .agents/commands/plan.md. Orchestrator notes for this story:
-{decisions from earlier stories that affect it, known traps, or "none"}.
+by following .agents/commands/plan.md.
+PRD sections to read: {headings or decision IDs, e.g. "§4.2, D7, D11"}.
+Design points (binding): {bullets, or "none: not a critical story"}.
+Orchestrator notes: {decisions from earlier stories that affect it, known traps, or "none"}.
 ```
 
 ### 3.2 Verify the plan (orchestrator)
 
-Before any code is written, check:
+Before any code is written, check. Do not read the whole plan: grep for its AC mapping and task list, and read only the sections that carry the design.
 
-- [ ] The plan file exists at `.agents/plans/{PRD-dir}/{STORY-ID}-{slug}.plan.md`
+- [ ] The plan file exists at `.agents/plans/{PRD-dir}/{STORY-ID}-{slug}.plan.md` and is under ~12 KB (`wc -c`)
 - [ ] Every story AC maps to a task **and** a test
-- [ ] Open a sample of the cited `file:line` references: they are real and say what the plan claims
+- [ ] Critical story: each design point from 3.1 is in the plan as given, with its edge cases covered
+- [ ] Open 2–3 of the cited `file:line` references: they are real and say what the plan claims
 - [ ] The plan does not pull in work from a later story, and does not drop work that this story owns
 - [ ] Its design agrees with the PRD and with decisions taken in earlier stories
 - [ ] Story frontmatter shows `status: in-progress` and `plan:`; `gen_index.py` prints `errors: none`
 - [ ] `git status` shows only the plan, story and index changes (no code)
 
-If the plan is wrong: fix small issues yourself by editing the plan, or resume the same agent with SendMessage and the specific corrections. Never pass a plan you have not checked to the implement subagent.
+If the plan is wrong: fix small issues yourself by editing the plan, or resume the same agent with SendMessage and the specific corrections. If a critical story's plan still misses its design points after one round of corrections, **escalate**: discard the plan and relaunch the planner with `model: opus` and the same prompt, then record the escalation (Phase 6). Never pass a plan you have not checked to the implement subagent.
 
 ### 3.3 Implement subagent (`model: sonnet`)
 
 ```
-Read {scratchpad}/SUBAGENT_BRIEF.md fully first. You are the IMPLEMENT subagent
+Read {brief} fully first. You are the IMPLEMENT subagent
 for {STORY-ID} of {PRD-ID}. Run /implement on {plan path} by following
 .agents/commands/implement.md. Orchestrator notes: {plan corrections you made,
 traps, or "none"}.
@@ -210,8 +223,8 @@ Do not trust the report; check the repository:
 - [ ] `git show --stat {sha}`: only this story's files; no stray edits (diff any unexpected file against HEAD before keeping it)
 - [ ] `git status --short` is clean
 - [ ] Story frontmatter: `status: done`, `commit`, `report`, archived `plan` path; `gen_index.py` prints `errors: none`
-- [ ] The report exists, with exact targeted-test counts and every AC marked with its proving test
-- [ ] Read the core of the diff: it implements the ACs and the conventions in the brief (docstrings citing the PRD, comments on modified assertions)
+- [ ] The report exists, with exact targeted-test counts and every AC marked with its proving test (grep the report for the counts and the AC lines; do not read it whole)
+- [ ] Read the core of the diff, not all of it: `git show {sha} -- <the 2–3 files that carry the ACs>`. It implements the ACs and the conventions in the brief (docstrings citing the PRD, comments on modified assertions); for the remaining files `--stat` is enough
 - [ ] **Spot-check** one or two key behaviours yourself with a small script in the scratchpad (written with Write, not `bash -c` quoting), e.g. call the new function on an edge case from the ACs
 - [ ] Deviations the subagent reported are acceptable. If one changes what a later story assumes, record it (3.6)
 
@@ -223,8 +236,12 @@ Once a story passes 3.4, push it: `git push`. CI runs while the next story is be
 
 ```bash
 gh run list --branch {epic_branch} --workflow CI --limit 1 --json databaseId,status,conclusion,headSha
-gh run view {id} --log-failed      # only when it failed
+# only when it failed; never read the raw log, it can be thousands of lines:
+gh run view {id} --log-failed > "{scratchpad}/ci_{id}.log"
+grep -E "FAILED|ERROR|Error|assert" "{scratchpad}/ci_{id}.log" | head -60
 ```
+
+Open more of the log file (offset/limit around a match) only for the failure you are fixing.
 
 | CI result | Action |
 |-----------|--------|
@@ -238,7 +255,7 @@ Several stories may land between two reads; one run covers all of them. A failur
 
 ### 3.6 Orchestrator decisions
 
-Whenever you resolve a conflict (story vs PRD vs code), correct a story's text, or accept a deviation, record it where the next agents will read it: add a line to the affected later stories' **Technical Notes** (`Orchestrator decision ({STORY-ID} plan): …`), amend the PRD if the PRD was wrong, and append a brief rule if it is general. These edits ride in the next story's commit.
+Whenever you resolve a conflict (story vs PRD vs code), correct a story's text, or accept a deviation, record it where the next agents will read it: add a line to the affected later stories' **Technical Notes** (`Orchestrator decision ({STORY-ID} plan): …`), amend the PRD if the PRD was wrong, and append a brief rule if it is general. Commit these edits yourself (`docs({PRD-ID}): orchestrator notes after {STORY-ID}`, explicit staging) before launching the next subagent, so its `git status` checks see a clean tree.
 
 ### 3.7 Failures during the loop
 
@@ -251,6 +268,16 @@ Whenever you resolve a conflict (story vs PRD vs code), correct a story's text, 
 | The story itself is ambiguous in a way that changes the design | Resolve it from the PRD or code; ask the user only if it is genuinely theirs (Golden Rule) |
 | An unexpected change shows up in the tree that no agent claims | Back it up to the scratchpad, diff against HEAD, then restore it, and tell the user in the final output |
 
+### 3.8 Checkpoint and restart
+
+Your context grows with every story you verify, and every later turn pays for all of it. After every **3–4 verified and pushed stories** (or sooner, if your context is past roughly half), and only between stories:
+
+1. Append or replace a `## Checkpoint` section at the end of the brief, at most ~15 lines: the stories done, the last CI run and its state, the open carried-over errors, the critical stories still ahead and their design points if you already know them, the planner escalations so far, and the things to report in Phase 6 (unexpected tree changes, accepted deviations).
+2. Commit it (`docs({PRD-ID}): orchestrator checkpoint after {STORY-ID}`) and push.
+3. Stop and tell the user, in one line, to run `/clear` and then `/orchestrator {PRD-ID}`. The resume path (0.1) picks up from the checkpoint.
+
+This is the one planned stop besides the Golden Rule's questions. It is not a progress report: keep it to the restart instruction.
+
 ---
 
 ## Phase 4: FINAL CI RUN
@@ -259,8 +286,8 @@ When every story is `done` and pushed, the CI run of the last commit is the fina
 
 ```bash
 gh run list --branch {epic_branch} --workflow CI --limit 1 --json databaseId,headSha,status
-gh run watch {id} --exit-status          # in the background; its exit is the notification
-gh run view {id} --log-failed            # only when it failed
+gh run watch {id} --exit-status > "{scratchpad}/ci_watch.log" 2>&1   # in the background; its exit is the notification
+# only when it failed: save the log and grep it as in 3.5
 ```
 
 Check that the run's `headSha` is the epic branch's HEAD; if it is not (a push did not trigger, or a later one is queued), wait for the right one. If the user asks how it is going, `gh run view {id}` shows the step and its time.
@@ -312,6 +339,11 @@ After fixing, rerun the affected test files locally, then commit with explicit s
 ### Orchestrator decisions
 {the decisions that changed stories or the PRD, one line each}
 
+### Planner
+- Critical stories (design points supplied): {list}
+- Plans corrected at 3.2: {n}/{total} · Escalated to Opus: {list, or "none"}
+- New CI failures traced to a plan's design: {list, or "none"}
+
 ### Things to look at
 {unexpected tree changes, accepted deviations, documented limitations, or "none"}
 
@@ -329,3 +361,4 @@ Review and merge the PR when approved.
 - Nobody runs the full suite locally: CI runs it on every push. The local suite is only the fallback when CI is unavailable.
 - Talk to the user in their language; command files, code and commits stay in English, matching the repo.
 - Ask only for genuine ambiguity (Golden Rule). Report everything else in the Phase 6 output.
+- Read partially (Context economy): grep and offset/limit over whole files, core files over whole diffs, filtered CI logs over raw ones. Checkpoint and restart every 3–4 stories (3.8).
