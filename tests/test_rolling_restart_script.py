@@ -206,7 +206,12 @@ class Fake:
         self.bin.mkdir()
         self.state.mkdir()
         for name, body in (("docker", _DOCKER_SHIM), ("sleep", _SLEEP_SHIM)):
-            (self.bin / name).write_bytes(body.replace("\r\n", "\n").encode())
+            shim = self.bin / name
+            shim.write_bytes(body.replace("\r\n", "\n").encode())
+            # PRD-019 STORY-009 (CI fix): on Linux a PATH lookup skips a file
+            # without the exec bit and finds the runner's real `docker`; Git
+            # Bash does not check the bit, so only CI caught it.
+            shim.chmod(0o755)
         # Git Bash puts /usr/bin ahead of a prepended PATH entry, so the real
         # `sleep` would win: a function from BASH_ENV beats any PATH lookup.
         (self.root / "bash_env.sh").write_bytes(
