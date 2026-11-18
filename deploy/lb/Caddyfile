@@ -2,13 +2,13 @@
 # instances use, so the published port matches the build-time PORT (Section 6.1).
 :{$PORT}
 
-# D2: sticky by cookie, so a Reflex websocket session and its per-session state
+# D1: sticky by cookie, so a Reflex websocket session and its per-session state
 # stay on one instance. The cookie is HMAC-signed with LB_COOKIE_SECRET; compose
-# refuses to start without it (Caddy itself accepts an empty secret silently).
+# refuses to start without it (Caddy itself accepts an empty secret silently; T1).
 # D9: a request is never replayed to a second instance (no retry_match), because
 # /query and /v1 calls are not idempotent. lb_try_duration only covers the wait
 # for a healthy upstream. No encode and no access log: both would sit in the
-# streaming path (SSE, websocket) for no gain.
+# streaming path (SSE, websocket) for no gain (D6, T6).
 # STORY-007 replaces the next line textually to point at stub upstreams, so keep
 # it as one literal line with no env default.
 reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {
@@ -34,7 +34,7 @@ reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {
 	stream_close_delay 5m
 }
 
-# T1/T6, D9: balancer-raised errors (no healthy upstream, failed dial, a connection
+# D9: balancer-raised errors (no healthy upstream, failed dial, a connection
 # broken mid-flight, a header timeout) answer one 503 + Retry-After 10, which is
 # the breaker interval of PRD-018. A 503 an instance returns is proxied untouched.
 handle_errors 502 503 504 {
