@@ -52,11 +52,15 @@ It must print `errors: none`.
 - PLAN subagent: the plan path, a 3–5 line summary, the files to CREATE/UPDATE, one line per AC saying how it is covered, open risks/questions, and confirmation that the story frontmatter (`plan`, `status: in-progress`) and the index were updated.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
 
+- **Balancer test harness** (STORY-007): reuse `tests/_balancer_stack.py` (`Balancer`, `Instance`, `Child`, `wait_until`, `_upstream_port(i)` hook) and `tests/_lb_instance.py` (per-path counters, `/__test__/counters|reset-counters|init-db|breaker/open|breaker/reset`). Children run `RBAC_ENABLED=false`, `PII_REDACTION_ENABLED=false`, own `DRAIN_FILE`/`AUDIT_BUFFER_DIR` under tmp. On Windows kill with `kill_tree` + `port_closed_within` (`tests/e2e/_live.py`); `Popen.kill()` orphans the venv launcher's child. `/query` usage refusals are `200 BLOCKED`, `/v1` ones `403` (no 429).
+- **No leftover background tasks**: before your final message, stop every Monitor/background task you started (TaskStop). Waiting is a deadline loop inside the test or command, not a Monitor of `sleep`.
+
 ## Checkpoint
-- Done and pushed: STORY-001 (9682fcb), 002 (fa3e5dc), 003 (95d9393), 004 spike (2e0ac34). Next: STORY-005.
-- CI: run 44213079565 (at d200e87) failed 2 census guards in tests/test_db_resilience_retry.py; fixed in 47030d7. Run 44214493823 at 47030d7 confirms it; read it on resume.
+- Done and pushed: STORY-001 (9682fcb), 002 (fa3e5dc), 003 (95d9393), 004 spike (2e0ac34), 005 (7e0efde; fix 4010964 comment IDs), 006 (a5ea151), 007 (ba1fbb2). Next: STORY-008.
+- CI: run 44221143501 at b32a2de green (10517 passed, 80 skipped, 6m26s); first run with real caddy + uvicorn on Linux; caddy SHA and v2.11.7 verified in CI (run 44218282808).
 - Pre-existing failures: none (main baseline green).
-- STORY-004 decisions (PRD F3 + story notes): Caddy 2.11.7 pinned (image digest and Linux SHA-256 in the report and STORY-005/006 notes); `handle_errors 502 503 504` answers one 503 + Retry-After 10 with the neutral /v1 message; tests override the upstream line textually; CADDY_ADMIN per process; STORY-007 uses 20 cookie-less requests.
-- Critical stories ahead: STORY-005 (balancer file + compose contract; design points: the exact F3 directive set incl. 504, restated lists in the static test, READY_DB_TIMEOUT_SECONDS default 2.0 < health_timeout 3s asserted there, compose digest pin); STORY-007/008 (process harness: free ports, CADDY_ADMIN, kill on teardown, both-Caddies path for SSE).
-- Planner escalations: none. Plans corrected at 3.2: 0/4.
-- For Phase 6: check_ready's runtime WARNING reuses the boot classifier's text ("The application will not start ..."), cosmetic, not fixed; STORY-003 skipped `docker build` (STORY-010 builds the image).
+- STORY-005: `docker-compose.lb.yml` has `name: harness-ai-lb` (own project, own audit volume, so `down -v` of one stack cannot destroy the other's journal); no explicit Content-Type in handle_errors (Caddy sends application/json; asserted live in STORY-007).
+- STORY-007: module takes ~3 min locally (per-test init-db ~5 s); ~2.5 min in CI. STORY-008 adds slow cases: run the 100 s calls concurrently, and use a separate `Balancer` for the kill case.
+- Critical stories ahead: STORY-008 (design points: own stack for kill; drain timing = health_interval×2 from file touch; SSE path lb → per-instance Caddy running repo `Caddyfile` with gzip → instance, via `_upstream_port` hook; keep-alive within 2 s of interval; total module time budget). STORY-009/010 need Docker (`rolling_restart.sh`, E2E opt-in).
+- Planner escalations: none. Plans corrected at 3.2: 0/7 (005 and 007 plans ~15 KB, over budget, accepted).
+- For Phase 6: check_ready's runtime WARNING reuses the boot classifier's text, cosmetic, not fixed; STORY-003 skipped `docker build` (STORY-010 builds the image); `docker compose config` prints .env secrets locally (operator note for docs, STORY-011).
