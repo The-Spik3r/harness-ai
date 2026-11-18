@@ -54,13 +54,16 @@ It must print `errors: none`.
 
 - **Balancer test harness** (STORY-007): reuse `tests/_balancer_stack.py` (`Balancer`, `Instance`, `Child`, `wait_until`, `_upstream_port(i)` hook) and `tests/_lb_instance.py` (per-path counters, `/__test__/counters|reset-counters|init-db|breaker/open|breaker/reset`). Children run `RBAC_ENABLED=false`, `PII_REDACTION_ENABLED=false`, own `DRAIN_FILE`/`AUDIT_BUFFER_DIR` under tmp. On Windows kill with `kill_tree` + `port_closed_within` (`tests/e2e/_live.py`); `Popen.kill()` orphans the venv launcher's child. `/query` usage refusals are `200 BLOCKED`, `/v1` ones `403` (no 429).
 - **No leftover background tasks**: before your final message, stop every Monitor/background task you started (TaskStop). Waiting is a deadline loop inside the test or command, not a Monitor of `sleep`.
+- **Shell shims in tests must be executable** (STORY-009 CI fix ffa10df): `chmod(0o755)` every fake `docker`/`sleep` written to a PATH dir. Git Bash ignores the exec bit, Linux does not: without it CI runs the runner's real `docker`. Tests that drive bash scripts must pass on both.
 
 ## Checkpoint
-- Done and pushed: STORY-001 (9682fcb), 002 (fa3e5dc), 003 (95d9393), 004 spike (2e0ac34), 005 (7e0efde; fix 4010964 comment IDs), 006 (a5ea151), 007 (ba1fbb2). Next: STORY-008.
-- CI: run 44221143501 at b32a2de green (10517 passed, 80 skipped, 6m26s); first run with real caddy + uvicorn on Linux; caddy SHA and v2.11.7 verified in CI (run 44218282808).
+- Done and pushed: STORY-001..007 (see git log), 008 (a366a81), 009 (2159d19; CI fix ffa10df shims chmod), 010 (64a148c). Next: STORY-011 (docs, small, not critical).
+- CI: run 44226260037 at 62938d5 failed (009 shims not executable on Linux, fixed in ffa10df); run 44230413375 at ffa10df is the one to read on resume.
 - Pre-existing failures: none (main baseline green).
-- STORY-005: `docker-compose.lb.yml` has `name: harness-ai-lb` (own project, own audit volume, so `down -v` of one stack cannot destroy the other's journal); no explicit Content-Type in handle_errors (Caddy sends application/json; asserted live in STORY-007).
-- STORY-007: module takes ~3 min locally (per-test init-db ~5 s); ~2.5 min in CI. STORY-008 adds slow cases: run the 100 s calls concurrently, and use a separate `Balancer` for the kill case.
-- Critical stories ahead: STORY-008 (design points: own stack for kill; drain timing = health_interval×2 from file touch; SSE path lb → per-instance Caddy running repo `Caddyfile` with gzip → instance, via `_upstream_port` hook; keep-alive within 2 s of interval; total module time budget). STORY-009/010 need Docker (`rolling_restart.sh`, E2E opt-in).
-- Planner escalations: none. Plans corrected at 3.2: 0/7 (005 and 007 plans ~15 KB, over budget, accepted).
-- For Phase 6: check_ready's runtime WARNING reuses the boot classifier's text, cosmetic, not fixed; STORY-003 skipped `docker build` (STORY-010 builds the image); `docker compose config` prints .env secrets locally (operator note for docs, STORY-011).
+- STORY-008: balancer module ~6.8 min locally / ~5 min CI (100 s calls, no `slow` marker exists). `FrontedBalancer` proves lb -> repo Caddyfile (gzip) -> uvicorn; gzip on text/event-stream asserted.
+- STORY-009/010: `scripts/rolling_restart.sh [-f FILE]... [-p PROJECT]`; drain window = 2*health_interval (parsed from deploy/lb/Caddyfile) + DRAIN_SECONDS (default OPENROUTER_TIMEOUT_SECONDS+10, read shell env > first instance container > 120). Exit codes 1 config, 2 refusal (incl. other instance not ready before each drain), 3 drain never took effect (undone), 4 replacement never ready. Script does not build: operator builds first.
+- STORY-010: opt-in `tests/e2e/test_lb_docker.py` + overlay `tests/e2e/docker/compose.lb-e2e.yml` (project `harness-lb-e2e`, stub inside each instance, overlay restates the image CMD; guard `tests/test_lb_e2e_overlay.py`). Ran locally: 4 passed, 350 s cached / 762 s cold; 75 /query calls, 0 failures during the rolling restart. Not in CI.
+- STORY-005: `docker-compose.lb.yml` has `name: harness-ai-lb` (own project + own audit volume, so `down -v` of one stack cannot destroy the other journal); lb publishes `${PORT:-8000}`.
+- STORY-011 must document: build before rolling restart; OPENROUTER_TIMEOUT_SECONDS resolution; cookie has no `Secure`/is a session cookie (STORY-004); `docker compose config` prints .env secrets; how to run the E2E (`--run-e2e`, ~6-13 min).
+- Planner escalations: none. Plans corrected at 3.2: 1/10 (009: timeout read from container). Plans over 12 KB accepted: 005, 007, 008, 010.
+- For Phase 6: check_ready's runtime WARNING reuses the boot classifier's text (cosmetic); STORY-003 skipped `docker build` (010 built the image); carried-over error 009 shims (ffa10df).
