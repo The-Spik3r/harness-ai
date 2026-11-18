@@ -37,7 +37,9 @@ uses `default` (or a built-in one when the script has none).
 A reply sets `content`, `finish_reason` and `usage`, or `fail_status`
 (400-599) instead of a body; either may be preceded by `delay_seconds`.
 `usage` fields default to 1 prompt + 1 completion token, and `total_tokens`
-to their sum. A rule with `times: N` answers its first N matches and is then
+to their sum; `"usage": null` answers with a null usage (a provider that
+reports none, PRD-020 D8). `redirect_status` (301, 302, 303, 307, 308) with an
+optional `location` answers a redirect instead of a body (PRD-020 D5). A rule with `times: N` answers its first N matches and is then
 skipped as if it did not match, so "fail once, then answer" is two rules with
 the same matcher; the count is per stub process.
 
@@ -67,7 +69,7 @@ Each request is logged as one ASCII line on stderr: the model, the message
 count, the request's other parameter keys, the rule that answered, and the
 counts `tools=<n>` (tools offered) and `calls=<n>` (calls answered). Message
 content, tool names, arguments and request headers -- `Authorization` above
-all -- are never logged.
+all -- are never logged; only the presence of that header is, as `auth=yes|no`.
 """
 
 import argparse
@@ -85,9 +87,12 @@ _PREFIX = "stub_openrouter"
 
 _SCRIPT_KEYS = frozenset({"rules", "default"})
 _REPLY_KEYS = frozenset(
-    {"content", "finish_reason", "usage", "delay_seconds", "fail_status", "tool_calls"}
+    {"content", "finish_reason", "usage", "delay_seconds", "fail_status", "tool_calls",
+     "redirect_status", "location"}
 )
 _BODY_KEYS = frozenset({"content", "finish_reason", "usage", "tool_calls"})
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+_DEFAULT_LOCATION = "http://127.0.0.1:9/never"
 _MATCHER_KEYS = frozenset({"contains", "regex"})
 _RULE_KEYS = frozenset({"times"})  # rule only: `default` rejects it as unknown
 _ROLES = frozenset({"system", "user", "assistant", "tool"})
@@ -122,6 +127,8 @@ class Reply:
     delay_seconds: float = 0.0
     fail_status: Optional[int] = None
     tool_calls: tuple = ()
+    redirect_status: Optional[int] = None
+    location: str = _DEFAULT_LOCATION
 
 
 @dataclass(frozen=True)
@@ -308,6 +315,24 @@ def _parse_reply(raw: dict, where: str) -> Reply:
             )
         return Reply(delay_seconds=float(delay), fail_status=status)
 
+    if "redirect_status" in raw:
+        status = raw["redirect_status"]
+        if isinstance(status, bool) or status not in _REDIRECT_STATUSES:
+            raise ScriptError(
+                f"{where}: redirect_status must be one of {', '.join(map(str, _REDIRECT_STATUSES))}, got {status!r}"
+            )
+        with_body = sorted(_BODY_KEYS & set(raw))
+        if with_body:
+            raise ScriptError(
+                f"{where}: redirect_status replaces the body; remove {', '.join(with_body)}"
+            )
+        location = raw.get("location", _DEFAULT_LOCATION)
+        if not isinstance(location, str) or not location:
+            raise ScriptError(f"{where}: location must be a non-empty string, got {location!r}")
+        return Reply(delay_seconds=float(delay), redirect_status=status, location=location)
+    if "location" in raw:
+        raise ScriptError(f"{where}: location needs redirect_status")
+
     calls = _parse_tool_calls(raw["tool_calls"], where) if "tool_calls" in raw else ()
     # With calls, content defaults to null and finish_reason to "tool_calls".
     content = raw.get("content", None if calls else "")
@@ -319,7 +344,7 @@ def _parse_reply(raw: dict, where: str) -> Reply:
     return Reply(
         content=content,
         finish_reason=finish_reason,
-        usage=_parse_usage(raw.get("usage", {}), where),
+        usage=None if raw.get("usage", {}) is None else _parse_usage(raw.get("usage", {}), where),
         delay_seconds=float(delay),
         tool_calls=calls,
     )
@@ -404,6 +429,7 @@ class _StubHandler(BaseHTTPRequestHandler):
     call_ids: "itertools.count"
     hits: dict
     hits_lock: threading.Lock
+    require_key: Optional[str] = None
 
     def log_message(self, *args):  # the access log would be a second, unscrubbed line
         pass
@@ -419,6 +445,18 @@ class _StubHandler(BaseHTTPRequestHandler):
         data = json.dumps(body).encode("utf-8")
         try:
             self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except _DISCONNECTS:
+            pass
+
+    def _send_redirect(self, status: int, location: str) -> None:
+        data = json.dumps({"error": {"message": f"{_PREFIX}: scripted redirect", "code": status}}).encode("utf-8")
+        try:
+            self.send_response(status)
+            self.send_header("Location", location)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -460,16 +498,27 @@ class _StubHandler(BaseHTTPRequestHandler):
         # Under the lock, so two concurrent requests cannot both take a capped rule's last answer.
         with self.hits_lock:
             label, reply = self.script.select_request(Request.from_body(body), self.hits)
-        status = reply.fail_status or 200
+        # Presence only, never the value (PRD-020 T6). With require_key set, the
+        # value is compared in-process and a mismatch answers 401.
+        authorization = self.headers.get("Authorization")
+        auth = "yes" if authorization is not None else "no"
+        unauthorized = self.require_key is not None and authorization != f"Bearer {self.require_key}"
+        status = 401 if unauthorized else (reply.redirect_status or reply.fail_status or 200)
         # Counts only: never a tool name, argument or content (PRD-017 D13, PRD-015 T6).
         self._log(
             f"{_PREFIX}: POST {ascii(self.path)} model={ascii(model)} messages={len(messages)} "
-            f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} "
+            f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} auth={auth} "
             f"tools={offered} calls={len(reply.tool_calls)} -> {status}"
         )
 
         if reply.delay_seconds:
             time.sleep(reply.delay_seconds)
+        if unauthorized:
+            self._send_error_body(401, "unauthorized")
+            return
+        if reply.redirect_status is not None:
+            self._send_redirect(reply.redirect_status, reply.location)
+            return
         if reply.fail_status is not None:
             self._send_error_body(reply.fail_status, "scripted failure")
             return
@@ -498,7 +547,7 @@ class _StubHandler(BaseHTTPRequestHandler):
                         "finish_reason": reply.finish_reason,
                     }
                 ],
-                "usage": dict(reply.usage),
+                "usage": None if reply.usage is None else dict(reply.usage),
             },
         )
 
@@ -513,8 +562,14 @@ def make_server(
     host: str = "127.0.0.1",
     port: int = 0,
     log: Optional[TextIO] = None,
+    require_key: Optional[str] = None,
 ) -> ThreadingHTTPServer:
-    """A bound, not yet serving, stub. Port 0 picks a free port: read server_address[1]."""
+    """A bound, not yet serving, stub. Port 0 picks a free port: read server_address[1].
+
+    `require_key` is in-process only (tests, PRD-020 STORY-005): a request whose
+    Authorization is not exactly `Bearer <require_key>` is answered 401. The value
+    is compared, never logged or echoed.
+    """
     handler = type(
         "_BoundStubHandler",
         (_StubHandler,),
@@ -526,6 +581,7 @@ def make_server(
             "call_ids": itertools.count(1),
             "hits": {},
             "hits_lock": threading.Lock(),
+            "require_key": require_key,
         },
     )
     return _StubServer((host, port), handler)

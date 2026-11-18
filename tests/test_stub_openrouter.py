@@ -747,3 +747,45 @@ def test_the_tool_loop_script_loads():
     assert any(rule.role == "tool" for rule in script.rules)
     ids = [call.id for r in replies for call in r.tool_calls]
     assert None in ids and any(i for i in ids)
+
+
+# --------------------------------------------------------------------------
+# PRD-020 STORY-005: usage null, auth=yes|no, redirect_status
+# --------------------------------------------------------------------------
+
+
+def test_log_carries_auth_presence_only(stub):
+    _, log = stub()
+    _call("hello", api_key="sk-secret-value")
+    [line] = _lines(log)
+    assert line.endswith("-> 200") and " auth=yes " in line and "sk-secret-value" not in line
+
+
+def test_usage_null_answers_a_null_usage(stub):
+    port = stub({"rules": [], "default": {"content": "x", "usage": None}})[0].server_address[1]
+    reply = httpx.post(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert reply.status_code == 200 and reply.json()["usage"] is None
+
+
+def test_redirect_status_answers_the_status_with_a_location(stub):
+    server, log = stub({"rules": [], "default": {"redirect_status": 307, "location": "http://127.0.0.1:9/x"}})
+    port = server.server_address[1]
+    reply = httpx.post(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert reply.status_code == 307 and reply.headers["location"] == "http://127.0.0.1:9/x"
+    assert _lines(log)[0].endswith("-> 307")
+
+
+@pytest.mark.parametrize("reply", [
+    {"redirect_status": 200},
+    {"redirect_status": 302, "content": "x"},
+    {"location": "http://x/"},
+])
+def test_redirect_reply_is_validated(reply):
+    with pytest.raises(ScriptError, match="redirect_status|location"):
+        parse_script({"rules": [], "default": reply})

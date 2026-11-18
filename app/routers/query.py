@@ -11,7 +11,7 @@ from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
-from app.services.openrouter_client import OpenRouterError, call_openrouter
+from app.services.upstream import UpstreamError as OpenRouterError, call_upstream as call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query

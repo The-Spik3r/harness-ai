@@ -58,7 +58,11 @@ from app.services import v1_sse
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
-from app.services.openrouter_client import OpenRouterError, OpenRouterResult, call_openrouter
+from app.services.upstream import (
+    UpstreamError as OpenRouterError,
+    UpstreamResult as OpenRouterResult,
+    call_upstream as call_openrouter,
+)
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import ActionAuditError, run_conversation

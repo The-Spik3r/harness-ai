@@ -31,12 +31,12 @@ from app.services.authz import (
 from app.services.conversation_key import conversation_key
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
-from app.services.openrouter_client import (
+from app.services.upstream import (
     GenerationParams,
-    OpenRouterError,
-    OpenRouterResult,
     ToolParams,
-    call_openrouter,
+    UpstreamError as OpenRouterError,
+    UpstreamResult as OpenRouterResult,
+    call_upstream as call_openrouter,
 )
 from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect, strip_fenced_blocks

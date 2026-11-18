@@ -169,7 +169,7 @@ def test_characterization_default_client_uses_todays_timeout(monkeypatch):
 
     call_openrouter([Message("user", "hello")], api_key="k")
 
-    assert captured["kwargs"] == {"timeout": 120.0}  # PRD-010 STORY-005: timeout from settings (default 120.0)
+    assert captured["kwargs"] == {"timeout": 120.0, "follow_redirects": False}  # PRD-020 D5/F3: redirects never followed; PRD-010 STORY-005: timeout from settings (default 120.0)
 
 
 def test_timeout_setting_is_read_per_call_not_cached_at_import(monkeypatch):
@@ -192,7 +192,7 @@ def test_timeout_setting_is_read_per_call_not_cached_at_import(monkeypatch):
 
     call_openrouter([Message("user", "hello")], api_key="k")
 
-    assert captured["kwargs"] == {"timeout": 7.5}
+    assert captured["kwargs"] == {"timeout": 7.5, "follow_redirects": False}  # PRD-020 D5/F3
 
 
 # --- PRD-010 STORY-004: call_openrouter takes a list of Messages ---

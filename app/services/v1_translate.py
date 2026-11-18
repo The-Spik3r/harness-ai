@@ -58,11 +58,11 @@ from app.models.v1_schemas import (
     chat_completion_id,
     chat_completion_ref_id,
 )
-from app.services.openrouter_client import (
+from app.services.upstream import (
     GenerationParams,
-    OpenRouterResult,
     ToolParams,
     UnsupportedParameterError,
+    UpstreamResult as OpenRouterResult,
 )
 
 INVALID_MESSAGES = "invalid_messages"
