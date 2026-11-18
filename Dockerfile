@@ -79,6 +79,13 @@ STOPSIGNAL SIGKILL
 
 EXPOSE ${PORT}
 
+# PRD-019 F5/D3: liveness, not readiness. It probes /health (never /ready), so a
+# database outage does not mark the container unhealthy or restart-loop it.
+# `python` because curl is purged above. The start period covers the spaCy load
+# and init_db(). Exec form: no shell, so $PORT is read by Python from the env.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=60s \
+    CMD ["python", "-c", "import os,urllib.request as u;u.urlopen('http://127.0.0.1:%s/health'%os.environ['PORT'],timeout=2)"]
+
 # WORKDIR stays /app (not chat_ui/) so `docker-compose run harness-ai pytest
 # tests/ ...` keeps working exactly as documented in README.md; the CMD below
 # cd's into chat_ui/ itself, since that's where Reflex needs its CWD to be.
