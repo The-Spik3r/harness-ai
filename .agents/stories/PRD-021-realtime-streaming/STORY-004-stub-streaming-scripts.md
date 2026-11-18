@@ -7,11 +7,11 @@ type: technical
 priority: medium
 complexity: small
 phase: "1 - Survey and seams"
-status: todo
+status: done
 labels: [testing, stub, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-004-stub-streaming-scripts.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-004-stub-streaming-scripts.report.md
 commit: null
 depends_on: []
 blocks: [STORY-010, STORY-014, STORY-015]
@@ -28,11 +28,11 @@ As a test author, I want the stub upstream to stream a reply in a scripted shape
 
 ## Acceptance Criteria
 
-- [ ] Given a reply with `stream: {chunk_chars: N}`, when a request with `stream: true` arrives, then the content is sent in deltas of at most N characters, ending with `finish_reason`, a usage chunk (when `include_usage`) and `[DONE]`
-- [ ] Given `stream: {delay_ms: D}`, when streaming, then each delta is sent at least D ms after the previous one (first-chunk delay included), measurable by a test client
-- [ ] Given `stream: {reasoning: "…"}`, when streaming, then reasoning deltas (in the field STORY-001 recorded for OpenRouter; `delta.reasoning` if inconclusive) precede the content deltas
-- [ ] Given `stream: {fail_after: K}`, when streaming, then the stub sends K deltas and then drops the connection without `finish_reason` or `[DONE]`
-- [ ] Given any of the above, when the stub logs the request, then the log line never contains content or reasoning text; a reply without `stream:`, or a request without `stream: true`, is answered exactly as today (existing stub tests unchanged)
+- [x] Given a reply with `stream: {chunk_chars: N}`, when a request with `stream: true` arrives, then the content is sent in deltas of at most N characters, ending with `finish_reason`, a usage chunk (when `include_usage`) and `[DONE]`
+- [x] Given `stream: {delay_ms: D}`, when streaming, then each delta is sent at least D ms after the previous one (first-chunk delay included), measurable by a test client
+- [x] Given `stream: {reasoning: "…"}`, when streaming, then reasoning deltas (in the field STORY-001 recorded for OpenRouter; `delta.reasoning` if inconclusive) precede the content deltas
+- [x] Given `stream: {fail_after: K}`, when streaming, then the stub sends K deltas and then drops the connection without `finish_reason` or `[DONE]`
+- [x] Given any of the above, when the stub logs the request, then the log line never contains content or reasoning text; a reply without `stream:`, or a request without `stream: true`, is answered exactly as today (existing stub tests unchanged)
 
 ## Technical Notes
 
