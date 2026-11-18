@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-007-balancer-routing-test.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: ba1fbb2
 status: COMPLETE
 completed: 2026-11-17
 ---

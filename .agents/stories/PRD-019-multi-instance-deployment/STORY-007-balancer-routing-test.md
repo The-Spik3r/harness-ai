@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Proof"
-status: in-progress
+status: done
 labels: [tests, caddy, integration]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-007-balancer-routing-test.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-007-balancer-routing-test.plan.md
+report: 
+commit: ba1fbb2
 depends_on: [STORY-002, STORY-005, STORY-006]
 blocks: [STORY-008]
 skills: []

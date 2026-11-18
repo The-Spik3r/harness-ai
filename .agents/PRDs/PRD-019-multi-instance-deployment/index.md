@@ -6,7 +6,7 @@
 
 ## Progress
 
-6/11 stories done — 55%
+7/11 stories done — 64%
 
 ## Stories
 
@@ -20,7 +20,7 @@ All stories commit on the epic branch `epic/PRD-019-multi-instance-deployment`. 
 | STORY-004 | Spike — verify Caddy cookie policy, health, error and retry behaviour against a pinned Caddy | spike | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-004-caddy-balancer-spike.plan.md) | `2e0ac34` |
 | STORY-005 | Balancer Caddyfile, docker-compose.lb.yml and the static balancer test | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-005-balancer-caddyfile-and-compose.plan.md) | `7e0efde` |
 | STORY-006 | CI installs a pinned Caddy binary; a shared caddy test helper with HARNESS_REQUIRE_CADDY | technical | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-006-ci-pinned-caddy.plan.md) | `a5ea151` |
-| STORY-007 | Two-instance balancer test — harness, stickiness, limits, status table and 503 pass-through | feature | 🟡 in-progress | large | [plan](../../plans/PRD-019-multi-instance-deployment/STORY-007-balancer-routing-test.plan.md) | — |
+| STORY-007 | Two-instance balancer test — harness, stickiness, limits, status table and 503 pass-through | feature | ✅ done | large | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-007-balancer-routing-test.plan.md) | `ba1fbb2` |
 | STORY-008 | Balancer test — drain, kill, 100 s calls and SSE keep-alives through both Caddies | feature | ⬜ todo | large | — | — |
 | STORY-009 | scripts/rolling_restart.sh — drain, wait, recreate, wait ready, one instance at a time | feature | ⬜ todo | medium | — | — |
 | STORY-010 | Opt-in Docker E2E — websocket stickiness, kill and reconnect, rolling restart | feature | ⬜ todo | medium | — | — |
