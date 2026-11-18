@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "3 - Proof"
-status: todo
+status: done
 labels: [tests, e2e, docker]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
-report: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-010-docker-e2e-websocket-failover.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-010-docker-e2e-websocket-failover.report.md
 commit: null
 depends_on: [STORY-008, STORY-009]
 blocks: [STORY-011]
 skills: []
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-18
 ---
 
 # STORY-010: Docker E2E for the balanced stack

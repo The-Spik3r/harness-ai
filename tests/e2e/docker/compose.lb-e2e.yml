@@ -1,0 +1,76 @@
+# Compose overlay for the balanced-stack Docker E2E (PRD-019 STORY-010).
+#
+# Laid over the unchanged docker-compose.lb.yml under its own project name, so
+# the E2E never touches another harness-ai container, volume or the dev
+# databases:
+#
+#     PORT=8000 LB_COOKIE_SECRET=<hex> HARNESS_LB_E2E_PORT=<free> \
+#     HARNESS_LB_E2E_ADMIN_TOKEN=<random> docker compose -p harness-lb-e2e \
+#         -f docker-compose.lb.yml -f tests/e2e/docker/compose.lb-e2e.yml up -d
+#
+# tests/e2e/test_lb_docker.py drives it, and scripts/rolling_restart.sh takes
+# the same two `-f` and `-p`. Decisions:
+#
+# - The stub upstream runs INSIDE each instance container, backgrounded by the
+#   command below, not as a shared sibling: `rolling_restart.sh` recreates one
+#   instance at a time, and a replacement must bring its own upstream. The
+#   command ends with the image CMD (Dockerfile) verbatim;
+#   tests/test_lb_e2e_overlay.py fails when the two drift. `$$` escapes `$` for
+#   compose, so the container shell expands the variables.
+# - Both instances use the locally built `harness-lb-e2e:local`. `build` is
+#   reset and `pull_policy: never` set, so `up --force-recreate` never
+#   rebuilds and never pulls. `env_file` is reset: a developer's `.env` must
+#   not reach the test.
+# - `libsql` is a throwaway libSQL server with no published port, reached by
+#   service name over plain http:// (no token). `down -v` removes it.
+# - D7: the image is built with the default PORT=8000 and `lb` keeps 8000
+#   inside the network. Only the HOST side of the published port is remapped
+#   (loopback only), so a developer stack on 8000 does not clash. The E2E
+#   client builds its own URLs; the baked REFLEX_API_URL port, which a browser
+#   would use, is never exercised.
+# - `lb` keeps its shipped pinned image and Caddyfile mount.
+
+x-e2e-instance: &e2e-instance
+  image: harness-lb-e2e:local
+  pull_policy: never
+  build: !reset null
+  env_file: !reset []
+  depends_on:
+    - libsql
+  command:
+    - sh
+    - -c
+    - >-
+      python scripts/stub_openrouter.py --host 127.0.0.1 --port 9100
+      --script tests/e2e/scripts/docker_smoke.json >/tmp/stub.log 2>&1 &
+      caddy start --config /app/Caddyfile --adapter caddyfile
+      && cd chat_ui
+      && exec reflex run --env prod --backend-only
+      --backend-port $${BACKEND_INTERNAL_PORT} --backend-host $${HOST:-0.0.0.0}
+  # Merges by key with the base list. The stub keeps OPENROUTER_BASE_URL a
+  # loopback http:// URL, which the settings validator accepts.
+  environment:
+    DATABASE_URL: http://libsql:8080
+    TURSO_AUTH_TOKEN: ""
+    OPENROUTER_BASE_URL: http://127.0.0.1:9100/v1
+    OPENROUTER_API_KEY: e2e-stub-key
+    ADMIN_TOKEN: ${HARNESS_LB_E2E_ADMIN_TOKEN:?set HARNESS_LB_E2E_ADMIN_TOKEN}
+    MODEL_ALLOWLIST: openai/gpt-4o
+    # The rolling-restart loop posts several calls a second.
+    USAGE_REQUESTS_PER_MINUTE: "*=6000"
+    PIPELINE_MAX_WORKERS: "4"
+
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    environment:
+      SQLD_NODE: primary
+
+  harness-a:
+    <<: *e2e-instance
+  harness-b:
+    <<: *e2e-instance
+
+  lb:
+    ports: !override
+      - "127.0.0.1:${HARNESS_LB_E2E_PORT:?set HARNESS_LB_E2E_PORT}:8000"

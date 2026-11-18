@@ -17,7 +17,13 @@
 # Usage, from the repo root or anywhere:
 #
 #     docker compose -f docker-compose.lb.yml build     # the script never builds
-#     scripts/rolling_restart.sh [-f docker-compose.lb.yml]
+#     scripts/rolling_restart.sh [-f COMPOSE_FILE]... [-p PROJECT]
+#
+# `-f` may repeat (an overlay on top of the base file) and `-p` names the compose
+# project; both go to every `docker compose` call, relative paths resolving from
+# your working directory. Without `-f` the script targets docker-compose.lb.yml
+# in the repo. PRD-019 STORY-010 added the repeat and `-p` for the Docker E2E
+# (an overlay under its own project); one `-f` and no `-p` behave as before.
 #
 # `up --force-recreate` reuses the existing image: build first to ship new code.
 #
@@ -56,7 +62,8 @@ CADDYFILE="$ROOT/deploy/lb/Caddyfile"
 
 SERVICES=(harness-a harness-b)
 
-FILE="$ROOT/docker-compose.lb.yml"
+FILES=()
+PROJECT=""
 POLL_SECONDS="${POLL_SECONDS:-2}"
 DRAIN_WAIT_SECONDS="${DRAIN_WAIT_SECONDS:-30}"
 READY_TIMEOUT_SECONDS="${READY_TIMEOUT_SECONDS:-180}"
@@ -72,19 +79,26 @@ log() { echo "rolling_restart: $*" >&2; }
 die() { local rc=$1; shift; log "$*"; exit "$rc"; }
 
 usage() {
-    echo "usage: scripts/rolling_restart.sh [-f COMPOSE_FILE]" >&2
+    echo "usage: scripts/rolling_restart.sh [-f COMPOSE_FILE]... [-p PROJECT]" >&2
     exit 1
 }
 
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            -f) [ $# -ge 2 ] || usage; FILE="$2"; shift 2 ;;
+            -f) [ $# -ge 2 ] || usage; FILES+=("$2"); shift 2 ;;
+            -p) [ $# -ge 2 ] || usage
+                [ -z "$PROJECT" ] || { log "-p given twice"; usage; }
+                PROJECT="$2"; shift 2 ;;
             -h|--help) usage ;;
             *) log "unknown argument: $1"; usage ;;
         esac
     done
-    COMPOSE=(docker compose -f "$FILE")
+    [ "${#FILES[@]}" -gt 0 ] || FILES=("$ROOT/docker-compose.lb.yml")
+    COMPOSE=(docker compose)
+    [ -z "$PROJECT" ] || COMPOSE+=(-p "$PROJECT")
+    local f
+    for f in "${FILES[@]}"; do COMPOSE+=(-f "$f"); done
 }
 
 # Whole seconds, from the one `health_interval <N>s` line of the balancer config.

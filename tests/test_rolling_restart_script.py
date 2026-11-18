@@ -137,6 +137,14 @@ def test_health_interval_is_parsed_not_restated():
     assert not re.search(r"health_interval=\d", text)
 
 
+def test_usage_and_header_document_repeatable_f_and_p():
+    # PRD-019 STORY-010: the E2E lays an overlay under its own project.
+    text = _text()
+    assert text.count("[-f COMPOSE_FILE]... [-p PROJECT]") == 2  # header and usage()
+    assert re.search(r"^\s*-p\) ", text, re.M)
+    assert "FILES+=(" in text
+
+
 def test_drain_seconds_formula_is_timeout_plus_ten():
     assert re.search(r"DRAIN=\$\(\(timeout \+ 10\)\)", _text())
 
@@ -147,7 +155,8 @@ _DOCKER_SHIM = r"""#!/usr/bin/env bash
 F="$FAKE"
 printf '%s\n' "$(echo "$*" | tr '\n' ' ')" >> "$F/calls.log"
 shift                                   # compose
-if [ "$1" = "-f" ]; then shift 2; fi
+# PRD-019 STORY-010: any number of `-f X` and an optional `-p X`.
+while [ "$1" = "-f" ] || [ "$1" = "-p" ]; do shift 2; done
 sub=$1; shift
 case "$sub" in
   exec)
@@ -271,7 +280,9 @@ def test_happy_path_order_and_drain_window(fake):
     assert "harness-b" in calls[b_touch]
     b_up = _first(calls, "up ", b_touch)
     assert "harness-b" in calls[b_up]
+    # PRD-019 STORY-010: one `-f` and no `-p` still reach compose unchanged.
     assert all("-f docker-compose.lb.yml" in c for c in calls if c.startswith("compose"))
+    assert not any(" -p " in c for c in calls)
     # The drain window links the script to the Caddyfile: 2 * health_interval + DRAIN_SECONDS.
     sleeps = [int(c.split()[1]) for c in calls if c.startswith("sleep ")]
     assert 2 * int(HEALTH_INTERVAL_S) + 7 in sleeps
@@ -345,3 +356,30 @@ def test_unknown_flag_is_a_usage_error(fake):
     res = fake.run(args=("--bogus",))
     assert res.returncode == 1
     assert "usage" in res.stderr
+
+
+@needs_bash
+def test_repeated_f_and_p_reach_every_compose_call(fake):
+    # PRD-019 STORY-010: overlay files and the project name go to every call, in order.
+    res = fake.run(args=("-f", "a.yml", "-f", "b.yml", "-p", "proj"))
+    assert res.returncode == 0, res.stderr
+    compose_calls = [c for c in fake.calls if c.startswith("compose")]
+    assert compose_calls
+    assert all(c.startswith("compose -p proj -f a.yml -f b.yml ") for c in compose_calls), compose_calls
+
+
+@needs_bash
+def test_no_file_flag_targets_the_shipped_lb_file(fake):
+    res = fake.run()
+    assert res.returncode == 0, res.stderr
+    compose_calls = [c for c in fake.calls if c.startswith("compose")]
+    assert all(c.startswith("compose -f ") and "docker-compose.lb.yml " in c for c in compose_calls), compose_calls
+
+
+@needs_bash
+@pytest.mark.parametrize("args", [("-p",), ("-p", "one", "-p", "two"), ("-f",)])
+def test_p_without_value_or_twice_is_a_usage_error(fake, args):
+    res = fake.run(args=args)
+    assert res.returncode == 1
+    assert "usage" in res.stderr
+    assert not any(" up " in c or "touch" in c for c in fake.calls)
