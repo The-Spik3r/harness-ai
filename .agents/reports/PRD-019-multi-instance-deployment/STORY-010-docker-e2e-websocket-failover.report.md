@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-010-docker-e2e-websocket-failover.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: 64a148c
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-019-multi-instance-deployment/completed/STORY-010-docker-e2e-websocket-failover.plan.md`
 **Epic Branch**: `epic/PRD-019-multi-instance-deployment`
-**Commit**: `pending`
+**Commit**: `64a148c`
 
 ## Summary
 

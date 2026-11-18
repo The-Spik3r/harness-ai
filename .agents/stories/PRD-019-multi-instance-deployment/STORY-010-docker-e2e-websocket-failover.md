@@ -12,7 +12,7 @@ labels: [tests, e2e, docker]
 epic_branch: epic/PRD-019-multi-instance-deployment
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-010-docker-e2e-websocket-failover.plan.md
 report: .agents/reports/PRD-019-multi-instance-deployment/STORY-010-docker-e2e-websocket-failover.report.md
-commit: null
+commit: 64a148c
 depends_on: [STORY-008, STORY-009]
 blocks: [STORY-011]
 skills: []
