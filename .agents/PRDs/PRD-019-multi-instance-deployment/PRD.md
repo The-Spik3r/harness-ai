@@ -205,15 +205,15 @@ reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {
 	}
 	stream_close_delay 5m
 }
-handle_errors 502 503 {
+handle_errors 502 503 504 {
 	header Retry-After 10
 	@v1 path /v1/*
-	respond @v1 `{"error":{"message":"Service unavailable; the request was not sent to the model.","type":"api_error","param":null,"code":"service_unavailable"}}` 503
+	respond @v1 `{"error":{"message":"Service unavailable. Retry after the Retry-After interval.","type":"api_error","param":null,"code":"service_unavailable"}}` 503
 	respond `{"detail":"Service unavailable"}` 503
 }
 ```
 
-`handle_errors` fires for errors the balancer raises: no healthy upstream (503 after `lb_try_duration`, about 5 s) and a failed dial, and also a connection an instance breaks after receiving the request (Caddy raises 502, rewritten to this 503, never replayed). A 503 returned by an instance is a proxied response, so it passes through untouched with its own `Retry-After` (D9); verified in STORY-004. `response_header_timeout` expiry is a **504 with an empty body** that `handle_errors 502 503` does not catch (open point for STORY-005: add 504, or accept it). The `/v1` body's "the request was not sent to the model" is false for the mid-flight break, which has already reached an instance. `Retry-After: 10` is PRD-018's `_BREAKER_OPEN_SECONDS`.
+`handle_errors` fires for errors the balancer raises: no healthy upstream (503 after `lb_try_duration`, about 5 s) and a failed dial, and also a connection an instance breaks after receiving the request (Caddy raises 502, rewritten to this 503, never replayed). A 503 returned by an instance is a proxied response, so it passes through untouched with its own `Retry-After` (D9); verified in STORY-004. `response_header_timeout` expiry is a 504 with an empty body. **Orchestrator decision (after STORY-004):** `handle_errors` catches 502, 503 and 504 and answers all three with the same 503 + `Retry-After: 10`, and the `/v1` message is neutral ("Service unavailable. Retry after the Retry-After interval."), because a mid-flight break or a header timeout has already reached an instance and the old text ("the request was not sent to the model") would be false there. The request is still never replayed (D9). `Retry-After: 10` is PRD-018's `_BREAKER_OPEN_SECONDS`.
 
 Verified against Caddy 2.11.7 (STORY-004): every directive above is accepted as written. The cookie is `harness_lb=<64 hex, HMAC-SHA-256 of the upstream>; Path=/; HttpOnly; SameSite=Lax` (no `Secure`, session cookie), re-set when the pinned upstream is unhealthy or dead, and an empty `LB_COOKIE_SECRET` is silently accepted (compose's `${LB_COOKIE_SECRET:?}` is the only guard). Upstream override for tests: an env default does not parse (`{$X:a:{$PORT} b:{$PORT}}` stops at the first `}`), so the test replaces the one line `reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {` textually and asserts everything else is byte-identical. Parallel `caddy run` processes collide on the admin port `localhost:2019`; set env `CADDY_ADMIN=localhost:<free port>` per process.
 
