@@ -25,7 +25,7 @@ You are one subagent in an orchestrated run. An orchestrator verifies your outpu
 
 ## Commits (implement subagent)
 - Stage files explicitly; never `git add -A` / `git add .`. Never `--no-verify`; if a hook fails, fix the cause and make a new commit. Never push: the orchestrator pushes after it verifies the story.
-- End every commit message with exactly: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
+- End every commit message with the `Co-Authored-By:` attribution line from your own session's instructions (it names the model that wrote the commit, e.g. `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`).
 - Order: commit code + tests + archived plan + report (with `commit: pending`) as `<type>(PRD-020): {STORY-ID} <summary>`. Capture the SHA. Then make one small follow-up `chore(PRD-020): {STORY-ID} report; update status + index` that fills the SHA into the report and story frontmatter.
 
 ## Editing files
@@ -48,6 +48,7 @@ It must print `errors: none`.
 - **`openrouter_client.py` is an alias-only shim after STORY-005**; nothing new imports it. Existing imports and injected `call_openrouter` stubs with signature `(messages, model, api_key, **kw)` keep working (D12).
 - **No new runtime dependency** in `requirements.txt`. No LiteLLM, no tokenizer.
 - **Census guards**: a new public function in `app/db/database.py`, or any new caller of `get_connection()` / `_session()` there, must be registered in `tests/test_db_resilience_retry.py` (`_EXPECTED_KINDS` or `_EXEMPT`, and the caller sets in `test_nothing_opens_a_session_outside_the_unit_and_the_boot_path`). Run that file when you touch `database.py`.
+- **Registry API (STORY-003, `app/services/provider_registry.py`)**: `current() -> Registry` (file snapshot, or the legacy registry derived live from settings), `api_key_for(provider)` (legacy: `settings.OPENROUTER_API_KEY or None` at call time; file: resolved at load, None = keyless), `classify_base_url(url)`, `load()`, `reset()`. `Registry(default_model, providers, models_by_id, passthrough_provider, is_legacy)`; `Provider`/`CatalogModel`/`Capabilities` are frozen and hold no key. Build on these; do not duplicate them. File-mode tests use `tests/_providers.py`.
 - Tests that start stubs or servers use free ports picked at runtime, deadline loops instead of bare `sleep`, and stop every child on teardown. They must work on Windows (local) and Linux (CI).
 
 ## What to return (your final message, at most ~30 lines)

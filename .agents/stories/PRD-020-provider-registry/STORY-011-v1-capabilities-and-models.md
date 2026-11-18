@@ -42,6 +42,8 @@ As an integrating developer, I want `GET /v1/models` to list only the models I c
 - Orchestrator decision (stories): legacy mode reads settings LIVE. The suite monkeypatches `settings.MODEL_ALLOWLIST`, `V1_TOOL_MODELS` and `OPENROUTER_*` per test (~53 references). The immutable snapshot exists only in file mode; in legacy mode the accessors derive the implicit provider from the current settings on each call (memoizing on those settings values is allowed).
 - Tests: `tests/test_v1_models.py` and `tests/test_v1_tools.py` stay unchanged for legacy; file-mode cases use `tests/_providers.py` (OD2).
 
+- Orchestrator decision (STORY-003 implement): the legacy registry de-duplicates repeated `MODEL_ALLOWLIST` entries (first wins). Legacy `/v1/models` must stay byte-identical to `tests/fixtures/prd020_legacy/v1/`; if a duplicate allowlist entry appears in today's listing, keep the listing derived from `settings.model_allowlist_list` in legacy mode.
+
 ## Dependencies
 
 - **Blocked by**: STORY-007, STORY-004

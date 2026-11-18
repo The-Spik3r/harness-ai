@@ -327,6 +327,7 @@ Startup errors (each names the file, the provider or model, and the rule, never 
 - `pii: relaxed` without `trust: internal`; `trust: internal` on a public IP literal (D7)
 - `byok: true` together with `passthrough: false` and no models (unusable)
 - `max_context_tokens` < 1; `estimate_chars_per_token` outside (0, 8]; `timeout_seconds` ≤ 0
+- a `roles:` entry that is not an RBAC role, or an empty `roles: []` (orchestrator decision, STORY-003: a typo must not silently lock everyone out)
 - `V1_TOOL_MODELS` non-empty while `PROVIDERS_FILE` is set (D6)
 
 Startup WARNINGs (logged once, never fatal): an `insecure_http` provider (naming scheme and host); `trust: internal` on a hostname (it cannot be verified); a `key_env` that the loaded action policy's `secrets.env` globs do not match (`action_config.py:324-335`), so an agent's `echo $THAT_KEY` would not be `secret.read`.
