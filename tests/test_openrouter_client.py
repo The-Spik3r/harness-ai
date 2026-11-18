@@ -440,6 +440,8 @@ def test_the_split_fields_are_declared_last_and_in_order():
         # PRD-017 STORY-004 (D5, Section 6.9): tool_calls appended last with a default.
         "response", "model_used", "tokens_used", "input_tokens", "output_tokens", "finish_reason",
         "tool_calls",
+        # PRD-020 STORY-009 (D9): usage_estimated appended last with a default.
+        "usage_estimated",
     ]
 
 
