@@ -12,7 +12,7 @@ labels: [backend, frontend, chat-ui]
 epic_branch: epic/PRD-020-provider-registry
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-012-query-default-model-chat-ui-register.plan.md
 report: .agents/reports/PRD-020-provider-registry/STORY-012-query-default-model-chat-ui-register.report.md
-commit: pending
+commit: 9dba70d
 depends_on: [STORY-007, STORY-004]
 blocks: [STORY-015]
 skills: [frontend-design]
