@@ -121,6 +121,9 @@ FIELDS_ADDED_SINCE: frozenset[str] = frozenset({
     "ignored_params",
     # PRD-018 STORY-004 (D4): the idempotency key.
     "write_id",
+    # PRD-020 STORY-006 (D13): the five provider columns.
+    "provider", "upstream_model", "provider_trust", "pii_input_relaxed",
+    "usage_estimated",
 })
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

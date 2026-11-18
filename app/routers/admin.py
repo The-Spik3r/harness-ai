@@ -87,6 +87,12 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             limit_exceeded=log.limit_exceeded,
             # Verbatim passthrough (PRD-015 Section 10); NULL off `/v1`.
             ignored_params=log.ignored_params,
+            # Verbatim passthrough (PRD-020 D13); NULL/False before PRD-020.
+            provider=log.provider,
+            upstream_model=log.upstream_model,
+            provider_trust=log.provider_trust,
+            pii_input_relaxed=log.pii_input_relaxed,
+            usage_estimated=log.usage_estimated,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,

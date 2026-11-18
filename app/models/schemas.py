@@ -264,6 +264,14 @@ class AuditQueryEntry(BaseModel):
     # `session_id`'s reasons: NULL on every `/query` and chat row and on every
     # row written before PRD-015.
     ignored_params: Optional[str] = None
+    # PRD-020 D13: verbatim passthrough of the five provider columns. NULL /
+    # NULL / NULL / False / False on every row written before PRD-020 (and on
+    # any row no PRD-020 caller wrote).
+    provider: Optional[str] = None
+    upstream_model: Optional[str] = None
+    provider_trust: Optional[str] = None
+    pii_input_relaxed: bool = False
+    usage_estimated: bool = False
 
 
 class AuditResponse(BaseModel):

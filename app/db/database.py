@@ -1579,9 +1579,11 @@ _INSERT_AUDIT_LOG_SQL = """
                 pattern_role, pattern_action, profile,
                 ingress, message_count, input_tokens, output_tokens,
                 streamed, has_tool_calls, conversation_key, limit_exceeded,
-                ignored_params, write_id
+                ignored_params, write_id,
+                provider, upstream_model, provider_trust,
+                pii_input_relaxed, usage_estimated
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -1671,6 +1673,11 @@ def _insert_audit_row(conn: _Connection, entry: AuditLog) -> int:
             entry.limit_exceeded,
             entry.ignored_params,
             entry.write_id,
+            entry.provider,
+            entry.upstream_model,
+            entry.provider_trust,
+            int(entry.pii_input_relaxed),
+            int(entry.usage_estimated),
         ),
     )
     if keyed:
@@ -1817,6 +1824,11 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         limit_exceeded=row["limit_exceeded"],
         ignored_params=row["ignored_params"],
         write_id=row["write_id"],
+        provider=row["provider"],
+        upstream_model=row["upstream_model"],
+        provider_trust=row["provider_trust"],
+        pii_input_relaxed=bool(row["pii_input_relaxed"]),
+        usage_estimated=bool(row["usage_estimated"]),
     )
 
 
@@ -2263,7 +2275,12 @@ SELECT
               'conversation_key', conversation_key,
               'limit_exceeded', limit_exceeded,
               'ignored_params', ignored_params,
-              'write_id', write_id))
+              'write_id', write_id,
+              'provider', provider,
+              'upstream_model', upstream_model,
+              'provider_trust', provider_trust,
+              'pii_input_relaxed', pii_input_relaxed,
+              'usage_estimated', usage_estimated))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

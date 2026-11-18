@@ -185,7 +185,10 @@ class _Recording:
 
 
 def _without_write_id(ddl):
-    legacy = re.sub(r",\n\s+write_id TEXT[^\n]*", "", ddl)
+    # PRD-020 STORY-006 (D13): the five provider columns are declared after
+    # write_id, so the legacy shape drops everything from write_id to the close
+    # of the table (action_decisions ends at write_id, audit_logs at the five).
+    legacy = re.sub(r",\n\s+write_id TEXT.*?(?=\n\))", "", ddl, flags=re.DOTALL)
     assert legacy != ddl, "the CREATE does not declare write_id"
     return legacy
 
@@ -223,6 +226,12 @@ def test_init_db_migrates_a_pre_prd018_database(uninitialized_db, monkeypatch):
 
     assert [s for s in statements if "ADD COLUMN" in s.upper()] == [
         "ALTER TABLE audit_logs ADD COLUMN write_id TEXT",
+        # PRD-020 STORY-006 (D13): the five provider columns follow write_id.
+        "ALTER TABLE audit_logs ADD COLUMN provider TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN upstream_model TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN provider_trust TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN pii_input_relaxed INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE audit_logs ADD COLUMN usage_estimated INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE action_decisions ADD COLUMN write_id TEXT",
     ]
     assert not any(
@@ -297,7 +306,12 @@ def test_existing_constructions_still_work_and_default_write_id_to_none():
 
     assert audit.write_id is None and positional.write_id is None
     # `id` stays the trailing field of each: write_id sits before it.
-    assert [f.name for f in dataclasses.fields(AuditLog)][-2:] == ["write_id", "id"]
+    # PRD-020 STORY-006 (D13): AuditLog's five provider fields now sit between
+    # write_id and id; `id` is still trailing.
+    assert [f.name for f in dataclasses.fields(AuditLog)][-7:] == [
+        "write_id", "provider", "upstream_model", "provider_trust",
+        "pii_input_relaxed", "usage_estimated", "id",
+    ]
     assert [f.name for f in dataclasses.fields(ActionDecisionRow)][-2:] == [
         "write_id",
         "id",

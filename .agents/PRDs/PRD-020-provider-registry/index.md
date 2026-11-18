@@ -6,7 +6,7 @@
 
 ## Progress
 
-5/15 stories done — 33%
+6/15 stories done — 40%
 
 ## Stories
 
@@ -19,7 +19,7 @@ All stories commit on the epic branch `epic/PRD-020-provider-registry`. No per-s
 | STORY-003 | Provider registry loader, validation and the legacy implicit provider | feature | ✅ done | large | [plan](../../plans/PRD-020-provider-registry/completed/STORY-003-registry-loader-and-validation.plan.md) | `5dc69fe` |
 | STORY-004 | Route resolution, visible models and authorize_route | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-004-route-resolution-and-authorize-route.plan.md) | `acc101e` |
 | STORY-005 | Upstream package, OpenAI-compatible adapter and call_upstream | technical | ✅ done | large | [plan](../../plans/PRD-020-provider-registry/completed/STORY-005-upstream-package-and-adapter.plan.md) | `6015bab` |
-| STORY-006 | Five provider columns on the audit table and log_query | feature | ⬜ todo | medium | — | — |
+| STORY-006 | Five provider columns on the audit table and log_query | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-006-audit-provider-columns.plan.md) | — |
 | STORY-007 | Pipeline step 2 routing, BYOK per provider and per-row provider audit | feature | ⬜ todo | large | — | — |
 | STORY-008 | PII input relaxation for an internal, relaxed provider | feature | ⬜ todo | medium | — | — |
 | STORY-009 | Estimate usage when a provider reports none | feature | ⬜ todo | medium | — | — |

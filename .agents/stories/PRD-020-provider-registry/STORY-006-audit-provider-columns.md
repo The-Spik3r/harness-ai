@@ -7,11 +7,11 @@ type: feature
 priority: medium
 complexity: medium
 phase: "2 - Adapter and routing"
-status: todo
+status: done
 labels: [backend, database]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
-report: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-006-audit-provider-columns.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-006-audit-provider-columns.report.md
 commit: null
 depends_on: []
 blocks: [STORY-007]
