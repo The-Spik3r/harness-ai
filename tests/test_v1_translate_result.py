@@ -91,6 +91,24 @@ def _dump(result=None, upstream=None):
 # --- translate_result ----------------------------------------------------------
 
 
+def test_estimated_usage_body():
+    """PRD-020 D8 / STORY-009: split 0/0, the estimate as total, and the flag, last."""
+    body = _dump(result=_success(tokens_used=5), upstream=_upstream(
+        tokens_used=5, input_tokens=None, output_tokens=None, usage_estimated=True
+    ))
+    assert body["usage"] == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 5}
+    assert body["harness"]["usage_estimated"] is True
+    assert list(body["harness"])[-1] == "usage_estimated"
+
+
+def test_reported_usage_body_has_no_usage_estimated_key():
+    """The flag is emitted only when true: a reported body is today's, byte for byte."""
+    assert "usage_estimated" not in _dump()["harness"]
+    assert "usage_estimated" not in _dump(upstream=_upstream(usage_estimated=False))["harness"]
+    explicit = translate_result(_success(), _upstream(), _CREATED).model_dump_json()
+    assert "usage_estimated" not in explicit
+
+
 def test_builds_the_section_7_4_example():
     assert _dump() == {
         "id": "chatcmpl-harness-1842",

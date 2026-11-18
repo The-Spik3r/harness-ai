@@ -941,6 +941,7 @@ def run_conversation(
                 tokens_used=openrouter_result.tokens_used,
                 input_tokens=openrouter_result.input_tokens,
                 output_tokens=openrouter_result.output_tokens,
+                usage_estimated=openrouter_result.usage_estimated,
                 success=False,
                 error_message=str(exc),
                 pii_detected_input=bool(input_entities),
@@ -987,6 +988,7 @@ def run_conversation(
             tokens_used=openrouter_result.tokens_used,
             input_tokens=openrouter_result.input_tokens,
             output_tokens=openrouter_result.output_tokens,
+            usage_estimated=openrouter_result.usage_estimated,
             # PRD-017 D19: the request carried tool turns, or the response carried
             # calls (before release). The row's `response` stays what the upstream
             # said; the decisions live in `action_decisions` (STORY-010 DD-2).

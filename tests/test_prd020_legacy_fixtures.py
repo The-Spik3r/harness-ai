@@ -420,9 +420,16 @@ def test_error_cases_match_recorded(monkeypatch):
 def test_success_result_fields_match_recorded():
     full, _ = _capture(lambda r: _ok(usage={"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12}))
     no_split, _ = _capture(lambda r: _ok(usage={"total_tokens": 9}))
+    def fields(result):
+        # PRD-020 STORY-009 (D8): `usage_estimated` is a new field of the result, not a
+        # change to today's recorded ones; a reported usage always leaves it False.
+        record = dataclasses.asdict(result)
+        assert record.pop("usage_estimated") is False
+        return record
+
     results = {
-        "usage_full": dataclasses.asdict(call_openrouter(_USER_MESSAGES, model="gpt-4", client=full)),
-        "usage_without_split": dataclasses.asdict(
+        "usage_full": fields(call_openrouter(_USER_MESSAGES, model="gpt-4", client=full)),
+        "usage_without_split": fields(
             call_openrouter(_USER_MESSAGES, model="gpt-4", client=no_split)
         ),
     }

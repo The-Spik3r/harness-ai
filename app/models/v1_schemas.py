@@ -188,12 +188,17 @@ class HarnessCompletionInfo(BaseModel):
     pii_redacted: bool = False
     pii_entities_masked: List[str] = []
     actions: Optional[List[HarnessAction]] = None
+    # PRD-020 D8 / STORY-009: the usage numbers are the harness's estimate. Emitted
+    # only when true, so a reported-usage body is byte-identical to today's.
+    usage_estimated: bool = False
 
     @model_serializer(mode="wrap")
     def _drop_absent_actions(self, handler):
         data = handler(self)
         if data.get("actions") is None:
             data.pop("actions", None)
+        if not data.get("usage_estimated"):
+            data.pop("usage_estimated", None)
         return data
 
 

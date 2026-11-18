@@ -12,6 +12,7 @@ import httpx
 from app.models.messages import Message, ToolCallSpec
 from app.services.provider_registry import Provider
 from app.services.upstream.types import UpstreamError, UpstreamRequest, UpstreamResult
+from app.services.usage_estimate import estimate_tokens
 
 
 def _token_count(value: Any) -> Optional[int]:
@@ -94,6 +95,56 @@ def _classify_http_error(exc: httpx.HTTPError) -> tuple[Optional[int], bool]:
         return None, True
     return None, False
 
+
+
+def _resolve_usage(
+    provider: Provider,
+    label: str,
+    data: Any,
+    content: str,
+    calls: tuple[ToolCallSpec, ...],
+    request: UpstreamRequest,
+) -> tuple[int, Optional[int], Optional[int], bool]:
+    """(tokens_used, input_tokens, output_tokens, usage_estimated) per PRD-020 D8.
+
+    `usage_missing: error` (legacy) keeps today's behaviour and message texts: a
+    missing `usage` or `total_tokens` is an unexpected-shape error, and a present
+    total is taken raw. A `null` or non-object usage raises the same message
+    naming 'usage' (it was a bare TypeError). `estimate` never fails a call that
+    answered: a usable total (and splits) win; two usable splits without a total
+    sum to one; anything else is an estimate with the split left None (a lone
+    split is discarded), flagged `usage_estimated`.
+    """
+    usage = data.get("usage") if isinstance(data, Mapping) else None
+    has_usage = isinstance(usage, Mapping)
+    if provider.usage_missing == "error":
+        if not has_usage:
+            raise UpstreamError(f"{label} returned an unexpected response shape: 'usage'")
+        if "total_tokens" not in usage:
+            raise UpstreamError(f"{label} returned an unexpected response shape: 'total_tokens'")
+        # PRD-013 F3: optional, and never a reason to fail a call that answered.
+        return (
+            usage["total_tokens"],
+            _token_count(usage.get("prompt_tokens")),
+            _token_count(usage.get("completion_tokens")),
+            False,
+        )
+    if has_usage:
+        total = _token_count(usage.get("total_tokens"))
+        prompt = _token_count(usage.get("prompt_tokens"))
+        completion = _token_count(usage.get("completion_tokens"))
+        if total is not None:
+            return total, prompt, completion, False
+        if prompt is not None and completion is not None:
+            return prompt + completion, prompt, completion, False
+    tools = request.tools
+    estimate = estimate_tokens(
+        request.messages,
+        (content, calls),
+        provider.estimate_chars_per_token,
+        tools=tools.tools if tools is not None else None,
+    )
+    return estimate, None, None, True
 
 
 class OpenAICompatibleAdapter:
@@ -189,16 +240,9 @@ class OpenAICompatibleAdapter:
             raw_finish_reason = choice.get("finish_reason")
             finish_reason = raw_finish_reason if isinstance(raw_finish_reason, str) else None
 
-            try:
-                usage = data["usage"]
-                tokens_used = usage["total_tokens"]
-            except (KeyError, IndexError, ValueError) as exc:
-                raise UpstreamError(
-                    f"{label} returned an unexpected response shape: {exc}"
-                ) from exc
-            # PRD-013 F3: optional, and never a reason to fail a call that answered.
-            input_tokens = _token_count(usage.get("prompt_tokens"))
-            output_tokens = _token_count(usage.get("completion_tokens"))
+            tokens_used, input_tokens, output_tokens, usage_estimated = _resolve_usage(
+                provider, label, data, content, calls, request
+            )
         finally:
             if owns_client:
                 http_client.close()
@@ -211,4 +255,5 @@ class OpenAICompatibleAdapter:
             output_tokens=output_tokens,
             finish_reason=finish_reason,
             tool_calls=calls,
+            usage_estimated=usage_estimated,
         )

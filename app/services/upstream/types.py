@@ -53,6 +53,10 @@ class UpstreamResult:
     # request sent tools= (D18). Declared last with a default, the PRD-013 /
     # PRD-015 precedent, so three-argument construction keeps working.
     tool_calls: tuple[ToolCallSpec, ...] = ()
+    # PRD-020 STORY-009 (D8): True when the provider reported no usable total and
+    # tokens_used is the harness's estimate. Declared last with a default, the
+    # same precedent, so older construction keeps working.
+    usage_estimated: bool = False
 
 
 

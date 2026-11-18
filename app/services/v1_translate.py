@@ -655,6 +655,7 @@ def translate_result(
             pii_redacted=result.pii_redacted,
             pii_entities_masked=result.pii_entities_masked,
             actions=actions,
+            usage_estimated=upstream.usage_estimated,
         ),
     )
 

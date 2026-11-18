@@ -266,10 +266,12 @@ def test_local_label_on_shape_and_content_errors(provider_file):
     null_content = {"choices": [{"message": {"content": None}}], "usage": {"total_tokens": 1}}
     with pytest.raises(UpstreamError, match=r"^Local returned no text content"):
         _local(provider_file, _FakeClient(response=_response(body=null_content)))
-    # usage missing still fails as a shape error; D8 (usage_missing) is STORY-009.
+    # PRD-020 D8 / STORY-009: a file provider defaults to `usage_missing: estimate`, so a
+    # missing usage is estimated, not a shape error (the raise case, `usage_missing: error`,
+    # is pinned in test_usage_estimate_adapter.py).
     no_usage = {"choices": [{"message": {"content": "x"}}]}
-    with pytest.raises(UpstreamError, match=r"^Local returned an unexpected response shape"):
-        _local(provider_file, _FakeClient(response=_response(body=no_usage)))
+    result = _local(provider_file, _FakeClient(response=_response(body=no_usage)))
+    assert result.usage_estimated is True
 
 
 def test_local_label_on_bad_tool_calls(provider_file):

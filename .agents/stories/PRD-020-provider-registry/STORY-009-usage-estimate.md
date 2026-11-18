@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Policies that depend on the provider"
-status: todo
+status: in-progress
 labels: [backend, usage]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
+plan: .agents/plans/PRD-020-provider-registry/STORY-009-usage-estimate.plan.md
 report: null
 commit: null
 depends_on: [STORY-007, STORY-005]
