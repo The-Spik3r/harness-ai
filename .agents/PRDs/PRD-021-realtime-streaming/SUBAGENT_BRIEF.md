@@ -59,3 +59,13 @@ It must print `errors: none`.
 ## What to return (your final message, at most ~30 lines)
 - PLAN subagent: the plan path, a 3–5 line summary, the files to CREATE/UPDATE, one line per AC saying how it is covered, open risks/questions, and confirmation that the story frontmatter (`plan`, `status: in-progress`) and the index were updated.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
+
+## Checkpoint
+- Done and pushed: 001 (48bfb48 survey; fixtures `tests/fixtures/prd021_survey/`), 002 (876f720 perms + 3 settings), 003 (a91252a `stream_upstream`, `ReasoningDelta`, `collect(usage_missing=)`, no-Finish = non-retryable error), 004 (f2d3b36 stub `stream: {chunk_chars, delay_ms, reasoning, fail_after}`). Next: STORY-005.
+- CI: green at b310936 (002). Runs for 1bec5cb/a6094ea were in progress at checkpoint: read the latest run on resume (`gh run list --branch epic/PRD-021-realtime-streaming --workflow CI --limit 1`). Pre-existing failures: none.
+- User decisions: OD1 legacy never streams; O1 English; OD2 live survey (done, 5/6 calls).
+- STORY-001 facts: OpenRouter reasoning = `delta.reasoning` (no param needed); usage rides on the last chunk; two `Finish` per stream; empty `content` yields `TextDelta("")` (kept on purpose: `collect` needs it for `content: ""`). Consumers (006 `phase_of`, sink forwarding) ignore empty text. O5: emit only `reasoning_content`.
+- 003 accepted: `parse_events(..., reasoning=)` / `stream(..., reasoning=)` opt-in from `route.capabilities.reasoning`; `_resolve_call` shared; `reply._USAGE_MODES` pinned to the registry tuple. Plans over 12 KB accepted: 003 (15.9), 004 (13.3).
+- Critical stories ahead and their design points (write them at 3.1): 005 (Visibility is a pure function; `sink=None` computes nothing; sink faults are swallowed and logged once; stage events depend on config only), 006 (completion_id generated at commit, `committed` on first event; real-time `collect(usage_missing="estimate")`; release-tracking for the mid-stream-fault charge; D20 total deadline; empty TextDelta ignored), 007 (span mapping across tail/segment), 010 (T1/T5, O5).
+- Escalations: none. Plans corrected at 3.2: 003 (empty TextDelta retraction).
+- For Phase 6: nothing unexpected so far.
