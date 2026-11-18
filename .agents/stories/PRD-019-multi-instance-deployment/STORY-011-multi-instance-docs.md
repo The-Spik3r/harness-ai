@@ -12,7 +12,7 @@ labels: [docs]
 epic_branch: epic/PRD-019-multi-instance-deployment
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-011-multi-instance-docs.plan.md
 report: .agents/reports/PRD-019-multi-instance-deployment/STORY-011-multi-instance-docs.report.md
-commit: null
+commit: 9633f67
 depends_on: [STORY-010]
 blocks: []
 skills: []

@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-011-multi-instance-docs.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: 9633f67
 status: COMPLETE
 completed: 2026-11-17
 ---
