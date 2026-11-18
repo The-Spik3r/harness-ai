@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Survey and seams"
-status: in-progress
+status: done
 labels: [backend, streaming, upstream]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: .agents/plans/PRD-021-realtime-streaming/STORY-003-stream-upstream-seam.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-003-stream-upstream-seam.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-003-stream-upstream-seam.report.md
+commit: a91252a
 depends_on: [STORY-001]
 blocks: [STORY-006]
 skills: []

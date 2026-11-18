@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-003-stream-upstream-seam.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: a91252a
 status: COMPLETE
 completed: 2026-11-18
 ---
