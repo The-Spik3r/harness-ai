@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "3 - Proof"
-status: todo
+status: done
 labels: [ops, docker, scripts]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-009-rolling-restart-script.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-009-rolling-restart-script.report.md
+commit: pending
 depends_on: [STORY-005]
 blocks: [STORY-010]
 skills: []
@@ -28,10 +28,10 @@ As a platform operator, I want a script that restarts the instances one at a tim
 
 ## Acceptance Criteria
 
-- [ ] Given `scripts/rolling_restart.sh [-f docker-compose.lb.yml]`, when any instance's in-container `/ready` is not 200 at start, then it refuses to run and exits non-zero naming the instance.
-- [ ] Given all instances ready, when it runs, then for each service in order it: touches `$DRAIN_FILE` via `docker compose exec`; waits (deadline loop) until that instance's own `/ready` is 503; sleeps `health_interval × 2 + DRAIN_SECONDS` (`DRAIN_SECONDS` defaults to `OPENROUTER_TIMEOUT_SECONDS + 10`, overridable by env); `docker compose up -d --force-recreate --no-deps <svc>`; waits until `/ready` is 200.
-- [ ] Given a replacement that never becomes ready (e.g. it exits at boot), when the deadline passes, then the script stops with a non-zero exit and leaves the remaining instance untouched and serving.
-- [ ] Given a static test (no Docker), when it inspects the script, then `bash -n` passes (skip if no bash), and the test asserts the service list matches `docker-compose.lb.yml`'s instance services, the readiness check runs inside the container with `python -c` + `urllib` (instances publish no port, no curl in the image), and `set -euo pipefail` is present.
+- [x] Given `scripts/rolling_restart.sh [-f docker-compose.lb.yml]`, when any instance's in-container `/ready` is not 200 at start, then it refuses to run and exits non-zero naming the instance.
+- [x] Given all instances ready, when it runs, then for each service in order it: touches `$DRAIN_FILE` via `docker compose exec`; waits (deadline loop) until that instance's own `/ready` is 503; sleeps `health_interval × 2 + DRAIN_SECONDS` (`DRAIN_SECONDS` defaults to `OPENROUTER_TIMEOUT_SECONDS + 10`, overridable by env); `docker compose up -d --force-recreate --no-deps <svc>`; waits until `/ready` is 200.
+- [x] Given a replacement that never becomes ready (e.g. it exits at boot), when the deadline passes, then the script stops with a non-zero exit and leaves the remaining instance untouched and serving.
+- [x] Given a static test (no Docker), when it inspects the script, then `bash -n` passes (skip if no bash), and the test asserts the service list matches `docker-compose.lb.yml`'s instance services, the readiness check runs inside the container with `python -c` + `urllib` (instances publish no port, no curl in the image), and `set -euo pipefail` is present.
 
 ## Technical Notes
 
