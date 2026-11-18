@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Proof"
-status: todo
+status: in-progress
 labels: [tests, caddy, integration]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-007-balancer-routing-test.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-005, STORY-006]
