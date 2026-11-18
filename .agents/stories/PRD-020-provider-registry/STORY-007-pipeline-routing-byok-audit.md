@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Adapter and routing"
-status: in-progress
+status: done
 labels: [backend, security]
 epic_branch: epic/PRD-020-provider-registry
-plan: .agents/plans/PRD-020-provider-registry/STORY-007-pipeline-routing-byok-audit.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-007-pipeline-routing-byok-audit.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-007-pipeline-routing-byok-audit.report.md
+commit: d3b6ec6
 depends_on: [STORY-004, STORY-005, STORY-006]
 blocks: [STORY-008, STORY-009, STORY-010, STORY-011, STORY-012]
 skills: []
