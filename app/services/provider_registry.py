@@ -11,9 +11,9 @@ Called once at startup in **both** lifespans (`app/main.py` and
 `chat_ui/chat_ui/chat_ui.py`): the Reflex `api_transformer` mount bypasses the
 former entirely (PRD-016 Section 6.12). Never per request.
 
-This story (STORY-003) is the data model, the validation and the loader.
-Resolution (`resolve`, `visible_models`, `supports_tools`) is STORY-004 and the
-adapter is STORY-005, so nothing here sends a request.
+STORY-003 is the data model, the validation and the loader. STORY-004 adds
+resolution (`Route`, `resolve`, `visible_models`, `supports_tools`), pure over
+`current()`. The adapter is STORY-005, so nothing here sends a request.
 
 Keys (PRD-020 T1, T6): the dataclasses hold no key field. `load()` resolves each
 provider's `key_env` into `_keys`, beside the snapshot, and `api_key_for` hands
@@ -134,6 +134,26 @@ class Registry:
     models_by_id: Mapping[str, CatalogModel]
     passthrough_provider: Optional[Provider]
     is_legacy: bool
+
+
+@dataclass(frozen=True)
+class Route:
+    """Where a model id goes (PRD-020 F4, D3). No key field (T1): use `api_key_for(route.provider)`."""
+
+    model_id: str
+    upstream_model: str
+    provider: Provider
+    capabilities: Capabilities
+    catalogued: bool
+    model: Optional[CatalogModel]
+
+    def relaxes_input(self) -> bool:
+        """PRD-020 6.6: PII redaction on, and an internal provider declared `pii: relaxed`. Read at call time."""
+        return (
+            settings.PII_REDACTION_ENABLED
+            and self.provider.trust == "internal"
+            and self.provider.pii == "relaxed"
+        )
 
 
 # --- Errors -------------------------------------------------------------------
@@ -626,3 +646,43 @@ def reset() -> None:
     """Back to legacy mode and forget keys and the memo. Reads no setting."""
     global _snapshot, _keys, _legacy_memo
     _snapshot, _keys, _legacy_memo = None, {}, None
+
+
+def resolve(model: str) -> Optional[Route]:
+    """Exact, case-sensitive lookup (PRD-020 D3): catalogue, else passthrough, else None.
+
+    No prefix parsing and no string surgery: an uncatalogued id goes upstream
+    verbatim. Pure over `current()`.
+    """
+    reg = current()
+    entry = reg.models_by_id.get(model)
+    if entry is not None:
+        for provider in reg.providers:
+            if provider.name == entry.provider_name:
+                return Route(model, entry.upstream, provider, entry.capabilities, True, entry)
+    provider = reg.passthrough_provider
+    if provider is not None:
+        return Route(model, model, provider, provider.passthrough_capabilities, False, None)
+    return None
+
+
+def supports_tools(model: str) -> bool:
+    """Whether the route's capabilities allow tools; False for an unresolvable id (PRD-020 F4)."""
+    route = resolve(model)
+    return route is not None and route.capabilities.tools
+
+
+def visible_models(identity) -> list[CatalogModel]:
+    """Catalogued models the identity may use, in registry order (PRD-020 F2, D4).
+
+    Same role rule as `authz.authorize_route` (both call `authz.role_may_use` /
+    `sees_every_model`). Passthrough models are never listed.
+    """
+    reg = current()
+    everything = authz.sees_every_model(identity)
+    return [
+        m
+        for provider in reg.providers
+        for m in provider.models
+        if everything or authz.role_may_use(identity.role, m, provider)
+    ]

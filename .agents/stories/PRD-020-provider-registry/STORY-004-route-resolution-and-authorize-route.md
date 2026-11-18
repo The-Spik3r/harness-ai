@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Adapter and routing"
-status: todo
+status: in-progress
 labels: [backend, security]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
+plan: .agents/plans/PRD-020-provider-registry/STORY-004-route-resolution-and-authorize-route.plan.md
 report: null
 commit: null
 depends_on: [STORY-003]
