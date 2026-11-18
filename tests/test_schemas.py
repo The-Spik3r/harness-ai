@@ -180,6 +180,13 @@ def test_audit_response_shape():
                 "limit_exceeded": None,
                 # PRD-015 Section 10 (STORY-007): additive, nullable, defaulted.
                 "ignored_params": None,
+                # PRD-020 D13 (STORY-006): five additive provider fields,
+                # NULL / False by default.
+                "provider": None,
+                "upstream_model": None,
+                "provider_trust": None,
+                "pii_input_relaxed": False,
+                "usage_estimated": False,
             }
         ],
     }

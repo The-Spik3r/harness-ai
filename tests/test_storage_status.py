@@ -273,7 +273,9 @@ def test_the_factory_breaker_carries_the_hook():
 
 
 def test_journal_appended_counts_an_acknowledged_append_only(tmp_path):
-    journal = AuditJournal(str(tmp_path / "buf"), 1000, 0)
+    # PRD-020 D13 (STORY-006): five more columns per entry pushed one entry past
+    # the old 1000-byte cap; 2000 still holds a few and fills quickly.
+    journal = AuditJournal(str(tmp_path / "buf"), 2000, 0)
     try:
         journal.append(_audit(uuid_like()))
         assert storage_counters.snapshot().journal_appended == 1

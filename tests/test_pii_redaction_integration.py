@@ -216,14 +216,23 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "pii_detected_input",
         "pii_detected_output",
         "pii_entities",
+        # PRD-020 D13 (STORY-006): two additive flags, defaulted to False.
+        "pii_input_relaxed",
         # PRD-012 D9: additive, nullable (STORY-011).
         "profile",
         "prompt_hash",
+        # PRD-020 D13 (STORY-006): additive, nullable. A registry name and a
+        # trust label, not prompt text: the leak surface is no wider.
+        "provider",
+        "provider_trust",
         "role",
         "session_id",
         "streamed",
         "suspicious_pattern_detected",
         "timestamp",
+        # PRD-020 D13 (STORY-006): additive, nullable/defaulted.
+        "upstream_model",
+        "usage_estimated",
         "user_id",
         "was_duplicate_blocked",
     ]
