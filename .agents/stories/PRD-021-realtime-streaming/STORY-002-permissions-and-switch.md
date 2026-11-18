@@ -12,7 +12,7 @@ labels: [backend, rbac, config]
 epic_branch: epic/PRD-021-realtime-streaming
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-002-permissions-and-switch.plan.md
 report: .agents/reports/PRD-021-realtime-streaming/STORY-002-permissions-and-switch.report.md
-commit: pending
+commit: 876f720
 depends_on: []
 blocks: [STORY-005]
 skills: []
