@@ -1,0 +1,61 @@
+# Two instances behind a sticky, health-checked Caddy balancer (PRD-019 F4).
+#
+# Standalone, not an overlay on docker-compose.yml: compose cannot remove the
+# `ports:` that file publishes (D7). Start it with
+#   LB_COOKIE_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.lb.yml up -d
+# The balancer publishes the build-time $PORT (Section 6.1); the instances
+# publish nothing.
+#
+# `name:` keeps this stack's project (and so its journal volume) apart from the
+# single-instance stack, whose project defaults to the directory name. Without
+# it both files would share one volume, and `down -v` of one would destroy the
+# other's undrained journal entries. A `-p` on the command line overrides it.
+name: harness-ai-lb
+
+x-harness-instance: &harness-instance
+  build:
+    context: .
+    args:
+      PORT: ${PORT:-8000}
+  # DATABASE_URL and TURSO_AUTH_TOKEN come from .env (PRD-007 Section 9). The
+  # audit journal (PRD-018) is shared by both instances: each process locks its
+  # own journal file, and a journal left by a killed instance is adopted by its
+  # sibling or replacement (PRD-018 Section 6.8). `docker compose down -v`
+  # destroys undrained entries, so check `GET /storage/status` shows
+  # journal.entries == 0 first.
+  env_file:
+    - .env
+  # `environment` wins over `env_file`, so a stray AUDIT_BUFFER_DIR or PORT in
+  # .env cannot point the journal off the volume or diverge from the build arg.
+  environment:
+    - AUDIT_BUFFER_DIR=/var/lib/harness/audit-buffer
+    - PORT=${PORT:-8000}
+  volumes:
+    - harness-audit-buffer:/var/lib/harness/audit-buffer
+
+services:
+  harness-a:
+    <<: *harness-instance
+  harness-b:
+    <<: *harness-instance
+  lb:
+    # Same Caddy version as the CI balancer tests (STORY-004), pinned by digest.
+    image: caddy:2.11.7@sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e
+    volumes:
+      - ./deploy/lb/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      - PORT=${PORT:-8000}
+      # Signs the affinity cookie (D2). Caddy accepts an empty value silently,
+      # so this guard is the only one.
+      - "LB_COOKIE_SECRET=${LB_COOKIE_SECRET:?set LB_COOKIE_SECRET, for example from openssl rand -hex 32}"
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    # The image HEALTHCHECK (/health, liveness) is what service_healthy reads.
+    depends_on:
+      harness-a:
+        condition: service_healthy
+      harness-b:
+        condition: service_healthy
+
+volumes:
+  harness-audit-buffer:

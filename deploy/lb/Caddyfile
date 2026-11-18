@@ -1,0 +1,45 @@
+# Balancer for the two-instance stack (PRD-019 F3). Listens on the same $PORT the
+# instances use, so the published port matches the build-time PORT (Section 6.1).
+:{$PORT}
+
+# D2: sticky by cookie, so a Reflex websocket session and its per-session state
+# stay on one instance. The cookie is HMAC-signed with LB_COOKIE_SECRET; compose
+# refuses to start without it (Caddy itself accepts an empty secret silently).
+# D9: a request is never replayed to a second instance (no retry_match), because
+# /query and /v1 calls are not idempotent. lb_try_duration only covers the wait
+# for a healthy upstream. No encode and no access log: both would sit in the
+# streaming path (SSE, websocket) for no gain.
+# STORY-007 replaces the next line textually to point at stub upstreams, so keep
+# it as one literal line with no env default.
+reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {
+	lb_policy cookie harness_lb {$LB_COOKIE_SECRET}
+	lb_try_duration 5s
+	# D3/D5: /ready is the readiness probe (503 while draining or the database
+	# breaker is open). Liveness stays /health. 3s must stay above
+	# READY_DB_TIMEOUT_SECONDS (PRD 9.3).
+	health_uri /ready
+	health_interval 5s
+	health_timeout 3s
+	health_status 200
+	# Passive health on connection failures only: no unhealthy_status, so an
+	# instance answering 503 (breaker open) is handled by the active probe.
+	fail_duration 30s
+	transport http {
+		dial_timeout 3s
+		# D6: OPENROUTER_TIMEOUT_SECONDS (120) + 30s, so the balancer never cuts a
+		# model call before the application gives up on it.
+		response_header_timeout 150s
+	}
+	# Keep websockets open across a balancer config reload.
+	stream_close_delay 5m
+}
+
+# T1/T6, D9: balancer-raised errors (no healthy upstream, failed dial, a connection
+# broken mid-flight, a header timeout) answer one 503 + Retry-After 10, which is
+# the breaker interval of PRD-018. A 503 an instance returns is proxied untouched.
+handle_errors 502 503 504 {
+	header Retry-After 10
+	@v1 path /v1/*
+	respond @v1 `{"error":{"message":"Service unavailable. Retry after the Retry-After interval.","type":"api_error","param":null,"code":"service_unavailable"}}` 503
+	respond `{"detail":"Service unavailable"}` 503
+}

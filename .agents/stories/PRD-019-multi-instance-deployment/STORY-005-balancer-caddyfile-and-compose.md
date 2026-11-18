@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Balancer"
-status: todo
+status: in-progress
 labels: [caddy, docker, infra]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-005-balancer-caddyfile-and-compose.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-003, STORY-004]
