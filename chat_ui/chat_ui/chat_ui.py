@@ -19,6 +19,7 @@ from app.services import (
     pii_policy,
     pii_redactor,
     pipeline_executor,
+    provider_registry,
 )
 
 from chat_ui import theme
@@ -265,6 +266,12 @@ app.register_lifespan_task(pii_policy.load)
 # After authz.load (PRD-016 Section 6.11); placed after pii_policy.load so
 # pattern_config and pii_policy keep their adjacency to authz.load.
 app.register_lifespan_task(action_config.load)
+# Same bypass (PRD-020 STORY-003): without this the chat UI would serve the
+# legacy registry while the API serves PROVIDERS_FILE's, and a broken file
+# would stop uvicorn but not the deployment serving traffic. After
+# action_config.load because the key_env warning reads the loaded action
+# policy's secrets.env globs; Reflex runs tasks in registration order.
+app.register_lifespan_task(provider_registry.load)
 # Same bypass again (STORY-016): app.main's fail-fast bootstrap guard would
 # otherwise never run for this ingress, so RBAC_ENABLED=true with zero
 # seeded users would boot the chat UI straight into a silent 401 wall

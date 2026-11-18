@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: large
 phase: "1 - Registry and legacy equivalence"
-status: todo
+status: in-progress
 labels: [backend, config, security]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
+plan: .agents/plans/PRD-020-provider-registry/STORY-003-registry-loader-and-validation.plan.md
 report: null
 commit: null
 depends_on: [STORY-002]
