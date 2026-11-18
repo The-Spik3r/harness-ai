@@ -11,7 +11,7 @@ status: done
 labels: [tests, caddy, integration]
 epic_branch: epic/PRD-019-multi-instance-deployment
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-007-balancer-routing-test.plan.md
-report: 
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-007-balancer-routing-test.report.md
 commit: ba1fbb2
 depends_on: [STORY-002, STORY-005, STORY-006]
 blocks: [STORY-008]
