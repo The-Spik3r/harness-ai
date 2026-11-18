@@ -7,12 +7,12 @@ type: spike
 priority: high
 complexity: medium
 phase: "1 - Survey and seams"
-status: todo
+status: done
 labels: [spike, streaming, research]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-001-streaming-survey.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-001-streaming-survey.report.md
+commit: pending
 depends_on: []
 blocks: [STORY-003, STORY-014, STORY-015]
 skills: []
