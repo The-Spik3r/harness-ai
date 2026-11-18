@@ -11,7 +11,7 @@ status: done
 labels: [backend, security, pii]
 epic_branch: epic/PRD-020-provider-registry
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-008-pii-input-relaxation.plan.md
-report: 
+report: .agents/reports/PRD-020-provider-registry/STORY-008-pii-input-relaxation.report.md
 commit: 8ab795e
 depends_on: [STORY-007]
 blocks: [STORY-014]
