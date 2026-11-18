@@ -3,14 +3,14 @@ story: STORY-004
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-004-caddy-balancer-spike.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: 2e0ac34
 status: COMPLETE
 completed: 2026-11-17
 ---
 
 # Implementation Report - STORY-004: Caddy balancer spike
 
-**Commit**: `pending`
+**Commit**: `2e0ac34`
 
 ## Summary
 

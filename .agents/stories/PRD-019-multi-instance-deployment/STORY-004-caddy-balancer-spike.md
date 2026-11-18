@@ -12,7 +12,7 @@ labels: [caddy, spike, infra]
 epic_branch: epic/PRD-019-multi-instance-deployment
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-004-caddy-balancer-spike.plan.md
 report: .agents/reports/PRD-019-multi-instance-deployment/STORY-004-caddy-balancer-spike.report.md
-commit: null
+commit: 2e0ac34
 depends_on: []
 blocks: [STORY-005]
 skills: []

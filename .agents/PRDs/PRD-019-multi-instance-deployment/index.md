@@ -6,7 +6,7 @@
 
 ## Progress
 
-3/11 stories done — 27%
+4/11 stories done — 36%
 
 ## Stories
 
@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-019-multi-instance-deployment`. 
 | STORY-001 | Readiness settings and database.check_ready() — a bounded, breaker-neutral SELECT 1 | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-001-readiness-settings-and-check-ready.plan.md) | `9682fcb` |
 | STORY-002 | GET /ready with the drain flag, routed through the in-container Caddy | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-002-ready-route-and-drain.plan.md) | `fa3e5dc` |
 | STORY-003 | Liveness HEALTHCHECK in the image (python urllib against /health) | technical | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-003-image-healthcheck.plan.md) | `95d9393` |
-| STORY-004 | Spike — verify Caddy cookie policy, health, error and retry behaviour against a pinned Caddy | spike | 🟡 in-progress | small | [plan](../../plans/PRD-019-multi-instance-deployment/STORY-004-caddy-balancer-spike.plan.md) | — |
+| STORY-004 | Spike — verify Caddy cookie policy, health, error and retry behaviour against a pinned Caddy | spike | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-004-caddy-balancer-spike.plan.md) | `2e0ac34` |
 | STORY-005 | Balancer Caddyfile, docker-compose.lb.yml and the static balancer test | feature | ⬜ todo | medium | — | — |
 | STORY-006 | CI installs a pinned Caddy binary; a shared caddy test helper with HARNESS_REQUIRE_CADDY | technical | ⬜ todo | small | — | — |
 | STORY-007 | Two-instance balancer test — harness, stickiness, limits, status table and 503 pass-through | feature | ⬜ todo | large | — | — |
