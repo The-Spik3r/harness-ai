@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-006-audit-provider-columns.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 581f7af
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-020-provider-registry/completed/STORY-006-audit-provider-columns.plan.md`
 **Epic Branch**: `epic/PRD-020-provider-registry`
-**Commit**: `pending`
+**Commit**: `581f7af`
 
 ## Summary
 

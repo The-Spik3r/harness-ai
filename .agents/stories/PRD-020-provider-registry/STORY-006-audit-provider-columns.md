@@ -12,7 +12,7 @@ labels: [backend, database]
 epic_branch: epic/PRD-020-provider-registry
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-006-audit-provider-columns.plan.md
 report: .agents/reports/PRD-020-provider-registry/STORY-006-audit-provider-columns.report.md
-commit: null
+commit: 581f7af
 depends_on: []
 blocks: [STORY-007]
 skills: []
