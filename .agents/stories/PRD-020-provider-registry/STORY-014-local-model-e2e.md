@@ -40,6 +40,7 @@ As a maintainer, I want an opt-in E2E run against a real local model server, so 
 - Server config by env vars with defaults: base URL default `http://127.0.0.1:11434/v1` (Ollama), model env var. The pinned model is NOT decided yet: the orchestrator will settle it with the user before this story is planned, so the plan must not pick one.
 - The test writes a registry through `tests/_providers.py` (OD2) with a keyless `ollama` provider (`trust: internal`, `usage_missing: estimate`) and starts the harness the way the other E2E tests do. Server version via `GET /api/version`, digest via `GET /api/tags` for Ollama; other servers record what they expose.
 - Section 8 states the E2E needs Ollama on `127.0.0.1:11434` with the pinned model pulled and is skipped when absent; the report location follows the `.agents/reports/` convention of the other stories.
+- Orchestrator decision (user, 2026-11-18): the E2E target is the local LM Studio-style server at `http://localhost:1235/v1`, model id `google/gemma-4-e4b` (listed by its `GET /v1/models`, keyless). It stays opt-in (skipped when the server is unreachable); the URL and model id come from env vars with these values as the documented example, never hard-coded as the only option.
 
 ## Dependencies
 

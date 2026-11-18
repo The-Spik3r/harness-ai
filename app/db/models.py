@@ -154,7 +154,7 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # `provider` is the registry provider name, `upstream_model` the id the
     # upstream was sent, `provider_trust` that provider's trust label,
     # `pii_input_relaxed` 1 when the label relaxed input redaction and
-    # `usage_estimated` 1 when the token counts are estimates (D9).
+    # `usage_estimated` 1 when the token counts are estimates (D8).
     "provider": "TEXT",
     "upstream_model": "TEXT",
     "provider_trust": "TEXT",
