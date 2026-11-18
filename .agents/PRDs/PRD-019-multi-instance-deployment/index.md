@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-019-multi-instance-deployment`. 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Readiness settings and database.check_ready() — a bounded, breaker-neutral SELECT 1 | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-001-readiness-settings-and-check-ready.plan.md) | `9682fcb` |
-| STORY-002 | GET /ready with the drain flag, routed through the in-container Caddy | feature | ⬜ todo | medium | — | — |
+| STORY-002 | GET /ready with the drain flag, routed through the in-container Caddy | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-019-multi-instance-deployment/STORY-002-ready-route-and-drain.plan.md) | — |
 | STORY-003 | Liveness HEALTHCHECK in the image (python urllib against /health) | technical | ⬜ todo | small | — | — |
 | STORY-004 | Spike — verify Caddy cookie policy, health, error and retry behaviour against a pinned Caddy | spike | ⬜ todo | small | — | — |
 | STORY-005 | Balancer Caddyfile, docker-compose.lb.yml and the static balancer test | feature | ⬜ todo | medium | — | — |
