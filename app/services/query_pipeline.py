@@ -26,11 +26,12 @@ from app.services.authz import (
     PERMISSION_QUERY_SUBMIT,
     PermissionDenied,
     authorize,
-    authorize_model,
+    authorize_route,
 )
 from app.services.conversation_key import conversation_key
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
+from app.services.provider_registry import Route
 from app.services.upstream import (
     GenerationParams,
     ToolParams,
@@ -249,6 +250,20 @@ def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
     return redact_for_policy(text, policy)
 
 
+def _route_fields(route: Optional[Route]) -> dict:
+    """The three audit columns taken from the resolved Route (PRD-020 D13, T8).
+
+    From the Route, never from the upstream result: `model_used` stays the
+    requested id. All None when no route exists yet (steps 0-2 denials)."""
+    if route is None:
+        return {"provider": None, "upstream_model": None, "provider_trust": None}
+    return {
+        "provider": route.provider.name,
+        "upstream_model": route.upstream_model,
+        "provider_trust": route.provider.trust,
+    }
+
+
 # PRD-018 D10/T5 (R1): a refusal is a release, and every refusal arm below
 # writes its row through `log_query`. When that row can be neither committed nor
 # journaled, `AuditUnavailableError` propagates and the request is refused with
@@ -296,8 +311,13 @@ def _deny(
     has_tool_calls: bool,
     exc: PermissionDenied,
     reason: str,
+    # Required for the same reason as the seven above (PRD-020 D13, STORY-007):
+    # a forgotten arm is a TypeError, not a row that cannot say where the
+    # request was routed. None for every arm at or before the model check.
+    route: Optional[Route],
 ) -> QueryBlockedForbiddenResponse:
     log_query(
+        **_route_fields(route),
         user_id=identity.user_id,
         prompt=prompt,
         device=device,
@@ -398,18 +418,19 @@ def run_conversation(
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
-            reason="Missing required permission",
+            reason="Missing required permission", route=None,
         )
 
     try:
-        authorize_model(identity, model)
+        # PRD-020 D3: one resolution here; the Route is carried to the audit rows.
+        route = authorize_route(identity, model)
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
-            reason="Model not permitted for this role",
+            reason="Model not permitted for this role", route=None,
         )
 
     if openrouter_api_key is not None:
@@ -421,7 +442,19 @@ def run_conversation(
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
-                reason="Missing required permission",
+                reason="Missing required permission", route=None,
+            )
+        # PRD-020 D10: the caller's key goes only to a provider declared
+        # `byok: true`. Refused before 2b/2c, so nothing is sent or charged.
+        # A label on the row like `query:model:{model}`, never an RBAC permission.
+        if not route.provider.byok:
+            return _deny(
+                identity, prompt, device, session_id=session_id, dedup_key=key,
+                profile=profile_name, ingress=ingress, message_count=message_count,
+                conversation_key=conv_key, streamed=streamed,
+                ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
+                exc=PermissionDenied(f"query:byok:{route.provider.name}"),
+                reason="Missing required permission", route=None,
             )
 
     # Step 2b: break-glass ingress policy (PRD-013 Sections 6.1, 6.8; D4, F12, T9).
@@ -444,6 +477,7 @@ def run_conversation(
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
             exc=PermissionDenied("ingress:break_glass"),
             reason="Break-glass credential not permitted on this ingress",
+            route=route,
         )
 
     # Step 2c: the usage gate (PRD-013 Sections 6.1, 6.5-6.7; D7, D8, F10).
@@ -485,6 +519,7 @@ def run_conversation(
         if not admission.admitted:
             refusal = admission.refusal
             log_query(
+                **_route_fields(route),
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -531,6 +566,7 @@ def run_conversation(
     if exceeded is not None:
         limit, maximum, actual = exceeded
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -563,6 +599,7 @@ def run_conversation(
 
     if duplicate_result.is_duplicate:
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -618,6 +655,7 @@ def run_conversation(
         # else in `.block` -- and is passed rather than spelled so the hit
         # stays the one source of what was done.
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -655,6 +693,7 @@ def run_conversation(
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -697,6 +736,7 @@ def run_conversation(
     if over is not None:
         maximum, actual = over
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -745,6 +785,7 @@ def run_conversation(
             redacted_content, entities = _redact(message.content, policy)
         except PiiRedactorError as exc:
             log_query(
+                **_route_fields(route),
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -785,6 +826,7 @@ def run_conversation(
         )
     except OpenRouterError as exc:
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -874,6 +916,7 @@ def run_conversation(
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
         except PiiRedactorError as exc:
             log_query(
+                **_route_fields(route),
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -918,6 +961,7 @@ def run_conversation(
     # `journal_decisions`, so the release below follows a commit or an fsync.
     try:
         audit_ref = log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,

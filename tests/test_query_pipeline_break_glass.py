@@ -323,7 +323,7 @@ def _trace_the_checks(monkeypatch) -> list:
     trace: list = []
     real = {
         "authorize": query_pipeline.authorize,
-        "authorize_model": query_pipeline.authorize_model,
+        "authorize_model": query_pipeline.authorize_route,  # PRD-020 D3, STORY-007: step 2 calls authorize_route
         "break_glass": query_pipeline._break_glass_refused,
         "admit": query_pipeline.admit,
         "context_limit": query_pipeline._context_limit_exceeded,
@@ -360,7 +360,8 @@ def _trace_the_checks(monkeypatch) -> list:
         return real["pattern"](messages, profile, **kwargs)
 
     monkeypatch.setattr(query_pipeline, "authorize", _spy_authorize)
-    monkeypatch.setattr(query_pipeline, "authorize_model", _spy_authorize_model)
+    # PRD-020 D3, STORY-007: step 2 calls authorize_route
+    monkeypatch.setattr(query_pipeline, "authorize_route", _spy_authorize_model)
     monkeypatch.setattr(query_pipeline, "_break_glass_refused", _spy_break_glass)
     monkeypatch.setattr(query_pipeline, "admit", _spy_admit)
     monkeypatch.setattr(query_pipeline, "_context_limit_exceeded", _spy_context_limit)

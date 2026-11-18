@@ -340,7 +340,7 @@ def test_check_order_puts_the_gate_between_authorization_and_the_context_limit(
     trace: list = []
     real = {
         "authorize": query_pipeline.authorize,
-        "authorize_model": query_pipeline.authorize_model,
+        "authorize_model": query_pipeline.authorize_route,  # PRD-020 D3, STORY-007: step 2 calls authorize_route
         "admit": query_pipeline.admit,
         "context_limit": query_pipeline._context_limit_exceeded,
         "duplicate": query_pipeline.check_duplicate,
@@ -376,7 +376,8 @@ def test_check_order_puts_the_gate_between_authorization_and_the_context_limit(
         return _answer(messages, model, api_key)
 
     monkeypatch.setattr(query_pipeline, "authorize", _spy_authorize)
-    monkeypatch.setattr(query_pipeline, "authorize_model", _spy_authorize_model)
+    # PRD-020 D3, STORY-007: step 2 calls authorize_route
+    monkeypatch.setattr(query_pipeline, "authorize_route", _spy_authorize_model)
     monkeypatch.setattr(query_pipeline, "admit", _spy_admit)
     monkeypatch.setattr(query_pipeline, "_context_limit_exceeded", _spy_context_limit)
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_duplicate)

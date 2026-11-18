@@ -139,7 +139,7 @@ def _install_order_spies(monkeypatch) -> list:
     trace: list = []
 
     real_authorize = query_pipeline.authorize
-    real_authorize_model = query_pipeline.authorize_model
+    real_authorize_model = query_pipeline.authorize_route  # PRD-020 D3, STORY-007: step 2 calls authorize_route
     real_context_limit = query_pipeline._context_limit_exceeded
     real_check_duplicate = query_pipeline.check_duplicate
     # PRD-011 STORY-008: the pattern collaborator is `inspect(messages,
@@ -174,7 +174,8 @@ def _install_order_spies(monkeypatch) -> list:
         return real_redact(text)
 
     monkeypatch.setattr(query_pipeline, "authorize", _spy_authorize)
-    monkeypatch.setattr(query_pipeline, "authorize_model", _spy_authorize_model)
+    # PRD-020 D3, STORY-007: step 2 calls authorize_route
+    monkeypatch.setattr(query_pipeline, "authorize_route", _spy_authorize_model)
     monkeypatch.setattr(query_pipeline, "_context_limit_exceeded", _spy_context_limit)
     monkeypatch.setattr(query_pipeline, "check_duplicate", _spy_check_duplicate)
     monkeypatch.setattr(query_pipeline, "inspect", _spy_inspect)

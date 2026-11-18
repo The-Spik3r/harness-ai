@@ -108,7 +108,7 @@ AUDIT_UNAVAILABLE_MESSAGE = (
     "Storage is unavailable; the response could not be recorded, so it was not released."
 )
 
-# The forbidden labels the pipeline writes (authz.authorize_model, step 2b).
+# The forbidden labels the pipeline writes (authz.authorize_route, step 2b).
 _MODEL_PERMISSION_PREFIX = "query:model:"
 _BREAK_GLASS_PERMISSION = "ingress:break_glass"
 
