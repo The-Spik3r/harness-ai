@@ -14,24 +14,24 @@ application are read from the settings model: `OPENROUTER_TIMEOUT_SECONDS`
 and `READY_DB_TIMEOUT_SECONDS`.
 
 No Docker and no storage: this runs under `-m "not db"`. The last test runs
-`caddy validate` when a Caddy binary is found (`CADDY_BIN` or `PATH`) and is
-skipped otherwise.
+`caddy validate` when a Caddy binary is found (`CADDY_BIN` or `PATH`); without
+one it is skipped locally and fails under `HARNESS_REQUIRE_CADDY=1`, which CI
+sets (PRD-019 D8, via tests/_caddy.py).
 """
 
 import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 
-import pytest
 import yaml
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
 from app.config import Settings
+from tests._caddy import caddy_binary, caddy_env, free_port
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _CADDYFILE = _ROOT / "deploy" / "lb" / "Caddyfile"
@@ -233,16 +233,10 @@ def test_compose_lb_service():
 
 def test_caddy_validate_accepts_the_file():
     # PRD-019 F3 (verified in STORY-004): the shipped file is accepted by the
-    # pinned Caddy. Optional: skipped when no binary is available.
-    caddy = shutil.which(os.environ.get("CADDY_BIN") or "caddy")
-    if caddy is None:
-        pytest.skip("no caddy binary (set CADDY_BIN or put caddy on PATH)")
-    env = {
-        **os.environ,
-        "PORT": "8000",
-        "LB_COOKIE_SECRET": "test-secret",
-        "CADDY_ADMIN": "localhost:0",
-    }
+    # pinned Caddy. Skipped locally without a binary; fails under
+    # HARNESS_REQUIRE_CADDY=1, as CI sets it (PRD-019 D8).
+    caddy = caddy_binary()
+    env = caddy_env(8000, free_port())
     result = subprocess.run(
         [caddy, "validate", "--config", str(_CADDYFILE), "--adapter", "caddyfile"],
         env=env,

@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: small
 phase: "2 - Balancer"
-status: todo
+status: done
 labels: [ci, tests, caddy]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
-report: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-006-ci-pinned-caddy.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-006-ci-pinned-caddy.report.md
 commit: null
 depends_on: [STORY-005]
 blocks: [STORY-007]
