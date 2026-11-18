@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-005-balancer-caddyfile-and-compose.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: 7e0efde
 status: COMPLETE
 completed: 2026-11-17
 ---
