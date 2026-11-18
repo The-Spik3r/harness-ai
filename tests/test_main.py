@@ -34,6 +34,104 @@ def test_health_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
+# --- GET /ready (PRD-019 STORY-002, Section 10) -----------------------------------
+
+
+@pytest.fixture
+def ready_env(monkeypatch, tmp_path):
+    """Drain file absent; `check_ready` stubbed. Returns (drain_path, set_check, calls)."""
+    drain = tmp_path / "drain"
+    monkeypatch.setattr(settings, "DRAIN_FILE", str(drain))
+    calls = []
+    state = {"check": database.ReadyCheck(None, "closed")}
+
+    def fake_check_ready():
+        calls.append(1)
+        return state["check"]
+
+    monkeypatch.setattr(database, "check_ready", fake_check_ready)
+    return drain, (lambda c: state.update(check=c)), calls
+
+
+def test_ready_returns_200_when_ready(ready_env):
+    response = client.get("/ready")  # no auth header: the probe is unauthenticated
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "breaker": "closed"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_ready_draining_is_503_and_skips_check_ready(ready_env):
+    drain, _set, calls = ready_env
+    drain.write_text("")
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "reason": "draining"}
+    assert response.headers["cache-control"] == "no-store"
+    assert "retry-after" not in response.headers
+    assert calls == []  # D5: a drained instance never reads the breaker or the DB
+    drain.unlink()
+    assert client.get("/ready").status_code == 200  # removal restores readiness
+
+
+@pytest.mark.parametrize("state", ["open", "half_open"])
+def test_ready_breaker_open_has_breaker_and_retry_after(ready_env, state):
+    _drain, set_check, _calls = ready_env
+    set_check(database.ReadyCheck("breaker_open", state, 7))
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "reason": "breaker_open", "breaker": state}
+    assert response.headers["retry-after"] == "7"
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("reason", ["database_unreachable", "database_auth"])
+def test_ready_database_reasons_have_no_breaker_or_retry_after(ready_env, reason):
+    _drain, set_check, _calls = ready_env
+    set_check(database.ReadyCheck(reason, "unknown"))
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "reason": reason}
+    assert "retry-after" not in response.headers
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    "check",
+    [
+        database.ReadyCheck(None, "closed"),
+        database.ReadyCheck("breaker_open", "open", 3),
+        database.ReadyCheck("database_unreachable", "unknown"),
+        database.ReadyCheck("database_auth", "unknown"),
+    ],
+)
+def test_ready_bodies_leak_no_endpoint_or_error_text(ready_env, check):
+    _drain, set_check, _calls = ready_env
+    set_check(check)
+    body = client.get("/ready").text
+    for needle in ("://", "libsql", "Traceback"):
+        assert needle not in body
+
+
+def test_drain_file_leaves_health_and_other_routes_unchanged(ready_env):
+    drain, _set, _calls = ready_env
+    before = [client.get(p) for p in ("/health", "/v1/models")]
+    drain.write_text("")
+    after = [client.get(p) for p in ("/health", "/v1/models")]
+    # PRD-019 D3: the drain flag affects only /ready.
+    for b, a in zip(before, after):
+        assert (b.status_code, b.content) == (a.status_code, a.content)
+    assert after[0].json() == {"status": "ok"}
+
+
+def test_ready_reads_the_drain_file_at_call_time(ready_env, monkeypatch, tmp_path):
+    drain, _set, _calls = ready_env
+    assert client.get("/ready").status_code == 200
+    other = tmp_path / "other-drain"
+    other.write_text("")
+    monkeypatch.setattr(settings, "DRAIN_FILE", str(other))  # PRD-019 D4: no import-time read
+    assert client.get("/ready").status_code == 503
+
+
 @pytest.fixture
 def _small_model_and_reset(monkeypatch, temp_db):
     monkeypatch.setattr(settings, "PII_NLP_MODEL", "en_core_web_sm")

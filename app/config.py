@@ -1,4 +1,5 @@
 import re
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -433,6 +434,14 @@ class Settings(BaseSettings):
     # Consumed by STORY-009 (open) and STORY-011 (headroom).
     AUDIT_BUFFER_MAX_BYTES: int = 67_108_864
 
+    # Readiness (PRD-019 Section 9.3, D3, D5). `DRAIN_FILE`: while this file
+    # exists `/ready` answers 503 `draining` (STORY-002 reads it). An absolute
+    # path, POSIX or Windows. `READY_DB_TIMEOUT_SECONDS`: the deadline of the one
+    # `SELECT 1` behind `/ready`; keep it under the balancer's health timeout (3 s,
+    # asserted against the Caddyfile by STORY-005).
+    DRAIN_FILE: str = "/tmp/harness-drain"
+    READY_DB_TIMEOUT_SECONDS: float = 2.0
+
     @field_validator("DATABASE_URL")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -599,6 +608,31 @@ class Settings(BaseSettings):
                 "a row (PRD-018 D9). Example: AUDIT_BUFFER_DIR=./var/audit-buffer."
             )
         return directory
+
+    @field_validator("DRAIN_FILE")
+    @classmethod
+    def _validate_drain_file(cls, value: str) -> str:
+        """A non-empty absolute path, POSIX or Windows; nothing is created here (PRD-019 D3)."""
+        path = value.strip()
+        if not path or not (PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute()):
+            raise ValueError(
+                f"DRAIN_FILE must be a non-empty absolute path, got {value!r}. While "
+                "the file exists /ready answers 503 'draining' (PRD-019 D3). "
+                "Example: DRAIN_FILE=/tmp/harness-drain."
+            )
+        return path
+
+    @field_validator("READY_DB_TIMEOUT_SECONDS")
+    @classmethod
+    def _validate_ready_db_timeout_seconds(cls, value: float) -> float:
+        """`> 0` and `<= 10`; the comparison also rejects NaN (PRD-019 Section 9.3)."""
+        if not (0 < value <= 10):
+            raise ValueError(
+                f"READY_DB_TIMEOUT_SECONDS must be greater than 0 and at most 10, got {value}. "
+                "It is the deadline in seconds of the SELECT 1 behind /ready and must stay "
+                "under the balancer's health timeout. Example: READY_DB_TIMEOUT_SECONDS=2.0."
+            )
+        return value
 
     @field_validator("PII_ENTITIES_CODE")
     @classmethod

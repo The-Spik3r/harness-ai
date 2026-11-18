@@ -65,5 +65,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # PRD-019 D8: the balancer tests run a real Caddy. The version matches the
+      # image tag in docker-compose.lb.yml and PINNED_CADDY_VERSION in
+      # tests/_caddy.py (tests/test_caddy_pin.py cross-checks all three; bump
+      # them together). The release publishes a SHA-512 checksum file only, so
+      # the SHA-256 below is the one recorded in STORY-004.
+      - name: Install pinned Caddy
+        env:
+          CADDY_VERSION: "2.11.7"
+          CADDY_SHA256: "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b"
+        run: |
+          curl -fsSL --retry 3 -o caddy.tar.gz "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          echo "${CADDY_SHA256}  caddy.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/caddy-bin"
+          tar -xzf caddy.tar.gz -C "$RUNNER_TEMP/caddy-bin" caddy
+          echo "$RUNNER_TEMP/caddy-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/caddy-bin/caddy" version
+
       - name: Run tests
+        # A missing caddy binary must fail the caddy tests, never skip them.
+        env:
+          HARNESS_REQUIRE_CADDY: "1"
         run: pytest -q

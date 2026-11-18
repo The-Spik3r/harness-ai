@@ -32,6 +32,12 @@ def test_expected_harness_routes_present():
     assert {"/query", "/audit", "/stats", "/health"} <= _harness_route_paths()
 
 
+def test_ready_route_present_and_not_reserved():
+    # PRD-019 STORY-002 (F1): GET /ready exists and does not collide with Reflex.
+    assert "/ready" in _harness_route_paths()
+    assert "/ready" not in REFLEX_RESERVED_ROUTES
+
+
 def test_v1_routes_present_when_enabled():
     # PRD-015 STORY-009. The default is on; STORY-012 adds /v1/models here.
     assert settings.V1_ENABLED

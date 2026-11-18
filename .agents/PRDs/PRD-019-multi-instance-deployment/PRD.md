@@ -2,11 +2,11 @@
 id: PRD-019
 slug: multi-instance-deployment
 title: Multi-Instance Deployment — Load Balancer, Health Checks and Websocket Session Affinity
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-019-multi-instance-deployment
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 ## 1. Executive Summary
@@ -37,7 +37,7 @@ Core principles:
 
 **Integrating Developer (`/v1`, `POST /query`).** Points an OpenAI SDK, Aider or OpenCode at the balancer. Needs long non-streaming calls (up to `OPENROUTER_TIMEOUT_SECONDS`) and buffered SSE streams to survive two proxy hops, and usage limits that hold across instances (already true, PRD-013).
 
-**PRD-018 (database resilience, draft).** Lands before this PRD. It adds one process-local breaker (`closed | open | half_open`), `StorageUnavailableError` and 503 + `Retry-After` on every ingress. `/ready` reads that breaker through `database.storage_status()`, never adds to its failure count, and keeps the 503s it produces intact on their way through the balancer (D5, D9).
+**PRD-018 (database resilience, done, merged in #27).** Landed before this PRD. It adds one process-local breaker (`closed | open | half_open`), `StorageUnavailableError` and 503 + `Retry-After` on every ingress. `/ready` reads that breaker through `database.storage_status()`, never adds to its failure count, and keeps the 503s it produces intact on their way through the balancer (D5, D9).
 
 ## 4. MVP Scope
 
@@ -205,15 +205,17 @@ reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {
 	}
 	stream_close_delay 5m
 }
-handle_errors 502 503 {
+handle_errors 502 503 504 {
 	header Retry-After 10
 	@v1 path /v1/*
-	respond @v1 `{"error":{"message":"Service unavailable; the request was not sent to the model.","type":"api_error","param":null,"code":"service_unavailable"}}` 503
+	respond @v1 `{"error":{"message":"Service unavailable. Retry after the Retry-After interval.","type":"api_error","param":null,"code":"service_unavailable"}}` 503
 	respond `{"detail":"Service unavailable"}` 503
 }
 ```
 
-`handle_errors` only fires for errors the balancer generates itself, such as no healthy upstream or a failed dial. A 503 returned by an instance is a proxied response, so it passes through untouched with its own `Retry-After` (D9). `Retry-After: 10` is PRD-018's `_BREAKER_OPEN_SECONDS`.
+`handle_errors` fires for errors the balancer raises: no healthy upstream (503 after `lb_try_duration`, about 5 s) and a failed dial, and also a connection an instance breaks after receiving the request (Caddy raises 502, rewritten to this 503, never replayed). A 503 returned by an instance is a proxied response, so it passes through untouched with its own `Retry-After` (D9); verified in STORY-004. `response_header_timeout` expiry is a 504 with an empty body. **Orchestrator decision (after STORY-004):** `handle_errors` catches 502, 503 and 504 and answers all three with the same 503 + `Retry-After: 10`, and the `/v1` message is neutral ("Service unavailable. Retry after the Retry-After interval."), because a mid-flight break or a header timeout has already reached an instance and the old text ("the request was not sent to the model") would be false there. The request is still never replayed (D9). `Retry-After: 10` is PRD-018's `_BREAKER_OPEN_SECONDS`.
+
+Verified against Caddy 2.11.7 (STORY-004): every directive above is accepted as written. The cookie is `harness_lb=<64 hex, HMAC-SHA-256 of the upstream>; Path=/; HttpOnly; SameSite=Lax` (no `Secure`, session cookie), re-set when the pinned upstream is unhealthy or dead, and an empty `LB_COOKIE_SECRET` is silently accepted (compose's `${LB_COOKIE_SECRET:?}` is the only guard). Upstream override for tests: an env default does not parse (`{$X:a:{$PORT} b:{$PORT}}` stops at the first `}`), so the test replaces the one line `reverse_proxy harness-a:{$PORT} harness-b:{$PORT} {` textually and asserts everything else is byte-identical. Parallel `caddy run` processes collide on the admin port `localhost:2019`; set env `CADDY_ADMIN=localhost:<free port>` per process.
 
 `response_header_timeout` is `OPENROUTER_TIMEOUT_SECONDS` (120) + 30 s (D6). `stream_close_delay` keeps websockets open across a balancer config reload instead of dropping every chat at once. The final directive set is pinned by `tests/test_lb_caddyfile.py`.
 
@@ -244,7 +246,7 @@ The script refuses to start if any instance is not ready, so it never drains the
 |---|---|---|
 | Reflex | `0.9.6.post1` (`requirements.txt`, `chat_ui/requirements.txt`) | disk state manager, websocket-only transport; unchanged |
 | Caddy (in image) | unpinned, Cloudsmith `stable` apt repo ([Dockerfile:44-50](../../../Dockerfile)) | unchanged by this PRD (Risk 5) |
-| Caddy (balancer) | official `caddy:2.<minor>` image, pinned by digest | new; same binary version pinned in CI |
+| Caddy (balancer) | official `caddy:2.11.7` image, pinned by digest `sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e` | new; same binary version (`v2.11.7`) pinned in CI; its Linux tarball SHA-256 `727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b` goes in STORY-006's workflow (STORY-004) |
 | FastAPI / uvicorn[standard] | as in `requirements.txt` | uvicorn runs the instances in `test_two_instance_balancer.py`; `websockets` (from `[standard]`) drives the E2E upgrade check |
 | libSQL dev server | CI service, pinned by digest (`ci.yml`) | shared by both instances in tests |
 
@@ -323,13 +325,13 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 ### Phase 1 — Probes (Stories 1–3)
 `DRAIN_FILE` and `READY_DB_TIMEOUT_SECONDS` settings; `check_ready()`; `GET /ready`; Caddyfile matcher plus the route tests; image `HEALTHCHECK`. *Validation:* unit tests against the libSQL CI service and a blackholed URL; `docker build` passes.
 
-### Phase 2 — Balancer (Stories 4–6)
+### Phase 2 — Balancer (Stories 4–6: STORY-004 spike, STORY-005 Caddyfile + compose, STORY-006 CI Caddy)
 `deploy/lb/Caddyfile`; `docker-compose.lb.yml`; `tests/test_lb_caddyfile.py`; CI installs pinned Caddy. *Validation:* the static test passes; `docker compose -f docker-compose.lb.yml config` is valid.
 
-### Phase 3 — Proof (Stories 7–9)
+### Phase 3 — Proof (Stories 7–10: STORY-007 routing, STORY-008 drain/kill/long calls, STORY-009 rolling restart, STORY-010 Docker E2E)
 `tests/test_two_instance_balancer.py` (stickiness, limits, drain, kill, long calls, SSE); Docker E2E for the websocket and failover; `scripts/rolling_restart.sh`, exercised by the E2E. *Validation:* CI green; E2E green locally with `--run-e2e`.
 
-### Phase 4 — Docs (Story 10)
+### Phase 4 — Docs (Story 11)
 `docs/deployment.md`, `docs/configuration.md`, `docs/roadmap.md`, README, `.env.example`. *Validation:* every setting named in the docs exists in `app/config.py` or the compose file.
 
 ## 13. Future Considerations
@@ -349,7 +351,7 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 | 3 | **A third-party balancer's idle timeout (often 60 s) cuts long non-streaming calls** | High / Medium | Timeout invariant in D6, with numbers. `/v1` streaming is already covered by keep-alives |
 | 4 | **Instances run with different policy files or `.env`**, so the answer depends on which instance a request hits | Medium / High | One YAML anchor and one `env_file` in `docker-compose.lb.yml`. A config fingerprint is future work |
 | 5 | **Unpinned in-image Caddy and pinned balancer Caddy drift** in websocket or flush behaviour | Low / Medium | The E2E runs the real image behind the pinned balancer; pinning the in-image Caddy is noted as follow-up |
-| 6 | **Caddy cookie-policy details** (attributes, fallback on an unhealthy upstream) differ from this PRD's assumptions | Medium / Medium | STORY-004 verifies them against the pinned Caddy version before the tests are written; the PRD is corrected if they differ |
+| 6 | **Caddy cookie-policy details** (attributes, fallback on an unhealthy upstream) differ from this PRD's assumptions | Medium / Medium | **Verified in STORY-004 against Caddy 2.11.7.** Fallback and re-set work as assumed; differences: no `Secure` attribute, an empty secret is accepted silently, and a header timeout is an empty 504 outside `handle_errors` (see F3) |
 
 ## 15. Appendix
 
@@ -388,10 +390,15 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 - `tests/test_two_instance_smoke.py`: `subprocess.Popen` children speaking JSON over pipes via `TestClient`; no HTTP ports.
 - `scripts/stub_openrouter.py`: `delay_seconds` rules and `GET /health`, used for the long-call tests.
 
-### Not verified in code (to confirm in STORY-004)
-- Caddy `lb_policy cookie`: the cookie's attributes (HttpOnly, SameSite) and that it re-selects and re-sets the cookie when the pinned upstream is unhealthy.
-- The exact status Caddy returns when no upstream is healthy (502 vs 503), that `handle_errors` catches it but not a proxied upstream 503, that a sent non-GET request is never retried on another upstream without `retry_match`, and that `stream_close_delay` is available in the pinned version.
-- That the disk state manager's pickle includes backend vars such as `_token` (inferred from state persistence semantics; T5 holds either way for the in-memory copy).
+### Verified (STORY-004, Caddy 2.11.7)
+- `lb_policy cookie`: `Set-Cookie: harness_lb=<64 hex>; Path=/; HttpOnly; SameSite=Lax`; no re-set on a valid cookie; garbage cookie ignored and re-set; pinned upstream unhealthy or dead: another upstream answers (0.25 s for a dead one, one health interval for an unready one) with a new cookie.
+- No healthy upstream: **503** (not 502) after 5.01 s (`lb_try_duration`); `handle_errors 502 503` catches it with `Retry-After: 10` and the fixed bodies, and `@v1 path /v1/*` sees the original path. A proxied instance 503 passes through byte-identical (`Retry-After: 7` kept) and the instance stays in rotation.
+- Retry: with no `retry_match`, a POST that reached an instance is never replayed (instance drops the connection: 503 from `handle_errors`, other instance got 0 requests; header timeout: 504, other instance 0). GET is retried. Dial failures are retried for any method.
+- `stream_close_delay`, `lb_try_duration`, `health_*`, `fail_duration`, `transport http {dial_timeout response_header_timeout}` and `handle_errors 502 503` are all accepted (`caddy validate`, `caddy adapt`).
+
+### Not verified
+- That the disk state manager's pickle includes backend vars such as `_token`: read from code only (`reflex/state.py:2051-2072` `__getstate__` copies `__dict__`, so backend vars are included), not run. T5 holds either way for the in-memory copy.
+- Websocket pass-through and `stream_close_delay` on a config reload (only the directive's acceptance was checked); the Docker image as a balancer upstream (only `caddy version` was run in the image).
 
 ### Related documents
 - PRD-002 (Reflex chat UI): single-port Caddy layout, the `@backend_routes` matcher
@@ -399,10 +406,10 @@ The compose stack runs two instances behind the balancer. Stickiness, drain, fai
 - PRD-008 (chat sessions): transcripts in the database, which is why failover loses no chat
 - PRD-013 (usage limits): limits shared across instances
 - PRD-015 (OpenAI-compatible endpoint): buffered SSE, keep-alives, the Docker smoke and probe
-- [PRD-018](../PRD-018-db-resilience/PRD.md) (database resilience, **draft**): D6 (process-local breaker, half-open `SELECT 1`), D7 (`StorageUnavailableError`), D8 (503 + `Retry-After` on every ingress), D16 (`/storage/status`, `/health` unchanged), D17 (boot unchanged). Consumed by D3, D5 and D9 and by the journal volume in F4
+- [PRD-018](../PRD-018-db-resilience/PRD.md) (database resilience, **done**): D6 (process-local breaker, half-open `SELECT 1`), D7 (`StorageUnavailableError`), D8 (503 + `Retry-After` on every ingress), D16 (`/storage/status`, `/health` unchanged), D17 (boot unchanged). Consumed by D3, D5 and D9 and by the journal volume in F4
 
 ### Dependencies
-- Depends on: PRD-007 (done) and PRD-018 (draft, to land first). It needs `database.storage_status()` and the breaker states, the shared `AUDIT_BUFFER_DIR` volume and PRD-018's ingress 503s. If this PRD is started first, step 2 of `/ready` is stubbed as `closed` and the D9 pass-through tests wait for PRD-018.
+- Depends on: PRD-007 (done) and PRD-018 (done, merged in #27). It needs `database.storage_status()` and the breaker states, the shared `AUDIT_BUFFER_DIR` volume and PRD-018's ingress 503s.
 - Blocks: none.
 
 **Skills referenced:** none

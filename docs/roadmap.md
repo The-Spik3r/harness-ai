@@ -26,12 +26,12 @@ What has shipped, what is next, and design notes for the planned work. The READM
 
 ### Next up — resilience
 
-Database resilience has shipped ([PRD-018](../.agents/PRDs/PRD-018-db-resilience/PRD.md)): a retry and circuit breaker on the database path, and a journal for audit writes, described in [What a database outage does](deployment.md#what-a-database-outage-does). What remains is on the provider side, and it is still true there that a transient OpenRouter outage fails requests rather than degrading them. The harness fronts a single upstream provider with no fallback, and the chat UI cannot yet run behind a balancer:
+Database resilience has shipped ([PRD-018](../.agents/PRDs/PRD-018-db-resilience/PRD.md)): a retry and circuit breaker on the database path, and a journal for audit writes, described in [What a database outage does](deployment.md#what-a-database-outage-does). What remains is on the provider side, and it is still true there that a transient OpenRouter outage fails requests rather than degrading them. The harness fronts a single upstream provider with no fallback, and the chat UI now runs behind a balancer (see [Multiple instances](deployment.md#multiple-instances)):
 
 - [x] **Retry and circuit breaker** on the database path, shipped in [PRD-018](../.agents/PRDs/PRD-018-db-resilience/PRD.md): a brief blip is ridden out instead of surfaced as a `500`, and a breaker that opens still refuses rather than waving requests through; the duplicate check and usage gate fail closed. See [What a database outage does](deployment.md#what-a-database-outage-does).
 - [x] **Offline buffering of audit writes**, shipped in [PRD-018](../.agents/PRDs/PRD-018-db-resilience/PRD.md): an audit row that cannot land is journaled and drained, so it is not lost to a storage blip. The gate checks are not buffered, by design. Not covered: a resend on another instance before the drain (T4), and a stalled driver call.
 - [ ] **A second provider as fallback to OpenRouter.** The project's own thesis is a control plane in front of LLM traffic, and a control plane tied to one upstream is a single point of failure. The pipeline is already provider-agnostic at the call boundary; what is missing is a configured fallback and the policy for when to use it.
-- [ ] **Websocket session affinity**, so the chat UI can run behind a load balancer. The chat holds a websocket per session, so a round-robin balancer without sticky sessions is not supported today — see [Multiple instances](deployment.md#multiple-instances).
+- [x] **Websocket session affinity**, so the chat UI can run behind a load balancer. Shipped (PRD-019): a sticky, health-checked Caddy balancer in `docker-compose.lb.yml`, a `/ready` probe and a rolling restart script — see [Multiple instances](deployment.md#multiple-instances).
 
 ### Planned
 

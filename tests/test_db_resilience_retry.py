@@ -686,7 +686,15 @@ _PER_CALL_KIND = {
 # D17: the boot path keeps its direct session and fails fast; `get_connection` is the
 # raw transaction handle thirteen test modules open themselves.
 # PRD-018 STORY-012: `storage_status` reads memory only (D16), so it runs no unit.
-_EXEMPT = {"get_connection", "check_database_reachable", "init_db", "storage_status"}
+# PRD-019 STORY-001 (D5): `check_ready` is the boot check's runtime twin, outside the
+# unit on purpose: never retried, never a breaker sample.
+_EXEMPT = {
+    "get_connection",
+    "check_database_reachable",
+    "init_db",
+    "storage_status",
+    "check_ready",
+}
 
 
 def _top_level_functions():
@@ -762,9 +770,12 @@ def test_nothing_opens_a_session_outside_the_unit_and_the_boot_path():
         "_unit_of_work",
         "init_db",
     }
+    # PRD-019 STORY-001 (D5): `check_ready`'s bounded SELECT 1 opens the raw handle
+    # like the boot check, outside `_unit_of_work`, so probes never move the breaker.
     assert {n for n, f in functions.items() if _calls_to(f, "get_connection")} == {
         "_session",
         "check_database_reachable",
+        "check_ready",
     }
 
 

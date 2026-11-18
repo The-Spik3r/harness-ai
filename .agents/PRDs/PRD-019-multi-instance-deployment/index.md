@@ -2,19 +2,43 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-019-multi-instance-deployment` (base: `main`)
-**Status**: draft
+**Status**: done
+
+## Progress
+
+11/11 stories done — 100%
 
 ## Stories
 
-_No stories yet. Run `/create-stories .agents/PRDs/PRD-019-multi-instance-deployment/PRD.md` to generate._
-
 All stories commit on the epic branch `epic/PRD-019-multi-instance-deployment`. No per-story branches.
 
-| ID | Title | Status | Plan | Commit |
-|----|-------|--------|------|--------|
+| ID | Title | Type | Status | Complexity | Plan | Commit |
+|----|-------|------|--------|------------|------|--------|
+| STORY-001 | Readiness settings and database.check_ready() — a bounded, breaker-neutral SELECT 1 | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-001-readiness-settings-and-check-ready.plan.md) | `9682fcb` |
+| STORY-002 | GET /ready with the drain flag, routed through the in-container Caddy | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-002-ready-route-and-drain.plan.md) | `fa3e5dc` |
+| STORY-003 | Liveness HEALTHCHECK in the image (python urllib against /health) | technical | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-003-image-healthcheck.plan.md) | `95d9393` |
+| STORY-004 | Spike — verify Caddy cookie policy, health, error and retry behaviour against a pinned Caddy | spike | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-004-caddy-balancer-spike.plan.md) | `2e0ac34` |
+| STORY-005 | Balancer Caddyfile, docker-compose.lb.yml and the static balancer test | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-005-balancer-caddyfile-and-compose.plan.md) | `7e0efde` |
+| STORY-006 | CI installs a pinned Caddy binary; a shared caddy test helper with HARNESS_REQUIRE_CADDY | technical | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-006-ci-pinned-caddy.plan.md) | `a5ea151` |
+| STORY-007 | Two-instance balancer test — harness, stickiness, limits, status table and 503 pass-through | feature | ✅ done | large | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-007-balancer-routing-test.plan.md) | `ba1fbb2` |
+| STORY-008 | Balancer test — drain, kill, 100 s calls and SSE keep-alives through both Caddies | feature | ✅ done | large | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-008-balancer-drain-kill-long-calls.plan.md) | `a366a81` |
+| STORY-009 | scripts/rolling_restart.sh — drain, wait, recreate, wait ready, one instance at a time | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-009-rolling-restart-script.plan.md) | `2159d19` |
+| STORY-010 | Opt-in Docker E2E — websocket stickiness, kill and reconnect, rolling restart | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-010-docker-e2e-websocket-failover.plan.md) | `64a148c` |
+| STORY-011 | Docs — multi-instance deployment, settings, roadmap tick; PRD close-out | technical | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-011-multi-instance-docs.plan.md) | `9633f67` |
 
-## Legend
-- `todo` — not started
-- `in-progress` — plan exists, work underway
-- `done` — committed on epic branch
-- `blocked` — waiting on dependency
+## Status Icons
+- ⬜ todo
+- 🟡 in-progress
+- ✅ done
+- 🔴 blocked
+
+## Dependencies
+
+- STORY-002 blocked by STORY-001
+- STORY-005 blocked by STORY-002, STORY-003, STORY-004
+- STORY-006 blocked by STORY-005
+- STORY-007 blocked by STORY-002, STORY-005, STORY-006
+- STORY-008 blocked by STORY-007
+- STORY-009 blocked by STORY-005
+- STORY-010 blocked by STORY-008, STORY-009
+- STORY-011 blocked by STORY-010

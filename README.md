@@ -357,7 +357,7 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 | [Features in depth](docs/features.md) | Duplicate-detection scope, multi-turn context, pattern policy, PII redaction, usage limits, the OpenAI-compatible endpoint and its per-client setup, action policy rules and tool calling — full behaviour and the threat reasoning behind each. |
 | [Configuration](docs/configuration.md) | Every environment variable, its default, and what it changes. |
 | [API reference](docs/api.md) | `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, `POST /v1/chat/completions` and `GET /v1/models` — every request and response shape, and the `/v1` error codes. |
-| [Persistence & deployment](docs/deployment.md) | Where state lives, what is stored and who can read it, what a database outage does, multi-instance notes, and migrating off SQLite. |
+| [Persistence & deployment](docs/deployment.md) | Where state lives, what is stored and who can read it, what a database outage does, running two instances behind a balancer (affinity, probes, timeouts, rolling restart), and migrating off SQLite. |
 | [Testing](docs/testing.md) | Running the suite, the libSQL diagnostics verdicts, and troubleshooting. |
 | [Roadmap](docs/roadmap.md) | Shipped, next up, and design notes for the planned work. |
 
@@ -365,9 +365,9 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 
 ## Roadmap
 
-**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), action policy rules, tool calling on `/v1` (OpenCode and Cline in agent mode, off by default), and database resilience (retry, circuit breaker, an audit journal and `GET /storage/status`).
+**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), action policy rules, tool calling on `/v1` (OpenCode and Cline in agent mode, off by default), database resilience (retry, circuit breaker, an audit journal and `GET /storage/status`), and multi-instance deployment (a sticky, health-checked balancer, `GET /ready` and a rolling restart; see [Multiple instances](docs/deployment.md#multiple-instances)).
 
-**Next up** — provider resilience: a second provider as fallback to OpenRouter, and websocket session affinity so the harness can run behind a load balancer. Database resilience has shipped (retry, circuit breaker and an audit journal, PRD-018): see [What a database outage does](docs/deployment.md#what-a-database-outage-does). A transient OpenRouter outage still fails requests rather than degrading them.
+**Next up** — provider resilience: a second provider as fallback to OpenRouter. Database resilience has shipped (retry, circuit breaker and an audit journal, PRD-018): see [What a database outage does](docs/deployment.md#what-a-database-outage-does). A transient OpenRouter outage still fails requests rather than degrading them.
 
 **Planned** — semantic (not just exact-match) duplicate detection, and MCP servers and agent skills behind the same pipeline.
 

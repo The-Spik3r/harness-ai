@@ -377,7 +377,9 @@ def test_only_the_unit_of_work_consults_the_breaker():
     }
     # PRD-018 STORY-012: `storage_status()` reads `.status()` only (D16); the
     # docstring above announced it.
-    assert users == {"_unit_of_work", "storage_status"}
+    # PRD-019 STORY-001 (D5): `check_ready()` joins them, and like `storage_status()`
+    # it only reads `.status()`; test_db_check_ready.py proves it never moves the breaker.
+    assert users == {"_unit_of_work", "storage_status", "check_ready"}
     functions = _top_level_functions()
     for name in ("init_db", "check_database_reachable"):
         assert _calls_to(functions[name], "_unit_of_work") == [], name

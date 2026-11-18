@@ -1,9 +1,11 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.db import journal_drainer
+from app.db import database, journal_drainer
 from app.db.database import init_db
 from app.routers import admin as admin_router
 from app.routers import query as query_router
@@ -48,3 +50,27 @@ if settings.V1_ENABLED:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready() -> JSONResponse:
+    # PRD-019 F1/F2: the load balancer's gate. The drain file is read per call
+    # (D4), first, so a drained instance answers without touching the breaker or
+    # the database. check_ready() never moves PRD-018's breaker (D5); /health stays
+    # the liveness probe and ignores the drain flag (D3). No endpoint or error text
+    # in any body (Section 10).
+    headers = {"Cache-Control": "no-store"}
+    if os.path.exists(settings.DRAIN_FILE):
+        return JSONResponse(
+            status_code=503, content={"status": "not_ready", "reason": "draining"}, headers=headers
+        )
+    check = database.check_ready()
+    if check.reason is None:
+        return JSONResponse(
+            status_code=200, content={"status": "ready", "breaker": "closed"}, headers=headers
+        )
+    content = {"status": "not_ready", "reason": check.reason}
+    if check.reason == "breaker_open":
+        content["breaker"] = check.breaker
+        headers["Retry-After"] = str(check.retry_after_seconds)
+    return JSONResponse(status_code=503, content=content, headers=headers)
