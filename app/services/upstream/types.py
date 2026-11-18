@@ -105,7 +105,14 @@ class Finish:
     reason: str
 
 
-UpstreamEvent = Union[TextDelta, ToolCallDelta, UsageReport, Finish]
+@dataclass(frozen=True)
+class ReasoningDelta:
+    """A fragment of the model's reasoning text, opt-in per route (PRD-021 6.2, Risk 3)."""
+
+    text: str
+
+
+UpstreamEvent = Union[TextDelta, ToolCallDelta, UsageReport, Finish, ReasoningDelta]
 
 
 class ProviderAdapter(Protocol):
@@ -113,4 +120,6 @@ class ProviderAdapter(Protocol):
 
     def complete(self, request: UpstreamRequest, api_key: Optional[str]) -> UpstreamResult: ...
 
-    def stream(self, request: UpstreamRequest, api_key: Optional[str]) -> Iterator[UpstreamEvent]: ...
+    def stream(
+        self, request: UpstreamRequest, api_key: Optional[str], *, reasoning: bool = False
+    ) -> Iterator[UpstreamEvent]: ...
