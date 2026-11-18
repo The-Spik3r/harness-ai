@@ -41,6 +41,7 @@ As a security admin, I want a provider that reports no usage to still count agai
 - `/v1` usage mapping `app/services/v1_translate.py:634-649` (a missing split already reports `0`); `HarnessCompletionInfo` is built at `:650-656` and declared at `app/models/v1_schemas.py:175`, add the optional `usage_estimated` to both, emitted only when true so legacy bodies are unchanged.
 - Estimate uses the provider's `estimate_chars_per_token` (default 4, O7 adopted).
 - Orchestrator decision (stories): PRD open decisions O1-O8 are adopted as proposed.
+- Orchestrator decision (STORY-005 verify): in `app/services/upstream/openai_compatible.py` (`complete`, the `usage = data["usage"]` block) a `"usage": null` or any non-object usage raises a bare `TypeError` (`None["total_tokens"]`), inherited unchanged from `call_openrouter`; only `KeyError/IndexError/ValueError` are caught. This story must route null / non-object usage through the D8 table (estimate, or `UpstreamError` with today's message under `usage_missing: error`), never a `TypeError`. The stub already supports `"usage": null` (STORY-005).
 
 ## Dependencies
 
