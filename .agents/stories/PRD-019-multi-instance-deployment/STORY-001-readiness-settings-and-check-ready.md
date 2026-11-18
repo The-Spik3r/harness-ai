@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Probes"
-status: in-progress
+status: done
 labels: [backend, storage, config]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-001-readiness-settings-and-check-ready.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-001-readiness-settings-and-check-ready.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-001-readiness-settings-and-check-ready.report.md
+commit: 9682fcb
 depends_on: []
 blocks: [STORY-002]
 skills: []
