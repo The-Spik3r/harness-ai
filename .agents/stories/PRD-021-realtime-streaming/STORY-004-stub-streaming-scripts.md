@@ -12,7 +12,7 @@ labels: [testing, stub, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-004-stub-streaming-scripts.plan.md
 report: .agents/reports/PRD-021-realtime-streaming/STORY-004-stub-streaming-scripts.report.md
-commit: null
+commit: f2d3b36
 depends_on: []
 blocks: [STORY-010, STORY-014, STORY-015]
 skills: []

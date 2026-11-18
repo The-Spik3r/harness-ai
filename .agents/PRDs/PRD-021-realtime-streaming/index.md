@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | STORY-001 | Survey what providers stream and what clients display | spike | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-001-streaming-survey.plan.md) | `48bfb48` |
 | STORY-002 | Stream permissions and the STREAMING_ENABLED switch | feature | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-002-permissions-and-switch.plan.md) | `876f720` |
 | STORY-003 | stream_upstream seam, ReasoningDelta and collect()'s usage override | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-003-stream-upstream-seam.plan.md) | `a91252a` |
-| STORY-004 | Stub upstream streams scripted replies with delays, reasoning and faults | technical | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-004-stub-streaming-scripts.plan.md) | — |
+| STORY-004 | Stub upstream streams scripted replies with delays, reasoning and faults | technical | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-004-stub-streaming-scripts.plan.md) | `f2d3b36` |
 | STORY-005 | DeliverySink, step 2d visibility and stage events | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Streamed step 7 with phases, held tool calls and real-time charging | feature | ⬜ todo | large | — | — |
 | STORY-007 | Hold-back output gate and reasoning gate | feature | ⬜ todo | large | — | — |
