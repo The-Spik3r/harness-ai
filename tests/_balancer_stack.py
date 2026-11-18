@@ -18,6 +18,7 @@ closed.
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -33,6 +34,22 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CADDYFILE = REPO_ROOT / "deploy" / "lb" / "Caddyfile"
 LB_INSTANCE = REPO_ROOT / "tests" / "_lb_instance.py"
 STUB = REPO_ROOT / "scripts" / "stub_openrouter.py"
+
+ROOT_CADDYFILE = REPO_ROOT / "Caddyfile"  # the in-container front Caddy (gzip on, no timeouts)
+
+
+def caddyfile_seconds(directive: str) -> float:
+    """The `<directive> <N>s` value in deploy/lb/Caddyfile, so tests never restate a timing."""
+    matches = re.findall(
+        rf"^\s*{directive}\s+(\d+)s\s*$", CADDYFILE.read_text(encoding="utf-8"), re.M
+    )
+    assert len(matches) == 1, f"{CADDYFILE} must hold exactly one `{directive} <N>s` line: {matches}"
+    return float(matches[0])
+
+
+# PRD-019 D4/D8 (STORY-008): derived, never restated.
+HEALTH_INTERVAL_S = caddyfile_seconds("health_interval")
+LB_TRY_DURATION_S = caddyfile_seconds("lb_try_duration")
 
 # PRD-019 F3: the one upstream line, restated (not derived) from
 # tests/test_lb_caddyfile.py. The Caddyfile promises it stays one literal line.
@@ -78,7 +95,7 @@ class Child:
     def alive(self) -> bool:
         return self.proc.poll() is None
 
-    def kill(self) -> None:
+    def kill(self) -> bool:
         """Kill the tree and wait for the port to close. Returns whether it closed."""
         # Also when the launcher already exited: a real interpreter child may
         # still hold the port (taskkill /T on a dead PID is harmless).
@@ -294,14 +311,16 @@ class Balancer:
 
     # -- stop ------------------------------------------------------------
 
+    def all_children(self) -> list:
+        """Every child that exists, in kill order: caddy, instances, stub."""
+        children = [self.caddy] + [i.child for i in self.instances] + [self.stub]
+        return [child for child in children if child is not None]
+
     def stop(self) -> None:
         """Idempotent. Caddy, then instances, then the stub; every kill is attempted
         before any failure is raised."""
         failures = []
-        children = [self.caddy] + [i.child for i in self.instances] + [self.stub]
-        for child in children:
-            if child is None:
-                continue
+        for child in self.all_children():
             try:
                 if not child.kill():
                     failures.append(f"{child.name}: port {child.port} still open 10 s after the kill")
@@ -310,5 +329,58 @@ class Balancer:
         self.caddy = None
         self.instances = []
         self.stub = None
+        if failures:
+            raise AssertionError("; ".join(failures))
+
+
+class FrontedBalancer(Balancer):
+    """`Balancer` with one front Caddy per instance (PRD-019 D6, STORY-008).
+
+    lb Caddy -> front Caddy running the repo `Caddyfile` (gzip on, no timeouts)
+    -> uvicorn: the production path of a `/v1` stream (deploy/lb/Caddyfile then
+    the in-container one), so long calls and SSE keep-alives cross both layers.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fronts: list = []
+
+    def _upstream_port(self, index: int) -> int:
+        front = free_port()
+        child = Child(
+            f"front-{'ab'[index]}",
+            [caddy_binary(), "run", "--config", str(ROOT_CADDYFILE), "--adapter", "caddyfile"],
+            caddy_env(front, free_port(), BACKEND_INTERNAL_PORT=str(self.instances[index].port)),
+            self.tmp / f"front-{index}.log",
+            front,
+        )
+        self.fronts.append(child)
+        # A 200 on /ready through the front proves the instance behind it too.
+        wait_until(
+            lambda: _status(f"http://127.0.0.1:{front}/ready") == 200,
+            30, f"{child.name} answering /ready 200", child,
+        )
+        return front
+
+    def all_children(self) -> list:
+        """Base order with the fronts after the balancer (they are upstreams of it)."""
+        base = super().all_children()
+        return [c for c in base if c is self.caddy] + list(self.fronts) + [
+            c for c in base if c is not self.caddy
+        ]
+
+    def stop(self) -> None:
+        """Fronts first, then the base stack; one raise carrying every failure."""
+        failures = []
+        for child in list(self.fronts):
+            try:
+                if not child.kill():
+                    failures.append(f"{child.name}: port {child.port} still open 10 s after the kill")
+            except Exception as exc:  # noqa: BLE001 - keep killing the rest
+                failures.append(f"{child.name}: {exc!r}")
+        try:
+            super().stop()
+        except AssertionError as exc:
+            failures.append(str(exc))
         if failures:
             raise AssertionError("; ".join(failures))

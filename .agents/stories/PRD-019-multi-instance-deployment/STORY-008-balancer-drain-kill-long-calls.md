@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Proof"
-status: todo
+status: in-progress
 labels: [tests, caddy, integration]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-008-balancer-drain-kill-long-calls.plan.md
 report: null
 commit: null
 depends_on: [STORY-007]
