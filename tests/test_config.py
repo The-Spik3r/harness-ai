@@ -1614,3 +1614,96 @@ def test_ready_db_timeout_message_states_the_rule():
 @pytest.mark.parametrize("good", [0.5, 10])
 def test_ready_db_timeout_accepts_the_range(good):
     assert _settings(READY_DB_TIMEOUT_SECONDS=good).READY_DB_TIMEOUT_SECONDS == good
+
+
+# --- PRD-020 STORY-002: PROVIDERS_FILE and the conditional OPENROUTER_API_KEY --
+
+
+def _no_key_settings(monkeypatch, **overrides) -> Settings:
+    """Settings with OPENROUTER_API_KEY genuinely unset (conftest sets it in os.environ)."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("PROVIDERS_FILE", raising=False)
+    base = {"ADMIN_TOKEN": "test-token", "DATABASE_URL": _LOCAL_URL}
+    return Settings(_env_file=None, **{**base, **overrides})
+
+
+def test_openrouter_api_key_is_no_longer_a_required_field():
+    # PRD-020 D1: it was required; now empty is a valid default, checked conditionally.
+    field = Settings.model_fields["OPENROUTER_API_KEY"]
+    assert not field.is_required()
+    assert field.default == ""
+
+
+def test_no_file_and_no_key_is_a_startup_error_naming_the_key(monkeypatch):
+    with pytest.raises(ValidationError) as excinfo:
+        _no_key_settings(monkeypatch)
+    message = str(excinfo.value)
+    assert "OPENROUTER_API_KEY" in message
+    assert "PROVIDERS_FILE" in message
+
+    with pytest.raises(ValidationError) as excinfo:
+        _no_key_settings(monkeypatch, ADMIN_TOKEN=_TOKEN_SENTINEL)
+    assert _TOKEN_SENTINEL not in str(excinfo.value)
+
+
+def test_no_file_and_empty_string_key_is_a_startup_error(monkeypatch):
+    with pytest.raises(ValidationError) as excinfo:
+        _no_key_settings(monkeypatch, OPENROUTER_API_KEY="")
+    assert "OPENROUTER_API_KEY" in str(excinfo.value)
+
+
+def test_providers_file_set_and_no_key_constructs(monkeypatch, tmp_path):
+    result = _no_key_settings(monkeypatch, PROVIDERS_FILE=str(tmp_path / "missing.yaml"))
+    assert result.OPENROUTER_API_KEY == ""
+
+
+def test_providers_file_is_not_read_by_settings(tmp_path):
+    # PRD-020 STORY-002 AC5: a nonexistent path constructs and round-trips.
+    path = str(tmp_path / "does-not-exist.yaml")
+    assert _settings(DATABASE_URL=_LOCAL_URL, PROVIDERS_FILE=path).PROVIDERS_FILE == path
+    assert _settings(DATABASE_URL=_LOCAL_URL).PROVIDERS_FILE == ""
+
+
+def test_providers_file_with_v1_tool_models_is_a_startup_error(tmp_path):
+    path = str(tmp_path / "providers.yaml")
+    with pytest.raises(ValidationError) as excinfo:
+        _settings(
+            DATABASE_URL=_LOCAL_URL,
+            PROVIDERS_FILE=path,
+            MODEL_ALLOWLIST="gpt-4,openai/gpt-4o",
+            V1_TOOL_MODELS="openai/gpt-4o",
+        )
+    message = str(excinfo.value)
+    for fragment in ("V1_TOOL_MODELS", "PROVIDERS_FILE", "D6", "registry"):
+        assert fragment in message
+    assert "not in MODEL_ALLOWLIST" not in message
+
+    # PRD-020 D6 ordering: an entry outside the allowlist still gets the D6 message.
+    with pytest.raises(ValidationError) as excinfo:
+        _settings(
+            DATABASE_URL=_LOCAL_URL,
+            PROVIDERS_FILE=path,
+            MODEL_ALLOWLIST="gpt-4",
+            V1_TOOL_MODELS="other/model",
+        )
+    assert "D6" in str(excinfo.value)
+    assert "not in MODEL_ALLOWLIST" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("blank", ["", "   ", " , ,"])
+def test_providers_file_with_blank_v1_tool_models_passes(tmp_path, blank):
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        PROVIDERS_FILE=str(tmp_path / "providers.yaml"),
+        V1_TOOL_MODELS=blank,
+    )
+    assert result.v1_tool_models_list == []
+
+
+def test_no_file_with_v1_tool_models_still_validates_as_before():
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        MODEL_ALLOWLIST="gpt-4,openai/gpt-4o",
+        V1_TOOL_MODELS="openai/gpt-4o",
+    )
+    assert result.v1_tool_models_list == ["openai/gpt-4o"]

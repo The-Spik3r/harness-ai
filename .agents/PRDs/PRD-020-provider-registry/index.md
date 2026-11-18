@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-020-provider-registry`. No per-s
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Record the legacy byte-identical fixtures before any refactor | technical | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-001-legacy-byte-identical-fixtures.plan.md) | `130bbee` |
-| STORY-002 | PROVIDERS_FILE setting and the conditional OPENROUTER_API_KEY requirement | feature | ⬜ todo | small | — | — |
+| STORY-002 | PROVIDERS_FILE setting and the conditional OPENROUTER_API_KEY requirement | feature | 🟡 in-progress | small | [plan](../../plans/PRD-020-provider-registry/STORY-002-providers-file-settings.plan.md) | — |
 | STORY-003 | Provider registry loader, validation and the legacy implicit provider | feature | ⬜ todo | large | — | — |
 | STORY-004 | Route resolution, visible models and authorize_route | feature | ⬜ todo | medium | — | — |
 | STORY-005 | Upstream package, OpenAI-compatible adapter and call_upstream | technical | ⬜ todo | large | — | — |

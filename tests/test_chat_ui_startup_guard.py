@@ -178,6 +178,9 @@ def _empty_rbac_env(database_url_factory):
     # PRD-016 STORY-006: the "no action policy file" case, stated rather than
     # inherited, for the same reason.
     env["ACTION_POLICY_FILE"] = ""
+    # PRD-020 STORY-002: the "no registry file" case, stated rather than
+    # inherited (legacy mode needs OPENROUTER_API_KEY, which the env has).
+    env["PROVIDERS_FILE"] = ""
     return env
 
 
