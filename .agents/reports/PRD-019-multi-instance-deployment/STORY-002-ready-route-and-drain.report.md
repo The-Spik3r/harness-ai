@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-002-ready-route-and-drain.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: fa3e5dc
 status: COMPLETE
 completed: 2026-11-17
 ---

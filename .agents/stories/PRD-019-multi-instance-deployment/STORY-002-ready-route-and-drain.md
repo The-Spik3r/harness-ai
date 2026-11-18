@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Probes"
-status: in-progress
+status: done
 labels: [backend, api, caddy]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-002-ready-route-and-drain.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-002-ready-route-and-drain.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-002-ready-route-and-drain.report.md
+commit: fa3e5dc
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-007]
 skills: []
