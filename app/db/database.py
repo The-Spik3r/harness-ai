@@ -7,6 +7,8 @@ import socket
 import threading
 import time
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -770,6 +772,93 @@ def check_database_reachable() -> None:
         get_connection().execute("SELECT 1").fetchone()
     except Exception as exc:  # noqa: BLE001 -- every failure is classified below
         raise _classify_startup_failure(exc, endpoint) from exc
+
+
+# Closed vocabulary of `/ready` reasons (PRD-019 Section 7 F1). `check_ready()` never
+# returns `draining`: the route adds it from the drain file (STORY-002).
+READY_REASONS = ("breaker_open", "database_unreachable", "database_auth", "draining")
+
+
+@dataclass(frozen=True)
+class ReadyCheck:
+    """What `check_ready()` found (PRD-019 D3, D5).
+
+    `reason` is None when ready, else one of `READY_REASONS`. `breaker` is the
+    state read, or "unknown" when it could not be read. `retry_after_seconds` is
+    set only for `breaker_open`, and is at least 1.
+    """
+
+    reason: Optional[str]
+    breaker: str
+    retry_after_seconds: Optional[int] = None
+
+
+# One probe at a time per process (PRD-019 F1.3). A probe stuck on a blackholed
+# endpoint is abandoned, not cancelled, and keeps the slot until the driver returns,
+# so a stalled database never piles up statements behind `/ready`.
+_ready_lock = threading.Lock()
+_ready_executor: Optional[ThreadPoolExecutor] = None
+_ready_future: Optional[Future] = None
+
+
+def check_ready() -> ReadyCheck:
+    """Runtime readiness: breaker in memory, then one bounded `SELECT 1` (PRD-019 D3, D5).
+
+    **Zero driver calls while the breaker is not `closed`, and it never moves the
+    breaker**: no `before()`, `record_success()` or `record_failure()`, no
+    `_unit_of_work`, no retry. A load balancer polling this must not be able to
+    open or close PRD-018's breaker. `open` and `half_open` both read as
+    `breaker_open`.
+
+    While closed, one statement runs on a single-slot executor under a deadline of
+    `READY_DB_TIMEOUT_SECONDS`. A timed-out probe is left in flight (it still holds
+    the slot) and later calls answer `database_unreachable` without submitting a
+    second statement. Never raises; the detail goes to the log at WARNING, already
+    redacted by `_classify_startup_failure`.
+    """
+    global _ready_executor, _ready_future
+    breaker = "unknown"
+    try:
+        status = _storage_breaker.status()  # in-memory read; read at call time
+        breaker = status.state
+        if breaker != "closed":
+            return ReadyCheck("breaker_open", breaker, max(1, int(status.retry_after_seconds or 1)))
+
+        timeout = settings.READY_DB_TIMEOUT_SECONDS
+        with _ready_lock:
+            if _ready_future is not None and not _ready_future.done():
+                logger.warning("readiness probe skipped: the previous SELECT 1 is still in flight")
+                return ReadyCheck("database_unreachable", breaker)
+            if _ready_executor is None:
+                _ready_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ready-probe")
+            future = _ready_executor.submit(lambda: get_connection().execute("SELECT 1").fetchone())
+            _ready_future = future
+
+        try:
+            future.result(timeout=timeout)
+        except FutureTimeout:
+            logger.warning("readiness probe exceeded %.2fs; abandoned in flight", timeout)
+            return ReadyCheck("database_unreachable", breaker)
+        except Exception as exc:  # noqa: BLE001 -- classified below
+            classified = _classify_startup_failure(exc, _safe_endpoint(settings.DATABASE_URL))
+            logger.warning("readiness probe failed: %s", classified)
+            if isinstance(classified, DatabaseAuthError):
+                return ReadyCheck("database_auth", breaker)
+            return ReadyCheck("database_unreachable", breaker)
+        return ReadyCheck(None, breaker)
+    except Exception:  # noqa: BLE001 -- the contract is that this never raises
+        logger.warning("readiness check failed unexpectedly")
+        return ReadyCheck("database_unreachable", breaker)
+
+
+def _reset_ready_probe_for_tests() -> None:
+    """Drop the probe executor and any in-flight future (tests only)."""
+    global _ready_executor, _ready_future
+    with _ready_lock:
+        if _ready_executor is not None:
+            _ready_executor.shutdown(wait=False, cancel_futures=True)
+        _ready_executor = None
+        _ready_future = None
 
 
 @contextmanager

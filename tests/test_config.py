@@ -1566,3 +1566,51 @@ def test_env_example_audit_buffer_defaults_match_settings():
 
     assert _env_example_value(text, "AUDIT_BUFFER_DIR") == Settings.model_fields["AUDIT_BUFFER_DIR"].default
     assert int(_env_example_value(text, "AUDIT_BUFFER_MAX_BYTES")) == Settings.model_fields["AUDIT_BUFFER_MAX_BYTES"].default
+
+
+# --- PRD-019 STORY-001: readiness settings (Section 9.3, D3) -----------------
+
+
+def test_readiness_settings_defaults():
+    """PRD-019 STORY-001 AC 1: shipped defaults (Section 9.3)."""
+    s = _settings()
+
+    assert s.DRAIN_FILE == "/tmp/harness-drain"
+    assert s.READY_DB_TIMEOUT_SECONDS == 2.0
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "relative/x", "C:rel"])
+def test_drain_file_rejects_non_absolute_paths(bad):
+    """PRD-019 STORY-001 AC 1: empty or relative values fail naming the setting."""
+    with pytest.raises(ValidationError) as excinfo:
+        _settings(DRAIN_FILE=bad)
+
+    assert "DRAIN_FILE" in str(excinfo.value)
+    assert "absolute" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("good", ["/tmp/x", r"C:\tmp\x", r"\\server\share\drain"])
+def test_drain_file_accepts_posix_windows_and_unc_absolute_paths(good):
+    """PRD-019 STORY-001 AC 1 (orchestrator decision): POSIX or Windows absolute."""
+    assert _settings(DRAIN_FILE=good).DRAIN_FILE == good
+
+
+@pytest.mark.parametrize("bad", [0, -1, 10.01, float("nan"), "abc"])
+def test_ready_db_timeout_rejects_out_of_range_values(bad):
+    """PRD-019 STORY-001 AC 1: must be > 0 and <= 10, and the message names the setting."""
+    with pytest.raises(ValidationError) as excinfo:
+        _settings(READY_DB_TIMEOUT_SECONDS=bad)
+
+    assert "READY_DB_TIMEOUT_SECONDS" in str(excinfo.value)
+
+
+def test_ready_db_timeout_message_states_the_rule():
+    with pytest.raises(ValidationError) as excinfo:
+        _settings(READY_DB_TIMEOUT_SECONDS=0)
+
+    assert "greater than 0 and at most 10" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("good", [0.5, 10])
+def test_ready_db_timeout_accepts_the_range(good):
+    assert _settings(READY_DB_TIMEOUT_SECONDS=good).READY_DB_TIMEOUT_SECONDS == good

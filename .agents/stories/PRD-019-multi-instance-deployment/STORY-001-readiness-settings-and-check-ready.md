@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Probes"
-status: todo
+status: in-progress
 labels: [backend, storage, config]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/STORY-001-readiness-settings-and-check-ready.plan.md
 report: null
 commit: null
 depends_on: []
@@ -28,7 +28,7 @@ As a platform operator, I want a non-raising runtime readiness check that reads 
 
 ## Acceptance Criteria
 
-- [ ] Given `app/config.py`, when settings load, then `DRAIN_FILE` (default `/tmp/harness-drain`, must be a non-empty absolute POSIX path) and `READY_DB_TIMEOUT_SECONDS` (default `2.0`, `> 0` and `<= 10`) exist, and an invalid value fails at startup with a message that names the setting and the rule.
+- [ ] Given `app/config.py`, when settings load, then `DRAIN_FILE` (default `/tmp/harness-drain`, must be a non-empty absolute path, POSIX or Windows — orchestrator decision: STORY-002 tests use a Windows tmp_path) and `READY_DB_TIMEOUT_SECONDS` (default `2.0`, `> 0` and `<= 10`) exist, and an invalid value fails at startup with a message that names the setting and the rule.
 - [ ] Given `database.check_ready()`, when the breaker (`storage_status().breaker`) is `open` or `half_open`, then it returns a classification `breaker_open` carrying the breaker state and `retry_after_seconds` (minimum 1) and makes **no** driver call (asserted with a client spy).
 - [ ] Given the breaker is `closed`, when `check_ready()` runs, then it sends one `SELECT 1` outside `_unit_of_work` on a single-slot executor with a deadline of `READY_DB_TIMEOUT_SECONDS`; success → `ready`; `DatabaseAuthError` from `_classify_startup_failure` → `database_auth`; anything else, including the deadline → `database_unreachable`. It never raises, and it logs the detail at `WARNING` with no token.
 - [ ] Given a probe is still stuck (blackholed endpoint), when `check_ready()` is called again, then it returns `database_unreachable` without starting a second statement, and every call returns within `READY_DB_TIMEOUT_SECONDS + 0.5 s`.
