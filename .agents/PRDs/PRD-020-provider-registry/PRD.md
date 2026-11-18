@@ -333,7 +333,7 @@ Startup WARNINGs (logged once, never fatal): an `insecure_http` provider (naming
 
 ### F2 — Per-role access (D4)
 
-The effective roles for a model are `model.roles`, else `provider.roles`, else every role. A role outside that set is denied `query:model:{id}`, as today. `MODEL_ALLOWLIST_WILDCARD_ROLES` (`authz.py:76-78`) keeps its meaning: those roles may use any catalogued model and any passthrough model. `RBAC_ENABLED=false` still bypasses the model check (`authz.py:194-195`), but routing still applies: an unresolvable model is refused even with RBAC off, because there is nowhere to send it.
+The effective roles for a model are `model.roles`, else `provider.roles`, else every role. A role outside that set is denied `query:model:{id}`, as today. `MODEL_ALLOWLIST_WILDCARD_ROLES` (`authz.py:76-78`) keeps its meaning: those roles may use any catalogued model and any passthrough model. `RBAC_ENABLED=false` still bypasses the model check (`authz.py:194-195`), but routing still applies: an unresolvable model is refused even with RBAC off, because there is nowhere to send it. Uncatalogued (passthrough) models are permitted only to `MODEL_ALLOWLIST_WILDCARD_ROLES`; `provider.roles` and `model.roles` apply to catalogued models, which keeps legacy (`passthrough: true`) identical (orchestrator decision OD3).
 
 ### F3 — Transport and keys (D5)
 
@@ -489,7 +489,7 @@ With `PROVIDERS_FILE` naming the stub as `openrouter` and a second stub as `loca
 
 ### Quality indicators
 
-- [ ] Full suite green in both modes (CI runs the suite once with a `PROVIDERS_FILE` fixture as well)
+- [ ] Full suite green in both modes (file-mode tests use the shared `tests/_providers.py` fixture in the regular CI job, with no second full-suite job; orchestrator decision OD2)
 - [ ] `provider_registry` resolution and `usage_estimate` are pure (no I/O after `load()`); `upstream.collect` is pure
 - [ ] No new runtime dependency in `requirements.txt`
 - [ ] Each changed pre-existing assertion carries a comment citing PRD-020 and the decision
