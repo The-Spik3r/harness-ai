@@ -426,6 +426,8 @@ def test_query_blocked_context_limit_response_accepts_redaction_characters():
         "messages",
         "characters",
         "redaction_characters",
+        # PRD-020 D9 (STORY-010): estimated_tokens added; the first three unchanged
+        "estimated_tokens",
     )
 
 
@@ -476,3 +478,23 @@ def test_query_request_carries_no_limit_field():
     assert not {"limit", "limits", "token_budget_daily", "requests_per_minute"} & set(
         QueryRequest.model_fields
     )
+
+
+# --- PRD-020 STORY-010: the estimated_tokens maximum (D9) --------------------
+
+
+def test_query_blocked_context_limit_response_accepts_estimated_tokens():
+    """PRD-020 STORY-010 AC5: the fourth `limit` value, field for field."""
+    response = QueryBlockedContextLimitResponse(
+        reason="Conversation exceeds context limit",
+        limit="estimated_tokens",
+        maximum=8192,
+        actual=31000,
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Conversation exceeds context limit",
+        "limit": "estimated_tokens",
+        "maximum": 8192,
+        "actual": 31000,
+    }

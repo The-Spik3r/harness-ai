@@ -3431,3 +3431,37 @@ async def test_chat_state_send_records_profile_chat_on_both_pipeline_paths(
     assert first_id != second_id
     assert get_audit_log(first_id).profile == "chat"
     assert get_audit_log(second_id).profile == "chat"
+
+
+# --- PRD-020 STORY-010 ------------------------------------------------------
+# Appended: this suite is asserted by census (tests/test_untouched_app.py).
+
+
+@pytest.mark.asyncio
+async def test_chat_state_send_estimated_tokens_limit_renders_a_context_limit_bubble(
+    temp_db, monkeypatch
+):
+    """PRD-020 D9: the `estimated_tokens` refusal draws the `context_limit`
+    bubble through `copy.CONTEXT_LIMIT_UNITS` (no KeyError, no identifier)."""
+
+    def _fake_run_query(
+        identity, prompt, device, model, openrouter_api_key, call_openrouter,
+        session_id=None,
+    ):
+        return QueryBlockedContextLimitResponse(
+            reason="Conversation exceeds context limit",
+            limit="estimated_tokens",
+            maximum=8192,
+            actual=31000,
+        )
+
+    _stub_pipeline(monkeypatch, _fake_run_query)
+
+    state = _make_state()
+    await _send(state, "hello world")
+
+    bubble = state.messages[-1]
+    assert bubble.kind == "context_limit"
+    assert bubble.detail == "estimated length 31000 of 8192"
+    assert "estimated_tokens" not in bubble.detail
+    assert bubble.prompt == "hello world"

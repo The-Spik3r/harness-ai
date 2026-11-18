@@ -46,6 +46,7 @@ from app.services.pii_redactor import PiiRedactorError, redact, redact_for_polic
 # By name into this module, not `usage_limits.admit`: the suite replaces
 # `query_pipeline.admit` and `query_pipeline.charge` to spy on the gate and
 # the charge or fail them, the binding rule `_redact` documents for `redact`.
+from app.services.usage_estimate import estimate_tokens
 from app.services.usage_limits import admit, charge
 
 QueryPipelineResult = Union[
@@ -57,7 +58,7 @@ QueryPipelineResult = Union[
     QueryBlockedUsageLimitResponse,
 ]
 
-ContextLimit = Literal["messages", "characters"]
+ContextLimit = Literal["messages", "characters", "estimated_tokens"]
 
 # The doors a call site may name (PRD-013 Sections 6.8, 6.9): `/query`, the
 # chat UI, and `/v1`, which PRD-014 adds. None is a direct caller.
@@ -158,6 +159,38 @@ def _context_limit_exceeded(
     if character_count > settings.CONTEXT_MAX_CHARACTERS:
         return "characters", settings.CONTEXT_MAX_CHARACTERS, character_count
 
+    return None
+
+
+def _estimated_tokens_exceeded(
+    messages: Sequence[Message],
+    route: Route,
+    tools: Optional[ToolParams],
+) -> Optional[Tuple[ContextLimit, int, int]]:
+    """`("estimated_tokens", maximum, actual)` when the conversation outgrows the model, else None.
+
+    PRD-020 D9, T10: the route's `max_context_tokens` (the catalogued model's,
+    or the passthrough role's) against the D8 estimate of what would be sent.
+    A model that declares none is skipped before any estimate is computed, so
+    legacy mode and every model without the key behave exactly as before (D1).
+
+    The estimate is `usage_estimate.estimate_tokens` over the pre-redaction
+    `messages` (step 3 precedes step 6) with the request's tools counted, at the
+    provider's `estimate_chars_per_token`. It is a heuristic, a mitigation for
+    sending an oversized conversation and not proof of the server's real window.
+    Strict `>`, like the two character limits: exactly the maximum proceeds.
+    """
+    maximum = route.capabilities.max_context_tokens
+    if maximum is None:
+        return None
+    actual = estimate_tokens(
+        messages,
+        ("", ()),
+        route.provider.estimate_chars_per_token,
+        tools=tools.tools if tools is not None else None,
+    )
+    if actual > maximum:
+        return "estimated_tokens", maximum, actual
     return None
 
 
@@ -562,7 +595,13 @@ def run_conversation(
     # unusable as a prior query (PRD-009 Section 6.3), which is exactly right
     # for an attempt that never reached the model. The cost is that these rows
     # count against `success_rate`; PRD Section 9.2 T7 accepts it.
-    exceeded = _context_limit_exceeded(messages)
+    #
+    # PRD-020 D9: a third check follows the two character limits, the model's
+    # `max_context_tokens` against the estimate. First breach wins, so it is not
+    # computed for a conversation that already broke an earlier limit.
+    exceeded = _context_limit_exceeded(messages) or _estimated_tokens_exceeded(
+        messages, route, tools
+    )
     if exceeded is not None:
         limit, maximum, actual = exceeded
         log_query(

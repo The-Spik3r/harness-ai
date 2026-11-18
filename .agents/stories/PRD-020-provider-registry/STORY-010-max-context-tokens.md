@@ -7,10 +7,10 @@ type: feature
 priority: medium
 complexity: small
 phase: "3 - Policies that depend on the provider"
-status: todo
+status: in-progress
 labels: [backend, pipeline]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
+plan: .agents/plans/PRD-020-provider-registry/STORY-010-max-context-tokens.plan.md
 report: null
 commit: null
 depends_on: [STORY-007]

@@ -1409,3 +1409,18 @@ def test_storage_unavailable_copy_names_the_outage_and_not_the_credential():
             assert word not in lowered
     assert "nothing was sent" in STORAGE_UNAVAILABLE_NOT_SENT_NOTICE
     assert LOGIN_STORAGE_UNAVAILABLE_ERROR != LOGIN_INVALID_TOKEN_ERROR
+
+
+# --- PRD-020 STORY-010: the estimated_tokens unit ---------------------------
+
+
+def test_the_estimated_tokens_unit_reads_as_an_estimate():
+    """PRD-020 D9: the detail line says "estimated", and no identifier or
+    "token" (the vocabulary test above forbids it) reaches the reader."""
+    from chat_ui.chat_ui.copy import CONTEXT_LIMIT_DETAIL_TEMPLATE, CONTEXT_LIMIT_UNITS
+
+    unit = CONTEXT_LIMIT_UNITS["estimated_tokens"]
+    assert unit == "estimated length"
+    assert CONTEXT_LIMIT_DETAIL_TEMPLATE.format(unit=unit, actual=31000, maximum=8192) == (
+        "estimated length 31000 of 8192"
+    )

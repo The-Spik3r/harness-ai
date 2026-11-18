@@ -159,10 +159,14 @@ CONTEXT_LIMIT_DETAIL_TEMPLATE = "{unit} {actual} of {maximum}"
 # PRD-012's `redaction_characters`, counts only the text that gets checked for
 # personal data -- code blocks do not count -- so the phrase says that, rather
 # than printing an identifier or naming the mechanism ("limit", "redaction").
+# PRD-020 D9's `estimated_tokens` is a guess at the conversation's size against
+# the model's window, hence "estimated"; "token" is a word this vocabulary
+# keeps out of the reader's sight (see tests/test_copy.py), so it says length.
 CONTEXT_LIMIT_UNITS = {
     "messages": "messages",
     "characters": "characters",
     "redaction_characters": "characters to check for personal data",
+    "estimated_tokens": "estimated length",
 }
 
 # --- Usage limits --------------------------------------------------------

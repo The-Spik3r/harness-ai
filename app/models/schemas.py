@@ -143,11 +143,16 @@ class QueryBlockedContextLimitResponse(BaseModel):
     `max_characters` (`PII_MAX_CHARACTERS_CODE`) for that call, and `actual`
     counts only what the analyzer would process: covered roles, fenced blocks
     blanked, newlines not counted.
+
+    `estimated_tokens` is PRD-020 D9's maximum: a model's `max_context_tokens`.
+    It is reported from step 3 after the two character limits, so never beside
+    them, and only for a model that declares one. `actual` is the D8 estimate of
+    the conversation (and its tools), not a measured token count.
     """
 
     status: Literal["BLOCKED"] = "BLOCKED"
     reason: str
-    limit: Literal["messages", "characters", "redaction_characters"]
+    limit: Literal["messages", "characters", "redaction_characters", "estimated_tokens"]
     maximum: int
     actual: int
 
