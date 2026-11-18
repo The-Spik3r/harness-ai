@@ -718,6 +718,14 @@ def run_conversation(
     # back to `chat` (D8).
     policy = get_pii_policy(profile_name)
 
+    # PRD-020 D7, 6.6, T4: decided once, by the Route alone (an internal
+    # provider that declares `pii: relaxed`, with the PII switch on) -- never
+    # from a request field, role, profile or host. It skips only input
+    # redaction and the code size limit: patterns above and output redaction
+    # below are unchanged. `pii_detected_input=0` on such a row means not
+    # analyzed, and `pii_input_relaxed` records that it was a decision.
+    relaxed = route.relaxes_input()
+
     # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
     # the head of step 6 and not in step 3, because what it measures depends
     # on the policy: which roles are covered and how much sits inside fences.
@@ -732,11 +740,12 @@ def run_conversation(
     # serve as a prior query (PRD-009 Section 6.3): the same request sent
     # after the operator raises the limit is answered, not held. `chat` has
     # no limit, so /query and the chat UI cannot reach this arm.
-    over = _redaction_limit_exceeded(messages, policy)
+    over = None if relaxed else _redaction_limit_exceeded(messages, policy)
     if over is not None:
         maximum, actual = over
         log_query(
             **_route_fields(route),
+            pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -770,10 +779,14 @@ def run_conversation(
     # 0, PRD-017 D7), and both policies cover both roles. A `tool` turn's
     # content is redacted like any covered turn (PRD-017 Section 6.5);
     # assistant `tool_calls` are not (D13).
-    redacted_messages: list[Message] = []
+    #
+    # Relaxed (PRD-020 D7): the loop is bypassed. The original messages go
+    # upstream as received (same objects, tool fields included) and no entity
+    # is recorded.
+    redacted_messages: list[Message] = list(messages) if relaxed else []
     input_entities: list[str] = []
     last_index = len(messages) - 1
-    for index, message in enumerate(messages):
+    for index, message in enumerate([] if relaxed else messages):
         if message.role not in policy.input_roles:
             # The same object, every field included, so it reaches upstream
             # byte-identical: `code`'s `system` turn, the client's own prompt
@@ -786,6 +799,7 @@ def run_conversation(
         except PiiRedactorError as exc:
             log_query(
                 **_route_fields(route),
+                pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -827,6 +841,7 @@ def run_conversation(
     except OpenRouterError as exc:
         log_query(
             **_route_fields(route),
+            pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -917,6 +932,7 @@ def run_conversation(
         except PiiRedactorError as exc:
             log_query(
                 **_route_fields(route),
+                pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -962,6 +978,7 @@ def run_conversation(
     try:
         audit_ref = log_query(
             **_route_fields(route),
+            pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
