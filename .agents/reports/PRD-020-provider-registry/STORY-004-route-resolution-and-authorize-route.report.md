@@ -3,7 +3,7 @@ story: STORY-004
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-004-route-resolution-and-authorize-route.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: acc101e
 status: COMPLETE
 completed: 2026-11-18
 ---
