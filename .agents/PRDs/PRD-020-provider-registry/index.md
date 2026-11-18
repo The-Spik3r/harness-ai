@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/15 stories done — 80%
+13/15 stories done — 87%
 
 ## Stories
 
@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-020-provider-registry`. No per-s
 | STORY-010 | Refuse a conversation that exceeds a model's max_context_tokens | feature | ✅ done | small | [plan](../../plans/PRD-020-provider-registry/completed/STORY-010-max-context-tokens.plan.md) | `c0ebdd2` |
 | STORY-011 | /v1 tool capability from the registry and per-role GET /v1/models | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-011-v1-capabilities-and-models.plan.md) | `593cfc4` |
 | STORY-012 | /query default model, chat UI model selector and Register provider column | feature | ✅ done | medium | [plan](../../plans/PRD-020-provider-registry/completed/STORY-012-query-default-model-chat-ui-register.plan.md) | `9dba70d` |
-| STORY-013 | Adapter stream() with normalized events and pure collect() | feature | 🟡 in-progress | large | [plan](../../plans/PRD-020-provider-registry/STORY-013-stream-and-collect.plan.md) | — |
+| STORY-013 | Adapter stream() with normalized events and pure collect() | feature | ✅ done | large | [plan](../../plans/PRD-020-provider-registry/completed/STORY-013-stream-and-collect.plan.md) | `bfef207` |
 | STORY-014 | Opt-in end-to-end run against a real local OpenAI-compatible server | technical | ⬜ todo | medium | — | — |
 | STORY-015 | Providers documentation, example registry, .env.example and README | technical | ⬜ todo | medium | — | — |
 

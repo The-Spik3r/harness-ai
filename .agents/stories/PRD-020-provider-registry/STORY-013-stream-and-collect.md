@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: large
 phase: "4 - Streaming interface, E2E, docs"
-status: in-progress
+status: done
 labels: [backend, streaming]
 epic_branch: epic/PRD-020-provider-registry
-plan: .agents/plans/PRD-020-provider-registry/STORY-013-stream-and-collect.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-013-stream-and-collect.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-013-stream-and-collect.report.md
+commit: bfef207
 depends_on: [STORY-005, STORY-009]
 blocks: [STORY-014]
 skills: []
