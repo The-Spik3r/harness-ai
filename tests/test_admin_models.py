@@ -26,6 +26,8 @@ AUDIT_ROW_FIELDS = {
     "user_id",
     "verdict",
     "model_used",
+    # PRD-020 STORY-012 (D13): the Register's provider column.
+    "provider",
     "tokens_used",
     "pii_indicator",
     "device_short",
@@ -90,7 +92,8 @@ def test_audit_row_constructs_with_no_arguments():
     assert row.audit_id == 0
     # PRD-013 STORY-015 (Section 6.10): the Register's new disclosure fields default to "" too.
     for name in ("timestamp_absolute", "timestamp_relative", "user_id", "verdict",
-                 "model_used", "tokens_used", "device_short", "device_full",
+                 # PRD-020 STORY-012 (D13): provider defaults to "" like model_used.
+                 "model_used", "provider", "tokens_used", "device_short", "device_full",
                  "prompt_hash", "error_message", "suspicious_pattern",
                  *AUDIT_FIELD_NAMES):
         assert getattr(row, name) == ""

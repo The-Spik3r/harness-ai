@@ -107,7 +107,8 @@ from chat_ui.components.admin_shell import refreshed_stamp
 # The nine columns, in PRD-006 Section 4's order: the stamp margin, then
 # timestamp, user_id, verdict, model_used, tokens_used, PII, device, audit_id —
 # and a tenth track at the right edge carrying the disclosure control, which is
-# a control rather than a column of values.
+# a control rather than a column of values. PRD-020 (STORY-012) adds one more
+# value column, provider, right after model_used: eleven tracks.
 #
 # One constant, used by the column head *and* by every row. Two matching
 # template strings would satisfy "the numeric columns align down the full
@@ -120,15 +121,16 @@ from chat_ui.components.admin_shell import refreshed_stamp
 # characters; 7rem held fifteen and clipped it. Past that the cell truncates
 # like any other.
 _GRID = (
-    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 7.5rem 3.5rem minmax(9rem, 1fr) "
+    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 7rem 7.5rem 3.5rem minmax(9rem, 1fr) "
     "5.5rem 2.5rem"
 )
 
-# Below this the ten columns crush rather than wrap. The table scrolls
+# Below this the eleven columns crush rather than wrap. The table scrolls
 # sideways inside its own container instead of the page doing it. Raised from
 # 58rem with the control column: its 2.5rem track plus one 0.75rem column gap;
-# and by 2.5rem more with the wider tokens track (PRD-013 STORY-015).
-_MIN_WIDTH = "63.75rem"
+# and by 2.5rem more with the wider tokens track (PRD-013 STORY-015); and by
+# 7.75rem for the provider track (7rem plus its 0.75rem gap, PRD-020 STORY-012).
+_MIN_WIDTH = "71.5rem"
 
 
 def _head_cell(label: str, align: str = "left", title: str = "") -> rx.Component:
@@ -510,13 +512,13 @@ def _detail(row) -> rx.Component:
 
 
 def _row_line(row) -> rx.Component:
-    """One register row: the stamp margin, then the eight columns, then the
-    disclosure control.
+    """One register row: the stamp margin, then the nine columns (eight, plus
+    PRD-020's provider after the model), then the disclosure control.
 
     `min_height` rather than `height`: the time cell is two lines, and a fixed
     row height would clip the absolute timestamp under it.
 
-    Ten children and no eleventh. `device_full`, `prompt_hash`, `error_message`,
+    Eleven children and no twelfth (PRD-020 added provider). `device_full`, `prompt_hash`, `error_message`,
     `pii_entities`, `pii_detected_input`, `pii_detected_output`,
     `suspicious_pattern`, `pattern_role`, `pattern_action`, `profile` and
     PRD-013's `limit_exceeded`, `conversation_key`, `ingress`, `message_count`,
@@ -534,6 +536,7 @@ def _row_line(row) -> rx.Component:
         _cell(row.user_id),
         _verdict_tag(row),
         _cell(row.model_used),
+        _cell(row.provider),
         _cell(row.tokens_used, text_align="right"),
         rx.cond(
             row.pii_indicator,
@@ -598,6 +601,7 @@ def _column_head() -> rx.Component:
         _head_cell(admin_copy.COLUMN_USER),
         _head_cell(admin_copy.COLUMN_VERDICT),
         _head_cell(admin_copy.COLUMN_MODEL),
+        _head_cell(admin_copy.COLUMN_PROVIDER),
         _head_cell(
             admin_copy.COLUMN_TOKENS,
             align="right",

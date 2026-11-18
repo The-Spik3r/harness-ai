@@ -15,7 +15,9 @@ class QueryRequest(BaseModel):
     user_id: Optional[str] = None
     prompt: str
     device: Optional[str] = None
-    model: str = "gpt-4"
+    # PRD-020 D15: no default here. The router resolves None to the registry
+    # default (file mode) or to the legacy "gpt-4"; an explicit value wins.
+    model: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     # The conversation this send belongs to (PRD-008 Section 10). Optional and
     # defaulted, so a client written against the previous release is unaffected:

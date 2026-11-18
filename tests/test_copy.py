@@ -441,6 +441,8 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert admin_copy.STORAGE_COLUMN_OPERATION
     assert admin_copy.STORAGE_COLUMN_FAILURE_CLASS
     assert admin_copy.STORAGE_COLUMN_COUNT
+    # PRD-020 STORY-012 (D13)
+    assert admin_copy.COLUMN_PROVIDER
     # And nothing is missing from the list: a constant added to admin_copy.py
     # without an assertion here would otherwise ship untested, which is the
     # failure mode "each constant is asserted non-empty" exists to prevent.
@@ -464,6 +466,8 @@ def test_admin_copy_constants_exist_and_not_empty():
         "COLUMN_USER",
         "COLUMN_VERDICT",
         "COLUMN_MODEL",
+        # PRD-020 STORY-012 (D13): the Register's provider head.
+        "COLUMN_PROVIDER",
         "COLUMN_TOKENS",
         # PRD-013 (STORY-015)
         "COLUMN_TOKENS_TITLE",

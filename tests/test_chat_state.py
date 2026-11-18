@@ -3465,3 +3465,115 @@ async def test_chat_state_send_estimated_tokens_limit_renders_a_context_limit_bu
     assert bubble.detail == "estimated length 31000 of 8192"
     assert "estimated_tokens" not in bubble.detail
     assert bubble.prompt == "hello world"
+
+
+# --- PRD-020 STORY-012 (D13): the selector's options come from the role -----
+
+_MODEL_CHOICE_REGISTRY = """
+version: 1
+default_model: stub/default
+providers:
+  - name: stub
+    type: openai_compatible
+    base_url: https://example.com/v1
+    models:
+      - id: stub/default
+        roles: [admin]
+      - id: stub/open
+      - id: stub/admin-extra
+        roles: [admin]
+"""
+
+_NO_MODEL_FOR_USER_REGISTRY = """
+version: 1
+default_model: stub/admin-only
+providers:
+  - name: stub
+    type: openai_compatible
+    base_url: https://example.com/v1
+    models:
+      - id: stub/admin-only
+        roles: [admin]
+"""
+
+
+def test_model_options_are_the_legacy_list_before_login_and_in_legacy_mode():
+    from chat_ui.chat_ui.config import MODEL_ALLOWLIST
+
+    state = ChatState(_reflex_internal_init=True)
+    assert state.model_options == list(MODEL_ALLOWLIST)
+
+
+@pytest.mark.asyncio
+async def test_login_in_legacy_mode_keeps_the_allowlist_and_the_selected_model(temp_db):
+    from chat_ui.chat_ui.config import MODEL_ALLOWLIST
+
+    state = ChatState(_reflex_internal_init=True)
+    state.selected_model = MODEL_ALLOWLIST[1]
+    state.token_input = _AUTH_TOKEN
+    await state.login()
+
+    assert state.model_options == list(MODEL_ALLOWLIST)
+    assert state.selected_model == MODEL_ALLOWLIST[1]
+
+
+@pytest.mark.asyncio
+async def test_login_in_file_mode_lists_what_the_role_may_use(
+    temp_db, monkeypatch, tmp_path
+):
+    from app.services.provider_registry import visible_models
+    from tests._providers import providers_file
+
+    with providers_file(tmp_path, _MODEL_CHOICE_REGISTRY, monkeypatch=monkeypatch):
+        state = ChatState(_reflex_internal_init=True)
+        state.token_input = _AUTH_TOKEN
+        await state.login()
+
+        expected = [m.id for m in visible_models(Identity(user_id=_AUTH_USER_ID, role="user"))]
+        assert expected == ["stub/open"]
+        assert state.model_options == expected
+        # The registry default is hidden from this role: start on the first visible.
+        assert state.selected_model == "stub/open"
+
+        # An admin sees every model and starts on the registry default.
+        insert_user(User(user_id="boss", role="admin", token_hash=hash_token("boss-token")))
+        admin_state = ChatState(_reflex_internal_init=True)
+        admin_state.token_input = "boss-token"
+        await admin_state.login()
+        assert admin_state.model_options == ["stub/default", "stub/open", "stub/admin-extra"]
+        assert admin_state.selected_model == "stub/default"
+
+
+@pytest.mark.asyncio
+async def test_a_role_with_no_models_gets_an_empty_selector(
+    temp_db, monkeypatch, tmp_path
+):
+    from tests._providers import providers_file
+
+    with providers_file(
+        tmp_path, _NO_MODEL_FOR_USER_REGISTRY, monkeypatch=monkeypatch
+    ):
+        state = ChatState(_reflex_internal_init=True)
+        state.token_input = _AUTH_TOKEN
+        await state.login()
+
+        assert state.model_options == []
+        assert state.selected_model == ""
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_the_options_and_keeps_the_selected_model(
+    temp_db, monkeypatch, tmp_path
+):
+    from tests._providers import providers_file
+
+    with providers_file(tmp_path, _MODEL_CHOICE_REGISTRY, monkeypatch=monkeypatch):
+        state = ChatState(_reflex_internal_init=True)
+        state.token_input = _AUTH_TOKEN
+        await state.login()
+        assert state.model_options == ["stub/open"]
+
+        state.logout()
+
+        assert state.model_options == []
+        assert state.selected_model == "stub/open"

@@ -94,6 +94,8 @@ COLUMN_TIME = "Time"
 COLUMN_USER = "User"
 COLUMN_VERDICT = "Verdict"
 COLUMN_MODEL = "Model"
+# PRD-020 D13: the provider that served the row (empty for rows before it).
+COLUMN_PROVIDER = "Provider"
 COLUMN_TOKENS = "Tokens"
 # PRD-013 (STORY-015): the head keeps its one word, and this states the order
 # of the "2,140 / 312" cell once, on hover, rather than on every row. A head

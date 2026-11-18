@@ -834,3 +834,17 @@ def test_there_is_no_disclosure_when_there_is_no_rail():
     """
     assert _slot_with_flag("false")["disclosure_offers_the_control"] is False
     assert _slot_with_flag("true")["disclosure_offers_the_control"] is True
+
+
+# --- PRD-020 STORY-012 (D13): the selector reads the state var ---------------
+
+
+def test_the_selector_reads_its_options_from_state_and_has_an_empty_notice(probe):
+    """No import-time list: the options are `ChatState.model_options`, and the
+    empty-role direction is in the header (the rx.cond renders both arms)."""
+    assert "model_options" in probe["header"]
+    assert copy.SHELL_MODEL_NONE_NOTICE in probe["header"]
+    shell_source = (
+        Path(__file__).parent.parent / "chat_ui" / "chat_ui" / "components" / "shell.py"
+    ).read_text(encoding="utf-8")
+    assert "MODEL_ALLOWLIST" not in shell_source

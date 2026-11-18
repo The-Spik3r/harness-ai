@@ -17,7 +17,7 @@ from app.models.schemas import (
     QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
-from app.services import chat_history, chat_sessions
+from app.services import chat_history, chat_sessions, provider_registry
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity, resolve
@@ -48,13 +48,32 @@ from .formatting import (
     format_duplicate_info,
     format_usage_limit_notice,
 )
-from .config import DEFAULT_MODEL
+from .config import DEFAULT_MODEL, MODEL_ALLOWLIST
 
 logger = logging.getLogger(__name__)
 
 # The gate errors whose cause decides the bubble's detail (PRD-018 D8, 6.7):
 # the /query set (routers/query.py). PiiRedactorError is not a storage gate.
 _STORAGE_GATE_FAULTS = (ChatSessionError, DuplicateCheckError, UsageLimitError)
+
+
+def _model_choices(identity: Identity) -> tuple[list[str], Optional[str]]:
+    """The selector's options for this identity, and the model to start on.
+
+    PRD-020 D13. Legacy mode (no providers file) is today's curated list and
+    leaves `selected_model` alone (None). File mode lists what the registry says
+    the signed-in role may use (`visible_models`, pure) and starts on the
+    registry default when it is among them, else the first, else "" (the shell
+    then shows a direction, and a send reaches the pipeline's one denial). This
+    is a display, never an authorization.
+    """
+    reg = provider_registry.current()
+    if reg.is_legacy:
+        return list(MODEL_ALLOWLIST), None
+    ids = [m.id for m in provider_registry.visible_models(identity)]
+    if reg.default_model in ids:
+        return ids, reg.default_model
+    return ids, (ids[0] if ids else "")
 
 
 def _gate_fault_detail(exc: Exception) -> str:
@@ -214,6 +233,10 @@ class ChatState(rx.State):
     login_error: str = ""
     pending: bool = False
     selected_model: str = DEFAULT_MODEL
+    # PRD-020 D13: the selector's options for the signed-in identity, filled by
+    # `login` (never at import: the registry is not loaded then) and reset by
+    # `logout`. Legacy default is today's static list.
+    model_options: list[str] = list(MODEL_ALLOWLIST)
     sessions: list[ChatSessionSummary] = []
     active_session_id: str = ""
     sessions_error: str = ""
@@ -350,6 +373,10 @@ class ChatState(rx.State):
         self.token_input = ""
         self._token = token
         self.user_id = identity.user_id
+        # PRD-020 D13: the selector shows what this role may use.
+        self.model_options, initial_model = _model_choices(identity)
+        if initial_model is not None:
+            self.selected_model = initial_model
 
         # The list is ORDER BY updated_at DESC, so the first row is the most
         # recently active chat. Opening it is what makes a reload cost nothing:
@@ -438,6 +465,9 @@ class ChatState(rx.State):
         self.user_id = ""
         self.token_input = ""
         self.login_error = ""
+        # PRD-020 D13: another role may see other models; the next login
+        # recomputes. `selected_model` stays (model-selection AC5).
+        self.model_options = []
         self.messages = []
         self.input_text = ""
         self.sessions = []

@@ -33,7 +33,9 @@ def test_query_request_missing_prompt_raises():
 
 def test_query_request_defaults():
     request = QueryRequest(user_id="juan@empresa.com", prompt="hi")
-    assert request.model == "gpt-4"
+    # PRD-020 STORY-012 (D15): the schema no longer carries the default; the
+    # /query router resolves None (registry default, or "gpt-4" in legacy mode).
+    assert request.model is None
     assert request.openrouter_api_key is None
     assert request.device is None
 

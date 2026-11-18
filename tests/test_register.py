@@ -642,6 +642,8 @@ def test_neither_preview_survives_the_projection():
         streamed = False
         has_tool_calls = False
         limit_exceeded = None
+        # PRD-020 STORY-012 (D13): and the provider.
+        provider = None
         success = True
         model_used = "gpt-4"
         tokens_used = 412
@@ -764,7 +766,11 @@ def test_the_usage_limit_and_the_conversation_keep_evidence_first(probe):
 def test_the_row_gains_no_column(source):
     """PRD-013 Risk 6 / F15: the Register's column set does not grow. The six
     audit fields are read by the disclosure, never by the row line, and the
-    grid still has its ten tracks."""
+    grid still has its ten tracks.
+
+    PRD-020 STORY-012 (D13) supersedes the track count for this one column: the
+    Register gains a provider column after Model, so the grid has eleven tracks.
+    The row line still reads none of the six audit fields."""
     row_line = source.split("def _row_line(")[1].split("\ndef ")[0]
     body = row_line.split('"""', 2)[2]
     for field in (
@@ -779,7 +785,8 @@ def test_the_row_gains_no_column(source):
     grid = source.split("_GRID = (")[1].split("\n)")[0]
     tracks = "".join(part.strip().lstrip("f").strip('"') for part in grid.splitlines())
     tracks = tracks.replace("minmax(9rem, 1fr)", "minmax")
-    assert len(tracks.split()) == 10, tracks
+    # PRD-020 STORY-012 (D13): eleven, not ten -- the provider track.
+    assert len(tracks.split()) == 11, tracks
 
 
 def test_the_tokens_head_states_the_split_order(probe, source):
@@ -1437,3 +1444,35 @@ def test_every_control_is_a_native_focusable_element(source):
         body = source.split(f"def {factory}(")[1].split("\ndef ")[0]
         assert "rx.el.button(" in body, f"{factory} stopped returning a <button>"
         assert 'type="button"' in body, f"{factory} lost its explicit type"
+
+
+# --- PRD-020 STORY-012 (D13): the provider column ----------------------------
+
+
+def test_the_provider_head_and_cell_are_on_the_register(probe, source):
+    """The head reaches the screen through `admin_copy`, the cell is a plain
+    `_cell(row.provider)` right after the model's, and the probe renders both."""
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.COLUMN_PROVIDER in probe["rendered"]
+    assert "provider" in probe["rows_rendered"]
+    assert "admin_copy.COLUMN_PROVIDER" in source
+    assert '"Provider"' not in source
+    # Same treatment as model_used: no wrap override, so truncation is inherited.
+    flat = source.replace("\r\n", "\n")
+    assert "_cell(row.model_used),\n        _cell(row.provider),\n" in flat
+    head = flat.split("def _column_head()")[1].split("\ndef ")[0]
+    assert head.index("COLUMN_MODEL") < head.index("COLUMN_PROVIDER") < head.index(
+        "COLUMN_TOKENS"
+    )
+
+
+def test_the_provider_column_keeps_the_quality_floor(source):
+    """The table still scrolls in its own container, at a min width that counts
+    the new track (7rem + 0.75rem gap over the previous 63.75rem), and the
+    global focus rule is not overridden here."""
+    assert '_MIN_WIDTH = "71.5rem"' in source
+    assert 'overflow_x="auto"' in source
+    assert "min_width=_MIN_WIDTH" in source
+    assert "focus-visible" in (
+        REPO_ROOT / "chat_ui" / "chat_ui" / "theme.py"
+    ).read_text(encoding="utf-8")

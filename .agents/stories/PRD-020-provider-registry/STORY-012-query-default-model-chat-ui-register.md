@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "3 - Policies that depend on the provider"
-status: todo
+status: done
 labels: [backend, frontend, chat-ui]
 epic_branch: epic/PRD-020-provider-registry
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-012-query-default-model-chat-ui-register.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-012-query-default-model-chat-ui-register.report.md
+commit: pending
 depends_on: [STORY-007, STORY-004]
 blocks: [STORY-015]
 skills: [frontend-design]
@@ -28,11 +28,11 @@ As a chat user, I want the model selector to list the models my role may use, in
 
 ## Acceptance Criteria
 
-- [ ] Given file mode, when `/query` is called without `model`, then `QueryRequest.model` defaults to the registry `default_model`; in legacy mode it stays `"gpt-4"` and the STORY-001 fixtures pass.
-- [ ] Given file mode, when the chat UI loads for a role, then the selector lists exactly `visible_models(identity)` and the initial selection is `default_model` when visible to that role (else the first visible); in legacy mode it lists `chat_ui/chat_ui/config.py`'s `MODEL_ALLOWLIST` and `DEFAULT_MODEL` unchanged.
-- [ ] Given the admin Register, when a row has a provider, then the row shows it (long provider names truncate without wrapping, as `model_used` does), and a row without one (denials, pre-PRD-020 rows) shows the existing empty-cell treatment.
-- [ ] Given the existing chat and admin copy/contrast/render tests, when run, then they pass unchanged, and the new strings live in `copy.py` / `admin_copy.py` (no inline literals).
-- [ ] Given a keyboard user, when tabbing to the selector, then focus is visible and the control remains operable at phone width.
+- [x] Given file mode, when `/query` is called without `model`, then `QueryRequest.model` defaults to the registry `default_model`; in legacy mode it stays `"gpt-4"` and the STORY-001 fixtures pass.
+- [x] Given file mode, when the chat UI loads for a role, then the selector lists exactly `visible_models(identity)` and the initial selection is `default_model` when visible to that role (else the first visible); in legacy mode it lists `chat_ui/chat_ui/config.py`'s `MODEL_ALLOWLIST` and `DEFAULT_MODEL` unchanged.
+- [x] Given the admin Register, when a row has a provider, then the row shows it (long provider names truncate without wrapping, as `model_used` does), and a row without one (denials, pre-PRD-020 rows) shows the existing empty-cell treatment.
+- [x] Given the existing chat and admin copy/contrast/render tests, when run, then they pass unchanged, and the new strings live in `copy.py` / `admin_copy.py` (no inline literals).
+- [x] Given a keyboard user, when tabbing to the selector, then focus is visible and the control remains operable at phone width.
 
 ## Technical Notes
 
