@@ -6,7 +6,7 @@
 
 ## Progress
 
-1/16 stories done — 6%
+2/16 stories done — 12%
 
 ## Stories
 
@@ -15,7 +15,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
 | STORY-001 | Survey what providers stream and what clients display | spike | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-001-streaming-survey.plan.md) | `48bfb48` |
-| STORY-002 | Stream permissions and the STREAMING_ENABLED switch | feature | ⬜ todo | small | — | — |
+| STORY-002 | Stream permissions and the STREAMING_ENABLED switch | feature | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-002-permissions-and-switch.plan.md) | `pending` |
 | STORY-003 | stream_upstream seam, ReasoningDelta and collect()'s usage override | feature | ⬜ todo | medium | — | — |
 | STORY-004 | Stub upstream streams scripted replies with delays, reasoning and faults | technical | ⬜ todo | small | — | — |
 | STORY-005 | DeliverySink, step 2d visibility and stage events | feature | ⬜ todo | medium | — | — |

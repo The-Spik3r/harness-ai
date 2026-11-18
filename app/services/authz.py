@@ -41,6 +41,21 @@ ACTION_PERMISSIONS = frozenset(
     }
 )
 
+# Streaming permissions (PRD-021 F1, D1). `stream:realtime` lets a role read
+# model output while it is produced; `reasoning:view` lets it read the model's
+# reasoning. Granted only through RBAC_ROLES_FILE -- no built-in role holds
+# one. Always read with holds(), never authorize(): holds() has no RBAC-off
+# bypass (PRD-021 T8).
+PERMISSION_STREAM_REALTIME = "stream:realtime"
+PERMISSION_REASONING_VIEW = "reasoning:view"
+
+STREAM_PERMISSIONS = frozenset(
+    {
+        PERMISSION_STREAM_REALTIME,
+        PERMISSION_REASONING_VIEW,
+    }
+)
+
 _KNOWN_PERMISSIONS = {
     PERMISSION_QUERY_SUBMIT,
     PERMISSION_QUERY_BYOK,
@@ -50,6 +65,8 @@ _KNOWN_PERMISSIONS = {
     # Known, so RBAC_ROLES_FILE can grant them through load()'s existing
     # unknown-permission check (PRD-016 F9).
     *ACTION_PERMISSIONS,
+    # Known, so RBAC_ROLES_FILE can grant them (PRD-021 D1).
+    *STREAM_PERMISSIONS,
 }
 
 # Role -> permission matrix (PRD-005 Section 7). A policy table, not
@@ -57,7 +74,9 @@ _KNOWN_PERMISSIONS = {
 # set, denies by default. Overridable at startup via RBAC_ROLES_FILE
 # (STORY-007); this is the built-in fallback. No built-in role holds an
 # action permission, `admin` included: an agent acting for an admin is not
-# administering the harness (PRD-016 D6).
+# administering the harness (PRD-016 D6). Likewise no built-in role holds
+# `stream:realtime` or `reasoning:view`: who may read unfinished model output
+# is a deployment decision, granted only through RBAC_ROLES_FILE (PRD-021 D1).
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {
         PERMISSION_QUERY_SUBMIT,

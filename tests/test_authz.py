@@ -24,9 +24,12 @@ from app.services.authz import (
     PERMISSION_AUDIT_READ_OWN,
     PERMISSION_QUERY_BYOK,
     PERMISSION_QUERY_SUBMIT,
+    PERMISSION_REASONING_VIEW,
     PERMISSION_STATS_READ,
+    PERMISSION_STREAM_REALTIME,
     PermissionDenied,
     ROLE_PERMISSIONS,
+    STREAM_PERMISSIONS,
     authorize,
     authorize_model,
     holds,
@@ -285,8 +288,9 @@ def test_action_permission_constants_match_prd_016_section_6_7():
 def test_known_permissions_are_the_original_five_plus_the_six():
     """PRD-016 F9: the six join the known set, so RBAC_ROLES_FILE can grant
     them through load()'s existing unknown-permission check."""
-    assert authz._KNOWN_PERMISSIONS == set(ALL_PERMISSIONS) | ACTION_PERMISSIONS
-    assert len(authz._KNOWN_PERMISSIONS) == 11
+    # PRD-021 D1: the two stream permissions also join the known set (13 in all).
+    assert authz._KNOWN_PERMISSIONS == set(ALL_PERMISSIONS) | ACTION_PERMISSIONS | STREAM_PERMISSIONS
+    assert len(authz._KNOWN_PERMISSIONS) == 13
 
 
 @pytest.mark.parametrize("role", ["admin", "auditor", "user"])
@@ -374,3 +378,67 @@ def test_holds_reads_the_matrix_load_installed(tmp_path, monkeypatch, _reset_rol
     load()
 
     assert holds(identity, PERMISSION_ACTION_FS_WRITE) is True
+
+
+# --- PRD-021 STORY-002: stream permissions (F1, D1, T8) ---
+
+
+def test_stream_permission_constants_match_prd_021_f1():
+    assert PERMISSION_STREAM_REALTIME == "stream:realtime"
+    assert PERMISSION_REASONING_VIEW == "reasoning:view"
+    assert isinstance(STREAM_PERMISSIONS, frozenset)
+    assert STREAM_PERMISSIONS == frozenset({"stream:realtime", "reasoning:view"})
+    assert STREAM_PERMISSIONS <= authz._KNOWN_PERMISSIONS
+    # Not action permissions: action_config validates rule grants against that set.
+    assert STREAM_PERMISSIONS.isdisjoint(ACTION_PERMISSIONS)
+
+
+@pytest.mark.parametrize("role", ["admin", "auditor", "user"])
+def test_no_built_in_role_holds_a_stream_permission(role):
+    """PRD-021 D1: no built-in role holds either, admin included."""
+    assert ROLE_PERMISSIONS[role].isdisjoint(STREAM_PERMISSIONS)
+
+
+@pytest.mark.parametrize("permission", sorted(["stream:realtime", "reasoning:view"]))
+def test_load_accepts_a_stream_permission_grant(permission, tmp_path, monkeypatch, _reset_role_permissions):
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text(json.dumps({"dba": ["query:submit", permission]}))
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+
+    load()
+
+    assert authz.ROLE_PERMISSIONS == {"dba": {PERMISSION_QUERY_SUBMIT, permission}}
+    assert holds(Identity(user_id="d", role="dba"), permission) is True
+    assert holds(Identity(user_id="u", role="user"), permission) is False
+    assert holds(Identity(user_id="a", role="admin"), permission) is False
+
+
+def test_load_refuses_a_misspelled_stream_permission(tmp_path, monkeypatch, _reset_role_permissions):
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text(json.dumps({"dba": ["stream:realtim"]}))
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+
+    with pytest.raises(AuthzConfigError) as exc_info:
+        load()
+
+    assert "stream:realtim" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("rbac_enabled", [False, True])
+@pytest.mark.parametrize("role", ["admin", "auditor", "user"])
+@pytest.mark.parametrize("permission", sorted(["stream:realtime", "reasoning:view"]))
+def test_holds_is_false_for_built_in_roles_on_stream_permissions(monkeypatch, rbac_enabled, role, permission):
+    """PRD-021 T8: no RBAC-off bypass, as with RBAC on."""
+    monkeypatch.setattr(settings, "RBAC_ENABLED", rbac_enabled)
+
+    assert holds(Identity(user_id="u", role=role), permission) is False
+
+
+def test_authorize_with_rbac_off_would_pass_where_holds_refuses(monkeypatch):
+    """Why grants are read with holds() (PRD-021 T8): authorize() has the
+    RBAC-off escape hatch, holds() does not."""
+    monkeypatch.setattr(settings, "RBAC_ENABLED", False)
+    identity = Identity(user_id="u", role="user")
+
+    assert authorize(identity, PERMISSION_STREAM_REALTIME) is None
+    assert holds(identity, PERMISSION_STREAM_REALTIME) is False
