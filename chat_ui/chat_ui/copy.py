@@ -54,7 +54,7 @@ SHELL_HEADER_BADGE = "Inspecting"
 SHELL_USER_LABEL = "Sending as"
 SHELL_LOGOUT_LABEL = "Sign out"
 SHELL_MODEL_SLOT_LABEL = "Model"
-# PRD-020 D13: a role with no catalogued model. Says what to do, not what broke.
+# PRD-020 D15: a role with no catalogued model. Says what to do, not what broke.
 SHELL_MODEL_NONE_NOTICE = (
     "No models are enabled for your role. Ask an administrator to grant access."
 )

@@ -95,7 +95,7 @@ def _label(text: str) -> rx.Component:
 
 
 def model_selector() -> rx.Component:
-    """The options come from `ChatState.model_options` (PRD-020 D13): the
+    """The options come from `ChatState.model_options` (PRD-020 D15): the
     config.py allowlist in legacy mode, the role's visible models in file mode
     (STORY-016 made it curated -- a free-text model would reach the upstream and
     fail in a way the reader cannot act on). An empty list shows a direction."""

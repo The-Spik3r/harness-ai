@@ -60,7 +60,7 @@ _STORAGE_GATE_FAULTS = (ChatSessionError, DuplicateCheckError, UsageLimitError)
 def _model_choices(identity: Identity) -> tuple[list[str], Optional[str]]:
     """The selector's options for this identity, and the model to start on.
 
-    PRD-020 D13. Legacy mode (no providers file) is today's curated list and
+    PRD-020 D15. Legacy mode (no providers file) is today's curated list and
     leaves `selected_model` alone (None). File mode lists what the registry says
     the signed-in role may use (`visible_models`, pure) and starts on the
     registry default when it is among them, else the first, else "" (the shell
@@ -233,7 +233,7 @@ class ChatState(rx.State):
     login_error: str = ""
     pending: bool = False
     selected_model: str = DEFAULT_MODEL
-    # PRD-020 D13: the selector's options for the signed-in identity, filled by
+    # PRD-020 D15: the selector's options for the signed-in identity, filled by
     # `login` (never at import: the registry is not loaded then) and reset by
     # `logout`. Legacy default is today's static list.
     model_options: list[str] = list(MODEL_ALLOWLIST)
@@ -373,7 +373,7 @@ class ChatState(rx.State):
         self.token_input = ""
         self._token = token
         self.user_id = identity.user_id
-        # PRD-020 D13: the selector shows what this role may use.
+        # PRD-020 D15: the selector shows what this role may use.
         self.model_options, initial_model = _model_choices(identity)
         if initial_model is not None:
             self.selected_model = initial_model
@@ -465,7 +465,7 @@ class ChatState(rx.State):
         self.user_id = ""
         self.token_input = ""
         self.login_error = ""
-        # PRD-020 D13: another role may see other models; the next login
+        # PRD-020 D15: another role may see other models; the next login
         # recomputes. `selected_model` stays (model-selection AC5).
         self.model_options = []
         self.messages = []
