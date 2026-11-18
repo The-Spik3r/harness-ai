@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-009-rolling-restart-script.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: 2159d19
 status: COMPLETE
 completed: 2026-11-17
 ---

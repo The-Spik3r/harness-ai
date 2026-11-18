@@ -12,7 +12,7 @@ labels: [ops, docker, scripts]
 epic_branch: epic/PRD-019-multi-instance-deployment
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-009-rolling-restart-script.plan.md
 report: .agents/reports/PRD-019-multi-instance-deployment/STORY-009-rolling-restart-script.report.md
-commit: pending
+commit: 2159d19
 depends_on: [STORY-005]
 blocks: [STORY-010]
 skills: []
