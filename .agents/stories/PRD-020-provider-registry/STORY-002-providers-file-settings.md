@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: small
 phase: "1 - Registry and legacy equivalence"
-status: in-progress
+status: done
 labels: [backend, config]
 epic_branch: epic/PRD-020-provider-registry
-plan: .agents/plans/PRD-020-provider-registry/STORY-002-providers-file-settings.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-002-providers-file-settings.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-002-providers-file-settings.report.md
+commit: 6586c45
 depends_on: []
 blocks: [STORY-003]
 skills: []

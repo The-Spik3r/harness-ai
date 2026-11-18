@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-002-providers-file-settings.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 6586c45
 status: COMPLETE
 completed: 2026-11-18
 ---
