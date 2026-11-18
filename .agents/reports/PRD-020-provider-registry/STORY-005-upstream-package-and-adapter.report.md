@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-005-upstream-package-and-adapter.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: 6015bab
 status: COMPLETE
 completed: 2026-11-18
 ---

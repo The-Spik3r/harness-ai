@@ -12,7 +12,7 @@ labels: [backend, refactor]
 epic_branch: epic/PRD-020-provider-registry
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-005-upstream-package-and-adapter.plan.md
 report: .agents/reports/PRD-020-provider-registry/STORY-005-upstream-package-and-adapter.report.md
-commit: null
+commit: 6015bab
 depends_on: [STORY-001, STORY-003]
 blocks: [STORY-007, STORY-009, STORY-013]
 skills: []
