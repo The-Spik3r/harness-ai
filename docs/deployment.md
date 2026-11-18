@@ -32,16 +32,101 @@ To provision one: create a database, take its `libsql://<database>-<org>.turso.i
 
 ### Multiple instances
 
-Several application instances may now share one database. That is what this migration bought: the audit trail is no longer an artifact of one container's filesystem, and `init_db()` converges correctly when instances start against the same database simultaneously, rather than racing each other through the schema migration.
+Two application instances can share one database behind a sticky, health-checked balancer (PRD-019). `docker-compose.yml`, the single-instance stack, is unchanged; `docker-compose.lb.yml` ships the two-instance topology. This section describes what shipped and what is not covered.
 
-**This is proven rather than assumed.** `tests/test_two_instance_smoke.py` starts two application processes against one database and asserts that a chat written through the first is served, in full, by the second — the transcript included. Sessions were the last piece of state that lived only in one process's memory, and they no longer do.
+**Proven in two ways.** `tests/test_two_instance_smoke.py` starts two application processes against one database and asserts that a chat written through the first is served, in full, by the second. `tests/test_two_instance_balancer.py` puts a real Caddy in front of two instances. An opt-in Docker E2E, `tests/e2e/test_lb_docker.py`, covers stickiness, killing an instance and a rolling restart against the real compose stack (see [Testing](testing.md)); it is not part of CI.
 
-**What is still not included.** The database blocker is gone; the deployment topology is not built:
+#### Topology
 
-- **No load balancer or health-check configuration** is provided or documented here.
-- **No Reflex websocket session affinity.** The chat UI holds a websocket per session, so placing instances behind a round-robin balancer without sticky sessions is not a supported configuration today.
+```
+client --> lb (caddy 2.11.7, :$PORT) --+--> harness-a (in-container Caddy -> backend :8001) --+
+                                       |                                                      +--> shared Turso
+                                       +--> harness-b (in-container Caddy -> backend :8001) --+
+```
 
-Treat multi-instance as *unblocked*, not *delivered*.
+Start it from the repo root:
+
+```bash
+LB_COOKIE_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.lb.yml up -d
+```
+
+- The balancer config is `deploy/lb/Caddyfile`; the Caddy image is pinned by digest in `docker-compose.lb.yml`. The instances publish nothing; the `lb` service publishes `${PORT:-8000}`.
+- The file declares `name: harness-ai-lb`, so this stack has its own compose project and its own `harness-audit-buffer` volume. `docker compose down -v` of one stack therefore cannot destroy the other's audit journal. Before you run `down -v` on either, check that `GET /storage/status` shows `journal.entries == 0`: undrained entries are lost with the volume.
+- The two instances share that volume: each process locks its own journal file, and a journal left by a killed instance is adopted by its sibling or replacement (PRD-018).
+- `LB_COOKIE_SECRET` is required: compose refuses to start without it (Caddy itself would accept an empty value silently). Only the balancer reads it; nothing in `app/` does.
+- The Caddyfile names the services `harness-a` and `harness-b`, so `--scale` is not supported.
+
+#### Affinity and failover
+
+The balancer pins a client to an instance with a signed cookie, `harness_lb` (`lb_policy cookie harness_lb`, signed with `LB_COOKIE_SECRET`). The chat UI's websocket and its per-session state live on one instance, so every request of a session must reach the same one.
+
+- The cookie is `Path=/; HttpOnly; SameSite=Lax`. It has **no `Secure` attribute** and it is a **session cookie** (no expiry): it ends when the browser closes. Its value is 64 hex characters. Terminate TLS in front of the balancer (see "TLS and the port" below).
+- If the pinned instance dies or becomes unready, another instance answers and the cookie is re-set. The user sees the sign-in gate once, because the session token is per-instance disk state, then the transcript reloads from the database. **The answer that was in flight is lost.**
+- Only the cookie policy is tested. IP-hash and round-robin affinity are not supported.
+
+#### Probes
+
+| Path | Meaning | Used by |
+|---|---|---|
+| `/health` | Liveness. Ignores the drain flag. | The image `HEALTHCHECK` (`Dockerfile`, every 10 s) and compose `service_healthy` |
+| `/ready` | Readiness. `503` with `{"status":"not_ready","reason":"draining"}` while the drain file (`DRAIN_FILE`) exists; otherwise `200` with `{"status":"ready","breaker":"closed"}`; `503` with reason `breaker_open` and a `Retry-After` while PRD-018's breaker is open. It never moves the breaker: a `SELECT 1` bounded by `READY_DB_TIMEOUT_SECONDS`, and no call at all while the breaker is not closed. | The balancer's active health check (`health_uri /ready`) |
+| `/storage/status` | Storage and journal detail; needs `stats:read`. | Operators; not for the balancer |
+
+The balancer probes every `health_interval 5s` with a `health_timeout 3s` and expects `200`. Passive health uses `fail_duration 30s` and counts connection failures only; an instance answering `503` is handled by the active probe. Keep `READY_DB_TIMEOUT_SECONDS` (default 2.0, at most 10) below the 3 s health timeout.
+
+#### Timeouts
+
+Every hop must be longer than `OPENROUTER_TIMEOUT_SECONDS` + 30 s, so the balancer never cuts a model call before the application gives up on it. With the default of 120 s that is 150 s.
+
+| Hop | Value | Rule |
+|---|---|---|
+| `response_header_timeout` | `150s` | `OPENROUTER_TIMEOUT_SECONDS` (120) + 30 s |
+| `dial_timeout` | `3s` | connecting to an instance |
+| `lb_try_duration` | `5s` | how long the balancer waits for a healthy upstream |
+| `health_timeout` | `3s` | above `READY_DB_TIMEOUT_SECONDS` |
+| `stream_close_delay` | `5m` | keeps websockets open across a config reload |
+
+If you raise `OPENROUTER_TIMEOUT_SECONDS`, raise `response_header_timeout` in `deploy/lb/Caddyfile` with it. **With a third-party balancer** instead of this one: a 150 s read/idle timeout, no response buffering (SSE and websockets must stream), a health check on `/ready` whose timeout is above `READY_DB_TIMEOUT_SECONDS`, and cookie affinity. Only the shipped Caddyfile is tested.
+
+#### What a client sees when the balancer cannot serve
+
+With no healthy instance the balancer answers `503` after about 5 s (`lb_try_duration`) with `Retry-After: 10`, the breaker interval of PRD-018. `/v1/*` gets an OpenAI-shaped error body (`type: api_error`, `code: service_unavailable`); other paths get `{"detail":"Service unavailable"}`. An instance's own `503` (a storage outage, with its own `Retry-After`) passes through untouched. A request that reached an instance is never replayed to another (there is no `retry_match`), because `/query` and `/v1` calls are not idempotent; only connection failures are retried. The balancer does not compress responses and writes no access log, both to stay out of the streaming path.
+
+#### Rolling restart
+
+`scripts/rolling_restart.sh` replaces the instances one at a time without dropping a request the balancer already routed. **Build first**: the script never builds, and `--force-recreate` reuses the existing image, so new code needs an explicit build.
+
+```bash
+docker compose -f docker-compose.lb.yml build
+scripts/rolling_restart.sh [-f COMPOSE_FILE]... [-p PROJECT]
+```
+
+For each instance, in order: check that every other instance answers `/ready` 200; touch the drain file so `/ready` turns 503 and the balancer stops routing new requests there; wait for that 503; sleep the drain window; recreate the instance and wait for `/ready` 200. Nothing starts unless every instance is ready first.
+
+- **Drain window** = `2 * health_interval` + `DRAIN_SECONDS`. The health interval is parsed from `deploy/lb/Caddyfile` (5 s, so 10 s). `DRAIN_SECONDS` defaults to `OPENROUTER_TIMEOUT_SECONDS` + 10, and that timeout is read from your shell environment, else from inside the first instance container (`.env` reaches the containers through `env_file`, not your shell), else 120. Fractions round up.
+- Tunables (environment): `POLL_SECONDS` (2), `DRAIN_WAIT_SECONDS` (30, how long `/ready` may take to turn 503), `READY_TIMEOUT_SECONDS` (180, how long a replacement may take to turn 200).
+- `-f` may repeat (an overlay on the base file); `-p` names the compose project. Without `-f` the script targets `docker-compose.lb.yml`.
+- The audit journal does not block a restart: the volume survives the recreate and the new process adopts what is left (PRD-018).
+
+| Exit | Meaning |
+|---|---|
+| 0 | done |
+| 1 | usage or configuration error |
+| 2 | refused: an instance is not ready (also checked before each drain) |
+| 3 | the drain never took effect; undone, nothing recreated |
+| 4 | a replacement never became ready; the other instance was not touched and still serves |
+
+#### TLS and the port
+
+The image is built with `PORT`, and the in-image routing listens on it. Over plain HTTP the balancer must publish that same `$PORT`, which the compose file does. Behind TLS on 443 the constraint disappears: terminate TLS in front of the balancer. The cookie carries no `Secure` attribute, so do not expose the balancer to browsers over plain HTTP outside a trusted network.
+
+#### Not supported, and not verified
+
+- `REFLEX_REDIS_URL` set: it silently switches Reflex to Redis, which is untested here. Leave it unset.
+- `--scale` of the instance services; IP-hash or round-robin affinity.
+- Not verified in isolation: websocket pass-through, and `stream_close_delay` across a config reload. The Docker E2E covers stickiness, a killed instance and a rolling restart end to end.
+
+**Security.** `docker compose config` prints the values from `.env`, including `TURSO_AUTH_TOKEN` and `ADMIN_TOKEN`: do not paste its output into a ticket or a chat.
 
 ### What a database outage does
 

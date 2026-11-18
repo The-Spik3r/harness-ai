@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-019-multi-instance-deployment` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
-10/11 stories done — 91%
+11/11 stories done — 100%
 
 ## Stories
 
@@ -24,7 +24,7 @@ All stories commit on the epic branch `epic/PRD-019-multi-instance-deployment`. 
 | STORY-008 | Balancer test — drain, kill, 100 s calls and SSE keep-alives through both Caddies | feature | ✅ done | large | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-008-balancer-drain-kill-long-calls.plan.md) | `a366a81` |
 | STORY-009 | scripts/rolling_restart.sh — drain, wait, recreate, wait ready, one instance at a time | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-009-rolling-restart-script.plan.md) | `2159d19` |
 | STORY-010 | Opt-in Docker E2E — websocket stickiness, kill and reconnect, rolling restart | feature | ✅ done | medium | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-010-docker-e2e-websocket-failover.plan.md) | `64a148c` |
-| STORY-011 | Docs — multi-instance deployment, settings, roadmap tick; PRD close-out | technical | ⬜ todo | small | — | — |
+| STORY-011 | Docs — multi-instance deployment, settings, roadmap tick; PRD close-out | technical | ✅ done | small | [plan](../../plans/PRD-019-multi-instance-deployment/completed/STORY-011-multi-instance-docs.plan.md) | — |
 
 ## Status Icons
 - ⬜ todo

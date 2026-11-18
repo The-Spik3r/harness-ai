@@ -7,11 +7,11 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Docs"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
-report: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-011-multi-instance-docs.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-011-multi-instance-docs.report.md
 commit: null
 depends_on: [STORY-010]
 blocks: []

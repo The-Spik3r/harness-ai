@@ -2,7 +2,7 @@
 id: PRD-019
 slug: multi-instance-deployment
 title: Multi-Instance Deployment — Load Balancer, Health Checks and Websocket Session Affinity
-status: in-progress
+status: done
 base_branch: main
 epic_branch: epic/PRD-019-multi-instance-deployment
 created: 2026-11-16

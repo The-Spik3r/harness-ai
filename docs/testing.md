@@ -33,7 +33,10 @@ Two kinds of test are opt-in and skipped by default, each behind its own flag (`
 ```bash
 pytest tests/e2e -m e2e --run-e2e -v                                   # live client E2E against a subprocess harness and a stub upstream
 pytest tests/test_db_resilience_chaos.py -m chaos --run-chaos -v -s    # PRD-018 chaos: restarts the libSQL dev server
+HARNESS_E2E_DOCKER=1 python -m pytest tests/e2e/test_lb_docker.py -m e2e --run-e2e -v -s   # PRD-019 two-instance Docker E2E
 ```
+
+The last one needs Docker. It builds the image, brings up the two-instance stack as project `harness-lb-e2e` (`tests/e2e/docker/compose.lb-e2e.yml`) and checks stickiness, failover and a rolling restart; it takes about 6 minutes with a cached image and about 13 cold, and is not part of CI. See [Multiple instances](deployment.md#multiple-instances).
 
 The chaos tests restart or black-hole the dev server (`harness-libsql-dev`) to check the retry, breaker and journal against a real fault, so they are never part of the CI run or of a plain `pytest tests/`. They leave the server running.
 
