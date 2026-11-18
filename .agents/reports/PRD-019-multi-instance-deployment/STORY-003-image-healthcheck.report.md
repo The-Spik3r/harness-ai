@@ -3,14 +3,14 @@ story: STORY-003
 prd: PRD-019
 plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-003-image-healthcheck.plan.md
 epic_branch: epic/PRD-019-multi-instance-deployment
-commit: pending
+commit: 95d9393
 status: COMPLETE
 completed: 2026-11-17
 ---
 
 # Implementation Report - STORY-003: Liveness HEALTHCHECK in the image
 
-**Commit**: `pending`
+**Commit**: `95d9393`
 
 ## Summary
 

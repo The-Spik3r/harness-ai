@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "1 - Probes"
-status: todo
+status: done
 labels: [docker, infra]
 epic_branch: epic/PRD-019-multi-instance-deployment
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-019-multi-instance-deployment/completed/STORY-003-image-healthcheck.plan.md
+report: .agents/reports/PRD-019-multi-instance-deployment/STORY-003-image-healthcheck.report.md
+commit: 95d9393
 depends_on: []
 blocks: [STORY-005]
 skills: []
