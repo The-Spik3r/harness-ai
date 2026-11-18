@@ -188,12 +188,17 @@ class HarnessCompletionInfo(BaseModel):
     pii_redacted: bool = False
     pii_entities_masked: List[str] = []
     actions: Optional[List[HarnessAction]] = None
+    # PRD-020 D8 / STORY-009: the usage numbers are the harness's estimate. Emitted
+    # only when true, so a reported-usage body is byte-identical to today's.
+    usage_estimated: bool = False
 
     @model_serializer(mode="wrap")
     def _drop_absent_actions(self, handler):
         data = handler(self)
         if data.get("actions") is None:
             data.pop("actions", None)
+        if not data.get("usage_estimated"):
+            data.pop("usage_estimated", None)
         return data
 
 
@@ -271,13 +276,40 @@ class ChatCompletionChunk(BaseModel):
         return data
 
 
+class ModelCapabilities(BaseModel):
+    """PRD-020 F4 / Section 10: a catalogued model's capabilities. `max_context_tokens`
+    null is kept (unset), so the dump never uses `exclude_none`."""
+
+    tools: bool
+    streaming: bool
+    reasoning: bool
+    max_context_tokens: Optional[int] = None
+
+
+class ModelHarness(BaseModel):
+    """PRD-020 Section 10: the `harness` extension on a file-mode entry."""
+
+    provider: str
+    capabilities: ModelCapabilities
+
+
 class ModelEntry(BaseModel):
-    """One `GET /v1/models` entry (Section 7.7). `created` is unknown, so `0`."""
+    """One `GET /v1/models` entry (Section 7.7). `created` is unknown, so `0`.
+
+    `harness` is PRD-020 file mode only; the key is absent in legacy (D1)."""
 
     id: str
     object: Literal["model"] = "model"
     created: int = 0
     owned_by: str
+    harness: Optional[ModelHarness] = None
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_harness(self, handler):
+        data = handler(self)
+        if data.get("harness") is None:
+            data.pop("harness", None)
+        return data
 
 
 class ModelList(BaseModel):

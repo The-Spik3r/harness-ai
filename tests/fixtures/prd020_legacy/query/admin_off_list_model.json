@@ -1,0 +1,1 @@
+{"status":"SUCCESS","response":"Hello from upstream","audit_id":"<AUDIT_ID>","audit_ref":"<AUDIT_REF>","model_used":"some/off-list-model","tokens_used":12,"pii_redacted":false,"pii_entities_masked":[]}

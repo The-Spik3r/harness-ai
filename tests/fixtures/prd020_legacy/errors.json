@@ -1,0 +1,121 @@
+{
+  "body_no_choices": {
+    "message": "OpenRouter returned an unexpected response shape: 'choices'",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "body_not_json": {
+    "message": "OpenRouter returned an unexpected response shape: Expecting value: line 1 column 1 (char 0)",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "choices_empty_list": {
+    "message": "OpenRouter returned an unexpected response shape: list index out of range",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "content_null": {
+    "message": "OpenRouter returned no text content (finish_reason=length)",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "content_null_with_tool_calls_no_tools_sent": {
+    "message": "OpenRouter returned no text content (finish_reason=None); tool calls are not supported (PRD-017)",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "http_400": {
+    "message_contains": [
+      "https://openrouter.ai/api/v1/chat/completions"
+    ],
+    "message_prefix": "OpenRouter request failed: ",
+    "retryable": false,
+    "upstream_status": 400
+  },
+  "http_429": {
+    "message_contains": [
+      "https://openrouter.ai/api/v1/chat/completions"
+    ],
+    "message_prefix": "OpenRouter request failed: ",
+    "retryable": true,
+    "upstream_status": 429
+  },
+  "http_503": {
+    "message_contains": [
+      "https://openrouter.ai/api/v1/chat/completions"
+    ],
+    "message_prefix": "OpenRouter request failed: ",
+    "retryable": true,
+    "upstream_status": 503
+  },
+  "key_missing": {
+    "message": "OpenRouter API key not configured: pass openrouter_api_key or set OPENROUTER_API_KEY",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "message_without_content": {
+    "message": "OpenRouter returned an unexpected response shape: 'content'",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "messages_empty": {
+    "message": "messages must not be empty",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_call_arguments_not_string": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls[0].function.arguments must be a string",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_call_duplicate_id": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls[1].id repeats an earlier id in this response",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_call_empty_id": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls[0].id must be a non-empty string",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_call_no_name": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls[0].function.name must be a non-empty string",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_call_not_an_object": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls[0] is not an object",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_call_wrong_type": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls[0].type must be \"function\"",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "tool_calls_not_a_list": {
+    "message": "OpenRouter returned an unexpected response shape: choices[0].message.tool_calls is not a list",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "transport_connect_error": {
+    "message_prefix": "OpenRouter request failed: ",
+    "retryable": true,
+    "upstream_status": null
+  },
+  "transport_timeout": {
+    "message_prefix": "OpenRouter request failed: ",
+    "retryable": true,
+    "upstream_status": null
+  },
+  "usage_missing": {
+    "message": "OpenRouter returned an unexpected response shape: 'usage'",
+    "retryable": false,
+    "upstream_status": null
+  },
+  "usage_without_total_tokens": {
+    "message": "OpenRouter returned an unexpected response shape: 'total_tokens'",
+    "retryable": false,
+    "upstream_status": null
+  }
+}

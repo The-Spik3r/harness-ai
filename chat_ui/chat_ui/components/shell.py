@@ -46,7 +46,6 @@ from chat_ui import copy, theme
 from chat_ui.components.chat import chat_input, message_list
 from chat_ui.components.ground_switch import ground_switch
 from chat_ui.components.session_rail import session_rail
-from chat_ui.config import MODEL_ALLOWLIST
 from chat_ui.state import ChatState
 
 # The rail's collapse. Written inline, as `chat.py` and `login_gate()` below
@@ -96,18 +95,29 @@ def _label(text: str) -> rx.Component:
 
 
 def model_selector() -> rx.Component:
-    """Curated allowlist from config.py (STORY-016) — a free-text model would
-    reach OpenRouter and fail in a way the reader cannot act on."""
+    """The options come from `ChatState.model_options` (PRD-020 D15): the
+    config.py allowlist in legacy mode, the role's visible models in file mode
+    (STORY-016 made it curated -- a free-text model would reach the upstream and
+    fail in a way the reader cannot act on). An empty list shows a direction."""
     return rx.hstack(
         _label(copy.SHELL_MODEL_SLOT_LABEL),
-        rx.select(
-            MODEL_ALLOWLIST,
-            value=ChatState.selected_model,
-            on_change=ChatState.set_selected_model,
-            size="1",
-            variant="surface",
-            color_scheme="gray",
-            id="model-selector",
+        rx.cond(
+            ChatState.model_options.length() > 0,
+            rx.select(
+                ChatState.model_options,
+                value=ChatState.selected_model,
+                on_change=ChatState.set_selected_model,
+                size="1",
+                variant="surface",
+                color_scheme="gray",
+                id="model-selector",
+            ),
+            rx.text(
+                copy.SHELL_MODEL_NONE_NOTICE,
+                font_family=theme.FONT_DATA,
+                font_size=theme.TEXT_TAG,
+                color=theme.MUTE,
+            ),
         ),
         align="center",
         spacing="2",

@@ -323,6 +323,7 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         user_id=log.user_id,
         verdict=derive_verdict(log),
         model_used=_text(log.model_used),
+        provider=_text(log.provider),
         tokens_used=_format_tokens(log),
         pii_indicator=bool(log.pii_detected_input or log.pii_detected_output),
         device_short=device_short,

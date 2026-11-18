@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.middleware.auth import require_permission
 from app.models.schemas import QueryRequest, QueryResponse
-from app.services import chat_sessions
+from app.services import chat_sessions, provider_registry
 from app.services.audit_logger import log_query
 from app.services.authz import PERMISSION_QUERY_SUBMIT
 from app.db.errors import AuditHeadroomError, AuditUnavailableError
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
-from app.services.openrouter_client import OpenRouterError, call_openrouter
+from app.services.upstream import UpstreamError as OpenRouterError, call_upstream as call_openrouter
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_query
@@ -25,6 +25,10 @@ from app.services.storage_faults import (
 from app.services.usage_limits import UsageLimitError
 
 logger = logging.getLogger(__name__)
+
+# PRD-020 D15: the model a /query without one gets when no providers file is
+# loaded: today's default, byte for byte.
+_LEGACY_DEFAULT_MODEL = "gpt-4"
 
 _FOREIGN_SESSION_DETAIL = "session_id does not belong to the authenticated identity"
 
@@ -177,11 +181,18 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
         )
         raise HTTPException(status_code=403, detail=_FOREIGN_SESSION_DETAIL)
 
+    # PRD-020 D15: an omitted (or null) model takes the registry default in file
+    # mode, "gpt-4" in legacy mode. The pipeline still authorizes the result.
+    model = request.model
+    if model is None:
+        reg = provider_registry.current()
+        model = _LEGACY_DEFAULT_MODEL if reg.is_legacy else reg.default_model
+
     return run_query(
         identity=identity,
         prompt=request.prompt,
         device=request.device,
-        model=request.model,
+        model=model,
         openrouter_api_key=request.openrouter_api_key,
         call_openrouter=call_openrouter,
         session_id=request.session_id,

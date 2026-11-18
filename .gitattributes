@@ -1,2 +1,4 @@
 # Shell scripts run under bash, which fails on CRLF; keep them LF on every checkout.
 *.sh text eol=lf
+# PRD-020 STORY-001: recorded bytes, compared raw. No EOL conversion on any platform.
+tests/fixtures/prd020_legacy/** -text

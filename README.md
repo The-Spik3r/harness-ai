@@ -155,6 +155,7 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 |---|---|
 | **Single entry point** | One pipeline intercepts every prompt/response pair, behind two doors: `POST /query` and the OpenAI-compatible `POST /v1/chat/completions`. Nothing reaches OpenRouter without passing through it. |
 | **OpenAI-compatible endpoint** | `POST /v1/chat/completions` and `GET /v1/models`, so the OpenAI SDKs, Aider and Continue work with only their base URL and key changed. It is a translation layer onto the same pipeline, not a second one: coding-agent traffic runs the `code` profile, every block comes back as an ordinary `400` or `403` error that clients show and do not retry, and `stream: true` is answered after the whole response has been checked. OpenCode and Cline in agent mode work once [tool calling](docs/features.md#tool-calling) is turned on. See [OpenAI-compatible endpoint](docs/features.md#openai-compatible-endpoint). |
+| **Providers** | `PROVIDERS_FILE`, empty by default: a YAML registry routes each model to OpenRouter, a local server (Ollama, vLLM, LM Studio, llama.cpp, LocalAI) or any OpenAI-compatible cloud, with per-model roles and capabilities, a trust level per provider and an audited provider on every row. Without the file nothing changes. **Whoever controls a provider's host receives its key and every prompt.** See [Providers](docs/features.md#providers). |
 | **Tool calling** | `V1_TOOLS_ENABLED`, off by default: with it on, `/v1` accepts `tools` and tool turns, and **every tool call the model returns is decided by the action policy before the client sees it**. A denied call is dropped and replaced by a note in the reply; the others are released unmodified. Every decision is audited and linked to its request. The harness never executes a tool. See [Tool calling](docs/features.md#tool-calling). |
 | **Chat UI** | A browser-based chat served from the same port and process as the API, running through the identical pipeline as `POST /query`. |
 | **Role-based access control** | Every request is resolved to a verified `Identity` from a per-user bearer token — no self-declared `user_id` is trusted. Three fixed roles (`admin`, `auditor`, `user`) each hold an explicit permission set; deny-by-default for any unmapped role or permission. `ADMIN_TOKEN` remains a break-glass admin credential, not the primary auth mechanism. |
@@ -238,6 +239,8 @@ python -m spacy download en_core_web_lg   # English NLP model used by PII redact
 cp .env.example .env
 # edit .env: set OPENROUTER_API_KEY, ADMIN_TOKEN, DATABASE_URL and
 # TURSO_AUTH_TOKEN to real values
+# optional: PROVIDERS_FILE=examples/providers.yaml adds local and other providers
+# (see docs/features.md#providers); empty keeps OpenRouter only
 python scripts/manage_users.py create-user --user-id admin --role admin
 # copy the printed token now -- it cannot be recovered later; this is
 # your bearer token for POST /query, /audit, and /stats
@@ -261,6 +264,8 @@ curl http://localhost:8000/health
 cp .env.example .env
 # edit .env: set OPENROUTER_API_KEY, ADMIN_TOKEN, DATABASE_URL and
 # TURSO_AUTH_TOKEN to real values
+# optional: PROVIDERS_FILE=examples/providers.yaml adds local and other providers
+# (see docs/features.md#providers); empty keeps OpenRouter only
 docker-compose up -d --build
 docker-compose run --rm harness-ai python scripts/manage_users.py create-user --user-id admin --role admin
 # copy the printed token now -- it cannot be recovered later
@@ -355,6 +360,7 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 | Doc | What's in it |
 |---|---|
 | [Features in depth](docs/features.md) | Duplicate-detection scope, multi-turn context, pattern policy, PII redaction, usage limits, the OpenAI-compatible endpoint and its per-client setup, action policy rules and tool calling — full behaviour and the threat reasoning behind each. |
+| [Providers](docs/features.md#providers) | The provider registry file, plaintext and trust rules, capabilities, and recipes for local and hosted servers. |
 | [Configuration](docs/configuration.md) | Every environment variable, its default, and what it changes. |
 | [API reference](docs/api.md) | `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, `POST /v1/chat/completions` and `GET /v1/models` — every request and response shape, and the `/v1` error codes. |
 | [Persistence & deployment](docs/deployment.md) | Where state lives, what is stored and who can read it, what a database outage does, running two instances behind a balancer (affinity, probes, timeouts, rolling restart), and migrating off SQLite. |

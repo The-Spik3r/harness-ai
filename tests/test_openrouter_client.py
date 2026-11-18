@@ -169,7 +169,7 @@ def test_characterization_default_client_uses_todays_timeout(monkeypatch):
 
     call_openrouter([Message("user", "hello")], api_key="k")
 
-    assert captured["kwargs"] == {"timeout": 120.0}  # PRD-010 STORY-005: timeout from settings (default 120.0)
+    assert captured["kwargs"] == {"timeout": 120.0, "follow_redirects": False}  # PRD-020 D5/F3: redirects never followed; PRD-010 STORY-005: timeout from settings (default 120.0)
 
 
 def test_timeout_setting_is_read_per_call_not_cached_at_import(monkeypatch):
@@ -192,7 +192,7 @@ def test_timeout_setting_is_read_per_call_not_cached_at_import(monkeypatch):
 
     call_openrouter([Message("user", "hello")], api_key="k")
 
-    assert captured["kwargs"] == {"timeout": 7.5}
+    assert captured["kwargs"] == {"timeout": 7.5, "follow_redirects": False}  # PRD-020 D5/F3
 
 
 # --- PRD-010 STORY-004: call_openrouter takes a list of Messages ---
@@ -440,6 +440,8 @@ def test_the_split_fields_are_declared_last_and_in_order():
         # PRD-017 STORY-004 (D5, Section 6.9): tool_calls appended last with a default.
         "response", "model_used", "tokens_used", "input_tokens", "output_tokens", "finish_reason",
         "tool_calls",
+        # PRD-020 STORY-009 (D9): usage_estimated appended last with a default.
+        "usage_estimated",
     ]
 
 

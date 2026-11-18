@@ -42,6 +42,8 @@ class AuditRow(pydantic.BaseModel):
     # it passed. The register's rx.match therefore needs a default arm.
     verdict: str = ""
     model_used: str = ""
+    # PRD-020 D13: the provider that served the call; "" renders as VALUE_ABSENT.
+    provider: str = ""
     tokens_used: str = ""
     pii_indicator: bool = False
     device_short: str = ""

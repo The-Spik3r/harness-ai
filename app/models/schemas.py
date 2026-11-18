@@ -15,7 +15,9 @@ class QueryRequest(BaseModel):
     user_id: Optional[str] = None
     prompt: str
     device: Optional[str] = None
-    model: str = "gpt-4"
+    # PRD-020 D15: no default here. The router resolves None to the registry
+    # default (file mode) or to the legacy "gpt-4"; an explicit value wins.
+    model: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     # The conversation this send belongs to (PRD-008 Section 10). Optional and
     # defaulted, so a client written against the previous release is unaffected:
@@ -143,11 +145,16 @@ class QueryBlockedContextLimitResponse(BaseModel):
     `max_characters` (`PII_MAX_CHARACTERS_CODE`) for that call, and `actual`
     counts only what the analyzer would process: covered roles, fenced blocks
     blanked, newlines not counted.
+
+    `estimated_tokens` is PRD-020 D9's maximum: a model's `max_context_tokens`.
+    It is reported from step 3 after the two character limits, so never beside
+    them, and only for a model that declares one. `actual` is the D8 estimate of
+    the conversation (and its tools), not a measured token count.
     """
 
     status: Literal["BLOCKED"] = "BLOCKED"
     reason: str
-    limit: Literal["messages", "characters", "redaction_characters"]
+    limit: Literal["messages", "characters", "redaction_characters", "estimated_tokens"]
     maximum: int
     actual: int
 
@@ -264,6 +271,14 @@ class AuditQueryEntry(BaseModel):
     # `session_id`'s reasons: NULL on every `/query` and chat row and on every
     # row written before PRD-015.
     ignored_params: Optional[str] = None
+    # PRD-020 D13: verbatim passthrough of the five provider columns. NULL /
+    # NULL / NULL / False / False on every row written before PRD-020 (and on
+    # any row no PRD-020 caller wrote).
+    provider: Optional[str] = None
+    upstream_model: Optional[str] = None
+    provider_trust: Optional[str] = None
+    pii_input_relaxed: bool = False
+    usage_estimated: bool = False
 
 
 class AuditResponse(BaseModel):

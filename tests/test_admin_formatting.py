@@ -515,3 +515,15 @@ def test_no_preview_reaches_the_audit_fields():
     for name in _AUDIT_FIELDS:
         assert name in AuditRow.model_fields
         assert "SECRET" not in getattr(row, name), name
+
+
+# --- PRD-020 STORY-012 (D13): the provider cell ------------------------------
+
+
+def test_to_audit_row_carries_the_provider():
+    assert to_audit_row(make_log(provider="ollama"), NOW).provider == "ollama"
+
+
+def test_to_audit_row_shows_the_absent_mark_without_a_provider():
+    """A row written before PRD-020 (provider NULL) reads like a missing model."""
+    assert to_audit_row(make_log(provider=None), NOW).provider == VALUE_ABSENT

@@ -747,3 +747,144 @@ def test_the_tool_loop_script_loads():
     assert any(rule.role == "tool" for rule in script.rules)
     ids = [call.id for r in replies for call in r.tool_calls]
     assert None in ids and any(i for i in ids)
+
+
+# --------------------------------------------------------------------------
+# PRD-020 STORY-005: usage null, auth=yes|no, redirect_status
+# --------------------------------------------------------------------------
+
+
+def test_log_carries_auth_presence_only(stub):
+    _, log = stub()
+    _call("hello", api_key="sk-secret-value")
+    [line] = _lines(log)
+    assert line.endswith("-> 200") and " auth=yes " in line and "sk-secret-value" not in line
+
+
+def test_usage_null_answers_a_null_usage(stub):
+    port = stub({"rules": [], "default": {"content": "x", "usage": None}})[0].server_address[1]
+    reply = httpx.post(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert reply.status_code == 200 and reply.json()["usage"] is None
+
+
+def test_redirect_status_answers_the_status_with_a_location(stub):
+    server, log = stub({"rules": [], "default": {"redirect_status": 307, "location": "http://127.0.0.1:9/x"}})
+    port = server.server_address[1]
+    reply = httpx.post(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert reply.status_code == 307 and reply.headers["location"] == "http://127.0.0.1:9/x"
+    assert _lines(log)[0].endswith("-> 307")
+
+
+@pytest.mark.parametrize("reply", [
+    {"redirect_status": 200},
+    {"redirect_status": 302, "content": "x"},
+    {"location": "http://x/"},
+])
+def test_redirect_reply_is_validated(reply):
+    with pytest.raises(ScriptError, match="redirect_status|location"):
+        parse_script({"rules": [], "default": reply})
+
+
+# --------------------------------------------------------------------------
+# PRD-020 STORY-013: the stub streams when asked
+# --------------------------------------------------------------------------
+
+
+def _sse_post(extra=None, content="please rename foo"):
+    body = {"model": "m", "messages": [{"role": "user", "content": content}], "stream": True}
+    body.update(extra or {})
+    return httpx.post(
+        f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+        json=body,
+        headers={"Authorization": f"Bearer {_SECRET}"},
+    )
+
+
+def _frames(response):
+    """The `data:` payloads of an SSE body: parsed JSON chunks, and the literal [DONE]."""
+    out = []
+    for block in response.text.split("\n\n"):
+        if not block:
+            continue
+        assert block.startswith("data: "), block
+        payload = block[len("data: "):]
+        out.append(payload if payload == "[DONE]" else json.loads(payload))
+    return out
+
+
+def test_stream_log_field(stub):
+    _, log = stub()
+    _sse_post()
+    httpx.post(
+        f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+    )
+    streamed, plain = _lines(log)
+    assert " auth=yes stream=yes tools=0 calls=0 -> 200" in streamed
+    assert " auth=no stream=no tools=0 calls=0 -> 200" in plain
+    assert "params=[stream,stream_options]" not in streamed  # stream_options not sent here
+    assert "params=[stream]" in streamed
+
+
+def test_sse_body_shape(stub):
+    stub()
+    response = _sse_post({"stream_options": {"include_usage": True}})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/event-stream"
+    frames = _frames(response)
+    assert frames[-1] == "[DONE]"
+    chunks = frames[:-1]
+    deltas = [c["choices"][0]["delta"].get("content") for c in chunks if c["choices"] and "content" in c["choices"][0]["delta"]]
+    assert len(deltas) == 2 and "".join(deltas) == "Renamed foo to bar."
+    assert all(deltas)  # both halves non-empty
+    finish = [c for c in chunks if c["choices"] and c["choices"][0]["finish_reason"] is not None]
+    assert [c["choices"][0]["finish_reason"] for c in finish] == ["length"]
+    assert chunks[-1]["choices"] == [] and chunks[-1]["usage"] == {
+        "prompt_tokens": 12, "completion_tokens": 30, "total_tokens": 42,
+    }
+
+
+def test_sse_usage_chunk_only_with_include_usage(stub):
+    stub()
+    without = _frames(_sse_post())
+    assert not any("usage" in c for c in without[:-1])
+    declined = _frames(_sse_post({"stream_options": {"include_usage": False}}))
+    assert not any("usage" in c for c in declined[:-1])
+
+
+def test_sse_tool_calls_arrive_as_two_fragments_each(stub):
+    script = {"default": {"tool_calls": [{"name": "read", "arguments": '{"path": "a.py"}'}, {"name": "ls", "arguments": ""}]}}
+    stub(script)
+    chunks = _frames(_sse_post())[:-1]
+    fragments = [c["choices"][0]["delta"]["tool_calls"][0] for c in chunks if c["choices"] and "tool_calls" in c["choices"][0]["delta"]]
+    assert [f["index"] for f in fragments] == [0, 0, 1, 1]
+    first, rest = fragments[0], fragments[1]
+    assert first["id"] and first["function"]["name"] == "read" and first["type"] == "function"
+    assert "id" not in rest and first["function"]["arguments"] + rest["function"]["arguments"] == '{"path": "a.py"}'
+    assert fragments[2]["function"]["arguments"] == "" and fragments[3]["function"]["arguments"] == ""
+    assert not any("content" in c["choices"][0]["delta"] for c in chunks if c["choices"])  # null content: no text delta
+
+
+def test_non_stream_request_is_unchanged(stub):
+    stub()
+    response = httpx.post(
+        f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "please rename foo"}]},
+    )
+    assert response.headers["content-type"] == "application/json"
+    assert response.json()["choices"][0]["message"]["content"] == "Renamed foo to bar."
+
+
+def test_streaming_failure_and_header_value_are_handled_like_json(stub, capfd):
+    _, log = stub()
+    assert _sse_post(content="upstream down").status_code == 503
+    _sse_post()
+    captured = capfd.readouterr()
+    for text in (log.getvalue(), captured.out, captured.err):
+        assert _SECRET not in text

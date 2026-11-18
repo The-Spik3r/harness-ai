@@ -341,6 +341,179 @@ cn -p "what does this function do?" --config config.yaml --exclude "*"
 
 The full design is in [PRD-015](../.agents/PRDs/PRD-015-openai-compatible-endpoint/PRD.md). Earlier documents and code comments call it "PRD-014": that number went to the test-suite PRD first.
 
+### Providers
+
+**What it is.** With no `PROVIDERS_FILE` the harness has one implicit OpenRouter provider and nothing changes: every byte sent upstream and returned to clients is what it was before. With a file, the harness routes each model to the provider that lists it. One in-house `openai_compatible` adapter speaks to all of them. A model id is looked up by exact match, then by at most one provider marked `passthrough: true`; a model name is never parsed for a prefix.
+
+**Whoever controls a provider's `base_url` receives that provider's key and every prompt sent to it.** `base_url` is an operator-only setting, so treat editing the registry like handing out the key.
+
+**The registry file.** [`examples/providers.yaml`](../examples/providers.yaml) is a working sample: an OpenRouter provider, a local Ollama and a LAN vLLM box. A provider has `name`, `type`, `base_url`, `key_env`, `trust`, `pii`, `byok`, `passthrough`, `insecure_http`, `usage_missing`, `estimate_chars_per_token`, `timeout_seconds`, `roles` and `models`; a model has `id`, `upstream` (the name sent upstream), `roles` and `capabilities`. `key_env` is the name of an environment variable, never the key; a provider without it is keyless and sends no `Authorization` header. Who may use a model: `model.roles`, else `provider.roles`, else every role. A `roles` entry that is not a role, or an empty `roles: []`, is a startup error. In file mode `MODEL_ALLOWLIST`, `V1_TOOL_MODELS` and `OPENROUTER_BASE_URL` are ignored (a non-empty `V1_TOOL_MODELS` is a startup error), and `OPENROUTER_TIMEOUT_SECONDS` is only the default `timeout_seconds`. The file is read once at startup, there is no hot reload, and an invalid file stops the API and the chat UI.
+
+**Plaintext rules.** `https` is always allowed. `http` is allowed on a loopback host (`127.0.0.1`, `localhost`, `::1`). `http` to a private IP literal (RFC 1918 and ULA; `100.64.0.0/10` is not included) needs `insecure_http: true` on that provider. `http` to any other hostname is never allowed, and redirects are not followed. **`insecure_http` sends prompts, answers and any key unencrypted, readable by anyone on that network.** Each such provider logs one startup warning that names the scheme and host.
+
+**What `trust: internal` and `pii: relaxed` claim.** `trust: internal` is the operator asserting that the host is theirs and keeps nothing; the harness cannot verify it. A public IP literal is refused, and an internal hostname logs a warning because it cannot be checked. `pii: relaxed` needs `trust: internal`. It skips input redaction and the `code` profile's size limit for that provider only; output redaction is unchanged, and each audit row records the provider and its trust.
+
+**Capabilities and usage.** A model's `capabilities` are `tools`, `streaming`, `reasoning` and `max_context_tokens`, all off or unset by default; `reasoning` is informational. A conversation over `max_context_tokens` is refused as a context limit, which the chat UI words as "estimated length". When a provider reports no usage, `usage_missing: estimate` charges the characters sent and received divided by `estimate_chars_per_token` (default 4) as unsplit tokens and sets `usage_estimated` on the audit row; `error` keeps the legacy behaviour of failing the call.
+
+**Using it.**
+
+- `POST /query` `model` is optional. Omitted, it means the registry's `default_model` in file mode and `gpt-4` in legacy mode.
+- `openrouter_api_key` keeps its name and means the caller's own key for the provider the model resolves to. It is accepted only where the provider sets `byok: true`; otherwise the request is refused with a `query:byok:{provider}` forbidden verdict.
+- An unknown model and a model the caller may not use get the same answer: `404 model not found` on `GET /v1/models/{id}`, and the same denial on `POST /query`, so nothing reveals whether a forbidden id exists.
+- In file mode `GET /v1/models` lists only the models the caller's role may use, with a `harness` extension object per entry.
+- The admin Register has a provider column, and `GET /audit` returns `provider`.
+
+**Recipes.** Each block below is a complete registry; paste one into `PROVIDERS_FILE`, set the key variable it names, and change the model ids to what your server serves. **Only LM Studio was run against this repo's E2E.** For every other server the shapes of `usage` and `tool_calls` are not verified here (PRD-020 Section 15): check them before relying on them. The local recipes use `usage_missing: estimate` so a server that omits `usage` still counts against limits.
+
+#### Ollama
+
+Not verified by this repo's E2E. Ollama's default context window is small and may truncate a long prompt silently, so set `max_context_tokens` to what you actually loaded. A cold model load is slow, so give it a long `timeout_seconds`.
+
+```bash
+ollama serve   # listens on 127.0.0.1:11434
+```
+
+```yaml
+version: 1
+default_model: ollama/qwen2.5-coder:7b
+providers:
+  - name: ollama
+    type: openai_compatible
+    base_url: http://127.0.0.1:11434/v1
+    trust: internal
+    usage_missing: estimate
+    timeout_seconds: 300
+    models:
+      - id: ollama/qwen2.5-coder:7b
+        upstream: qwen2.5-coder:7b
+        capabilities: {tools: true, max_context_tokens: 32768}
+```
+
+#### vLLM
+
+Not verified by this repo's E2E. This example is a vLLM server on another machine of a private network, started with `--api-key`. It needs `insecure_http: true` because the address is a private IP literal over plain `http`; see the plaintext warning above, or put it behind TLS and use `https`.
+
+```bash
+vllm serve meta-llama/Llama-3.1-70B-Instruct --host 0.0.0.0 --port 8000 --api-key "$VLLM_API_KEY"
+```
+
+```yaml
+version: 1
+default_model: lan/llama-3.1-70b
+providers:
+  - name: gpu-box
+    type: openai_compatible
+    base_url: http://192.168.1.40:8000/v1
+    insecure_http: true
+    key_env: VLLM_API_KEY
+    trust: internal
+    usage_missing: estimate
+    roles: [admin, user]
+    models:
+      - id: lan/llama-3.1-70b
+        upstream: meta-llama/Llama-3.1-70B-Instruct
+        capabilities: {tools: true, max_context_tokens: 32768}
+```
+
+#### LM Studio
+
+The only server this repo ran an end-to-end test against (see the opt-in test below). It was tested at `http://localhost:1235/v1` (the port is whatever the server was started on, not LM Studio's own default) with `google/gemma-4-e4b`. Facts from that run:
+
+- It is keyless, and it reports real `usage` on `/query`, streamed `/v1` and tool-call requests.
+- It does not expose `/api/version`; `/api/v0/models` exposes the architecture, quantization and load state.
+- **It rejects the object form of `tool_choice` with HTTP 400.** It accepts the strings `"none"`, `"auto"` and `"required"`. The harness forwards the request unchanged and answers `502`; it does not relay the upstream reason.
+
+```yaml
+version: 1
+default_model: lmstudio/gemma-4-e4b
+providers:
+  - name: lmstudio
+    type: openai_compatible
+    base_url: http://localhost:1235/v1
+    trust: internal
+    usage_missing: estimate
+    timeout_seconds: 300
+    models:
+      - id: lmstudio/gemma-4-e4b
+        upstream: google/gemma-4-e4b
+        capabilities: {tools: true, max_context_tokens: 131072}
+```
+
+#### llama.cpp server
+
+Not verified by this repo's E2E. The server answers with whichever model it loaded, whatever name the request carries.
+
+```bash
+llama-server -m ./model.gguf --port 8080
+```
+
+```yaml
+version: 1
+default_model: llamacpp/local
+providers:
+  - name: llamacpp
+    type: openai_compatible
+    base_url: http://127.0.0.1:8080/v1
+    trust: internal
+    usage_missing: estimate
+    timeout_seconds: 300
+    models:
+      - id: llamacpp/local
+        upstream: local
+```
+
+#### LocalAI
+
+Not verified by this repo's E2E.
+
+```yaml
+version: 1
+default_model: localai/my-model
+providers:
+  - name: localai
+    type: openai_compatible
+    base_url: http://127.0.0.1:8081/v1
+    trust: internal
+    usage_missing: estimate
+    models:
+      - id: localai/my-model
+        upstream: my-model
+```
+
+#### Hosted OpenAI-compatible cloud
+
+Not verified by this repo's E2E. `llm.example.com` is a placeholder host: use your provider's documented base URL. It must be `https`. `byok: true` lets a caller send their own key in `openrouter_api_key` for this provider; leave it out to refuse that.
+
+```yaml
+version: 1
+default_model: cloud/large
+providers:
+  - name: cloud
+    label: Hosted LLM
+    type: openai_compatible
+    base_url: https://llm.example.com/v1
+    key_env: CLOUD_LLM_API_KEY
+    byok: true
+    models:
+      - id: cloud/large
+        upstream: large-model-v1
+        capabilities: {tools: true, max_context_tokens: 128000}
+```
+
+#### Opt-in end-to-end test
+
+`tests/e2e/test_local_model.py` runs a real harness against a real local server and is skipped, never failed, when none answers. See [Testing](testing.md#running-tests).
+
+#### What it does not do
+
+- **No native Anthropic, Gemini or Bedrock adapter, and no fallback between providers.** A `type` other than `openai_compatible` is a startup error; those belong to PRD-022.
+- **No Azure OpenAI URL scheme or extra headers.**
+- **No hot reload.** Restart to change the file.
+- **No health probes** of providers.
+- **No per-provider cost or budgets.** Usage limits stay per user.
+- **No bring-your-own key on `/v1` or in the chat UI.**
+- **No upstream streaming.** The adapter has `stream()` and `collect()` ready for PRD-021, but nothing streams upstream today and the harness still buffers every answer (see [No real token streaming](#openai-compatible-endpoint)).
+
 ### Action policy rules
 
 **Status: built and tested, and called by [`/v1`](#openai-compatible-endpoint) for every tool call when `V1_TOOLS_ENABLED=true`** (see [Tool calling](#tool-calling)). With the flag off, `/v1` refuses a request that carries `tools` with `tools_not_supported` (*tool calling is not supported (PRD-017)*), nothing in the request path calls the engine, and live traffic writes no decision row; the admin console's Actions view says so when it is empty.

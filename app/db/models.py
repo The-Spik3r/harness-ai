@@ -36,7 +36,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     conversation_key TEXT,
     limit_exceeded TEXT,
     ignored_params TEXT,
-    write_id TEXT
+    write_id TEXT,
+    provider TEXT,
+    upstream_model TEXT,
+    provider_trust TEXT,
+    pii_input_relaxed INTEGER NOT NULL DEFAULT 0,
+    usage_estimated INTEGER NOT NULL DEFAULT 0
 )
 """
 
@@ -142,6 +147,19 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     # before PRD-018 reads NULL, and a UNIQUE index admits any number of NULLs.
     # Indexed by CREATE_AUDIT_LOGS_WRITE_ID_INDEX below.
     "write_id": "TEXT",
+    # PRD-020 STORY-006 (D13). Which upstream served the row and how far it was
+    # trusted. Nullable / default 0 with no backfill: NULL (or 0) is the truth
+    # of every row written before PRD-020, and the trust vocabulary is
+    # validated by the registry at load, so there is no CHECK here.
+    # `provider` is the registry provider name, `upstream_model` the id the
+    # upstream was sent, `provider_trust` that provider's trust label,
+    # `pii_input_relaxed` 1 when the label relaxed input redaction and
+    # `usage_estimated` 1 when the token counts are estimates (D8).
+    "provider": "TEXT",
+    "upstream_model": "TEXT",
+    "provider_trust": "TEXT",
+    "pii_input_relaxed": "INTEGER NOT NULL DEFAULT 0",
+    "usage_estimated": "INTEGER NOT NULL DEFAULT 0",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -519,6 +537,14 @@ class AuditLog:
     # one). Declared after ignored_params to mirror the table, so id stays the
     # trailing field.
     write_id: Optional[str] = None
+    # PRD-020 STORY-006 (D13). Declared after write_id to mirror the table.
+    # The defaults are the truth of a row no PRD-020 caller wrote, and let a
+    # journaled entry from before this change replay.
+    provider: Optional[str] = None
+    upstream_model: Optional[str] = None
+    provider_trust: Optional[str] = None
+    pii_input_relaxed: bool = False
+    usage_estimated: bool = False
     id: Optional[int] = None
 
 

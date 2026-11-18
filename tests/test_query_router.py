@@ -868,3 +868,87 @@ def test_query_denied_row_records_profile_chat(temp_db, monkeypatch):
 
     assert response.json()["status"] == "BLOCKED"
     assert _last_audit_entry().profile == "chat"
+
+
+# --- PRD-020 STORY-012 (D15): the default model for a /query without one -----
+
+_FILE_REGISTRY = """
+version: 1
+default_model: stub/default
+providers:
+  - name: stub
+    type: openai_compatible
+    base_url: https://example.com/v1
+    models:
+      - id: stub/default
+      - id: stub/other
+"""
+
+_ADMIN_ONLY_DEFAULT_REGISTRY = """
+version: 1
+default_model: stub/admin-only
+providers:
+  - name: stub
+    type: openai_compatible
+    base_url: https://example.com/v1
+    models:
+      - id: stub/admin-only
+        roles: [admin]
+      - id: stub/open
+"""
+
+
+def _capture_models(monkeypatch):
+    seen = []
+
+    def _stub(prompt, model="gpt-4", api_key=None, **kwargs):
+        seen.append(model)
+        return OpenRouterResult(response="ok", model_used=model, tokens_used=3)
+
+    monkeypatch.setattr("app.routers.query.call_openrouter", _stub)
+    return seen
+
+
+def test_query_without_model_uses_the_registry_default_in_file_mode(
+    temp_db, monkeypatch, tmp_path
+):
+    from tests._providers import providers_file
+
+    seen = _capture_models(monkeypatch)
+    with providers_file(tmp_path, _FILE_REGISTRY, monkeypatch=monkeypatch):
+        absent = client.post("/query", json={"prompt": "no model one"})
+        explicit_null = client.post(
+            "/query", json={"prompt": "no model two", "model": None}
+        )
+        explicit = client.post(
+            "/query", json={"prompt": "model three", "model": "stub/other"}
+        )
+
+    assert [r.status_code for r in (absent, explicit_null, explicit)] == [200] * 3
+    assert seen == ["stub/default", "stub/default", "stub/other"]
+
+
+def test_query_without_model_uses_gpt_4_in_legacy_mode(temp_db, monkeypatch):
+    seen = _capture_models(monkeypatch)
+
+    response = client.post("/query", json={"prompt": "legacy no model"})
+
+    assert response.status_code == 200
+    assert seen == ["gpt-4"]
+
+
+def test_a_default_the_role_may_not_use_gets_the_pipelines_denial(
+    temp_db, monkeypatch, tmp_path
+):
+    """The router resolves the default; the pipeline stays the one authority."""
+    from tests._providers import providers_file
+
+    seen = _capture_models(monkeypatch)
+    with providers_file(
+        tmp_path, _ADMIN_ONLY_DEFAULT_REGISTRY, monkeypatch=monkeypatch
+    ):
+        response = client.post("/query", json={"prompt": "denied default"})
+
+    assert seen == []
+    body = response.json()
+    assert "query:model:stub/admin-only" in str(body)

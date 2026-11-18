@@ -1,0 +1,6 @@
+{
+  "authorization": "Bearer test-key",
+  "content_type": "application/json",
+  "method": "POST",
+  "path": "/api/v1/chat/completions"
+}

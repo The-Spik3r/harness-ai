@@ -177,7 +177,10 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True
     )
 
-    OPENROUTER_API_KEY: str
+    # Required unless PROVIDERS_FILE is set (PRD-020 Section 4, Section 9.3, D1);
+    # enforced by _validate_openrouter_api_key_required. A provider's `key_env`
+    # naming OPENROUTER_API_KEY is checked by the registry (STORY-003).
+    OPENROUTER_API_KEY: str = ""
     ADMIN_TOKEN: str
 
     # Turso / libSQL (PRD-007). DATABASE_URL names a network endpoint, not a
@@ -275,6 +278,12 @@ class Settings(BaseSettings):
     # (app/services/authz.py). A file replaces the built-in policy wholesale;
     # it is not merged into it. Consumed by STORY-005's pattern_config.load().
     PATTERNS_FILE: str = ""
+
+    # Path to the YAML provider registry (PRD-020 Section 4). Empty means the
+    # implicit legacy `openrouter` provider and no file is read at all -- the
+    # PATTERNS_FILE shape. Settings never opens it; provider_registry.load()
+    # does (STORY-003).
+    PROVIDERS_FILE: str = ""
 
     # The profile any call site that passes none gets -- /query and the chat
     # UI (PRD-011 Section 6.6, D2).
@@ -741,6 +750,40 @@ class Settings(BaseSettings):
                 "streamed /v1 response. Example: V1_SSE_KEEPALIVE_SECONDS=10."
             )
         return value
+
+    @model_validator(mode="after")
+    def _validate_openrouter_api_key_required(self) -> "Settings":
+        """OPENROUTER_API_KEY is required without a registry file (PRD-020 Section 9.3, D1).
+
+        Both fields are needed, so this is a model validator. Emptiness is plain
+        truthiness, the test the client uses. The message names settings only,
+        never a value.
+        """
+        if not self.PROVIDERS_FILE and not self.OPENROUTER_API_KEY:
+            raise ValueError(
+                "OPENROUTER_API_KEY is required when PROVIDERS_FILE is empty: "
+                "without a registry file the harness calls OpenRouter with it. "
+                "Set it, or set PROVIDERS_FILE to a registry that does not use "
+                "OpenRouter (PRD-020 D1). Example: OPENROUTER_API_KEY=your-key-here."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_providers_file_vs_v1_tool_models(self) -> "Settings":
+        """V1_TOOL_MODELS must be empty in file mode (PRD-020 Section 9.3, D6).
+
+        Capabilities live in the registry (`models[].capabilities.tools`).
+        Defined before _validate_v1_tool_models so this message wins when both
+        apply. v1_tool_models_list is used so blank values still pass. The
+        message names settings only, not the path or the entries.
+        """
+        if self.PROVIDERS_FILE and self.v1_tool_models_list:
+            raise ValueError(
+                "V1_TOOL_MODELS must be empty when PROVIDERS_FILE is set: tool "
+                "capability now lives in the registry (models[].capabilities.tools) "
+                "(PRD-020 D6). Empty V1_TOOL_MODELS. Example: V1_TOOL_MODELS="
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_v1_tool_models(self) -> "Settings":

@@ -397,3 +397,35 @@ def test_prd013_fields_default_when_omitted(temp_db):
         "conversation_key": None,
         "limit_exceeded": None,
     }
+
+
+# PRD-020 STORY-006 (D13): the five provider columns log_query now accepts.
+_PRD020_SUPPLIED = {
+    "provider": "lmstudio",
+    "upstream_model": "bonsai-27b",
+    "provider_trust": "local",
+    "pii_input_relaxed": True,
+    "usage_estimated": True,
+}
+
+
+def test_prd020_fields_persisted_when_supplied(temp_db):
+    audit_id = log_query(user_id="ana@empresa.com", prompt="hello", **_PRD020_SUPPLIED)
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD020_SUPPLIED} == _PRD020_SUPPLIED
+    assert row.pii_input_relaxed is True and row.usage_estimated is True
+
+
+def test_prd020_fields_default_when_omitted(temp_db):
+    """No caller passes them until STORY-007: NULL, NULL, NULL, False, False."""
+    audit_id = log_query(user_id="juan@empresa.com", prompt="hello")
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD020_SUPPLIED} == {
+        "provider": None,
+        "upstream_model": None,
+        "provider_trust": None,
+        "pii_input_relaxed": False,
+        "usage_estimated": False,
+    }

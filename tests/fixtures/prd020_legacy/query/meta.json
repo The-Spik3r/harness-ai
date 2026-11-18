@@ -1,0 +1,32 @@
+{
+  "admin_off_list_model": {
+    "status": 200,
+    "upstream_calls": 1
+  },
+  "byok_admin": {
+    "status": 200,
+    "upstream_calls": 1
+  },
+  "byok_blocked_user": {
+    "status": 200,
+    "upstream_calls": 0
+  },
+  "default_model": {
+    "status": 200,
+    "upstream_calls": 1
+  },
+  "model_blocked_user": {
+    "status": 200,
+    "upstream_calls": 0
+  },
+  "success_user": {
+    "status": 200,
+    "upstream_calls": 1
+  },
+  "upstream_503": {
+    "detail_contains": "https://openrouter.ai/api/v1/chat/completions",
+    "detail_prefix": "OpenRouter request failed: ",
+    "status": 502,
+    "upstream_calls": 1
+  }
+}

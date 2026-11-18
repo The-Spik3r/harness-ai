@@ -1,0 +1,42 @@
+# examples/providers.yaml — PROVIDERS_FILE=examples/providers.yaml
+version: 1
+default_model: openai/gpt-4o
+providers:
+  - name: openrouter                   # [a-z0-9][a-z0-9_-]{0,31}; unique
+    label: OpenRouter                  # error-message prefix; default = name
+    type: openai_compatible            # the only accepted type (D2)
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY        # env var NAME, never the key; absent = keyless
+    trust: external                    # external (default) | internal
+    byok: true                         # default false
+    passthrough: true                  # at most one provider; default false
+    models:
+      - id: openai/gpt-4o
+        capabilities: {tools: true, max_context_tokens: 128000}
+      - id: anthropic/claude-3.5-sonnet
+        capabilities: {tools: true}
+
+  - name: ollama
+    type: openai_compatible
+    base_url: http://127.0.0.1:11434/v1    # loopback http: allowed without opt-in
+    trust: internal
+    pii: relaxed                           # standard (default) | relaxed; relaxed requires internal
+    usage_missing: estimate                # estimate (default in file) | error
+    estimate_chars_per_token: 4            # (0, 8]; default 4
+    timeout_seconds: 300                   # default OPENROUTER_TIMEOUT_SECONDS; cold model loads are slow
+    models:
+      - id: ollama/qwen2.5-coder:7b
+        upstream: qwen2.5-coder:7b         # name sent upstream; default = id
+        capabilities: {tools: true, streaming: true, max_context_tokens: 32768}
+
+  - name: gpu-box
+    type: openai_compatible
+    base_url: http://192.168.1.40:8000/v1
+    insecure_http: true                    # private-network plaintext opt-in (D5)
+    key_env: VLLM_API_KEY
+    trust: internal
+    roles: [admin, user]                   # provider default for its models
+    models:
+      - id: lan/llama-3.1-70b
+        upstream: meta-llama/Llama-3.1-70B-Instruct
+        roles: [admin]                     # overrides the provider's roles

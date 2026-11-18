@@ -2,11 +2,11 @@
 id: PRD-020
 slug: provider-registry
 title: Provider Registry — OpenRouter Stops Being the Core; Local Models and Any OpenAI-Compatible Provider
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-020-provider-registry
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 > **Track.** PRD-020 is the foundation of the provider track. **PRD-021** (real-time streaming) builds on the adapter interface defined here (Section 6.4) and must not need to rewrite it. **PRD-022** (native adapters for Anthropic Messages, Gemini and Bedrock; fallback between providers; the provider circuit breaker) builds on the registry and is bound by the trust constraint in Section 6.8. Neither is in scope here.
@@ -59,7 +59,7 @@ Core principles:
 - [ ] `resolve(model) -> Route` (exact lookup, then the single `passthrough` provider, else unresolved), `visible_models(identity)`, `supports_tools(model)`.
 
 **Adapter (`app/services/upstream/`, new package; `openrouter_client.py` becomes a shim)**
-- [ ] `ProviderAdapter` protocol: `complete(request) -> UpstreamResult` and `stream(request) -> Iterator[UpstreamEvent]`, plus `collect(events) -> UpstreamResult` (D11, Section 6.4).
+- [ ] `ProviderAdapter` protocol: `complete(request) -> UpstreamResult` and `stream(request) -> Iterator[UpstreamEvent]`, plus `collect(events, *, provider, request) -> UpstreamResult` (D11, Section 6.4; the keywords carry the D8 estimate and the tools= gate, STORY-013).
 - [ ] `OpenAICompatibleAdapter`: today's `call_openrouter` body, parameterized by provider. `complete()` is what the pipeline calls. `stream()` is implemented and tested against the stub, but no production code calls it in this PRD.
 - [ ] Keyless providers send no `Authorization` header. `follow_redirects=False` is stated and tested (T1).
 - [ ] `usage_missing: estimate | error` (D8). Error strings are prefixed with the provider's `label` (the implicit `"OpenRouter"` keeps today's strings).
@@ -206,10 +206,12 @@ class ProviderAdapter(Protocol):
     def complete(self, request: UpstreamRequest, api_key: Optional[str]) -> UpstreamResult: ...
     def stream(self, request: UpstreamRequest, api_key: Optional[str]) -> Iterator[UpstreamEvent]: ...
 
-UpstreamEvent = TextDelta(text) | ToolCallDelta(index, id?, name?, arguments_fragment)
-              | UsageReport(prompt?, completion?, total?) | Finish(reason?)
+UpstreamEvent = TextDelta(text) | ToolCallDelta(index, id?, name?, arguments)   # STORY-013: one fragment per event
+              | UsageReport(prompt_tokens?, completion_tokens?, total_tokens?) | Finish(reason?)
 
-def collect(events: Iterable[UpstreamEvent]) -> UpstreamResult   # pure; same parsing rules as complete()
+def collect(events: Iterable[UpstreamEvent], *, provider: Provider, request: UpstreamRequest) -> UpstreamResult
+                                                                # pure; same parsing rules as complete()
+                                                                # (STORY-013: keyword-only provider/request for the D8 estimate and the tools= gate)
 ```
 
 - **Synchronous iterators, not async.** The pipeline runs synchronously on the dedicated executor (`pipeline_executor.py:3-11`). PRD-021 consumes the iterator on that thread and hands deltas to the event loop. An async interface would force a rewrite of the pipeline, not of the adapter.
@@ -327,13 +329,14 @@ Startup errors (each names the file, the provider or model, and the rule, never 
 - `pii: relaxed` without `trust: internal`; `trust: internal` on a public IP literal (D7)
 - `byok: true` together with `passthrough: false` and no models (unusable)
 - `max_context_tokens` < 1; `estimate_chars_per_token` outside (0, 8]; `timeout_seconds` ≤ 0
+- a `roles:` entry that is not an RBAC role, or an empty `roles: []` (orchestrator decision, STORY-003: a typo must not silently lock everyone out)
 - `V1_TOOL_MODELS` non-empty while `PROVIDERS_FILE` is set (D6)
 
 Startup WARNINGs (logged once, never fatal): an `insecure_http` provider (naming scheme and host); `trust: internal` on a hostname (it cannot be verified); a `key_env` that the loaded action policy's `secrets.env` globs do not match (`action_config.py:324-335`), so an agent's `echo $THAT_KEY` would not be `secret.read`.
 
 ### F2 — Per-role access (D4)
 
-The effective roles for a model are `model.roles`, else `provider.roles`, else every role. A role outside that set is denied `query:model:{id}`, as today. `MODEL_ALLOWLIST_WILDCARD_ROLES` (`authz.py:76-78`) keeps its meaning: those roles may use any catalogued model and any passthrough model. `RBAC_ENABLED=false` still bypasses the model check (`authz.py:194-195`), but routing still applies: an unresolvable model is refused even with RBAC off, because there is nowhere to send it.
+The effective roles for a model are `model.roles`, else `provider.roles`, else every role. A role outside that set is denied `query:model:{id}`, as today. `MODEL_ALLOWLIST_WILDCARD_ROLES` (`authz.py:76-78`) keeps its meaning: those roles may use any catalogued model and any passthrough model. `RBAC_ENABLED=false` still bypasses the model check (`authz.py:194-195`), but routing still applies: an unresolvable model is refused even with RBAC off, because there is nowhere to send it. Uncatalogued (passthrough) models are permitted only to `MODEL_ALLOWLIST_WILDCARD_ROLES`; `provider.roles` and `model.roles` apply to catalogued models, which keeps legacy (`passthrough: true`) identical (orchestrator decision OD3).
 
 ### F3 — Transport and keys (D5)
 
@@ -489,7 +492,7 @@ With `PROVIDERS_FILE` naming the stub as `openrouter` and a second stub as `loca
 
 ### Quality indicators
 
-- [ ] Full suite green in both modes (CI runs the suite once with a `PROVIDERS_FILE` fixture as well)
+- [ ] Full suite green in both modes (file-mode tests use the shared `tests/_providers.py` fixture in the regular CI job, with no second full-suite job; orchestrator decision OD2)
 - [ ] `provider_registry` resolution and `usage_estimate` are pure (no I/O after `load()`); `upstream.collect` is pure
 - [ ] No new runtime dependency in `requirements.txt`
 - [ ] Each changed pre-existing assertion carries a comment citing PRD-020 and the decision

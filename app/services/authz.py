@@ -1,9 +1,13 @@
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.config import settings
 from app.db.database import count_active_users
 from app.services.identity import Identity
+
+if TYPE_CHECKING:
+    from app.services.provider_registry import Route
 
 # Permission constants (PRD-005 Section 7). No caller uses a string literal
 # for a permission name -- always one of these.
@@ -185,19 +189,50 @@ def holds(identity: Identity, permission: str) -> bool:
     return permission in ROLE_PERMISSIONS.get(identity.role, ())
 
 
+def sees_every_model(identity: Identity) -> bool:
+    """True when the identity is not model-restricted: RBAC off, or a role in
+    MODEL_ALLOWLIST_WILDCARD_ROLES (PRD-020 O1). One rule for authorize_route
+    and visible_models, so the picker cannot drift from the check."""
+    return (not settings.RBAC_ENABLED) or identity.role in MODEL_ALLOWLIST_WILDCARD_ROLES
+
+
+def role_may_use(role: str, model, provider) -> bool:
+    """Effective roles of a catalogued model (PRD-020 F2): the model's `roles`,
+    else its provider's, else every role. `model` is a CatalogModel and
+    `provider` a Provider (not annotated: provider_registry imports this
+    module). Pure."""
+    roles = model.roles if model.roles is not None else provider.roles
+    return roles is None or role in roles
+
+
+def authorize_route(identity: Identity, model: str) -> "Route":
+    """Resolve `model` and check the role may use it (PRD-020 F2, D3, D4, T3).
+
+    Raises PermissionDenied(f"query:model:{model}") -- the one text for every
+    denial, so an unknown model and a forbidden one are indistinguishable (T3).
+    An unresolvable model is denied even with RBAC off. A wildcard role reaches
+    any resolvable model (O1); an uncatalogued model is for wildcard roles only
+    (OD3); a catalogued one needs a role in its effective roles.
+    """
+    # provider_registry imports authz at module level, so import it here.
+    from app.services import provider_registry
+
+    route = provider_registry.resolve(model)
+    if route is None:
+        raise PermissionDenied(f"query:model:{model}")
+    if sees_every_model(identity):
+        return route
+    if not route.catalogued or not role_may_use(identity.role, route.model, route.provider):
+        raise PermissionDenied(f"query:model:{model}")
+    return route
+
+
 def authorize_model(identity: Identity, model: str) -> None:
     """Deny-by-default model check (PRD-005 Section 7). Raises
     PermissionDenied(f"query:model:{model}") unless the identity's role has
-    an unrestricted allowlist or the model is in settings.model_allowlist_list.
-    RBAC_ENABLED=false bypasses this check too, same escape hatch as
+    an unrestricted allowlist or the model is catalogued for its role. Now
+    delegates to authorize_route and discards the Route (PRD-020 D3, D4); in
+    legacy mode (no PROVIDERS_FILE) the verdicts are the old allowlist check's.
+    RBAC_ENABLED=false bypasses the role check too, same escape hatch as
     authorize()."""
-    if not settings.RBAC_ENABLED:
-        return
-
-    if identity.role in MODEL_ALLOWLIST_WILDCARD_ROLES:
-        return
-
-    if model in settings.model_allowlist_list:
-        return
-
-    raise PermissionDenied(f"query:model:{model}")
+    authorize_route(identity, model)

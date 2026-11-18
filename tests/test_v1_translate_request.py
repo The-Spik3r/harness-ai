@@ -344,7 +344,10 @@ def test_is_pure():
         # STORY-009: translate_result reads QuerySuccessResponse (pydantic only).
         "app.models.schemas",
         "app.models.v1_schemas",
-        "app.services.openrouter_client",
+        # PRD-020 STORY-005 (D12): the param and result types moved out of
+        # openrouter_client into these two pure submodules (no httpx, no settings).
+        "app.services.upstream.params",
+        "app.services.upstream.types",
     }
     assert not names & {"settings", "open", "httpx", "log_query", "logging", "logger", "query_pipeline"}
 

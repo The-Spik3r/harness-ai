@@ -102,6 +102,15 @@ def log_query(
     # (app/routers/query.py), the test suite and scripts/, where NULL is the
     # truth. Stored verbatim: v1_translate builds the string, not this module.
     ignored_params: Optional[str] = None,
+    # PRD-020 STORY-006 (D13). Defaulted because no caller passes them until
+    # STORY-007, which passes them explicitly on every pipeline row; NULL/NULL/
+    # NULL/False/False is the truth for the direct callers (the test suite,
+    # scripts/, /query's foreign-session refusal). Stored verbatim.
+    provider: Optional[str] = None,
+    upstream_model: Optional[str] = None,
+    provider_trust: Optional[str] = None,
+    pii_input_relaxed: bool = False,
+    usage_estimated: bool = False,
     # PRD-018 D13. Step 8 of a request with tool decisions only: a journaled
     # row carries its decisions in the SAME journal entry, so the callable gets
     # the row's write_id and returns the decision rows keyed `<write_id>:<i>`.
@@ -144,6 +153,11 @@ def log_query(
         conversation_key=conversation_key,
         limit_exceeded=limit_exceeded,
         ignored_params=ignored_params,
+        provider=provider,
+        upstream_model=upstream_model,
+        provider_trust=provider_trust,
+        pii_input_relaxed=pii_input_relaxed,
+        usage_estimated=usage_estimated,
         # PRD-018 D4 (Section 6.4): minted once per call, beside the one
         # timestamp stamp and before the first attempt, so every retry (and,
         # from STORY-008, the journal entry and the drain) carries the same

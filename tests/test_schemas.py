@@ -33,7 +33,9 @@ def test_query_request_missing_prompt_raises():
 
 def test_query_request_defaults():
     request = QueryRequest(user_id="juan@empresa.com", prompt="hi")
-    assert request.model == "gpt-4"
+    # PRD-020 STORY-012 (D15): the schema no longer carries the default; the
+    # /query router resolves None (registry default, or "gpt-4" in legacy mode).
+    assert request.model is None
     assert request.openrouter_api_key is None
     assert request.device is None
 
@@ -180,6 +182,13 @@ def test_audit_response_shape():
                 "limit_exceeded": None,
                 # PRD-015 Section 10 (STORY-007): additive, nullable, defaulted.
                 "ignored_params": None,
+                # PRD-020 D13 (STORY-006): five additive provider fields,
+                # NULL / False by default.
+                "provider": None,
+                "upstream_model": None,
+                "provider_trust": None,
+                "pii_input_relaxed": False,
+                "usage_estimated": False,
             }
         ],
     }
@@ -419,6 +428,8 @@ def test_query_blocked_context_limit_response_accepts_redaction_characters():
         "messages",
         "characters",
         "redaction_characters",
+        # PRD-020 D9 (STORY-010): estimated_tokens added; the first three unchanged
+        "estimated_tokens",
     )
 
 
@@ -469,3 +480,23 @@ def test_query_request_carries_no_limit_field():
     assert not {"limit", "limits", "token_budget_daily", "requests_per_minute"} & set(
         QueryRequest.model_fields
     )
+
+
+# --- PRD-020 STORY-010: the estimated_tokens maximum (D9) --------------------
+
+
+def test_query_blocked_context_limit_response_accepts_estimated_tokens():
+    """PRD-020 STORY-010 AC5: the fourth `limit` value, field for field."""
+    response = QueryBlockedContextLimitResponse(
+        reason="Conversation exceeds context limit",
+        limit="estimated_tokens",
+        maximum=8192,
+        actual=31000,
+    )
+    assert response.model_dump() == {
+        "status": "BLOCKED",
+        "reason": "Conversation exceeds context limit",
+        "limit": "estimated_tokens",
+        "maximum": 8192,
+        "actual": 31000,
+    }

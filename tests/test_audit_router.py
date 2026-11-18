@@ -105,6 +105,12 @@ def test_valid_token_returns_expected_shape(temp_db):
             "limit_exceeded",
             # PRD-015 Section 10: additive, nullable (STORY-007).
             "ignored_params",
+            # PRD-020 D13 (STORY-006): five additive provider fields.
+            "provider",
+            "upstream_model",
+            "provider_trust",
+            "pii_input_relaxed",
+            "usage_estimated",
         }
 
     newest, oldest = body["queries"]
@@ -429,3 +435,33 @@ def test_a_query_row_reads_null_ignored_params_on_audit(temp_db, monkeypatch):
     assert entry["audit_id"] == sent.json()["audit_id"]
     assert entry["ingress"] == "query"
     assert entry["ignored_params"] is None
+
+
+def test_audit_entry_carries_the_prd020_provider_fields(temp_db):
+    """PRD-020 D13 (STORY-006 AC 4): the five fields pass through verbatim; a
+    row no PRD-020 caller wrote reads null/null/null/false/false."""
+    from app.services.audit_logger import log_query
+    from app.services.duplicate_checker import hash_prompt
+
+    log_query(
+        user_id="juan@empresa.com",
+        prompt="served by a local model",
+        provider="lmstudio",
+        upstream_model="bonsai-27b",
+        provider_trust="local",
+        pii_input_relaxed=True,
+        usage_estimated=True,
+    )
+    log_query(user_id="juan@empresa.com", prompt="plain row")
+
+    response = client.get(
+        "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    )
+
+    assert response.status_code == 200
+    by_hash = {q["prompt_hash"]: q for q in response.json()["queries"]}
+    fields = ("provider", "upstream_model", "provider_trust", "pii_input_relaxed", "usage_estimated")
+    carried = by_hash[hash_prompt("served by a local model")]
+    plain = by_hash[hash_prompt("plain row")]
+    assert tuple(carried[f] for f in fields) == ("lmstudio", "bonsai-27b", "local", True, True)
+    assert tuple(plain[f] for f in fields) == (None, None, None, False, False)

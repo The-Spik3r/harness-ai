@@ -26,17 +26,18 @@ from app.services.authz import (
     PERMISSION_QUERY_SUBMIT,
     PermissionDenied,
     authorize,
-    authorize_model,
+    authorize_route,
 )
 from app.services.conversation_key import conversation_key
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
-from app.services.openrouter_client import (
+from app.services.provider_registry import Route
+from app.services.upstream import (
     GenerationParams,
-    OpenRouterError,
-    OpenRouterResult,
     ToolParams,
-    call_openrouter,
+    UpstreamError as OpenRouterError,
+    UpstreamResult as OpenRouterResult,
+    call_upstream as call_openrouter,
 )
 from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect, strip_fenced_blocks
@@ -45,6 +46,7 @@ from app.services.pii_redactor import PiiRedactorError, redact, redact_for_polic
 # By name into this module, not `usage_limits.admit`: the suite replaces
 # `query_pipeline.admit` and `query_pipeline.charge` to spy on the gate and
 # the charge or fail them, the binding rule `_redact` documents for `redact`.
+from app.services.usage_estimate import estimate_tokens
 from app.services.usage_limits import admit, charge
 
 QueryPipelineResult = Union[
@@ -56,7 +58,7 @@ QueryPipelineResult = Union[
     QueryBlockedUsageLimitResponse,
 ]
 
-ContextLimit = Literal["messages", "characters"]
+ContextLimit = Literal["messages", "characters", "estimated_tokens"]
 
 # The doors a call site may name (PRD-013 Sections 6.8, 6.9): `/query`, the
 # chat UI, and `/v1`, which PRD-014 adds. None is a direct caller.
@@ -160,6 +162,38 @@ def _context_limit_exceeded(
     return None
 
 
+def _estimated_tokens_exceeded(
+    messages: Sequence[Message],
+    route: Route,
+    tools: Optional[ToolParams],
+) -> Optional[Tuple[ContextLimit, int, int]]:
+    """`("estimated_tokens", maximum, actual)` when the conversation outgrows the model, else None.
+
+    PRD-020 D9, T10: the route's `max_context_tokens` (the catalogued model's,
+    or the passthrough role's) against the D8 estimate of what would be sent.
+    A model that declares none is skipped before any estimate is computed, so
+    legacy mode and every model without the key behave exactly as before (D1).
+
+    The estimate is `usage_estimate.estimate_tokens` over the pre-redaction
+    `messages` (step 3 precedes step 6) with the request's tools counted, at the
+    provider's `estimate_chars_per_token`. It is a heuristic, a mitigation for
+    sending an oversized conversation and not proof of the server's real window.
+    Strict `>`, like the two character limits: exactly the maximum proceeds.
+    """
+    maximum = route.capabilities.max_context_tokens
+    if maximum is None:
+        return None
+    actual = estimate_tokens(
+        messages,
+        ("", ()),
+        route.provider.estimate_chars_per_token,
+        tools=tools.tools if tools is not None else None,
+    )
+    if actual > maximum:
+        return "estimated_tokens", maximum, actual
+    return None
+
+
 def _break_glass_refused(identity: Identity, ingress: Optional[Ingress]) -> bool:
     """Whether step 2b refuses this identity on this door (PRD-013 Section 6.8, D4).
 
@@ -249,6 +283,20 @@ def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
     return redact_for_policy(text, policy)
 
 
+def _route_fields(route: Optional[Route]) -> dict:
+    """The three audit columns taken from the resolved Route (PRD-020 D13, T8).
+
+    From the Route, never from the upstream result: `model_used` stays the
+    requested id. All None when no route exists yet (steps 0-2 denials)."""
+    if route is None:
+        return {"provider": None, "upstream_model": None, "provider_trust": None}
+    return {
+        "provider": route.provider.name,
+        "upstream_model": route.upstream_model,
+        "provider_trust": route.provider.trust,
+    }
+
+
 # PRD-018 D10/T5 (R1): a refusal is a release, and every refusal arm below
 # writes its row through `log_query`. When that row can be neither committed nor
 # journaled, `AuditUnavailableError` propagates and the request is refused with
@@ -296,8 +344,13 @@ def _deny(
     has_tool_calls: bool,
     exc: PermissionDenied,
     reason: str,
+    # Required for the same reason as the seven above (PRD-020 D13, STORY-007):
+    # a forgotten arm is a TypeError, not a row that cannot say where the
+    # request was routed. None for every arm at or before the model check.
+    route: Optional[Route],
 ) -> QueryBlockedForbiddenResponse:
     log_query(
+        **_route_fields(route),
         user_id=identity.user_id,
         prompt=prompt,
         device=device,
@@ -398,18 +451,19 @@ def run_conversation(
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
-            reason="Missing required permission",
+            reason="Missing required permission", route=None,
         )
 
     try:
-        authorize_model(identity, model)
+        # PRD-020 D3: one resolution here; the Route is carried to the audit rows.
+        route = authorize_route(identity, model)
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
-            reason="Model not permitted for this role",
+            reason="Model not permitted for this role", route=None,
         )
 
     if openrouter_api_key is not None:
@@ -421,7 +475,19 @@ def run_conversation(
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
-                reason="Missing required permission",
+                reason="Missing required permission", route=None,
+            )
+        # PRD-020 D10: the caller's key goes only to a provider declared
+        # `byok: true`. Refused before 2b/2c, so nothing is sent or charged.
+        # A label on the row like `query:model:{model}`, never an RBAC permission.
+        if not route.provider.byok:
+            return _deny(
+                identity, prompt, device, session_id=session_id, dedup_key=key,
+                profile=profile_name, ingress=ingress, message_count=message_count,
+                conversation_key=conv_key, streamed=streamed,
+                ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
+                exc=PermissionDenied(f"query:byok:{route.provider.name}"),
+                reason="Missing required permission", route=None,
             )
 
     # Step 2b: break-glass ingress policy (PRD-013 Sections 6.1, 6.8; D4, F12, T9).
@@ -444,6 +510,7 @@ def run_conversation(
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
             exc=PermissionDenied("ingress:break_glass"),
             reason="Break-glass credential not permitted on this ingress",
+            route=route,
         )
 
     # Step 2c: the usage gate (PRD-013 Sections 6.1, 6.5-6.7; D7, D8, F10).
@@ -485,6 +552,7 @@ def run_conversation(
         if not admission.admitted:
             refusal = admission.refusal
             log_query(
+                **_route_fields(route),
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -527,10 +595,17 @@ def run_conversation(
     # unusable as a prior query (PRD-009 Section 6.3), which is exactly right
     # for an attempt that never reached the model. The cost is that these rows
     # count against `success_rate`; PRD Section 9.2 T7 accepts it.
-    exceeded = _context_limit_exceeded(messages)
+    #
+    # PRD-020 D9: a third check follows the two character limits, the model's
+    # `max_context_tokens` against the estimate. First breach wins, so it is not
+    # computed for a conversation that already broke an earlier limit.
+    exceeded = _context_limit_exceeded(messages) or _estimated_tokens_exceeded(
+        messages, route, tools
+    )
     if exceeded is not None:
         limit, maximum, actual = exceeded
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -563,6 +638,7 @@ def run_conversation(
 
     if duplicate_result.is_duplicate:
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -618,6 +694,7 @@ def run_conversation(
         # else in `.block` -- and is passed rather than spelled so the hit
         # stays the one source of what was done.
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -655,6 +732,7 @@ def run_conversation(
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
+            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -679,6 +757,14 @@ def run_conversation(
     # back to `chat` (D8).
     policy = get_pii_policy(profile_name)
 
+    # PRD-020 D7, 6.6, T4: decided once, by the Route alone (an internal
+    # provider that declares `pii: relaxed`, with the PII switch on) -- never
+    # from a request field, role, profile or host. It skips only input
+    # redaction and the code size limit: patterns above and output redaction
+    # below are unchanged. `pii_detected_input=0` on such a row means not
+    # analyzed, and `pii_input_relaxed` records that it was a decision.
+    relaxed = route.relaxes_input()
+
     # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
     # the head of step 6 and not in step 3, because what it measures depends
     # on the policy: which roles are covered and how much sits inside fences.
@@ -693,10 +779,12 @@ def run_conversation(
     # serve as a prior query (PRD-009 Section 6.3): the same request sent
     # after the operator raises the limit is answered, not held. `chat` has
     # no limit, so /query and the chat UI cannot reach this arm.
-    over = _redaction_limit_exceeded(messages, policy)
+    over = None if relaxed else _redaction_limit_exceeded(messages, policy)
     if over is not None:
         maximum, actual = over
         log_query(
+            **_route_fields(route),
+            pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -730,10 +818,14 @@ def run_conversation(
     # 0, PRD-017 D7), and both policies cover both roles. A `tool` turn's
     # content is redacted like any covered turn (PRD-017 Section 6.5);
     # assistant `tool_calls` are not (D13).
-    redacted_messages: list[Message] = []
+    #
+    # Relaxed (PRD-020 D7): the loop is bypassed. The original messages go
+    # upstream as received (same objects, tool fields included) and no entity
+    # is recorded.
+    redacted_messages: list[Message] = list(messages) if relaxed else []
     input_entities: list[str] = []
     last_index = len(messages) - 1
-    for index, message in enumerate(messages):
+    for index, message in enumerate([] if relaxed else messages):
         if message.role not in policy.input_roles:
             # The same object, every field included, so it reaches upstream
             # byte-identical: `code`'s `system` turn, the client's own prompt
@@ -745,6 +837,8 @@ def run_conversation(
             redacted_content, entities = _redact(message.content, policy)
         except PiiRedactorError as exc:
             log_query(
+                **_route_fields(route),
+                pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -785,6 +879,8 @@ def run_conversation(
         )
     except OpenRouterError as exc:
         log_query(
+            **_route_fields(route),
+            pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -874,6 +970,8 @@ def run_conversation(
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
         except PiiRedactorError as exc:
             log_query(
+                **_route_fields(route),
+                pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -882,6 +980,7 @@ def run_conversation(
                 tokens_used=openrouter_result.tokens_used,
                 input_tokens=openrouter_result.input_tokens,
                 output_tokens=openrouter_result.output_tokens,
+                usage_estimated=openrouter_result.usage_estimated,
                 success=False,
                 error_message=str(exc),
                 pii_detected_input=bool(input_entities),
@@ -918,6 +1017,8 @@ def run_conversation(
     # `journal_decisions`, so the release below follows a commit or an fsync.
     try:
         audit_ref = log_query(
+            **_route_fields(route),
+            pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -926,6 +1027,7 @@ def run_conversation(
             tokens_used=openrouter_result.tokens_used,
             input_tokens=openrouter_result.input_tokens,
             output_tokens=openrouter_result.output_tokens,
+            usage_estimated=openrouter_result.usage_estimated,
             # PRD-017 D19: the request carried tool turns, or the response carried
             # calls (before release). The row's `response` stays what the upstream
             # said; the decisions live in `action_decisions` (STORY-010 DD-2).

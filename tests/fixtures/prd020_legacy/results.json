@@ -1,0 +1,20 @@
+{
+  "usage_full": {
+    "finish_reason": "stop",
+    "input_tokens": 5,
+    "model_used": "gpt-4",
+    "output_tokens": 7,
+    "response": "Hello from upstream",
+    "tokens_used": 12,
+    "tool_calls": []
+  },
+  "usage_without_split": {
+    "finish_reason": "stop",
+    "input_tokens": null,
+    "model_used": "gpt-4",
+    "output_tokens": null,
+    "response": "Hello from upstream",
+    "tokens_used": 9,
+    "tool_calls": []
+  }
+}
