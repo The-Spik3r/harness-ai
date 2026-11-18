@@ -30,6 +30,8 @@ curl -X POST http://localhost:8000/query \
 }
 ```
 
+`model` is optional: omitted, it is the registry's `default_model` in file mode and `gpt-4` in legacy mode (see [Providers](features.md#providers)).
+
 OpenRouter received `my name is <PERSON>, my email is <EMAIL_ADDRESS>` — never the raw text. `pii_entities_masked` is the sorted union of entity types masked in the prompt and in the response; when nothing is detected, `pii_redacted` is `false` and the list is empty. Both fields are additive — clients that ignore unknown fields are unaffected, and the two `BLOCKED` shapes below are unchanged (redaction runs only after both checks pass).
 
 `audit_ref` is on every success and equals the audit row's `write_id`, a client-minted id that lets a replayed write be recognised. `audit_id` is the row's number, and is `null` only when the row was written to the [audit journal](deployment.md#what-a-database-outage-does) because the database could not take it; the answer is still released, and `audit_ref` is how the row is found once it has drained.

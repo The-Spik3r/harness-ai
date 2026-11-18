@@ -34,7 +34,10 @@ Two kinds of test are opt-in and skipped by default, each behind its own flag (`
 pytest tests/e2e -m e2e --run-e2e -v                                   # live client E2E against a subprocess harness and a stub upstream
 pytest tests/test_db_resilience_chaos.py -m chaos --run-chaos -v -s    # PRD-018 chaos: restarts the libSQL dev server
 HARNESS_E2E_DOCKER=1 python -m pytest tests/e2e/test_lb_docker.py -m e2e --run-e2e -v -s   # PRD-019 two-instance Docker E2E
+pytest tests/e2e/test_local_model.py -m e2e --run-e2e -v                   # PRD-020 real local OpenAI-compatible server
 ```
+
+The local-model run (PRD-020) drives a real harness subprocess in file mode against a server you start yourself. `HARNESS_E2E_LOCAL_BASE_URL` (default `http://localhost:1235/v1`) and `HARNESS_E2E_LOCAL_MODEL` (default `google/gemma-4-e4b`) point it at LM Studio, Ollama, vLLM or any other OpenAI-compatible server. Like the other E2E modules it needs `HARNESS_E2E_LIBSQL_URL` (a loopback libSQL, see the recipe at the top of the module). It is skipped, never failed, when no server answers at the base URL or the server does not list the model, and the skip reason says which. See [Providers](features.md#providers).
 
 The last one needs Docker. It builds the image, brings up the two-instance stack as project `harness-lb-e2e` (`tests/e2e/docker/compose.lb-e2e.yml`) and checks stickiness, failover and a rolling restart; it takes about 6 minutes with a cached image and about 13 cold, and is not part of CI. See [Multiple instances](deployment.md#multiple-instances).
 
@@ -120,7 +123,7 @@ On Linux, `host.docker.internal` is not resolvable by default; add `--add-host=h
 Run `pip install -r requirements.txt`.
 
 **`OPENROUTER_API_KEY not found` on startup**
-Copy `.env.example` to `.env` and fill in a real key.
+Copy `.env.example` to `.env` and fill in a real key, unless `PROVIDERS_FILE` is set and no provider's `key_env` names it.
 
 **`DATABASE_URL must name a libSQL endpoint, not a file` at startup**
 Your `.env` still carries a `sqlite:` URL from before the Turso migration. `DATABASE_URL` now names a network endpoint (`libsql://...`, `https://...`, or `http://127.0.0.1:8080` for the local dev server), and a file path is rejected rather than quietly created — see the [Environment Variables](configuration.md#environment-variables) table. The full message names the replacement to use.
