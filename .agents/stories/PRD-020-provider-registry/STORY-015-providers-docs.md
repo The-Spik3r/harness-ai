@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Streaming interface, E2E, docs"
-status: in-progress
+status: done
 labels: [docs, config]
 epic_branch: epic/PRD-020-provider-registry
-plan: .agents/plans/PRD-020-provider-registry/STORY-015-providers-docs.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-020-provider-registry/completed/STORY-015-providers-docs.plan.md
+report: .agents/reports/PRD-020-provider-registry/STORY-015-providers-docs.report.md
+commit: d35cbc6
 depends_on: [STORY-010, STORY-012, STORY-014]
 blocks: []
 skills: []

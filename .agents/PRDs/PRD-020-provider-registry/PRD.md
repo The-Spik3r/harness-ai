@@ -2,11 +2,11 @@
 id: PRD-020
 slug: provider-registry
 title: Provider Registry — OpenRouter Stops Being the Core; Local Models and Any OpenAI-Compatible Provider
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-020-provider-registry
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 > **Track.** PRD-020 is the foundation of the provider track. **PRD-021** (real-time streaming) builds on the adapter interface defined here (Section 6.4) and must not need to rewrite it. **PRD-022** (native adapters for Anthropic Messages, Gemini and Bedrock; fallback between providers; the provider circuit breaker) builds on the registry and is bound by the trust constraint in Section 6.8. Neither is in scope here.

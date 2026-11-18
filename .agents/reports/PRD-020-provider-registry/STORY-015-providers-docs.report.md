@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-020
 plan: .agents/plans/PRD-020-provider-registry/completed/STORY-015-providers-docs.plan.md
 epic_branch: epic/PRD-020-provider-registry
-commit: pending
+commit: d35cbc6
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-020-provider-registry/completed/STORY-015-providers-docs.plan.md`
 **Epic Branch**: `epic/PRD-020-provider-registry`
-**Commit**: `pending`
+**Commit**: `d35cbc6`
 
 ## Summary
 
