@@ -37,6 +37,7 @@ As an integrating developer using Cline, I want the same real-time proof as for 
 
 - Reuse `tests/test_e2e_cline_script.py`. If Cline is not installed or cannot be scripted on this machine, record that in the report (the story is done when the scripted test exists, is skipped by default, and the report states the outcome) — do not install global tooling without telling the orchestrator.
 - Orchestrator note (STORY-001): Cline 3.0.74 is installed at `tests/e2e/.clients/cline`; its AI SDK reads `delta.reasoning_content ?? delta.reasoning`.
+- Orchestrator decision (STORY-014): mirror STORY-014's design: a new opt-in module beside the PRD-017 Cline test (left unchanged), `_live.Recorder(keep_sse=True)` as the harness-side proof, stub `stream` shape (`chunk_chars` 6-8, `delay_ms` 60), a throwaway libSQL on its own port, `STREAMING_ENABLED=true`, a file-mode registry with `streaming`/`reasoning` capabilities and an `RBAC_ROLES_FILE` that redefines `user`/`auditor` (`manage_users.py` only accepts admin|auditor|user). Every row must show `streamed_realtime` true (a buffered fallback fails). Reuse `tests/e2e/_opencode_realtime.py` helpers where they are client-neutral. "Reasoning displayed" is an observation, the sentinel-never-in-content/files/audit assertions are hard.
 
 ## Dependencies
 
