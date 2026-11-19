@@ -24,11 +24,15 @@ from app.services.audit_logger import log_query
 from app.services.authz import (
     PERMISSION_QUERY_BYOK,
     PERMISSION_QUERY_SUBMIT,
+    PERMISSION_REASONING_VIEW,
+    PERMISSION_STREAM_REALTIME,
     PermissionDenied,
     authorize,
     authorize_route,
+    holds,
 )
 from app.services.conversation_key import conversation_key
+from app.services.delivery import DeliverySink, StageName, Visibility
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
 from app.services.provider_registry import Route
@@ -297,6 +301,44 @@ def _route_fields(route: Optional[Route]) -> dict:
     }
 
 
+class _SafeSink:
+    """Wraps a DeliverySink so a fault in it never reaches the pipeline (PRD-021 D18, 6.3).
+
+    A sink is a courtesy to a reader; the request, its audit row and its charge
+    do not depend on it. Each method calls the real one and swallows any
+    Exception; the first fault of a request logs one line naming the user and
+    the method, never a payload (T9). Only built when a sink was passed: with
+    `sink=None` the pipeline computes and emits nothing."""
+
+    def __init__(self, sink: DeliverySink, user_id: str) -> None:
+        self._sink = sink
+        self._user_id = user_id
+        self._faulted = False
+
+    def _call(self, method: str, *args: Any) -> None:
+        try:
+            getattr(self._sink, method)(*args)
+        except Exception:
+            if not self._faulted:
+                self._faulted = True
+                logger.warning("delivery sink failed: user_id=%s method=%s", self._user_id, method)
+
+    def stage(self, name: StageName) -> None:
+        self._call("stage", name)
+
+    def phase(self, name: Any, action_kind: Any = None) -> None:
+        self._call("phase", name, action_kind)
+
+    def content(self, text: str) -> None:
+        self._call("content", text)
+
+    def reasoning(self, text: str) -> None:
+        self._call("reasoning", text)
+
+    def committed(self, completion_id: str) -> None:
+        self._call("committed", completion_id)
+
+
 # PRD-018 D10/T5 (R1): a refusal is a release, and every refusal arm below
 # writes its row through `log_query`. When that row can be neither committed nor
 # journaled, `AuditUnavailableError` propagates and the request is refused with
@@ -401,6 +443,10 @@ def run_conversation(
     # to step 7 only when set, as `params` is; every other door passes nothing
     # (D17).
     tools: Optional[ToolParams] = None,
+    # PRD-021 D18, Section 6.9: where progress is reported, passed only by an
+    # ingress that shows it (the `/v1` router, the chat UI). None -- every other
+    # caller, `run_query` included -- computes and emits nothing.
+    sink: Optional[DeliverySink] = None,
 ) -> QueryPipelineResult:
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
@@ -442,7 +488,13 @@ def run_conversation(
     # no-op when no journal is open.
     audit_journal.check_admission_headroom()
 
+    # PRD-021 D18: the sink, wrapped once so no fault in it reaches the request.
+    # Stage events below depend on configuration only (T10), never on a finding.
+    safe = _SafeSink(sink, identity.user_id) if sink is not None else None
+
     # Step 2: authorize / model / BYOK.
+    if safe is not None:
+        safe.stage("checking_permissions")
     try:
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
@@ -548,6 +600,8 @@ def run_conversation(
     # None when the switch is off, which step 7b reads as "charge nothing".
     admission = None
     if settings.USAGE_LIMITS_ENABLED:
+        if safe is not None:
+            safe.stage("checking_usage")
         admission = admit(identity, charges_budget=openrouter_api_key is None)
         if not admission.admitted:
             refusal = admission.refusal
@@ -576,6 +630,24 @@ def run_conversation(
                 actual=refusal.actual,
                 resets_at=refusal.resets_at,
             )
+
+    # Step 2d: visibility (PRD-021 Section 6.1, F3, T8).
+    #
+    # After 2c on purpose: a caller refused above must not learn from timing
+    # that its role holds a streaming grant, and no refusal computes it. The
+    # grants are read with holds(), never authorize(): holds() has no
+    # RBAC_ENABLED bypass, so RBAC off cannot hand every caller real time (T8).
+    # Computed only when a sink was passed; `None` means nothing is forwarded
+    # and step 7 stays today's. Step 7 (STORY-006) reads this local.
+    visibility: Optional[Visibility] = None
+    if safe is not None:
+        visibility = Visibility.compute(
+            streaming_enabled=settings.STREAMING_ENABLED,
+            holds_realtime=holds(identity, PERMISSION_STREAM_REALTIME),
+            holds_reasoning=holds(identity, PERMISSION_REASONING_VIEW),
+            caps=route.capabilities,
+            ingress=ingress,
+        )
 
     # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).
     #
@@ -634,6 +706,8 @@ def run_conversation(
     # so a caller cannot choose whose window they are checked against
     # (PRD-009 Section 9.1, F5). The key is the one derived above, once: the
     # control checks exactly what every row records.
+    if safe is not None:
+        safe.stage("checking_duplicates")
     duplicate_result = check_duplicate(identity.user_id, key)
 
     if duplicate_result.is_duplicate:
@@ -673,6 +747,8 @@ def run_conversation(
     # An unknown profile is a call-site bug and raises PatternConfigError here.
     # An earlier arm that wrote a row has already returned, and its row records
     # the name the call site passed -- which is what ran, as far as it went.
+    if safe is not None:
+        safe.stage("inspecting_prompt")
     scan_ceiling = settings.PATTERN_MAX_SCAN_CHARACTERS
     inspection = inspect(messages, get_profile(profile_name), max_scan_characters=scan_ceiling)
     for index in inspection.truncated:
@@ -764,6 +840,9 @@ def run_conversation(
     # below are unchanged. `pii_detected_input=0` on such a row means not
     # analyzed, and `pii_input_relaxed` records that it was a decision.
     relaxed = route.relaxes_input()
+    # PRD-021 T10: configuration only -- the switch and the route, never a finding.
+    if safe is not None and settings.PII_REDACTION_ENABLED and not relaxed:
+        safe.stage("masking_input")
 
     # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
     # the head of step 6 and not in step 3, because what it measures depends
@@ -943,6 +1022,8 @@ def run_conversation(
     # error and propagates, so no call is ever released undecided (T1).
     outcome: Optional[tool_release.ToolOutcome] = None
     if openrouter_result.tool_calls:
+        if safe is not None:
+            safe.stage("evaluating_actions")
         calls = tuple(
             action_adapters.ToolCall(c.id, c.name, c.arguments)
             for c in openrouter_result.tool_calls
@@ -966,6 +1047,8 @@ def run_conversation(
     # call's arguments (PRD-017 Section 6.5, D13); the denial notes are joined
     # after it, so they are never masked (Section 6.6).
     if policy.output:
+        if safe is not None and settings.PII_REDACTION_ENABLED:
+            safe.stage("masking_output")
         try:
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
         except PiiRedactorError as exc:

@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline"
-status: todo
+status: in-progress
 labels: [backend, pipeline, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
+plan: .agents/plans/PRD-021-realtime-streaming/STORY-005-delivery-sink-and-visibility.plan.md
 report: null
 commit: null
 depends_on: [STORY-002]

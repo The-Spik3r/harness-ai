@@ -80,8 +80,12 @@ def test_run_conversation_signature_matches_the_prd():
     assert list(signature.parameters) == [
         "identity", "messages", "device", "model", "openrouter_api_key",
         "params", "call_openrouter", "session_id", "profile", "ingress", "streamed",
-        "ignored_params", "tools",
+        "ignored_params", "tools", "sink",
     ]
+    # PRD-021 STORY-005 (D18): trailing keyword-only `sink`, passed only by an
+    # ingress that reports progress; run_query passes nothing.
+    assert signature.parameters["sink"].default is None
+    assert signature.parameters["sink"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["tools"].default is None
     assert signature.parameters["tools"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["ignored_params"].default is None
