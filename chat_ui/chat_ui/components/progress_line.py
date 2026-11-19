@@ -83,7 +83,9 @@ def render_reasoning_block(reasoning, open_=True, on_toggle=None, block_id="") -
     body = rx.box(
         reasoning,
         id=block_id or None,
-        tab_index=0,
+        # No `tab_index`: the shell's focus-order rule forbids any tabindex
+        # (tests/test_chat_shell.py AC 8). Current browsers make a scrollable
+        # box keyboard-focusable on their own.
         white_space="pre-wrap",
         overflow_wrap="anywhere",
         max_height="14rem",
