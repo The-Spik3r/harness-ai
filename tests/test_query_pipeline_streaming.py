@@ -229,7 +229,10 @@ def test_waiting_then_changes_only(setup):
 def test_content_in_order_skips_empty(setup):
     rec = _Recorder()
     _run(rec, stream=_stream([TextDelta("a"), TextDelta(""), TextDelta("b"), Finish("stop"), _USAGE]))
-    assert rec.of("content") == ["a", "b"]
+    # PRD-021 STORY-008, D7: under `chat` the output gate holds "a" and "b" (no
+    # boundary) and releases them together as the remainder; empty deltas still
+    # never reach it.
+    assert rec.of("content") == ["ab"]
 
 
 @pytest.mark.parametrize(
@@ -263,7 +266,9 @@ def test_no_tool_fragment_reaches_any_sink_method(setup):
     everything = repr(rec.log)
     for fragment in ("DROP", "TABLE", "users", "command"):
         assert fragment not in everything
-    assert rec.of("content") == ["before ", "after"]
+    # PRD-021 STORY-008, D7: the gate holds "before " and releases both text
+    # deltas together as the remainder; the tool fragments are still absent.
+    assert rec.of("content") == ["before after"]
 
 
 def test_7c_runs_over_collect_calls(setup):
@@ -323,7 +328,10 @@ def test_fault_after_release_charges_estimate_before_failure_row(setup, spies):
     order, charges = spies
     fault = UpstreamError("connection dropped", retryable=True)
     with pytest.raises(OpenRouterError):
-        _run(_Recorder(), prompt="count me",
+        # PRD-021 STORY-008: `code` has output redaction off, so the deltas are
+        # forwarded raw and released at once; under `chat` the gate would hold
+        # "abc"/"de" (nothing released, no charge: see test_query_pipeline_gates).
+        _run(_Recorder(), prompt="count me", profile="code",
              stream=_stream([TextDelta("abc"), TextDelta("de")], then=fault))
     assert order == ["charge", "log_failure"]
     (user, _day, input_tokens, output_tokens, total), = charges
@@ -342,7 +350,9 @@ def test_fault_before_release_charges_nothing(setup, spies):
 def test_fault_counts_everything_received_including_held_calls_and_reasoning(setup, spies):
     _order, charges = spies
     events = [
-        ReasoningDelta("think"),  # forwarded (both grants), so something was released
+        # PRD-021 STORY-008, D8: the reasoning gate releases at a sentence
+        # boundary, so "think. " (not "think") is what makes something released.
+        ReasoningDelta("think. "),
         ToolCallDelta(0, id="c1", name="bash", arguments='{"command": '),
         ToolCallDelta(0, arguments='"ls"}'),
     ]
@@ -351,8 +361,8 @@ def test_fault_counts_everything_received_including_held_calls_and_reasoning(set
              stream=_stream(events, then=UpstreamError("x", retryable=True)))
     (_u, _d, _i, _o, total), = charges
     held = ToolCallSpec("c1", "bash", '{"command": "ls"}')
-    assert total == estimate_tokens([Message("user", "count me")], ("think", (held,)), 1.0)
-    without_call = estimate_tokens([Message("user", "count me")], ("think", ()), 1.0)
+    assert total == estimate_tokens([Message("user", "count me")], ("think. ", (held,)), 1.0)
+    without_call = estimate_tokens([Message("user", "count me")], ("think. ", ()), 1.0)
     assert total > without_call  # the held arguments raise the estimate
 
 

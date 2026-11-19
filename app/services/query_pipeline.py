@@ -38,6 +38,13 @@ from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
 from app.services.provider_registry import Route
 from app.services.stream_assembly import phase_of
+from app.services.stream_redaction import (
+    GateResult,
+    OutputGate,
+    gate_applies,
+    reasoning_policy,
+    redact_reasoning,
+)
 from app.services.upstream import (
     GenerationParams,
     ReasoningDelta,
@@ -969,7 +976,7 @@ def run_conversation(
     # buffered call. `sink=None`: no id, no phases, no stream. STORY-009 persists
     # `completion_id` and `realtime_request`; no column carries them yet.
     completion_id: Optional[str] = None
-    realtime_request = bool(visibility is not None and visibility.realtime)  # noqa: F841
+    realtime_request = bool(visibility is not None and visibility.realtime)  # noqa: F841  # STORY-009
     streamed_step = bool(visibility is not None and visibility.upstream_streamed)
     if safe is not None:
         safe.phase("waiting")
@@ -979,6 +986,30 @@ def run_conversation(
     released = False
     received_text: list[str] = []
     received_calls: dict[int, dict[str, Any]] = {}
+    # PRD-021 6.5, D7, D8 (STORY-008): the two gates exist only for a streamed
+    # realtime request. The content gate runs when the master switch is on and the
+    # policy redacts output (`code` may not: raw forward, no final pass, step 8
+    # as today). `_redact` is called through a lambda so the spy on this module's
+    # binding sees the gate's final pass as it sees step 8's.
+    content_gate: Optional[OutputGate] = None
+    reasoning_gate: Optional[OutputGate] = None
+    gate_result: Optional[GateResult] = None
+    raw_reasoning: list[str] = []  # reasoning granted but not realtime: redacted whole
+    reasoning_text: Optional[str] = None
+    stream_redaction_divergence = False  # STORY-009 persists it; no column carries it yet
+    if streamed_step and visibility is not None and visibility.realtime:
+        if gate_applies(policy, settings.PII_REDACTION_ENABLED):
+            content_gate = OutputGate(
+                policy,
+                settings.STREAM_HOLDBACK_MAX_CHARACTERS,
+                final_redact=lambda text, pol: _redact(text, pol),
+            )
+        if visibility.reasoning:
+            reasoning_gate = OutputGate(
+                reasoning_policy(policy),
+                settings.STREAM_HOLDBACK_MAX_CHARACTERS,
+                final_redact=redact_reasoning,
+            )
     if safe is not None and not streamed_step:
         completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
         safe.committed(completion_id)
@@ -1006,15 +1037,22 @@ def run_conversation(
                 if isinstance(event, TextDelta) and event.text != "":
                     received_text.append(event.text)
                     if visibility.realtime:
-                        # STORY-008: output gate
-                        safe.content(event.text)
-                        released = True
+                        # `released` flips on what the gate lets out, not on
+                        # receipt (T6): a gate holding everything has shown nothing.
+                        out = content_gate.feed(event.text) if content_gate else event.text
+                        if out:
+                            safe.content(out)
+                            released = True
                 elif isinstance(event, ReasoningDelta) and event.text != "":
                     received_text.append(event.text)
                     if visibility.reasoning and visibility.realtime:
-                        # STORY-007/008: reasoning gate
-                        safe.reasoning(event.text)
-                        released = True
+                        assert reasoning_gate is not None
+                        out = reasoning_gate.feed(event.text)
+                        if out:
+                            safe.reasoning(out)
+                            released = True
+                    elif visibility.reasoning:
+                        raw_reasoning.append(event.text)
                 elif isinstance(event, ToolCallDelta):
                     held = received_calls.setdefault(
                         event.index, {"id": None, "name": None, "arguments": []}
@@ -1022,6 +1060,33 @@ def run_conversation(
                     held["id"] = held["id"] or event.id
                     held["name"] = held["name"] or event.name
                     held["arguments"].append(event.arguments)
+            # End of stream (PRD-021 6.5): the held tails leave last, reasoning
+            # first, then content, so the content remainder is the last content
+            # delta. A fault here is a fault after a release like any other.
+            if reasoning_gate is not None:
+                reasoning_done = reasoning_gate.finish()
+                if reasoning_done.remainder:
+                    safe.reasoning(reasoning_done.remainder)
+                    released = True
+                if reasoning_done.diverged:
+                    logger.warning(
+                        "stream redaction diverged (reasoning): user_id=%s completion_id=%s",
+                        identity.user_id, completion_id,
+                    )
+            if content_gate is not None:
+                gate_result = content_gate.finish()
+                if gate_result.remainder:
+                    safe.content(gate_result.remainder)
+                    released = True
+                if gate_result.diverged:
+                    stream_redaction_divergence = True
+                    logger.warning(
+                        "stream redaction diverged: user_id=%s completion_id=%s",
+                        identity.user_id, completion_id,
+                    )
+            if raw_reasoning:
+                # D8: collected and returned whole, redacted, never persisted.
+                reasoning_text = redact_reasoning("".join(raw_reasoning), policy).text
             # D4: a realtime stream is billed like a whole answer, so a missing
             # usage chunk is estimated whatever the provider's mode; progress-only
             # keeps today's rule (nothing was released, nothing is charged).
@@ -1039,7 +1104,9 @@ def run_conversation(
             openrouter_result = call_openrouter(
                 redacted_messages, model=model, api_key=openrouter_api_key, **extra
             )
-    except OpenRouterError as exc:
+    except (OpenRouterError, PiiRedactorError) as exc:
+        # A gate failure (PiiRedactorError from feed/finish) is the same fault as
+        # a dropped stream: the same T6 charge, the same failure row (STORY-008).
         # PRD-021 T6 / PRD-020 D8: text already shown to a reader was spent
         # upstream, so charge the estimate of what was received before the fault,
         # before the failure row. Nothing released: nothing charged (today's rule).
@@ -1151,7 +1218,12 @@ def run_conversation(
     # which it was (PRD-012 D9). Only the upstream's content is redacted, never a
     # call's arguments (PRD-017 Section 6.5, D13); the denial notes are joined
     # after it, so they are never masked (Section 6.6).
-    if policy.output:
+    if gate_result is not None:
+        # PRD-021 6.5: the gate's single whole-reply pass *is* step 8's redaction;
+        # it is authoritative for the response, the bubble and the entities, and
+        # runs once (nothing is masked now, so no `masking_output` stage).
+        redacted_response, output_entities = gate_result.final_text, gate_result.final_entities
+    elif policy.output:
         if safe is not None and settings.PII_REDACTION_ENABLED:
             safe.stage("masking_output")
         try:
@@ -1303,6 +1375,9 @@ def run_conversation(
         # Private, never serialized (STORY-010 DD-1): the router's only source of
         # released calls (T1).
         success._tool_outcome = outcome
+    if reasoning_text is not None:
+        # PRD-021 D8: private and never passed to log_query or chat_messages.
+        success._reasoning = reasoning_text
     return success
 
 

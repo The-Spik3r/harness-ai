@@ -103,6 +103,16 @@ class QuerySuccessResponse(BaseModel):
     def tool_outcome(self) -> "Optional[ToolOutcome]":
         return self._tool_outcome
 
+    # PRD-021 D8 / STORY-008: the model's reasoning, redacted whole, set by the
+    # pipeline only when the caller holds `reasoning.view` and the answer is not
+    # streamed in real time (otherwise it went to the sink per segment). Private
+    # like `_tool_outcome`: never serialized, never persisted.
+    _reasoning: Any = PrivateAttr(default=None)
+
+    @property
+    def reasoning(self) -> Optional[str]:
+        return self._reasoning
+
 
 class QueryBlockedDuplicateResponse(BaseModel):
     status: Literal["BLOCKED"] = "BLOCKED"
