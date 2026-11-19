@@ -62,6 +62,8 @@ It must print `errors: none`.
 - Targeted runs over many DB-heavy files are slow on this machine (STORY-009: 16 files took 35 min). Prefer `-k` over whole guard files such as `tests/test_db.py` when only a few of its tests touch your change, and grep guards for tail slices (`names[-N:]`) and column counts before editing a persisted list. CI runs everything anyway.
 - `log_query(` calls in `query_pipeline.py`: `**_route_fields(route),` stays the FIRST argument (PRD-020 guard `test_every_log_query_call_in_the_pipeline_passes_the_route_fields` checks the 120 chars after `log_query(`); add new keywords after it.
 
+- Changing a public pipeline signature (`run_query`, `run_conversation`, ...): grep `tests/` for `inspect.signature(` and `kwargs == {` guards on it (e.g. `tests/test_query_pipeline_run_conversation.py`) and run them; STORY-011 missed two that only CI caught.
+
 ## Checkpoint
 - Done and pushed: 001-007 (earlier sessions); 008 (e63f658 gates wired at the step 7 seams, final pass replaces step 8 for gated requests, `QuerySuccessResponse.reasoning`); 009 (e87f3ad four audit columns, `log_query` requires `streamed_realtime`/`reasoning_shown`; refusals at steps 3-6 write `streamed_realtime=0`); 010 (03b304d `/v1` `realtime_events`, `_CommitSink`, `Visibility.compute(streamed=)`, `_upstream_result`, `reasoning_content` absent when None). Next: STORY-011.
 - CI: green through 008 (bc07e54). 009's run (5758b94) failed one guard (route fields order), fixed in 9654456, pushed; read that run first on resume (it also covers 010). Pre-existing failures: none.
