@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Pipeline"
-status: in-progress
+status: done
 labels: [backend, pii, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: .agents/plans/PRD-021-realtime-streaming/STORY-007-output-and-reasoning-gates.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-007-output-and-reasoning-gates.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-007-output-and-reasoning-gates.report.md
+commit: d1e6fb0
 depends_on: []
 blocks: [STORY-008]
 skills: []

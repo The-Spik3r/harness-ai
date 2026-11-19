@@ -6,7 +6,7 @@
 
 ## Progress
 
-6/16 stories done — 38%
+7/16 stories done — 44%
 
 ## Stories
 
@@ -20,7 +20,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | STORY-004 | Stub upstream streams scripted replies with delays, reasoning and faults | technical | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-004-stub-streaming-scripts.plan.md) | `f2d3b36` |
 | STORY-005 | DeliverySink, step 2d visibility and stage events | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-005-delivery-sink-and-visibility.plan.md) | `139484b` |
 | STORY-006 | Streamed step 7 with phases, held tool calls and real-time charging | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-006-streamed-step-7.plan.md) | `0eb1fc1` |
-| STORY-007 | Hold-back output gate and reasoning gate | feature | 🟡 in-progress | large | [plan](../../plans/PRD-021-realtime-streaming/STORY-007-output-and-reasoning-gates.plan.md) | — |
+| STORY-007 | Hold-back output gate and reasoning gate | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-007-output-and-reasoning-gates.plan.md) | `d1e6fb0` |
 | STORY-008 | Gates in the pipeline, final pass, divergence and reasoning result | feature | ⬜ todo | medium | — | — |
 | STORY-009 | Four audit columns for real-time delivery | feature | ⬜ todo | medium | — | — |
 | STORY-010 | /v1 real-time SSE and reasoning_content | feature | ⬜ todo | large | — | — |

@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-007-output-and-reasoning-gates.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: d1e6fb0
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-021-realtime-streaming/completed/STORY-007-output-and-reasoning-gates.plan.md`
 **Epic Branch**: `epic/PRD-021-realtime-streaming`
-**Commit**: `pending`
+**Commit**: `d1e6fb0`
 
 ## Summary
 
