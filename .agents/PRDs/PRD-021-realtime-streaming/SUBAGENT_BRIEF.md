@@ -59,6 +59,7 @@ It must print `errors: none`.
 ## What to return (your final message, at most ~30 lines)
 - PLAN subagent: the plan path, a 3–5 line summary, the files to CREATE/UPDATE, one line per AC saying how it is covered, open risks/questions, and confirmation that the story frontmatter (`plan`, `status: in-progress`) and the index were updated.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
+- Targeted runs over many DB-heavy files are slow on this machine (STORY-009: 16 files took 35 min). Prefer `-k` over whole guard files such as `tests/test_db.py` when only a few of its tests touch your change, and grep guards for tail slices (`names[-N:]`) and column counts before editing a persisted list. CI runs everything anyway.
 
 ## Checkpoint
 - Done and pushed: 001-004 (earlier session), 005 (139484b `delivery.py`, `_SafeSink`, step 2d `visibility` local, config-only stages), 006 (0eb1fc1 streamed step 7, `stream_assembly.phase_of(event, prev, tool_kinds)`, `completion_id`/`realtime_request` locals, T6 mid-stream estimate over everything received, D20 deadline in `OpenAICompatibleAdapter.stream()`), 007 (d1e6fb0 `stream_redaction.OutputGate`/`GateResult(.., remainder)`, `redaction_spans`/`apply_spans` in `pii_redactor`). Next: STORY-008.
