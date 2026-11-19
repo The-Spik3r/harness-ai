@@ -7,17 +7,17 @@ type: technical
 priority: low
 complexity: small
 phase: "4 - Clients and docs"
-status: todo
+status: done
 labels: [testing, e2e, v1]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-015-cline-realtime-e2e.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-015-cline-realtime-e2e.report.md
+commit: pending
 depends_on: [STORY-001, STORY-004, STORY-010]
 blocks: [STORY-016]
 skills: []
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # STORY-015: Cline end-to-end on a real-time stream
