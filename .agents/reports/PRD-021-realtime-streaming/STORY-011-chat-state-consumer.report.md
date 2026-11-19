@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-011-chat-state-consumer.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: 153c56f
 status: COMPLETE
 completed: 2026-11-19
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-19
 
 **Plan**: `.agents/plans/PRD-021-realtime-streaming/completed/STORY-011-chat-state-consumer.plan.md`
 **Epic Branch**: `epic/PRD-021-realtime-streaming`
-**Commit**: `pending`
+**Commit**: `153c56f`
 
 ## Summary
 
@@ -37,7 +37,7 @@ Reflex flush verified: `.venv/Lib/site-packages/reflex/istate/proxy.py:159-178` 
 | Backend import | OK |
 | `tests/test_chat_state_streaming.py` | 13 passed |
 | `tests/test_chat_state.py` | 153 passed |
-| `tests/test_chat_history_send.py` + `test_chat_ui_startup_guard.py` + `test_untouched_app.py` (final run, with the new file) | 45 passed (13 + 8 + startup guard + untouched) |
+| `tests/test_chat_history_send.py` + `test_chat_ui_startup_guard.py` + `test_untouched_app.py` (final run, with the new file) | 45 passed |
 | `tests/test_chat_outcomes_regression.py`, `tests/test_usage_bubble.py` (with history_send, first run) | passed (41 of 43; the 2 failures were fixed, see Deviations) |
 | `tests/test_rbac.py -k chat` | 2 passed |
 | `tests/test_pipeline_concurrency.py` | 4 passed, 1 skipped |

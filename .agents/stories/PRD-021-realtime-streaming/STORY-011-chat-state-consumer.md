@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Ingresses"
-status: todo
+status: done
 labels: [chat-ui, reflex, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-011-chat-state-consumer.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-011-chat-state-consumer.report.md
+commit: 153c56f
 depends_on: [STORY-009]
 blocks: [STORY-012]
 skills: [frontend-design]
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # STORY-011: Chat UI state consumes the pipeline's events
