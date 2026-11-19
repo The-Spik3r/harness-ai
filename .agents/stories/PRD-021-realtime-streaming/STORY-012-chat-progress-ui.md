@@ -36,6 +36,8 @@ As a chat user, I want the pending entry to say truthfully what the harness is d
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-011 plan): ChatState exposes seven vars: `progress_stage`, `progress_phase`, `progress_action` (raw `PhaseEvent.action_kind`; the word mapping is this story's copy), `progress_since` (epoch seconds the current stage/phase started; drives the 300 ms no-flicker rule), `progress_sent_at` (epoch seconds of the send; drives the elapsed `· 14 s` counter), `live_text`, `live_reasoning`. All reset to idle defaults when the final bubble lands.
+
 - `chat_ui/chat_ui/components/bubbles.py:495-503` pending indicator, `:61-71` `_prose`, `:74-80` `_evidence`/`FONT_DATA`; `components/chat.py:57` `render_pending_indicator` slot; `copy.py:1-9` voice and single-file language rule, `:44`, `:51-52`, `:56-68` tags; `components/shell.py:33-35` reduced motion. Line numbers predate PRD-020; grep.
 - Language: English (user decision 2026-11-18, O1).
 - frontend-design rules (verbatim): "Write from the end user's side of the screen. Name things by what people control and recognize, never by how the system is built"; "Use active voice as default"; "Let each element do exactly one job"; "Build to a quality floor without announcing it: responsive down to mobile, visible keyboard focus, reduced motion respected"; "sometimes less is more, and extra animation contributes to the feeling that the design is AI-generated".
