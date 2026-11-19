@@ -33,9 +33,10 @@ from app.models.schemas import (
     QuerySuccessResponse,
 )
 from app.services import pipeline_executor
-from app.services.delivery import QueueSink, StageEvent, Visibility
+from app.services.delivery import CommittedEvent, PhaseEvent, QueueSink, StageEvent, Visibility
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterResult
+from app.services.upstream import Finish, TextDelta, UsageReport
 from tests._providers import provider_file  # noqa: F401  (fixture)
 
 _JUAN = Identity(user_id="juan@empresa.com", role="user")
@@ -101,11 +102,19 @@ def _upstream(calls=()):
     return fake
 
 
+def _scripted_stream(messages, model="gpt-4", api_key=None, params=None, *, tools=None):
+    # PRD-021 STORY-006: the streamed arm iterates `stream_upstream`; this is the
+    # same answer `_upstream` returns, as events.
+    yield TextDelta("Hi there!")
+    yield Finish("stop")
+    yield UsageReport(total_tokens=12)
+
+
 def _run(sink=None, *, prompt="hello world", identity=_JUAN, profile="chat", calls=(),
          ingress="chat", model="gpt-4"):
     return query_pipeline.run_conversation(
         identity, [Message("user", prompt)], "laptop", model, None,
-        call_openrouter=_upstream(calls), ingress=ingress, profile=profile, sink=sink,
+        call_openrouter=_upstream(calls), stream_upstream=_scripted_stream, ingress=ingress, profile=profile, sink=sink,
     )
 
 
@@ -291,8 +300,12 @@ def test_visibility_matrix_and_no_content_calls(
     result = _run(rec, model="s/m")
 
     assert isinstance(result, QuerySuccessResponse)
-    # STORY-005 forwards nothing: the verdict is computed, never acted on.
-    assert [k for k, _ in rec.calls if k in ("content", "reasoning")] == []
+    # PRD-021 STORY-006: content now flows, but only under `Visibility.realtime`
+    # (switch, grant and capability); reasoning needs the model to emit it, which
+    # the scripted stream does not, so it is never called here.
+    forwarded = [t for k, t in rec.calls if k == "content"]
+    assert forwarded == (["Hi there!"] if (switch and rt and streaming) else [])
+    assert [k for k, _ in rec.calls if k == "reasoning"] == []
     assert len(_visibility_spy) == 1
     captured = _visibility_spy[0]
     assert captured["holds_realtime"] is rt and captured["holds_reasoning"] is rv
@@ -326,4 +339,9 @@ def test_queue_sink_receives_stage_events_through_the_executor(temp_db):
 
     result, events = asyncio.run(scenario())
     assert isinstance(result, QuerySuccessResponse)
-    assert events == [StageEvent(n) for n in _ALL]
+    # PRD-021 STORY-006: a buffered call with a sink also emits `waiting` and
+    # `committed` (on entry), between `masking_input` and `masking_output`.
+    assert [e for e in events if isinstance(e, StageEvent)] == [StageEvent(n) for n in _ALL]
+    others = [e for e in events if not isinstance(e, StageEvent)]
+    assert others[0] == PhaseEvent("waiting")
+    assert isinstance(others[1], CommittedEvent) and len(others) == 2

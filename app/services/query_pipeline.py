@@ -1,13 +1,14 @@
 import dataclasses
 import functools
 import logging
-from typing import Any, Callable, Literal, Optional, Sequence, Tuple, Union
+import uuid
+from typing import Any, Callable, Iterator, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
 from app.db import audit_journal
 from app.db.database import mark_audit_log_failed
 from app.db.errors import AuditUnavailableError, StorageError
-from app.models.messages import Message, conversation_shape_violation
+from app.models.messages import Message, ToolCallSpec, conversation_shape_violation
 from app.models.schemas import (
     QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
@@ -19,7 +20,7 @@ from app.models.schemas import (
 # PRD-017 STORY-010 DD-5: called through their modules (`action_policy.
 # evaluate_all(...)`), so a test's monkeypatch of the source module reaches the
 # pipeline, the rule `action_policy._classify` documents.
-from app.services import action_adapters, action_audit, action_policy, tool_release
+from app.services import action_adapters, action_audit, action_config, action_policy, tool_release
 from app.services.audit_logger import log_query
 from app.services.authz import (
     PERMISSION_QUERY_BYOK,
@@ -36,12 +37,20 @@ from app.services.delivery import DeliverySink, StageName, Visibility
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
 from app.services.provider_registry import Route
+from app.services.stream_assembly import phase_of
 from app.services.upstream import (
     GenerationParams,
+    ReasoningDelta,
+    TextDelta,
+    ToolCallDelta,
     ToolParams,
     UpstreamError as OpenRouterError,
+    UpstreamEvent,
+    UpstreamRequest,
     UpstreamResult as OpenRouterResult,
     call_upstream as call_openrouter,
+    collect,
+    stream_upstream,
 )
 from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect, strip_fenced_blocks
@@ -422,6 +431,9 @@ def run_conversation(
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
     session_id: Optional[str] = None,
     *,
+    # PRD-021 6.2: the streamed counterpart of `call_openrouter`, injectable the
+    # same way; taken only when step 2d said `upstream_streamed`.
+    stream_upstream: Callable[..., Iterator[UpstreamEvent]] = stream_upstream,
     # Chosen by the call site, never by a request field: no schema carries it,
     # so the permissive profile cannot be requested by a caller (PRD-011
     # Section 6.6, D2, T1). None means PATTERN_PROFILE_DEFAULT. Keyword-only so
@@ -952,11 +964,104 @@ def run_conversation(
         extra["params"] = params
     if tools is not None:
         extra["tools"] = tools
+    # PRD-021 6.3: with a sink, the commit id is made here and `committed` is
+    # signalled exactly once -- on the first event of a stream, or on entry for a
+    # buffered call. `sink=None`: no id, no phases, no stream. STORY-009 persists
+    # `completion_id` and `realtime_request`; no column carries them yet.
+    completion_id: Optional[str] = None
+    realtime_request = bool(visibility is not None and visibility.realtime)  # noqa: F841
+    streamed_step = bool(visibility is not None and visibility.upstream_streamed)
+    if safe is not None:
+        safe.phase("waiting")
+    # T6: what counts as released. A non-empty text or reasoning passed to the
+    # sink is something the reader already holds; only then is a mid-stream
+    # fault charged. `received_*` is everything that arrived, forwarded or not.
+    released = False
+    received_text: list[str] = []
+    received_calls: dict[int, dict[str, Any]] = {}
+    if safe is not None and not streamed_step:
+        completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
+        safe.committed(completion_id)
     try:
-        openrouter_result = call_openrouter(
-            redacted_messages, model=model, api_key=openrouter_api_key, **extra
-        )
+        if streamed_step:
+            assert safe is not None and visibility is not None and route is not None
+            stream_request = UpstreamRequest(redacted_messages, route.upstream_model, params, tools)
+            tool_kinds = {n: m.kind for n, m in action_config.get_policy().tools.items()}
+            phase_now: Optional[str] = "waiting"
+            events: list[UpstreamEvent] = []
+            for event in stream_upstream(
+                redacted_messages, model=model, api_key=openrouter_api_key, **extra
+            ):
+                if completion_id is None:
+                    completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
+                    safe.committed(completion_id)
+                events.append(event)
+                moved = phase_of(event, phase_now, tool_kinds)  # type: ignore[arg-type]
+                if moved is not None:
+                    phase_now = moved[0]
+                    safe.phase(moved[0], moved[1])
+                # Empty text never reaches the sink (STORY-001: collect needs the
+                # event, a reader does not). Tool-call fragments are held, never
+                # forwarded (D6, T1): a ToolCallDelta is read here only to count it.
+                if isinstance(event, TextDelta) and event.text != "":
+                    received_text.append(event.text)
+                    if visibility.realtime:
+                        # STORY-008: output gate
+                        safe.content(event.text)
+                        released = True
+                elif isinstance(event, ReasoningDelta) and event.text != "":
+                    received_text.append(event.text)
+                    if visibility.reasoning and visibility.realtime:
+                        # STORY-007/008: reasoning gate
+                        safe.reasoning(event.text)
+                        released = True
+                elif isinstance(event, ToolCallDelta):
+                    held = received_calls.setdefault(
+                        event.index, {"id": None, "name": None, "arguments": []}
+                    )
+                    held["id"] = held["id"] or event.id
+                    held["name"] = held["name"] or event.name
+                    held["arguments"].append(event.arguments)
+            # D4: a realtime stream is billed like a whole answer, so a missing
+            # usage chunk is estimated whatever the provider's mode; progress-only
+            # keeps today's rule (nothing was released, nothing is charged).
+            # model_used stays the requested id, as call_upstream makes it (PRD-020 D13).
+            openrouter_result = dataclasses.replace(
+                collect(
+                    events,
+                    provider=route.provider,
+                    request=stream_request,
+                    usage_missing="estimate" if visibility.realtime else None,
+                ),
+                model_used=model,
+            )
+        else:
+            openrouter_result = call_openrouter(
+                redacted_messages, model=model, api_key=openrouter_api_key, **extra
+            )
     except OpenRouterError as exc:
+        # PRD-021 T6 / PRD-020 D8: text already shown to a reader was spent
+        # upstream, so charge the estimate of what was received before the fault,
+        # before the failure row. Nothing released: nothing charged (today's rule).
+        if released and admission is not None and openrouter_api_key is None and route is not None:
+            charge(
+                identity.user_id,
+                admission.day,
+                None,
+                None,
+                estimate_tokens(
+                    redacted_messages,
+                    (
+                        "".join(received_text),
+                        tuple(
+                            ToolCallSpec(c["id"] or "", c["name"] or "", "".join(c["arguments"]))
+                            for _, c in sorted(received_calls.items())
+                        ),
+                    ),
+                    route.provider.estimate_chars_per_token,
+                    tools=tools.tools if tools is not None else None,
+                ),
+            )
         log_query(
             **_route_fields(route),
             pii_input_relaxed=relaxed,

@@ -8,6 +8,7 @@ redirect/HTTP-error classification and, through `reply.py`, one set of reply
 rules.
 """
 
+import time
 from typing import Any, Iterator, Optional
 
 import httpx
@@ -174,8 +175,15 @@ class OpenAICompatibleAdapter:
         generator ends, is closed early or fails. `reasoning` opts the parser into
         `ReasoningDelta` (PRD-021 Risk 3). A stream that ends without a `Finish`
         event is a non-retryable shape error (PRD-021 F2).
+
+        One total deadline bounds the whole stream (PRD-021 D20): `timeout_seconds`
+        from the moment the request is sent, connect included, checked after each
+        event. Past it the stream fails like today's timeout (retryable). The
+        check runs between events, so the overshoot is bounded by one httpx
+        per-read timeout; a silent connection is cut by that timeout itself.
         """
         label = self._provider.label
+        deadline = time.monotonic() + self._provider.timeout_seconds
         headers = self._headers(api_key, stream=True)
         payload = self._payload(request, stream=True)
 
@@ -188,6 +196,10 @@ class OpenAICompatibleAdapter:
                     self._raise_for_response(resp, label)
                     finished = False
                     for event in parse_events(resp.iter_lines(), label, reasoning=reasoning):
+                        if time.monotonic() > deadline:
+                            raise httpx.ReadTimeout(
+                                f"stream exceeded {self._provider.timeout_seconds}s"
+                            )
                         if isinstance(event, Finish):
                             finished = True
                         yield event

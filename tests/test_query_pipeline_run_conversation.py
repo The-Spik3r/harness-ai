@@ -79,12 +79,15 @@ def test_run_conversation_signature_matches_the_prd():
     # router (Section 10's internal API); run_query's signature is unchanged.
     assert list(signature.parameters) == [
         "identity", "messages", "device", "model", "openrouter_api_key",
-        "params", "call_openrouter", "session_id", "profile", "ingress", "streamed",
+        "params", "call_openrouter", "session_id", "stream_upstream", "profile", "ingress", "streamed",
         "ignored_params", "tools", "sink",
     ]
     # PRD-021 STORY-005 (D18): trailing keyword-only `sink`, passed only by an
     # ingress that reports progress; run_query passes nothing.
     assert signature.parameters["sink"].default is None
+    # PRD-021 STORY-006 (6.2): keyword-only `stream_upstream`, the injectable
+    # streamed counterpart of `call_openrouter`, defaulting to the real one.
+    assert signature.parameters["stream_upstream"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["sink"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["tools"].default is None
     assert signature.parameters["tools"].kind is inspect.Parameter.KEYWORD_ONLY
