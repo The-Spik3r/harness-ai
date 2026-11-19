@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-014-opencode-realtime-e2e.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: 5eebd78
 status: COMPLETE
 completed: 2026-11-19
 ---
