@@ -37,6 +37,7 @@ As a platform operator, I want the docs to explain the two delivery modes, how t
 
 - `docs/features.md:241,248,476,489` today (line numbers may have moved; grep "buffered").
 - Docs only; no code.
+- Orchestrator note (STORY-008): AC5 latency numbers are in `.agents/reports/PRD-021-realtime-streaming/STORY-008-gates-in-pipeline.report.md` (chat segment p95 16.7 ms, response p95 530.9 ms vs final pass 87.5 ms; code segment p95 3.3 ms); measured with `scripts/measure_stream_gate_latency.py`. Batching fallback not needed.
 
 ## Dependencies
 

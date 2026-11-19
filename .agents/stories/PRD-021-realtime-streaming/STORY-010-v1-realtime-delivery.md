@@ -42,6 +42,7 @@ As an integrating developer with `stream:realtime`, I want my OpenAI SDK stream 
 - `v1_translate.py` is pure (AST purity test): it must not import the `upstream` package `__init__`.
 - O5 follows STORY-001's verdict: emit `reasoning` beside `reasoning_content` only if STORY-001 found a target client that needs it.
 - Orchestrator decision (STORY-001, O5): emit only `reasoning_content`; Cline (AI SDK) reads `reasoning_content ?? reasoning`, OpenCode's catalog uses `reasoning_content`, the OpenAI SDK displays neither. OpenRouter sends `: OPENROUTER PROCESSING` comments upstream; they are never forwarded.
+- Orchestrator decision (STORY-008 impl, e63f658): the sink already receives gated content (remainder last) and gated reasoning; `/v1` must not redact again. A buffered request with the reasoning grant gets the whole redacted reasoning on the private `QuerySuccessResponse.reasoning` property (None without the grant). A gate fault raises `PiiRedactorError` from step 7, after the T6 charge and failure row.
 
 ## Dependencies
 

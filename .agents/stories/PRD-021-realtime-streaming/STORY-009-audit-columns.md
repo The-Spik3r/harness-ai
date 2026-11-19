@@ -41,6 +41,7 @@ As an auditor, I want each audit row to say whether its response was delivered i
 - Census guards: a new public function in `database.py` or a new caller of `get_connection()`/`_session()` must be registered in `tests/test_db_resilience_retry.py`. A field-order guard test lists the audit fields (PRD-020 STORY-009's CI fix a4dc1ef added `usage_estimated` to it): add the four there.
 - `GET /audit` fields and the `?completion_id=` filter are STORY-013, not here.
 - Orchestrator decision (STORY-006 impl, 0eb1fc1): `completion_id` and `realtime_request` are locals in `run_conversation` (marked "STORY-009 persists these"); `completion_id` is set whenever a sink is present, including the buffered path, so persist it only when `realtime_request` (PRD F7: NULL otherwise). The streamed arm resets `model_used` to the requested id after `collect()` (PRD-020 D13).
+- Orchestrator decision (STORY-008 impl, e63f658): in `run_conversation` the locals `stream_redaction_divergence` (content gate only; a reasoning divergence is logged, not persisted) and `realtime_request` (still `# noqa: F841  # STORY-009`) are ready to pass to `log_query`; `completion_id` too. Drop the noqa once it is read.
 
 ## Dependencies
 
