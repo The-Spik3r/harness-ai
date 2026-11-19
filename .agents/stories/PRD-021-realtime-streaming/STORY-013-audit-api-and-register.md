@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: small
 phase: "3 - Ingresses"
-status: in-progress
+status: done
 labels: [backend, api, audit, chat-ui]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: .agents/plans/PRD-021-realtime-streaming/STORY-013-audit-api-and-register.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-013-audit-api-and-register.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-013-audit-api-and-register.report.md
+commit: 5313d70
 depends_on: [STORY-009]
 blocks: [STORY-016]
 skills: [frontend-design]

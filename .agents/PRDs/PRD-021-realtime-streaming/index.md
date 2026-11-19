@@ -6,7 +6,7 @@
 
 ## Progress
 
-12/16 stories done — 75%
+13/16 stories done — 81%
 
 ## Stories
 
@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | STORY-010 | /v1 real-time SSE and reasoning_content | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-010-v1-realtime-delivery.plan.md) | `03b304d` |
 | STORY-011 | Chat UI state consumes the pipeline's events | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-011-chat-state-consumer.plan.md) | `153c56f` |
 | STORY-012 | Progress line, live answer and reasoning block in the chat UI | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-012-chat-progress-ui.plan.md) | `052afca` |
-| STORY-013 | GET /audit real-time fields, completion_id filter and Register LIVE marker | feature | 🟡 in-progress | small | [plan](../../plans/PRD-021-realtime-streaming/STORY-013-audit-api-and-register.plan.md) | — |
+| STORY-013 | GET /audit real-time fields, completion_id filter and Register LIVE marker | feature | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-013-audit-api-and-register.plan.md) | `5313d70` |
 | STORY-014 | OpenCode end-to-end on a real-time stream | technical | ⬜ todo | medium | — | — |
 | STORY-015 | Cline end-to-end on a real-time stream | technical | ⬜ todo | small | — | — |
 | STORY-016 | Document real-time streaming, grants and progress feedback | enhancement | ⬜ todo | small | — | — |

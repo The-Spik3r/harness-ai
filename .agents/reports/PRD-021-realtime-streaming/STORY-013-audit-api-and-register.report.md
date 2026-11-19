@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-013-audit-api-and-register.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: 5313d70
 status: COMPLETE
 completed: 2026-11-19
 ---
