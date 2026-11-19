@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-008-gates-in-pipeline.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: e63f658
 status: COMPLETE
 completed: 2026-11-18
 ---

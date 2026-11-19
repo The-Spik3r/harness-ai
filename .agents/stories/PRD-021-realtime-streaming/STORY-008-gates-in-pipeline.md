@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline"
-status: todo
+status: done
 labels: [backend, pipeline, pii, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-008-gates-in-pipeline.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-008-gates-in-pipeline.report.md
+commit: e63f658
 depends_on: [STORY-006, STORY-007]
 blocks: [STORY-009]
 skills: []
