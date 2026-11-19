@@ -307,6 +307,25 @@ def test_the_recorder_keeps_tool_names_only_when_asked(recorder):
         named.close()
 
 
+def test_the_recorder_keeps_the_relayed_sse_only_when_asked(recorder):
+    """PRD-021 STORY-014: `keep_sse` captures every `data:` payload with its arrival time; default keeps none."""
+    body = {"model": "m", "messages": [{"role": "user", "content": "x"}], "stream": True}
+    httpx.post(f"{recorder.base}/v1/chat/completions", json=body)
+    assert "sse" not in recorder.posts()[0]
+
+    kept = _live.Recorder(recorder.upstream, keep_sse=True)
+    try:
+        # The `split` path cuts a keep-alive across chunks; payload lines still come out whole.
+        response = httpx.post(f"{kept.base}/v1/split/chat/completions", json=body)
+        assert response.text.endswith("data: [DONE]\n\n")  # relayed bytes unchanged
+        [entry] = kept.posts()
+        assert [payload for _, payload in entry["sse"]] == ['{"x": 1}', "[DONE]"]
+        assert all(isinstance(seconds, float) and seconds >= 0 for seconds, _ in entry["sse"])
+        assert entry["keepalives"] == 2
+    finally:
+        kept.close()
+
+
 def test_the_action_dump_reads_list_action_decisions():
     compile(_live.DUMP_ACTIONS, "<dump>", "exec")
     assert "list_action_decisions" in _live.DUMP_ACTIONS

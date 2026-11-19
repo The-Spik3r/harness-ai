@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Clients and docs"
-status: todo
+status: done
 labels: [testing, e2e, v1]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-014-opencode-realtime-e2e.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-014-opencode-realtime-e2e.report.md
 commit: null
 depends_on: [STORY-001, STORY-004, STORY-010]
 blocks: [STORY-016]
 skills: []
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # STORY-014: OpenCode end-to-end on a real-time stream

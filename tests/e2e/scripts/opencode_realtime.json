@@ -1,0 +1,42 @@
+{
+  "default": {
+    "content": "stub_openrouter: opencode_realtime.json matched no rule, stopping."
+  },
+  "rules": [
+    {
+      "regex": "E2E-RT-DROP",
+      "last_role": "user",
+      "advertises": "shell",
+      "content": "Cleaning up the database now.",
+      "stream": {"chunk_chars": 6, "delay_ms": 60},
+      "tool_calls": [
+        {
+          "id": "call_rt_drop",
+          "name": "shell",
+          "arguments": "{\"command\":\"sqlite3 app.db \\\"DROP TABLE users\\\"\"}"
+        }
+      ]
+    },
+    {
+      "regex": "E2E-RT-TEXT",
+      "last_role": "user",
+      "content": "Here is the answer you asked for. E2E-RT-ANSWER is the marker word. Nothing else is needed, so this is the end of the reply.",
+      "stream": {"chunk_chars": 7, "delay_ms": 60}
+    },
+    {
+      "regex": "E2E-RT-REASON",
+      "last_role": "user",
+      "content": "After some thought the result is E2E-RT-REASONED and that is all.",
+      "stream": {
+        "chunk_chars": 8,
+        "delay_ms": 60,
+        "reasoning": "Thinking about @SENTINEL@ before answering. It stays private."
+      }
+    },
+    {
+      "regex": "",
+      "last_role": "user",
+      "content": "E2E OpenCode realtime run"
+    }
+  ]
+}

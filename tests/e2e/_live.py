@@ -396,19 +396,26 @@ class _RecordingHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             partial = b""
+            started = time.monotonic()
             for chunk in upstream.iter_raw():
                 # Count SSE comment lines (": keep-alive") before relaying the
                 # chunk, carrying a line split across chunks. Only the count is kept.
                 *lines, partial = (partial + chunk).split(b"\n")
                 with self.recorder.lock:
                     entry["keepalives"] += sum(1 for line in lines if line.startswith(b":"))
+                    if entry.get("sse") is not None:
+                        # PRD-021 STORY-014: opt-in capture of the relayed `data:` payloads, with arrival time.
+                        entry["sse"].extend(
+                            (round(time.monotonic() - started, 3), line[5:].decode("utf-8", "replace").strip())
+                            for line in lines if line.startswith(b"data:"))
                 self.wfile.write(chunk)
                 self.wfile.flush()
 
     def _record(self, method: str, shape: dict) -> dict:
         has_device = "x-harness-device" in {key.lower() for key in self.headers}
         entry = {"method": method, "path": self.path, **shape,
-                 "status": None, "keepalives": 0, "device_header": has_device}
+                 "status": None, "keepalives": 0, "device_header": has_device,
+                 **({"sse": []} if self.recorder.keep_sse else {})}
         with self.recorder.lock:
             self.recorder.log.append(entry)
         return entry
@@ -443,11 +450,16 @@ class Recorder:
     of the request's `tools`, sorted. A tool name is a name the client defines,
     not content (OpenCode's are public), and it is opt-in because the default
     shape keeps no tool name.
+
+    `keep_sse` (PRD-021 STORY-014) adds `sse`: every `data:` payload the harness streamed back, as
+    `(seconds since the response began, payload)`. It holds model output, so it is opt-in and only a
+    test that asserts on the stream's content uses it; the relayed bytes are unchanged either way.
     """
 
-    def __init__(self, upstream: str, keep_tool_names: bool = False) -> None:
+    def __init__(self, upstream: str, keep_tool_names: bool = False, keep_sse: bool = False) -> None:
         self.upstream = upstream
         self.keep_tool_names = keep_tool_names
+        self.keep_sse = keep_sse
         self.log: list = []
         self.lock = threading.Lock()
         handler = type("Handler", (_RecordingHandler,), {"recorder": self})
