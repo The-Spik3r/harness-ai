@@ -3,7 +3,7 @@ story: STORY-005
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-005-delivery-sink-and-visibility.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: 139484b
 status: COMPLETE
 completed: 2026-11-18
 ---
