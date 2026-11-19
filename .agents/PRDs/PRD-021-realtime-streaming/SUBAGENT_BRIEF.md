@@ -61,11 +61,11 @@ It must print `errors: none`.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
 
 ## Checkpoint
-- Done and pushed: 001 (48bfb48 survey; fixtures `tests/fixtures/prd021_survey/`), 002 (876f720 perms + 3 settings), 003 (a91252a `stream_upstream`, `ReasoningDelta`, `collect(usage_missing=)`, no-Finish = non-retryable error), 004 (f2d3b36 stub `stream: {chunk_chars, delay_ms, reasoning, fail_after}`). Next: STORY-005.
-- CI: green at b310936 (002). Runs for 1bec5cb/a6094ea were in progress at checkpoint: read the latest run on resume (`gh run list --branch epic/PRD-021-realtime-streaming --workflow CI --limit 1`). Pre-existing failures: none.
-- User decisions: OD1 legacy never streams; O1 English; OD2 live survey (done, 5/6 calls).
-- STORY-001 facts: OpenRouter reasoning = `delta.reasoning` (no param needed); usage rides on the last chunk; two `Finish` per stream; empty `content` yields `TextDelta("")` (kept on purpose: `collect` needs it for `content: ""`). Consumers (006 `phase_of`, sink forwarding) ignore empty text. O5: emit only `reasoning_content`.
-- 003 accepted: `parse_events(..., reasoning=)` / `stream(..., reasoning=)` opt-in from `route.capabilities.reasoning`; `_resolve_call` shared; `reply._USAGE_MODES` pinned to the registry tuple. Plans over 12 KB accepted: 003 (15.9), 004 (13.3).
-- Critical stories ahead and their design points (write them at 3.1): 005 (Visibility is a pure function; `sink=None` computes nothing; sink faults are swallowed and logged once; stage events depend on config only), 006 (completion_id generated at commit, `committed` on first event; real-time `collect(usage_missing="estimate")`; release-tracking for the mid-stream-fault charge; D20 total deadline; empty TextDelta ignored), 007 (span mapping across tail/segment), 010 (T1/T5, O5).
-- Escalations: none. Plans corrected at 3.2: 003 (empty TextDelta retraction).
-- For Phase 6: nothing unexpected so far.
+- Done and pushed: 001-004 (earlier session), 005 (139484b `delivery.py`, `_SafeSink`, step 2d `visibility` local, config-only stages), 006 (0eb1fc1 streamed step 7, `stream_assembly.phase_of(event, prev, tool_kinds)`, `completion_id`/`realtime_request` locals, T6 mid-stream estimate over everything received, D20 deadline in `OpenAICompatibleAdapter.stream()`), 007 (d1e6fb0 `stream_redaction.OutputGate`/`GateResult(.., remainder)`, `redaction_spans`/`apply_spans` in `pii_redactor`). Next: STORY-008.
+- CI: green at ea035d9 (through 006). The run for 1dda902 (007) was in progress at checkpoint: read it first on resume. Pre-existing failures: none.
+- User decisions: OD1 legacy never streams; O1 English; OD2 live survey (done).
+- Orchestrator decisions this session: T6 estimate counts all received text + held tool-call args (006 3.2); tail-crossing spans are clipped and masked, `diverged=True` (007 3.2); master PII switch off = reasoning unredacted too (PRD-012). Contract notes for 008/009 are in their Technical Notes.
+- Critical stories ahead and their design points: 008 (wire both gates at the 006 seams; `released` flips on gate release, not receipt; `remainder` sent last; gate error mid-stream = fault after release -> T6 charge; divergence -> WARNING with user + completion_id, final pass authoritative for row/entities), 010 (T1/T5, O5 only `reasoning_content`; D21 50 ms coalescing when no gate).
+- Plans over 12 KB accepted: 003, 004, 005 (12.8), 006 (13.1), 007 (16.4). Plans corrected at 3.2: 003, 006, 007. Escalations: none.
+- Implementers take 10-15 min; one (006) kept re-sending its report while "waiting on background work" with no process alive: stopped with TaskStop. Tell implementers to leave no monitor/timer behind.
+- For Phase 6: nothing unexpected in the tree so far.
