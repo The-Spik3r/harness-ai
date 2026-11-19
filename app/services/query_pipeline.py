@@ -639,10 +639,10 @@ def run_conversation(
         if not admission.admitted:
             refusal = admission.refusal
             log_query(
+                **_route_fields(route),
                 # PRD-021 F7: refused before the upstream opened: nothing was delivered.
                 streamed_realtime=False,
                 reasoning_shown=False,
-                **_route_fields(route),
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -715,10 +715,10 @@ def run_conversation(
     if exceeded is not None:
         limit, maximum, actual = exceeded
         log_query(
+            **_route_fields(route),
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
-            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -753,10 +753,10 @@ def run_conversation(
 
     if duplicate_result.is_duplicate:
         log_query(
+            **_route_fields(route),
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
-            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -814,10 +814,10 @@ def run_conversation(
         # else in `.block` -- and is passed rather than spelled so the hit
         # stays the one source of what was done.
         log_query(
+            **_route_fields(route),
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
-            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -855,10 +855,10 @@ def run_conversation(
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
+            **_route_fields(route),
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
-            **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -912,10 +912,10 @@ def run_conversation(
     if over is not None:
         maximum, actual = over
         log_query(
+            **_route_fields(route),
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
-            **_route_fields(route),
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
@@ -969,10 +969,10 @@ def run_conversation(
             redacted_content, entities = _redact(message.content, policy)
         except PiiRedactorError as exc:
             log_query(
+                **_route_fields(route),
                 # PRD-021 F7: refused before the upstream opened: nothing was delivered.
                 streamed_realtime=False,
                 reasoning_shown=False,
-                **_route_fields(route),
                 pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
@@ -1178,12 +1178,12 @@ def run_conversation(
                 ),
             )
         log_query(
+            **_route_fields(route),
             # PRD-021 F7, D14, D17: what was true at this point of the request.
             streamed_realtime=realtime_request,
             reasoning_shown=reasoning_sent,
             stream_redaction_divergence=stream_redaction_divergence,
             completion_id=completion_id if realtime_request else None,
-            **_route_fields(route),
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
@@ -1283,12 +1283,12 @@ def run_conversation(
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
         except PiiRedactorError as exc:
             log_query(
+                **_route_fields(route),
                 # PRD-021 F7, D14, D17: what was true at this point of the request.
                 streamed_realtime=realtime_request,
                 reasoning_shown=reasoning_sent,
                 stream_redaction_divergence=stream_redaction_divergence,
                 completion_id=completion_id if realtime_request else None,
-                **_route_fields(route),
                 pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
@@ -1335,12 +1335,12 @@ def run_conversation(
     # `journal_decisions`, so the release below follows a commit or an fsync.
     try:
         audit_ref = log_query(
+            **_route_fields(route),
             # PRD-021 F7, D14, D17: what was true at this point of the request.
             streamed_realtime=realtime_request,
             reasoning_shown=reasoning_sent or bool(reasoning_text),
             stream_redaction_divergence=stream_redaction_divergence,
             completion_id=completion_id if realtime_request else None,
-            **_route_fields(route),
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
