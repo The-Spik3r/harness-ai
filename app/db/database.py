@@ -1854,36 +1854,54 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
     return _unit_of_work("get_audit_log", StatementKind.READ, _op)
 
 
-def count_audit_logs(user_id: Optional[str] = None) -> int:
+def _audit_filter(
+    user_id: Optional[str], completion_id: Optional[str]
+) -> tuple[str, list[Any]]:
+    """The WHERE clause and bound values of the audit readers.
+
+    PRD-021 F7: `completion_id` is an exact match (no LIKE, no prefix), a bound
+    value like `user_id`; the clause text is fixed and no caller text reaches
+    the SQL. The two filters combine with AND. With neither, the clause is
+    empty and the statements are today's.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    if user_id is not None:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if completion_id is not None:
+        clauses.append("completion_id = ?")
+        params.append(completion_id)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where, params
+
+
+def count_audit_logs(
+    user_id: Optional[str] = None, completion_id: Optional[str] = None
+) -> int:
+    where, params = _audit_filter(user_id, completion_id)
+
     def _op(conn: _Connection) -> int:
-        if user_id is not None:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM audit_logs WHERE user_id = ?",
-                (user_id,),
-            ).fetchone()
-        else:
-            row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM audit_logs{where}", tuple(params)
+        ).fetchone()
         return row["n"]
 
     return _unit_of_work("count_audit_logs", StatementKind.READ, _op)
 
 
-def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[AuditLog]:
+def list_audit_logs(
+    limit: int = 100,
+    user_id: Optional[str] = None,
+    completion_id: Optional[str] = None,
+) -> list[AuditLog]:
+    where, params = _audit_filter(user_id, completion_id)
+
     def _op(conn: _Connection) -> list[AuditLog]:
-        if user_id is not None:
-            rows = conn.execute(
-                """
-                SELECT * FROM audit_logs
-                WHERE user_id = ?
-                ORDER BY timestamp DESC LIMIT ?
-                """,
-                (user_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM audit_logs{where} ORDER BY timestamp DESC LIMIT ?",
+            tuple(params) + (limit,),
+        ).fetchall()
         return [_row_to_audit_log(row) for row in rows]
 
     return _unit_of_work("list_audit_logs", StatementKind.READ, _op)

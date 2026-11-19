@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "3 - Ingresses"
-status: todo
+status: in-progress
 labels: [backend, api, audit, chat-ui]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
+plan: .agents/plans/PRD-021-realtime-streaming/STORY-013-audit-api-and-register.plan.md
 report: null
 commit: null
 depends_on: [STORY-009]
 blocks: [STORY-016]
 skills: [frontend-design]
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # STORY-013: GET /audit real-time fields, completion_id filter and Register LIVE marker

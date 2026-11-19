@@ -299,6 +299,12 @@ class AuditQueryEntry(BaseModel):
     provider_trust: Optional[str] = None
     pii_input_relaxed: bool = False
     usage_estimated: bool = False
+    # PRD-021 F7 / D14: verbatim passthrough of the four real-time columns.
+    # False / False / False / None on every row written before PRD-021.
+    streamed_realtime: bool = False
+    reasoning_shown: bool = False
+    stream_redaction_divergence: bool = False
+    completion_id: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

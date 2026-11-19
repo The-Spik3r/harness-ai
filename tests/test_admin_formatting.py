@@ -527,3 +527,10 @@ def test_to_audit_row_carries_the_provider():
 def test_to_audit_row_shows_the_absent_mark_without_a_provider():
     """A row written before PRD-020 (provider NULL) reads like a missing model."""
     assert to_audit_row(make_log(provider=None), NOW).provider == VALUE_ABSENT
+
+
+def test_live_follows_streamed_realtime():
+    """PRD-021 F7 (STORY-013): the Register's LIVE marker is the row's
+    `streamed_realtime` flag, and a row without it is not live."""
+    assert to_audit_row(make_log(streamed_realtime=True), NOW).live is True
+    assert to_audit_row(make_log(), NOW).live is False

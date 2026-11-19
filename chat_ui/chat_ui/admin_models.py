@@ -46,6 +46,10 @@ class AuditRow(pydantic.BaseModel):
     provider: str = ""
     tokens_used: str = ""
     pii_indicator: bool = False
+    # PRD-021 F7: the row was delivered in real time (`streamed_realtime=1`).
+    # Named `live`, not `streamed_realtime`, so no `row.streamed` substring
+    # appears beside the disclosure's SSE `streamed` field.
+    live: bool = False
     device_short: str = ""
     # Disclosure-only fields below.
     device_full: str = ""

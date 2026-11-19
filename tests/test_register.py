@@ -644,6 +644,8 @@ def test_neither_preview_survives_the_projection():
         limit_exceeded = None
         # PRD-020 STORY-012 (D13): and the provider.
         provider = None
+        # PRD-021 F7 (STORY-013): and the real-time flag.
+        streamed_realtime = False
         success = True
         model_used = "gpt-4"
         tokens_used = 412
@@ -1470,9 +1472,30 @@ def test_the_provider_column_keeps_the_quality_floor(source):
     """The table still scrolls in its own container, at a min width that counts
     the new track (7rem + 0.75rem gap over the previous 63.75rem), and the
     global focus rule is not overridden here."""
-    assert '_MIN_WIDTH = "71.5rem"' in source
+    # PRD-021 F7 (STORY-013): 71.5rem -> 73.5rem, the verdict track widened
+    # 2rem (5.5rem -> 7.5rem) to seat the LIVE tag beside the verdict word.
+    assert '_MIN_WIDTH = "73.5rem"' in source
     assert 'overflow_x="auto"' in source
     assert "min_width=_MIN_WIDTH" in source
     assert "focus-visible" in (
         REPO_ROOT / "chat_ui" / "chat_ui" / "theme.py"
     ).read_text(encoding="utf-8")
+
+
+# --- PRD-021 F7 (STORY-013): the LIVE marker ---------------------------------
+
+
+def test_the_live_tag_is_compiled_only_behind_the_row_flag(probe, source):
+    """LIVE reaches the screen through `admin_copy`, inside an `rx.cond` on
+    `row.live`, so a row without the flag renders no tag; the cell is one grid
+    child (the track count is pinned elsewhere) and the field is not named
+    `streamed_realtime` (the `row.streamed` guard)."""
+    assert not probe["errors"], probe["errors"]
+    assert not probe["broken_factories"], probe["broken_factories"]
+    rendered = probe["rows_rendered"]
+    assert admin_copy.LIVE_LABEL in rendered
+    assert admin_copy.LIVE_TITLE in rendered
+    assert "admin_copy.LIVE_LABEL" in source
+    assert '"LIVE"' not in source
+    assert "rx.cond(row.live, _live_tag(), rx.fragment())" in source
+    assert "row.streamed_realtime" not in source

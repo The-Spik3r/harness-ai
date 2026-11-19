@@ -111,6 +111,11 @@ def test_valid_token_returns_expected_shape(temp_db):
             "provider_trust",
             "pii_input_relaxed",
             "usage_estimated",
+            # PRD-021 F7 (STORY-013): four additive real-time fields.
+            "streamed_realtime",
+            "reasoning_shown",
+            "stream_redaction_divergence",
+            "completion_id",
         }
 
     newest, oldest = body["queries"]
@@ -470,3 +475,100 @@ def test_audit_entry_carries_the_prd020_provider_fields(temp_db):
     plain = by_hash[hash_prompt("plain row")]
     assert tuple(carried[f] for f in fields) == ("lmstudio", "bonsai-27b", "local", True, True)
     assert tuple(plain[f] for f in fields) == (None, None, None, False, False)
+
+
+# --- PRD-021 F7 (STORY-013): real-time fields and ?completion_id= -----------
+
+_ADMIN = {"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+
+
+def _seed(user_id, completion_id, ts, **extra):
+    insert_audit_log(
+        AuditLog(
+            timestamp=ts,
+            user_id=user_id,
+            prompt_hash=f"h-{completion_id}-{ts}",
+            completion_id=completion_id,
+            **extra,
+        )
+    )
+
+
+def test_audit_entry_carries_the_prd021_realtime_fields(temp_db):
+    """PRD-021 F7 / D14: the four columns pass through verbatim; a row no
+    PRD-021 caller wrote reads false / false / false / null."""
+    _seed(
+        "u", "chatcmpl-harness-rt-aaa", "2026-07-01T10:00:00Z",
+        streamed_realtime=True, reasoning_shown=True,
+        stream_redaction_divergence=True,
+    )
+    _seed("u", None, "2026-07-01T09:00:00Z")
+
+    body = client.get("/audit", headers=_ADMIN).json()
+
+    fields = (
+        "streamed_realtime", "reasoning_shown",
+        "stream_redaction_divergence", "completion_id",
+    )
+    live, plain = body["queries"]
+    assert tuple(live[f] for f in fields) == (
+        True, True, True, "chatcmpl-harness-rt-aaa"
+    )
+    assert tuple(plain[f] for f in fields) == (False, False, False, None)
+
+
+def test_completion_id_filter_is_an_exact_match(temp_db):
+    _seed("u", "chatcmpl-harness-rt-aaa", "2026-07-01T10:00:00Z")
+    _seed("u", "chatcmpl-harness-rt-aaab", "2026-07-01T11:00:00Z")
+    _seed("u", None, "2026-07-01T12:00:00Z")
+
+    exact = client.get(
+        "/audit?completion_id=chatcmpl-harness-rt-aaa", headers=_ADMIN
+    ).json()
+    prefix = client.get(
+        "/audit?completion_id=chatcmpl-harness-rt", headers=_ADMIN
+    ).json()
+    unfiltered = client.get("/audit", headers=_ADMIN).json()
+
+    assert exact["total"] == 1
+    assert [q["completion_id"] for q in exact["queries"]] == [
+        "chatcmpl-harness-rt-aaa"
+    ]
+    assert prefix == {"total": 0, "queries": []}
+    assert unfiltered["total"] == 3
+
+
+def test_completion_id_filter_composes_with_own_scope(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash=hash_token("ana-token")))
+    _seed("ana", "chatcmpl-harness-rt-ana", "2026-07-01T10:00:00Z")
+    _seed("bob", "chatcmpl-harness-rt-bob", "2026-07-01T11:00:00Z")
+    own = {"Authorization": "Bearer ana-token"}
+
+    mine = client.get("/audit?completion_id=chatcmpl-harness-rt-ana", headers=own)
+    theirs = client.get("/audit?completion_id=chatcmpl-harness-rt-bob", headers=own)
+    as_admin = client.get(
+        "/audit?completion_id=chatcmpl-harness-rt-bob", headers=_ADMIN
+    )
+
+    assert mine.json()["total"] == 1
+    # Another user's id under audit:read:own is empty, not a 403.
+    assert theirs.status_code == 200
+    assert theirs.json() == {"total": 0, "queries": []}
+    assert as_admin.json()["total"] == 1
+
+
+def test_completion_id_filter_is_a_bound_value_not_sql(temp_db):
+    _seed("u", "chatcmpl-harness-rt-aaa", "2026-07-01T10:00:00Z")
+
+    response = client.get(
+        "/audit", params={"completion_id": "x' OR '1'='1"}, headers=_ADMIN
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "queries": []}
+
+
+def test_an_empty_completion_id_is_a_422_not_no_filter(temp_db):
+    response = client.get("/audit?completion_id=", headers=_ADMIN)
+
+    assert response.status_code == 422
