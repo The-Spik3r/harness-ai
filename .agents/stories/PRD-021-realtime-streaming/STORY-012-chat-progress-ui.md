@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Ingresses"
-status: in-progress
+status: done
 labels: [chat-ui, frontend, copy]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: .agents/plans/PRD-021-realtime-streaming/STORY-012-chat-progress-ui.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-012-chat-progress-ui.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-012-chat-progress-ui.report.md
+commit: 052afca
 depends_on: [STORY-011]
 blocks: [STORY-016]
 skills: [frontend-design]

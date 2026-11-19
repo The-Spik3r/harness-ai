@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-012-chat-progress-ui.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: 052afca
 status: COMPLETE
 completed: 2026-11-19
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-19
 
 **Plan**: `.agents/plans/PRD-021-realtime-streaming/completed/STORY-012-chat-progress-ui.plan.md`
 **Epic Branch**: `epic/PRD-021-realtime-streaming`
-**Commit**: `pending`
+**Commit**: `052afca`
 
 ## Summary
 
