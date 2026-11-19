@@ -58,6 +58,15 @@ class ChatMessage(pydantic.BaseModel):
     # once, when the bubble is built, and never changes for that bubble cannot
     # do that. `_to_chat_message` sets it; nothing else ever writes it.
     restored: bool = False
+    # PRD-021 STORY-012, D8: what the model reasoned about this answer, kept
+    # only so the block can stay under the final answer until the page is
+    # reloaded. In memory, and nothing else: `_to_stored_message` does not copy
+    # it, `StoredMessage` has no column for it, and `_to_chat_message` leaves
+    # it "" -- a restored transcript shows no reasoning.
+    reasoning: str = ""
+    # Whether that block is expanded: collapsed by default after the answer
+    # arrives. UI state, flipped by `ChatState.toggle_reasoning`; never stored.
+    reasoning_open: bool = False
 
 
 class ChatSessionSummary(pydantic.BaseModel):

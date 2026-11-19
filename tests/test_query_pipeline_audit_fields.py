@@ -225,8 +225,13 @@ def test_a_direct_call_without_a_door_records_null(temp_db, monkeypatch, arm):
 
 @pytest.mark.parametrize(
     "name",
-    # PRD-015 STORY-007 added ignored_params on the same terms.
-    ["ingress", "message_count", "conversation_key", "streamed", "ignored_params"],
+    # PRD-015 STORY-007 added ignored_params on the same terms. PRD-021
+    # STORY-009 (F7) adds the two delivery fields: a forgotten arm is a
+    # TypeError, not a row that claims the reply was buffered.
+    [
+        "ingress", "message_count", "conversation_key", "streamed", "ignored_params",
+        "streamed_realtime", "reasoning_shown",
+    ],
 )
 def test_deny_requires_each_new_field_with_no_default(name):
     """Required, like session_id, dedup_key and profile: a forgotten
@@ -586,6 +591,23 @@ def test_every_direct_log_query_call_passes_the_three_fields():
 
     assert len(sites) == 12, [f"{path}:{lineno}" for path, _, _, lineno in sites]
     required = {"ingress", "message_count", "conversation_key"}
+    missing = [
+        f"{path}:{lineno} lacks {sorted(required - keywords)}"
+        for path, _, keywords, lineno in sites
+        if not required <= keywords
+    ]
+    assert missing == [], missing
+
+
+def test_every_log_query_call_passes_the_two_delivery_fields():
+    """PRD-021 STORY-009 AC 4 (F7). `log_query` requires `streamed_realtime`
+    and `reasoning_shown`, so the sites cannot omit them at run time either;
+    this scan pins the twelve (eleven in the pipeline, one in the router) so a
+    new arm that spreads `**kwargs` over them cannot hide a forgotten value."""
+    sites = _scan().log_query
+
+    assert len(sites) == 12, [f"{path}:{lineno}" for path, _, _, lineno in sites]
+    required = {"streamed_realtime", "reasoning_shown"}
     missing = [
         f"{path}:{lineno} lacks {sorted(required - keywords)}"
         for path, _, keywords, lineno in sites

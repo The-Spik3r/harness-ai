@@ -189,6 +189,12 @@ def test_audit_response_shape():
                 "provider_trust": None,
                 "pii_input_relaxed": False,
                 "usage_estimated": False,
+                # PRD-021 F7 (STORY-013): four additive real-time fields,
+                # False / False / False / None by default.
+                "streamed_realtime": False,
+                "reasoning_shown": False,
+                "stream_redaction_divergence": False,
+                "completion_id": None,
             }
         ],
     }

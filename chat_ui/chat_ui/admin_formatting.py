@@ -326,6 +326,7 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         provider=_text(log.provider),
         tokens_used=_format_tokens(log),
         pii_indicator=bool(log.pii_detected_input or log.pii_detected_output),
+        live=bool(log.streamed_realtime),
         device_short=device_short,
         device_full=device_full,
         prompt_hash=_text(log.prompt_hash),

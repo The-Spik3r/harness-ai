@@ -1581,9 +1581,11 @@ _INSERT_AUDIT_LOG_SQL = """
                 streamed, has_tool_calls, conversation_key, limit_exceeded,
                 ignored_params, write_id,
                 provider, upstream_model, provider_trust,
-                pii_input_relaxed, usage_estimated
+                pii_input_relaxed, usage_estimated,
+                streamed_realtime, reasoning_shown,
+                stream_redaction_divergence, completion_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -1678,6 +1680,10 @@ def _insert_audit_row(conn: _Connection, entry: AuditLog) -> int:
             entry.provider_trust,
             int(entry.pii_input_relaxed),
             int(entry.usage_estimated),
+            int(entry.streamed_realtime),
+            int(entry.reasoning_shown),
+            int(entry.stream_redaction_divergence),
+            entry.completion_id,
         ),
     )
     if keyed:
@@ -1829,6 +1835,10 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         provider_trust=row["provider_trust"],
         pii_input_relaxed=bool(row["pii_input_relaxed"]),
         usage_estimated=bool(row["usage_estimated"]),
+        streamed_realtime=bool(row["streamed_realtime"]),
+        reasoning_shown=bool(row["reasoning_shown"]),
+        stream_redaction_divergence=bool(row["stream_redaction_divergence"]),
+        completion_id=row["completion_id"],
     )
 
 
@@ -1844,36 +1854,54 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
     return _unit_of_work("get_audit_log", StatementKind.READ, _op)
 
 
-def count_audit_logs(user_id: Optional[str] = None) -> int:
+def _audit_filter(
+    user_id: Optional[str], completion_id: Optional[str]
+) -> tuple[str, list[Any]]:
+    """The WHERE clause and bound values of the audit readers.
+
+    PRD-021 F7: `completion_id` is an exact match (no LIKE, no prefix), a bound
+    value like `user_id`; the clause text is fixed and no caller text reaches
+    the SQL. The two filters combine with AND. With neither, the clause is
+    empty and the statements are today's.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    if user_id is not None:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if completion_id is not None:
+        clauses.append("completion_id = ?")
+        params.append(completion_id)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where, params
+
+
+def count_audit_logs(
+    user_id: Optional[str] = None, completion_id: Optional[str] = None
+) -> int:
+    where, params = _audit_filter(user_id, completion_id)
+
     def _op(conn: _Connection) -> int:
-        if user_id is not None:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM audit_logs WHERE user_id = ?",
-                (user_id,),
-            ).fetchone()
-        else:
-            row = conn.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM audit_logs{where}", tuple(params)
+        ).fetchone()
         return row["n"]
 
     return _unit_of_work("count_audit_logs", StatementKind.READ, _op)
 
 
-def list_audit_logs(limit: int = 100, user_id: Optional[str] = None) -> list[AuditLog]:
+def list_audit_logs(
+    limit: int = 100,
+    user_id: Optional[str] = None,
+    completion_id: Optional[str] = None,
+) -> list[AuditLog]:
+    where, params = _audit_filter(user_id, completion_id)
+
     def _op(conn: _Connection) -> list[AuditLog]:
-        if user_id is not None:
-            rows = conn.execute(
-                """
-                SELECT * FROM audit_logs
-                WHERE user_id = ?
-                ORDER BY timestamp DESC LIMIT ?
-                """,
-                (user_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM audit_logs{where} ORDER BY timestamp DESC LIMIT ?",
+            tuple(params) + (limit,),
+        ).fetchall()
         return [_row_to_audit_log(row) for row in rows]
 
     return _unit_of_work("list_audit_logs", StatementKind.READ, _op)
@@ -2280,7 +2308,11 @@ SELECT
               'upstream_model', upstream_model,
               'provider_trust', provider_trust,
               'pii_input_relaxed', pii_input_relaxed,
-              'usage_estimated', usage_estimated))
+              'usage_estimated', usage_estimated,
+              'streamed_realtime', streamed_realtime,
+              'reasoning_shown', reasoning_shown,
+              'stream_redaction_divergence', stream_redaction_divergence,
+              'completion_id', completion_id))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,

@@ -143,12 +143,17 @@ class AssistantMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: Optional[str]
     tool_calls: Optional[List[CompletionToolCall]] = None
+    # PRD-021 D9, O5: the OpenAI-compatible reasoning key is `reasoning_content`,
+    # never `reasoning`. Absent (not `null`) unless the caller holds `reasoning.view`.
+    reasoning_content: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _drop_unset_tool_calls(self, handler):
         data = handler(self)
         if "tool_calls" not in self.model_fields_set:
             data.pop("tool_calls", None)
+        if data.get("reasoning_content") is None:
+            data.pop("reasoning_content", None)
         return data
 
 
@@ -230,6 +235,8 @@ class ChunkDelta(BaseModel):
     role: Optional[Literal["assistant"]] = None
     content: Optional[str] = None
     tool_calls: Optional[List[ChunkToolCall]] = None
+    # PRD-021 D9, O5: `reasoning_content`, never `reasoning`; absent when None.
+    reasoning_content: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _drop_unset(self, handler):
@@ -242,6 +249,7 @@ class ChunkDelta(BaseModel):
             key: value
             for key, value in handler(self).items()
             if key in self.model_fields_set
+            and not (key == "reasoning_content" and value is None)
         }
 
 

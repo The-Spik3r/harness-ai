@@ -7,6 +7,7 @@ import spacy
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider, SpacyNlpEngine
 from presidio_anonymizer import AnonymizerEngine
+from presidio_anonymizer.entities import ConflictResolutionStrategy
 from spacy.language import Language
 
 from app.config import settings
@@ -469,6 +470,29 @@ def _splice(text: str, ranges: list[tuple[int, int, str, str]]) -> str:
     return "".join(out)
 
 
+def _code_spans(
+    text: str, analysis: Optional[str], policy: PiiPolicy, is_json: bool
+) -> list[tuple[int, int, str, str]]:
+    """The structure-safe replacement ranges for `text`, as `(start, end,
+    replacement, entity_type)`, sorted and disjoint (steps 1-4 and 5's token
+    clipping of redact_for_policy()).
+
+    `analysis` is what the analyzer reads; None means the policy's own view
+    (strip_fenced_blocks(text) with `skip_fenced_blocks`, else `text`).
+    STORY-007 passes it explicitly: a stream segment's fences are known to the
+    gate, not recoverable from the segment alone.
+    """
+    if analysis is None:
+        analysis = strip_fenced_blocks(text) if policy.skip_fenced_blocks else text
+    if is_json:
+        analysis = _blank_escapes(text, analysis)
+    accepted = _resolve_overlaps(_analyze(analysis, policy))
+    if not accepted:
+        return []
+    json_tokens = _json_tokens(text) if is_json else None
+    return _replacement_ranges(text, analysis, accepted, json_tokens)
+
+
 def redact_for_policy(text: str, policy: PiiPolicy) -> RedactionResult:
     """Mask `text` under `policy` (PRD-012 Sections 6.5, 6.6; F7).
 
@@ -535,26 +559,98 @@ def redact_for_policy(text: str, policy: PiiPolicy) -> RedactionResult:
     if not policy.structure_safe:
         return RedactionResult(*redact(text))
 
-    analysis = strip_fenced_blocks(text) if policy.skip_fenced_blocks else text
     # Before analysis, because JSON mode changes what the analyzer sees
     # (_blank_escapes). Text not starting with `{` or `[` still never pays
     # for json.loads(): _is_json_document checks that first.
     is_json = _is_json_document(text)
-    if is_json:
-        analysis = _blank_escapes(text, analysis)
-    accepted = _resolve_overlaps(_analyze(analysis, policy))
-    if not accepted:
+    ranges = _code_spans(text, None, policy, is_json)
+    if not ranges:
         return RedactionResult(text, [])
-
-    json_tokens = _json_tokens(text) if is_json else None
-    ranges = _replacement_ranges(text, analysis, accepted, json_tokens)
     redacted = _splice(text, ranges)
     entities = sorted({entity_type for _, _, _, entity_type in ranges})
 
-    if json_tokens is not None:
+    if is_json:
         try:
             json.loads(redacted)
         except (ValueError, RecursionError) as exc:
             raise PiiRedactorError("redaction would produce invalid JSON") from exc
 
     return RedactionResult(redacted, entities)
+
+
+def apply_spans(text: str, spans: list[tuple[int, int, str, str]]) -> str:
+    """`text` with each `(start, end, entity_type, replacement)` span replaced.
+
+    The spans come from redaction_spans(): sorted and disjoint.
+    """
+    return _splice(text, [(start, end, replacement, entity) for start, end, entity, replacement in spans])
+
+
+def redaction_spans(
+    text: str,
+    policy: PiiPolicy,
+    *,
+    analysis: Optional[str] = None,
+    json_mode: bool = True,
+) -> list[tuple[int, int, str, str]]:
+    """The replacements redact_for_policy() would make, as sorted, disjoint
+    `(start, end, entity_type, replacement)` spans, without splicing (PRD-021
+    STORY-007, 6.5).
+
+    The streaming output gate (stream_redaction.py) needs spans, not text: it
+    analyzes `tail + segment` and keeps only the spans that touch the segment.
+    The replacement text is the one step 8 would produce, so a stream whose
+    entities never cross a boundary releases exactly the final pass's text:
+    `apply_spans(text, redaction_spans(text, policy)) == redact_for_policy(text,
+    policy).text`, pinned by tests/test_stream_redaction.py.
+
+    - `chat` (not structure_safe): redact()'s own analyzer call, then the
+      AnonymizerEngine's conflict resolution and same-type space merging
+      without its operator step. Those are private Presidio methods
+      (presidio-anonymizer is pinned); the equivalence test is the guard.
+    - `code`: the same steps as redact_for_policy(). `analysis` replaces the
+      fence-blanked view (same length as `text`); `json_mode=False` skips the
+      whole-document JSON test, which a stream segment can never pass.
+
+    [] when PII_REDACTION_ENABLED is off or `text` is empty. Raises
+    PiiRedactorError like redact(); the message carries no text.
+    """
+    if not settings.PII_REDACTION_ENABLED or not text:
+        return []
+
+    if policy.structure_safe:
+        is_json = _is_json_document(text) if json_mode else False
+        return [
+            (start, end, entity, replacement)
+            for start, end, replacement, entity in _code_spans(text, analysis, policy, is_json)
+        ]
+
+    # Same call as redact(): the full analyzer, the policy's entities and threshold.
+    analyzer = _get_analyzer()
+    try:
+        results = analyzer.analyze(
+            text=text,
+            language="en",
+            entities=list(policy.entities),
+            score_threshold=policy.threshold,
+        )
+    except Exception as exc:
+        raise PiiRedactorError(f"PII analysis failed: {exc}") from exc
+    if not results:
+        return []
+
+    anonymizer = _get_anonymizer()
+    try:
+        resolved = anonymizer._copy_recognizer_results(results)
+        resolved.sort(key=lambda result: (result.start, result.end))
+        resolved = anonymizer._remove_conflicts_and_get_text_manipulation_data(
+            resolved, ConflictResolutionStrategy.MERGE_SIMILAR_OR_CONTAINED
+        )
+        # AnonymizerEngine.anonymize()'s default merge_entities_with_spaces=True.
+        resolved = anonymizer._merge_entities_with_spaces_between(text, resolved)
+    except Exception as exc:
+        raise PiiRedactorError(f"PII anonymization failed: {exc}") from exc
+    return [
+        (result.start, result.end, result.entity_type, f"<{result.entity_type}>")
+        for result in sorted(resolved, key=lambda result: (result.start, result.end))
+    ]

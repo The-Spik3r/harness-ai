@@ -1,13 +1,14 @@
 import dataclasses
 import functools
 import logging
-from typing import Any, Callable, Literal, Optional, Sequence, Tuple, Union
+import uuid
+from typing import Any, Callable, Iterator, Literal, Optional, Sequence, Tuple, Union
 
 from app.config import settings
 from app.db import audit_journal
 from app.db.database import mark_audit_log_failed
 from app.db.errors import AuditUnavailableError, StorageError
-from app.models.messages import Message, conversation_shape_violation
+from app.models.messages import Message, ToolCallSpec, conversation_shape_violation
 from app.models.schemas import (
     QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
@@ -19,25 +20,44 @@ from app.models.schemas import (
 # PRD-017 STORY-010 DD-5: called through their modules (`action_policy.
 # evaluate_all(...)`), so a test's monkeypatch of the source module reaches the
 # pipeline, the rule `action_policy._classify` documents.
-from app.services import action_adapters, action_audit, action_policy, tool_release
+from app.services import action_adapters, action_audit, action_config, action_policy, tool_release
 from app.services.audit_logger import log_query
 from app.services.authz import (
     PERMISSION_QUERY_BYOK,
     PERMISSION_QUERY_SUBMIT,
+    PERMISSION_REASONING_VIEW,
+    PERMISSION_STREAM_REALTIME,
     PermissionDenied,
     authorize,
     authorize_route,
+    holds,
 )
 from app.services.conversation_key import conversation_key
+from app.services.delivery import DeliverySink, StageName, Visibility
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
 from app.services.provider_registry import Route
+from app.services.stream_assembly import phase_of
+from app.services.stream_redaction import (
+    GateResult,
+    OutputGate,
+    gate_applies,
+    reasoning_policy,
+    redact_reasoning,
+)
 from app.services.upstream import (
     GenerationParams,
+    ReasoningDelta,
+    TextDelta,
+    ToolCallDelta,
     ToolParams,
     UpstreamError as OpenRouterError,
+    UpstreamEvent,
+    UpstreamRequest,
     UpstreamResult as OpenRouterResult,
     call_upstream as call_openrouter,
+    collect,
+    stream_upstream,
 )
 from app.services.pattern_config import get_profile
 from app.services.pattern_detector import inspect, strip_fenced_blocks
@@ -297,6 +317,44 @@ def _route_fields(route: Optional[Route]) -> dict:
     }
 
 
+class _SafeSink:
+    """Wraps a DeliverySink so a fault in it never reaches the pipeline (PRD-021 D18, 6.3).
+
+    A sink is a courtesy to a reader; the request, its audit row and its charge
+    do not depend on it. Each method calls the real one and swallows any
+    Exception; the first fault of a request logs one line naming the user and
+    the method, never a payload (T9). Only built when a sink was passed: with
+    `sink=None` the pipeline computes and emits nothing."""
+
+    def __init__(self, sink: DeliverySink, user_id: str) -> None:
+        self._sink = sink
+        self._user_id = user_id
+        self._faulted = False
+
+    def _call(self, method: str, *args: Any) -> None:
+        try:
+            getattr(self._sink, method)(*args)
+        except Exception:
+            if not self._faulted:
+                self._faulted = True
+                logger.warning("delivery sink failed: user_id=%s method=%s", self._user_id, method)
+
+    def stage(self, name: StageName) -> None:
+        self._call("stage", name)
+
+    def phase(self, name: Any, action_kind: Any = None) -> None:
+        self._call("phase", name, action_kind)
+
+    def content(self, text: str) -> None:
+        self._call("content", text)
+
+    def reasoning(self, text: str) -> None:
+        self._call("reasoning", text)
+
+    def committed(self, completion_id: str) -> None:
+        self._call("committed", completion_id)
+
+
 # PRD-018 D10/T5 (R1): a refusal is a release, and every refusal arm below
 # writes its row through `log_query`. When that row can be neither committed nor
 # journaled, `AuditUnavailableError` propagates and the request is refused with
@@ -342,6 +400,12 @@ def _deny(
     # authorization arm is a TypeError, not a tool-turn row that claims no
     # tool calls were involved.
     has_tool_calls: bool,
+    # Required for the same reason as the seven above (PRD-021 STORY-009, F7):
+    # a forgotten authorization arm is a TypeError, not a row that cannot say
+    # whether the reply was delivered in real time. Every caller passes False:
+    # a refusal opens no upstream.
+    streamed_realtime: bool,
+    reasoning_shown: bool,
     exc: PermissionDenied,
     reason: str,
     # Required for the same reason as the seven above (PRD-020 D13, STORY-007):
@@ -366,6 +430,8 @@ def _deny(
         streamed=streamed,
         ignored_params=ignored_params,
         has_tool_calls=has_tool_calls,
+        streamed_realtime=streamed_realtime,
+        reasoning_shown=reasoning_shown,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -380,6 +446,9 @@ def run_conversation(
     call_openrouter: Callable[..., OpenRouterResult] = call_openrouter,
     session_id: Optional[str] = None,
     *,
+    # PRD-021 6.2: the streamed counterpart of `call_openrouter`, injectable the
+    # same way; taken only when step 2d said `upstream_streamed`.
+    stream_upstream: Callable[..., Iterator[UpstreamEvent]] = stream_upstream,
     # Chosen by the call site, never by a request field: no schema carries it,
     # so the permissive profile cannot be requested by a caller (PRD-011
     # Section 6.6, D2, T1). None means PATTERN_PROFILE_DEFAULT. Keyword-only so
@@ -401,6 +470,10 @@ def run_conversation(
     # to step 7 only when set, as `params` is; every other door passes nothing
     # (D17).
     tools: Optional[ToolParams] = None,
+    # PRD-021 D18, Section 6.9: where progress is reported, passed only by an
+    # ingress that shows it (the `/v1` router, the chat UI). None -- every other
+    # caller, `run_query` included -- computes and emits nothing.
+    sink: Optional[DeliverySink] = None,
 ) -> QueryPipelineResult:
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
@@ -442,12 +515,20 @@ def run_conversation(
     # no-op when no journal is open.
     audit_journal.check_admission_headroom()
 
+    # PRD-021 D18: the sink, wrapped once so no fault in it reaches the request.
+    # Stage events below depend on configuration only (T10), never on a finding.
+    safe = _SafeSink(sink, identity.user_id) if sink is not None else None
+
     # Step 2: authorize / model / BYOK.
+    if safe is not None:
+        safe.stage("checking_permissions")
     try:
         authorize(identity, PERMISSION_QUERY_SUBMIT)
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
+            # PRD-021 F7: refused before step 2d, so nothing is known and nothing was sent.
+            streamed_realtime=False, reasoning_shown=False,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
@@ -460,6 +541,7 @@ def run_conversation(
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
+            streamed_realtime=False, reasoning_shown=False,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
@@ -472,6 +554,7 @@ def run_conversation(
         except PermissionDenied as exc:
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
+                streamed_realtime=False, reasoning_shown=False,
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
@@ -483,6 +566,7 @@ def run_conversation(
         if not route.provider.byok:
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
+                streamed_realtime=False, reasoning_shown=False,
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
@@ -505,6 +589,7 @@ def run_conversation(
     if _break_glass_refused(identity, ingress):
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
+            streamed_realtime=False, reasoning_shown=False,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
@@ -548,11 +633,16 @@ def run_conversation(
     # None when the switch is off, which step 7b reads as "charge nothing".
     admission = None
     if settings.USAGE_LIMITS_ENABLED:
+        if safe is not None:
+            safe.stage("checking_usage")
         admission = admit(identity, charges_budget=openrouter_api_key is None)
         if not admission.admitted:
             refusal = admission.refusal
             log_query(
                 **_route_fields(route),
+                # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+                streamed_realtime=False,
+                reasoning_shown=False,
                 user_id=identity.user_id,
                 prompt=prompt,
                 device=device,
@@ -576,6 +666,26 @@ def run_conversation(
                 actual=refusal.actual,
                 resets_at=refusal.resets_at,
             )
+
+    # Step 2d: visibility (PRD-021 Section 6.1, F3, T8).
+    #
+    # After 2c on purpose: a caller refused above must not learn from timing
+    # that its role holds a streaming grant, and no refusal computes it. The
+    # grants are read with holds(), never authorize(): holds() has no
+    # RBAC_ENABLED bypass, so RBAC off cannot hand every caller real time (T8).
+    # Computed only when a sink was passed; `None` means nothing is forwarded
+    # and step 7 stays today's. Step 7 (STORY-006) reads this local.
+    visibility: Optional[Visibility] = None
+    if safe is not None:
+        visibility = Visibility.compute(
+            streaming_enabled=settings.STREAMING_ENABLED,
+            holds_realtime=holds(identity, PERMISSION_STREAM_REALTIME),
+            holds_reasoning=holds(identity, PERMISSION_REASONING_VIEW),
+            caps=route.capabilities,
+            ingress=ingress,
+            streamed=streamed,
+        )
+    realtime_request = bool(visibility is not None and visibility.realtime)
 
     # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).
     #
@@ -606,6 +716,9 @@ def run_conversation(
         limit, maximum, actual = exceeded
         log_query(
             **_route_fields(route),
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -634,11 +747,16 @@ def run_conversation(
     # so a caller cannot choose whose window they are checked against
     # (PRD-009 Section 9.1, F5). The key is the one derived above, once: the
     # control checks exactly what every row records.
+    if safe is not None:
+        safe.stage("checking_duplicates")
     duplicate_result = check_duplicate(identity.user_id, key)
 
     if duplicate_result.is_duplicate:
         log_query(
             **_route_fields(route),
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -673,6 +791,8 @@ def run_conversation(
     # An unknown profile is a call-site bug and raises PatternConfigError here.
     # An earlier arm that wrote a row has already returned, and its row records
     # the name the call site passed -- which is what ran, as far as it went.
+    if safe is not None:
+        safe.stage("inspecting_prompt")
     scan_ceiling = settings.PATTERN_MAX_SCAN_CHARACTERS
     inspection = inspect(messages, get_profile(profile_name), max_scan_characters=scan_ceiling)
     for index in inspection.truncated:
@@ -695,6 +815,9 @@ def run_conversation(
         # stays the one source of what was done.
         log_query(
             **_route_fields(route),
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -733,6 +856,9 @@ def run_conversation(
         first_flag = inspection.flags[0]
         log_query(
             **_route_fields(route),
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             user_id=identity.user_id,
             prompt=prompt,
             device=device,
@@ -764,6 +890,9 @@ def run_conversation(
     # below are unchanged. `pii_detected_input=0` on such a row means not
     # analyzed, and `pii_input_relaxed` records that it was a decision.
     relaxed = route.relaxes_input()
+    # PRD-021 T10: configuration only -- the switch and the route, never a finding.
+    if safe is not None and settings.PII_REDACTION_ENABLED and not relaxed:
+        safe.stage("masking_input")
 
     # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
     # the head of step 6 and not in step 3, because what it measures depends
@@ -784,6 +913,9 @@ def run_conversation(
         maximum, actual = over
         log_query(
             **_route_fields(route),
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
@@ -838,6 +970,9 @@ def run_conversation(
         except PiiRedactorError as exc:
             log_query(
                 **_route_fields(route),
+                # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+                streamed_realtime=False,
+                reasoning_shown=False,
                 pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
@@ -873,13 +1008,182 @@ def run_conversation(
         extra["params"] = params
     if tools is not None:
         extra["tools"] = tools
+    # PRD-021 6.3: with a sink, the commit id is made here and `committed` is
+    # signalled exactly once -- on the first event of a stream, or on entry for a
+    # buffered call. `sink=None`: no id, no phases, no stream. STORY-009 (F7, D17)
+    # persists `completion_id` only when `realtime_request`: a buffered row
+    # stores NULL even though a sink was told an id.
+    completion_id: Optional[str] = None
+    streamed_step = bool(visibility is not None and visibility.upstream_streamed)
+    if safe is not None:
+        safe.phase("waiting")
+    # T6: what counts as released. A non-empty text or reasoning passed to the
+    # sink is something the reader already holds; only then is a mid-stream
+    # fault charged. `received_*` is everything that arrived, forwarded or not.
+    released = False
+    # PRD-021 F7: a non-empty reasoning text reached the sink (`released` also
+    # flips on content, so it cannot say this). Persisted as `reasoning_shown`.
+    reasoning_sent = False
+    received_text: list[str] = []
+    received_calls: dict[int, dict[str, Any]] = {}
+    # PRD-021 6.5, D7, D8 (STORY-008): the two gates exist only for a streamed
+    # realtime request. The content gate runs when the master switch is on and the
+    # policy redacts output (`code` may not: raw forward, no final pass, step 8
+    # as today). `_redact` is called through a lambda so the spy on this module's
+    # binding sees the gate's final pass as it sees step 8's.
+    content_gate: Optional[OutputGate] = None
+    reasoning_gate: Optional[OutputGate] = None
+    gate_result: Optional[GateResult] = None
+    raw_reasoning: list[str] = []  # reasoning granted but not realtime: redacted whole
+    reasoning_text: Optional[str] = None
+    stream_redaction_divergence = False
+    if streamed_step and visibility is not None and visibility.realtime:
+        if gate_applies(policy, settings.PII_REDACTION_ENABLED):
+            content_gate = OutputGate(
+                policy,
+                settings.STREAM_HOLDBACK_MAX_CHARACTERS,
+                final_redact=lambda text, pol: _redact(text, pol),
+            )
+        if visibility.reasoning:
+            reasoning_gate = OutputGate(
+                reasoning_policy(policy),
+                settings.STREAM_HOLDBACK_MAX_CHARACTERS,
+                final_redact=redact_reasoning,
+            )
+    if safe is not None and not streamed_step:
+        completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
+        safe.committed(completion_id)
     try:
-        openrouter_result = call_openrouter(
-            redacted_messages, model=model, api_key=openrouter_api_key, **extra
-        )
-    except OpenRouterError as exc:
+        if streamed_step:
+            assert safe is not None and visibility is not None and route is not None
+            stream_request = UpstreamRequest(redacted_messages, route.upstream_model, params, tools)
+            tool_kinds = {n: m.kind for n, m in action_config.get_policy().tools.items()}
+            phase_now: Optional[str] = "waiting"
+            events: list[UpstreamEvent] = []
+            for event in stream_upstream(
+                redacted_messages, model=model, api_key=openrouter_api_key, **extra
+            ):
+                if completion_id is None:
+                    completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
+                    safe.committed(completion_id)
+                    if realtime_request:
+                        # PRD-021 D15: user, model and id; never content or reasoning.
+                        logger.info(
+                            "realtime stream committed: user_id=%s model=%s completion_id=%s",
+                            identity.user_id, model, completion_id,
+                        )
+                events.append(event)
+                moved = phase_of(event, phase_now, tool_kinds)  # type: ignore[arg-type]
+                if moved is not None:
+                    phase_now = moved[0]
+                    safe.phase(moved[0], moved[1])
+                # Empty text never reaches the sink (STORY-001: collect needs the
+                # event, a reader does not). Tool-call fragments are held, never
+                # forwarded (D6, T1): a ToolCallDelta is read here only to count it.
+                if isinstance(event, TextDelta) and event.text != "":
+                    received_text.append(event.text)
+                    if visibility.realtime:
+                        # `released` flips on what the gate lets out, not on
+                        # receipt (T6): a gate holding everything has shown nothing.
+                        out = content_gate.feed(event.text) if content_gate else event.text
+                        if out:
+                            safe.content(out)
+                            released = True
+                elif isinstance(event, ReasoningDelta) and event.text != "":
+                    received_text.append(event.text)
+                    if visibility.reasoning and visibility.realtime:
+                        assert reasoning_gate is not None
+                        out = reasoning_gate.feed(event.text)
+                        if out:
+                            safe.reasoning(out)
+                            released = True
+                            reasoning_sent = True
+                    elif visibility.reasoning:
+                        raw_reasoning.append(event.text)
+                elif isinstance(event, ToolCallDelta):
+                    held = received_calls.setdefault(
+                        event.index, {"id": None, "name": None, "arguments": []}
+                    )
+                    held["id"] = held["id"] or event.id
+                    held["name"] = held["name"] or event.name
+                    held["arguments"].append(event.arguments)
+            # End of stream (PRD-021 6.5): the held tails leave last, reasoning
+            # first, then content, so the content remainder is the last content
+            # delta. A fault here is a fault after a release like any other.
+            if reasoning_gate is not None:
+                reasoning_done = reasoning_gate.finish()
+                if reasoning_done.remainder:
+                    safe.reasoning(reasoning_done.remainder)
+                    released = True
+                    reasoning_sent = True
+                if reasoning_done.diverged:
+                    logger.warning(
+                        "stream redaction diverged (reasoning): user_id=%s completion_id=%s",
+                        identity.user_id, completion_id,
+                    )
+            if content_gate is not None:
+                gate_result = content_gate.finish()
+                if gate_result.remainder:
+                    safe.content(gate_result.remainder)
+                    released = True
+                if gate_result.diverged:
+                    stream_redaction_divergence = True
+                    logger.warning(
+                        "stream redaction diverged: user_id=%s completion_id=%s",
+                        identity.user_id, completion_id,
+                    )
+            if raw_reasoning:
+                # D8: collected and returned whole, redacted, never persisted.
+                reasoning_text = redact_reasoning("".join(raw_reasoning), policy).text
+            # D4: a realtime stream is billed like a whole answer, so a missing
+            # usage chunk is estimated whatever the provider's mode; progress-only
+            # keeps today's rule (nothing was released, nothing is charged).
+            # model_used stays the requested id, as call_upstream makes it (PRD-020 D13).
+            openrouter_result = dataclasses.replace(
+                collect(
+                    events,
+                    provider=route.provider,
+                    request=stream_request,
+                    usage_missing="estimate" if visibility.realtime else None,
+                ),
+                model_used=model,
+            )
+        else:
+            openrouter_result = call_openrouter(
+                redacted_messages, model=model, api_key=openrouter_api_key, **extra
+            )
+    except (OpenRouterError, PiiRedactorError) as exc:
+        # A gate failure (PiiRedactorError from feed/finish) is the same fault as
+        # a dropped stream: the same T6 charge, the same failure row (STORY-008).
+        # PRD-021 T6 / PRD-020 D8: text already shown to a reader was spent
+        # upstream, so charge the estimate of what was received before the fault,
+        # before the failure row. Nothing released: nothing charged (today's rule).
+        if released and admission is not None and openrouter_api_key is None and route is not None:
+            charge(
+                identity.user_id,
+                admission.day,
+                None,
+                None,
+                estimate_tokens(
+                    redacted_messages,
+                    (
+                        "".join(received_text),
+                        tuple(
+                            ToolCallSpec(c["id"] or "", c["name"] or "", "".join(c["arguments"]))
+                            for _, c in sorted(received_calls.items())
+                        ),
+                    ),
+                    route.provider.estimate_chars_per_token,
+                    tools=tools.tools if tools is not None else None,
+                ),
+            )
         log_query(
             **_route_fields(route),
+            # PRD-021 F7, D14, D17: what was true at this point of the request.
+            streamed_realtime=realtime_request,
+            reasoning_shown=reasoning_sent,
+            stream_redaction_divergence=stream_redaction_divergence,
+            completion_id=completion_id if realtime_request else None,
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
@@ -943,6 +1247,8 @@ def run_conversation(
     # error and propagates, so no call is ever released undecided (T1).
     outcome: Optional[tool_release.ToolOutcome] = None
     if openrouter_result.tool_calls:
+        if safe is not None:
+            safe.stage("evaluating_actions")
         calls = tuple(
             action_adapters.ToolCall(c.id, c.name, c.arguments)
             for c in openrouter_result.tool_calls
@@ -965,12 +1271,24 @@ def run_conversation(
     # which it was (PRD-012 D9). Only the upstream's content is redacted, never a
     # call's arguments (PRD-017 Section 6.5, D13); the denial notes are joined
     # after it, so they are never masked (Section 6.6).
-    if policy.output:
+    if gate_result is not None:
+        # PRD-021 6.5: the gate's single whole-reply pass *is* step 8's redaction;
+        # it is authoritative for the response, the bubble and the entities, and
+        # runs once (nothing is masked now, so no `masking_output` stage).
+        redacted_response, output_entities = gate_result.final_text, gate_result.final_entities
+    elif policy.output:
+        if safe is not None and settings.PII_REDACTION_ENABLED:
+            safe.stage("masking_output")
         try:
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
         except PiiRedactorError as exc:
             log_query(
                 **_route_fields(route),
+                # PRD-021 F7, D14, D17: what was true at this point of the request.
+                streamed_realtime=realtime_request,
+                reasoning_shown=reasoning_sent,
+                stream_redaction_divergence=stream_redaction_divergence,
+                completion_id=completion_id if realtime_request else None,
                 pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
                 prompt=prompt,
@@ -1018,6 +1336,11 @@ def run_conversation(
     try:
         audit_ref = log_query(
             **_route_fields(route),
+            # PRD-021 F7, D14, D17: what was true at this point of the request.
+            streamed_realtime=realtime_request,
+            reasoning_shown=reasoning_sent or bool(reasoning_text),
+            stream_redaction_divergence=stream_redaction_divergence,
+            completion_id=completion_id if realtime_request else None,
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
             prompt=prompt,
@@ -1115,6 +1438,14 @@ def run_conversation(
         # Private, never serialized (STORY-010 DD-1): the router's only source of
         # released calls (T1).
         success._tool_outcome = outcome
+    if reasoning_text is not None:
+        # PRD-021 D8: private and never passed to log_query or chat_messages.
+        success._reasoning = reasoning_text
+    if streamed_step:
+        # PRD-021 STORY-010: the streamed step never goes through the router's
+        # `_Upstream` wrapper, so its finish reason and token split travel here.
+        # Private, never serialized.
+        success._upstream_result = openrouter_result
     return success
 
 
@@ -1130,6 +1461,10 @@ def run_query(
     # PRD-013 Section 6.9: `/query` is this adapter's caller, so the default
     # names it. ChatState's history-off branch passes "chat".
     ingress: Optional[Ingress] = "query",
+    # PRD-021 D18/D20: the chat UI's history-off branch passes its sink here so
+    # both branches report progress alike; `/query` passes nothing (None), so
+    # its behavior is unchanged.
+    sink: Optional[DeliverySink] = None,
 ) -> QueryPipelineResult:
     return run_conversation(
         identity,
@@ -1140,4 +1475,5 @@ def run_query(
         call_openrouter=call_openrouter,
         session_id=session_id,
         ingress=ingress,
+        sink=sink,
     )

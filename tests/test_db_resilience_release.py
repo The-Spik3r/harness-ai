@@ -49,6 +49,8 @@ from app.services.action_adapters import ToolCall
 from app.services.action_config import BUILT_IN_POLICY
 from app.services.action_policy import evaluate
 from app.services.audit_logger import AuditRef, log_query
+# PRD-021 STORY-009 (F7): log_query requires the two delivery fields; these
+# direct calls model a buffered row.
 from app.services.identity import Identity
 from app.services.openrouter_client import OpenRouterResult, ToolParams
 from app.services.query_pipeline import ActionAuditError
@@ -157,7 +159,7 @@ def test_log_query_returns_a_ref_with_the_committed_id(monkeypatch):
 
     monkeypatch.setattr(audit_logger, "insert_audit_log", insert)
 
-    ref = log_query("dana", "hello")
+    ref = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
 
     assert ref == AuditRef(41, seen[0].write_id)
     assert _HEX.match(ref.write_id)
@@ -169,7 +171,7 @@ def test_log_query_journals_on_storage_unavailable_and_returns_a_null_id(
     journal, audit_outage, caplog
 ):
     with caplog.at_level(logging.DEBUG):
-        ref = log_query("dana", "hello", response="hi")
+        ref = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False, response="hi")
 
     assert ref.audit_id is None and _HEX.match(ref.write_id)
     (entry,) = journal.pending()
@@ -186,7 +188,7 @@ def test_log_query_journals_the_decisions_in_the_same_entry(journal, audit_outag
         seen.append(write_id)
         return _rows(write_id, 2)
 
-    ref = log_query("dana", "hello", journal_decisions=journal_decisions)
+    ref = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False, journal_decisions=journal_decisions)
 
     assert seen == [ref.write_id]
     (entry,) = journal.pending()
@@ -196,7 +198,7 @@ def test_log_query_journals_the_decisions_in_the_same_entry(journal, audit_outag
 def test_journal_decisions_is_not_called_on_the_healthy_path(monkeypatch):
     monkeypatch.setattr(audit_logger, "insert_audit_log", lambda entry: 5)
 
-    ref = log_query("dana", "hello", journal_decisions=_raiser(AssertionError("built eagerly")))
+    ref = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False, journal_decisions=_raiser(AssertionError("built eagerly")))
 
     assert ref.audit_id == 5
 
@@ -205,7 +207,7 @@ def test_log_query_journal_full_raises_audit_unavailable(tmp_path, audit_outage)
     audit_journal.open_journal(str(tmp_path / "tiny"), 1, 2)
     try:
         with pytest.raises(AuditUnavailableError, match="full"):
-            log_query("dana", "hello")
+            log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
     finally:
         audit_journal.close_journal()
 
@@ -213,7 +215,7 @@ def test_log_query_journal_full_raises_audit_unavailable(tmp_path, audit_outage)
 def test_log_query_with_no_journal_open_raises_audit_unavailable(audit_outage):
     assert audit_journal.current() is None
     with pytest.raises(AuditUnavailableError):
-        log_query("dana", "hello")
+        log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
 
 
 @pytest.mark.parametrize(
@@ -225,7 +227,7 @@ def test_log_query_statement_failure_is_not_journaled(journal, monkeypatch, fail
     monkeypatch.setattr(audit_logger, "insert_audit_log", _raiser(failure))
 
     with pytest.raises(type(failure)):
-        log_query("dana", "hello")
+        log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
 
     assert journal.pending() == []
 

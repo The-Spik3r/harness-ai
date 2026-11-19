@@ -14,9 +14,10 @@ this raises "'total_tokens'".
 
 from typing import TYPE_CHECKING, Any, Iterable, Optional
 
-from app.services.upstream.reply import result_from_reply
+from app.services.upstream.reply import _USAGE_MODES, result_from_reply
 from app.services.upstream.types import (
     Finish,
+    ReasoningDelta,
     TextDelta,
     ToolCallDelta,
     UpstreamEvent,
@@ -30,9 +31,20 @@ if TYPE_CHECKING:  # annotations only: the registry imports settings
 
 
 def collect(
-    events: Iterable[UpstreamEvent], *, provider: "Provider", request: UpstreamRequest
+    events: Iterable[UpstreamEvent],
+    *,
+    provider: "Provider",
+    request: UpstreamRequest,
+    usage_missing: Optional[str] = None,
 ) -> UpstreamResult:
-    """The events as one UpstreamResult; `provider` and `request` carry the D8 estimate and the tools= gate."""
+    """The events as one UpstreamResult; `provider` and `request` carry the D8 estimate and the tools= gate.
+
+    `usage_missing` (PRD-021 D4) overrides the provider's mode for this call only
+    (the pipeline passes "estimate" for a stream); None keeps the provider's.
+    `ReasoningDelta` events are ignored: reasoning is never part of the result (D8).
+    """
+    if usage_missing is not None and usage_missing not in _USAGE_MODES:
+        raise ValueError(f"usage_missing must be one of {_USAGE_MODES}, got {usage_missing}")
     texts: list[str] = []
     calls: dict[int, dict[str, Any]] = {}
     finish_reason: Optional[str] = None
@@ -48,7 +60,10 @@ def collect(
                 call["name"] = event.name
             call["arguments"].append(event.arguments)
         elif isinstance(event, Finish):
-            finish_reason = event.reason
+            if event.reason is not None:
+                finish_reason = event.reason
+        elif isinstance(event, ReasoningDelta):
+            continue
         elif isinstance(event, UsageReport):
             usage = {
                 key: value
@@ -75,4 +90,4 @@ def collect(
     data: dict[str, Any] = {"choices": [{"message": message, "finish_reason": finish_reason}]}
     if usage is not None:
         data["usage"] = usage
-    return result_from_reply(provider, request, data)
+    return result_from_reply(provider, request, data, usage_missing=usage_missing)

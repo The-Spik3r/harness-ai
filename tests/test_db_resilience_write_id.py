@@ -55,6 +55,8 @@ from app.services.action_adapters import ToolCall
 from app.services.action_config import BUILT_IN_POLICY
 from app.services.action_policy import evaluate
 from app.services.audit_logger import AuditRef, _new_write_id, log_query
+# PRD-021 STORY-009 (F7): log_query requires the two delivery fields; these
+# direct calls model a buffered row.
 from app.services.identity import Identity
 from tests.db_faults import (
     INVALID_BATON,
@@ -232,6 +234,11 @@ def test_init_db_migrates_a_pre_prd018_database(uninitialized_db, monkeypatch):
         "ALTER TABLE audit_logs ADD COLUMN provider_trust TEXT",
         "ALTER TABLE audit_logs ADD COLUMN pii_input_relaxed INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN usage_estimated INTEGER NOT NULL DEFAULT 0",
+        # PRD-021 STORY-009 (F7, D14, D17): the four delivery columns follow it.
+        "ALTER TABLE audit_logs ADD COLUMN streamed_realtime INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE audit_logs ADD COLUMN reasoning_shown INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE audit_logs ADD COLUMN stream_redaction_divergence INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE audit_logs ADD COLUMN completion_id TEXT",
         "ALTER TABLE action_decisions ADD COLUMN write_id TEXT",
     ]
     assert not any(
@@ -307,10 +314,13 @@ def test_existing_constructions_still_work_and_default_write_id_to_none():
     assert audit.write_id is None and positional.write_id is None
     # `id` stays the trailing field of each: write_id sits before it.
     # PRD-020 STORY-006 (D13): AuditLog's five provider fields now sit between
-    # write_id and id; `id` is still trailing.
-    assert [f.name for f in dataclasses.fields(AuditLog)][-7:] == [
+    # write_id and id; `id` is still trailing. PRD-021 STORY-009 (F7): four
+    # delivery fields follow usage_estimated.
+    assert [f.name for f in dataclasses.fields(AuditLog)][-11:] == [
         "write_id", "provider", "upstream_model", "provider_trust",
-        "pii_input_relaxed", "usage_estimated", "id",
+        "pii_input_relaxed", "usage_estimated",
+        "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
+        "completion_id", "id",
     ]
     assert [f.name for f in dataclasses.fields(ActionDecisionRow)][-2:] == [
         "write_id",
@@ -457,8 +467,8 @@ def test_a_replay_falls_back_to_one_select_on_the_same_connection(faulty_db):
 def test_log_query_mints_a_hex_write_id_and_returns_its_ref(temp_db):
     # PRD-018 F7: renamed from `..._and_still_returns_int`; log_query returns an
     # AuditRef carrying the committed id and the row's key.
-    first = log_query("dana", "hello")
-    second = log_query("dana", "hello")
+    first = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
+    second = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
 
     assert isinstance(first, AuditRef) and isinstance(second, AuditRef)
     assert isinstance(first.audit_id, int) and isinstance(second.audit_id, int)
@@ -473,7 +483,7 @@ def test_log_query_keeps_one_write_id_across_a_retry(faulty_db):
     """A retry that minted a new key would have left two rows."""
     faulty_db.add(Fault(NAMESPACE_SHUTDOWN_503, op="commit", when="after"))
 
-    audit_id = log_query("dana", "hello").audit_id  # PRD-018 F7: AuditRef
+    audit_id = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False).audit_id  # PRD-018 F7: AuditRef
 
     assert faulty_db.forwarded(_AUDIT_INSERT) == 2
     with get_connection() as conn:
@@ -505,7 +515,7 @@ def test_record_keys_its_rows_batch_colon_index(temp_db):
 
     # PRD-018 F7: given the success row's AuditRef, the rows are keyed by that
     # row's own write_id, linked to its id.
-    ref = log_query("dana", "hello")
+    ref = log_query("dana", "hello", streamed_realtime=False, reasoning_shown=False)
     action_audit.record(decisions, _USER, audit_ref=ref)
     with get_connection() as conn:
         rows = conn.execute(

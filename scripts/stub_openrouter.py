@@ -69,6 +69,16 @@ when `stream_options.include_usage` is true and the reply has usage, then
 `data: [DONE]`). `complete()` never sends `stream`, so every other request is
 answered as before.
 
+A reply may carry `stream: {chunk_chars, delay_ms, reasoning, fail_after}`
+(PRD-021 F10), used only when the request streams; any other request gets the
+reply's JSON as before. Frames go out in this order: `reasoning` deltas (as
+`delta.reasoning`), content deltas, tool-call fragments, the finish chunk, the
+usage chunk, `[DONE]`. `chunk_chars` cuts reasoning, content and each call's
+`arguments` into pieces of at most that many characters (default: halves);
+`delay_ms` is slept before every delta, the first included; `fail_after: K`
+sends K deltas and then closes the connection with no finish chunk and no
+`[DONE]`. The log line never carries the shape, content or reasoning.
+
 Each request is logged as one ASCII line on stderr: the model, the message
 count, the request's other parameter keys, the rule that answered, and the
 counts `tools=<n>` (tools offered) and `calls=<n>` (calls answered). Message
@@ -92,9 +102,10 @@ _PREFIX = "stub_openrouter"
 _SCRIPT_KEYS = frozenset({"rules", "default"})
 _REPLY_KEYS = frozenset(
     {"content", "finish_reason", "usage", "delay_seconds", "fail_status", "tool_calls",
-     "redirect_status", "location"}
+     "redirect_status", "location", "stream"}
 )
-_BODY_KEYS = frozenset({"content", "finish_reason", "usage", "tool_calls"})
+_BODY_KEYS = frozenset({"content", "finish_reason", "usage", "tool_calls", "stream"})
+_STREAM_KEYS = frozenset({"chunk_chars", "delay_ms", "reasoning", "fail_after"})
 _REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 _DEFAULT_LOCATION = "http://127.0.0.1:9/never"
 _MATCHER_KEYS = frozenset({"contains", "regex"})
@@ -124,6 +135,16 @@ class ScriptedCall:
 
 
 @dataclass(frozen=True)
+class StreamShape:
+    """How a streamed reply is cut and paced (PRD-021 F10); `{}` flags the shape with defaults."""
+
+    chunk_chars: Optional[int] = None  # None: today's two halves
+    delay_ms: int = 0  # slept before each delta frame
+    reasoning: Optional[str] = None  # emitted first, as delta.reasoning
+    fail_after: Optional[int] = None  # drop the connection after this many delta frames
+
+
+@dataclass(frozen=True)
 class Reply:
     content: Optional[str] = ""
     finish_reason: Optional[str] = "stop"
@@ -133,6 +154,7 @@ class Reply:
     tool_calls: tuple = ()
     redirect_status: Optional[int] = None
     location: str = _DEFAULT_LOCATION
+    stream: Optional[StreamShape] = None
 
 
 @dataclass(frozen=True)
@@ -272,6 +294,31 @@ def _parse_usage(raw: Any, where: str) -> dict:
     }
 
 
+def _parse_stream(raw: Any, where: str) -> StreamShape:
+    """The `stream:` shape (PRD-021 F10). `reasoning` is model output: never echoed in an error."""
+    at = f"{where}: stream"
+    if not isinstance(raw, dict):
+        raise ScriptError(f"{at} must be an object, got {raw!r}")
+    unknown = sorted(set(raw) - _STREAM_KEYS)
+    if unknown:
+        raise ScriptError(f"{at}: unknown key(s): {', '.join(unknown)}")
+    chunk_chars = raw.get("chunk_chars")
+    if "chunk_chars" in raw and not (_is_count(chunk_chars) and chunk_chars >= 1):
+        raise ScriptError(f"{at}.chunk_chars must be an integer >= 1, got {chunk_chars!r}")
+    delay_ms = raw.get("delay_ms", 0)
+    if not _is_count(delay_ms):
+        raise ScriptError(f"{at}.delay_ms must be an integer >= 0, got {delay_ms!r}")
+    fail_after = raw.get("fail_after")
+    if "fail_after" in raw and not _is_count(fail_after):
+        raise ScriptError(f"{at}.fail_after must be an integer >= 0, got {fail_after!r}")
+    reasoning = raw.get("reasoning")
+    if "reasoning" in raw and (not isinstance(reasoning, str) or not reasoning):
+        raise ScriptError(f"{at}.reasoning must be a non-empty string")
+    return StreamShape(
+        chunk_chars=chunk_chars, delay_ms=delay_ms, reasoning=reasoning, fail_after=fail_after
+    )
+
+
 def _parse_tool_calls(raw: Any, where: str) -> tuple:
     if not isinstance(raw, list) or not raw:
         raise ScriptError(f"{where}: tool_calls must be a non-empty list")
@@ -345,12 +392,14 @@ def _parse_reply(raw: dict, where: str) -> Reply:
     finish_reason = raw.get("finish_reason", "tool_calls" if calls else "stop")
     if finish_reason is not None and not isinstance(finish_reason, str):
         raise ScriptError(f"{where}: finish_reason must be a string or null, got {finish_reason!r}")
+    shape = _parse_stream(raw["stream"], where) if "stream" in raw else None
     return Reply(
         content=content,
         finish_reason=finish_reason,
         usage=None if raw.get("usage", {}) is None else _parse_usage(raw.get("usage", {}), where),
         delay_seconds=float(delay),
         tool_calls=calls,
+        stream=shape,
     )
 
 
@@ -494,29 +543,50 @@ class _StubHandler(BaseHTTPRequestHandler):
         def delta_choice(delta: dict, finish: Optional[str] = None) -> list:
             return [{"index": 0, "delta": delta, "finish_reason": finish}]
 
-        frames: list = []
+        shape = reply.stream
+        size = shape.chunk_chars if shape else None
+
+        def pieces(text: str) -> list:
+            # No chunk_chars: today's halves; else pieces of at most `size` characters.
+            if size is None:
+                half = len(text) // 2
+                return [text[:half], text[half:]] if half else [text]
+            return [text[i:i + size] for i in range(0, len(text), size)]
+
+        deltas: list = []  # the frames that delay_ms paces and fail_after counts
+        if shape is not None and shape.reasoning is not None:
+            for part in pieces(shape.reasoning):
+                deltas.append(frame(delta_choice({"reasoning": part})))
         content = reply.content
-        if isinstance(content, str):
-            half = len(content) // 2
-            parts = [content[:half], content[half:]] if half else [content]
-            for part in parts:
-                frames.append(frame(delta_choice({"content": part})))
+        # Without a shape, "" still yields one empty delta, byte-for-byte as before.
+        if isinstance(content, str) and (content or shape is None):
+            for part in pieces(content):
+                deltas.append(frame(delta_choice({"content": part})))
         for index, call in enumerate(wire_calls):
             arguments = call["function"]["arguments"]
-            half = len(arguments) // 2
-            first = {
-                "index": index,
-                "id": call["id"],
-                "type": "function",
-                "function": {"name": call["function"]["name"], "arguments": arguments[:half]},
-            }
-            rest = {"index": index, "function": {"arguments": arguments[half:]}}
-            frames.append(frame(delta_choice({"tool_calls": [first]})))
-            frames.append(frame(delta_choice({"tool_calls": [rest]})))
-        frames.append(frame(delta_choice({}, reply.finish_reason)))
+            if size is None:
+                half = len(arguments) // 2
+                parts = [arguments[:half], arguments[half:]]
+            else:
+                parts = pieces(arguments) or [""]
+            for position, part in enumerate(parts):
+                fragment: dict = {"index": index, "function": {"arguments": part}}
+                if position == 0:
+                    fragment = {
+                        "index": index,
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {"name": call["function"]["name"], "arguments": part},
+                    }
+                deltas.append(frame(delta_choice({"tool_calls": [fragment]})))
+        tail: list = [frame(delta_choice({}, reply.finish_reason))]
         if include_usage and reply.usage is not None:
-            frames.append(frame([], dict(reply.usage)))
-        frames.append(b"data: [DONE]\n\n")
+            tail.append(frame([], dict(reply.usage)))
+        tail.append(b"data: [DONE]\n\n")
+        delay = shape.delay_ms / 1000 if shape else 0.0
+        if shape is not None and shape.fail_after is not None:
+            deltas = deltas[: shape.fail_after]
+            tail = []  # the fault: no finish, no usage, no [DONE]; the close is the EOF
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -524,7 +594,13 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             self.close_connection = True
-            for data in frames:
+            self.wfile.flush()
+            for data in deltas:
+                if delay:
+                    time.sleep(delay)
+                self.wfile.write(data)
+                self.wfile.flush()
+            for data in tail:
                 self.wfile.write(data)
                 self.wfile.flush()
         except _DISCONNECTS:

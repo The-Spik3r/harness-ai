@@ -105,7 +105,8 @@ def _capturing_run_conversation(captured, result=None):
 
     # `ingress` since PRD-013 STORY-005: ChatState passes "chat" on both branches.
     def _fake(identity, messages, device, model, openrouter_api_key,
-              params=None, call_openrouter=None, session_id=None, ingress=None):
+              params=None, call_openrouter=None, session_id=None, ingress=None,
+              sink=None):  # PRD-021 STORY-011: ChatState passes sink
         captured["messages"] = list(messages)
         captured["session_id"] = session_id
         captured["ingress"] = ingress
@@ -250,6 +251,9 @@ _RUN_QUERY_KWARGS = {
     "session_id",
     # PRD-013 STORY-005: the door, named at the call site (Section 6.9).
     "ingress",
+    # PRD-021 STORY-011 (D19): the chat passes its QueueSink on both branches;
+    # `/query` still passes none.
+    "sink",
 }
 
 

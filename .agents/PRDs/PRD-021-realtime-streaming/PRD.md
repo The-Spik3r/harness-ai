@@ -2,11 +2,11 @@
 id: PRD-021
 slug: realtime-streaming
 title: Real-Time Streaming and Reasoning Visibility, Decided by the Admin — and Honest Progress Feedback When It Is Off
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-021-realtime-streaming
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-19
 ---
 
 > **Prerequisite.** This PRD builds on **[PRD-020 provider-registry](../PRD-020-provider-registry/PRD.md)** (draft) and consumes what it leaves ready for this PRD: the `ProviderAdapter` protocol with a synchronous `stream()` and a pure `collect()` (PRD-020 D11, Section 6.4), the `call_upstream` seam (D12), per-model capabilities `tools`/`streaming`/`reasoning`/`max_context_tokens` (D6, F4), the missing-usage estimate (D8) and the audit-column path (D13). It does not redesign the registry. It **adds** three things to PRD-020's surface, each stated where it is used: a `ReasoningDelta` event (Section 6.2), a `stream_upstream` seam beside `call_upstream` (Section 6.2), and four audit columns after PRD-020's five (F7).
@@ -601,13 +601,20 @@ With the switch on and the grant in `RBAC_ROLES_FILE`: first-content latency thr
 
 | # | Question | Proposed default |
 |---|---|---|
-| O1 | Ship the progress vocabulary in Spanish? The user writes Spanish; the chat UI's copy is English today | **English now, Spanish as a one-file swap in the same epic if the user confirms**; a per-user locale is out of scope |
+| O1 | Ship the progress vocabulary in Spanish? The user writes Spanish; the chat UI's copy is English today | **Decided (user, 2026-11-18): English**, matching the rest of `copy.py`; Spanish stays a one-file swap later; a per-user locale is out of scope |
 | O2 | Store reasoning for the auditor? | **No** (D8). A later PRD may add a separate store with retention and its own read permission |
 | O3 | Write-ahead audit row at commit (closes T9)? | **No**: it changes every row's lifecycle and the duplicate rule (`success=1` rows only); the commit `INFO` line is the mitigation |
 | O4 | Cancel the upstream when the client disconnects (saves tokens)? | **No** (D15): usage would be unknown and T7 opens; revisit with cost data |
 | O5 | Also emit OpenRouter-style `reasoning` beside `reasoning_content`? | **Only if STORY-001 finds a target client that reads `reasoning` and not `reasoning_content`**; otherwise one field |
 | O6 | Should stage words in the chat require `STREAMING_ENABLED`? | **No**: stage words are internal state and change no upstream traffic, so they ship on by default; only the upstream phases need the switch |
 | O7 | Is `chat` with real time worth the gate's cost if divergence is non-zero? | **Ship, measure, report** the divergence rate per entity before an admin widens grants; no automatic disable |
+
+### Orchestrator decisions (story creation, 2026-11-18)
+
+- **OD1 — Legacy mode never streams (user decision).** With no `PROVIDERS_FILE`, PRD-020's implicit `openrouter` models have `streaming=false` and `reasoning=false` (`provider_registry.py`, legacy `Capabilities(tools=…)`), and this PRD leaves that alone (PRD-020 D1, Risk 3). Real time and the chat's upstream phases (`thinking`, `writing`) therefore need a providers-file model with `streaming: true`. Stage words still show in legacy mode. User story 7's "legacy OpenRouter provider whose `usage_missing` is `error`" is tested with a file-mode provider declaring `usage_missing: error`.
+- **OD2 — STORY-001 makes live calls (user decision):** a few small streamed requests to OpenRouter with the operator's key, plus the local server PRD-020 STORY-014 used, when reachable.
+- **OD3 — PRD-020 is merged** (`be78ab6`); the "draft" mentions of PRD-020 above predate that. `collect()` ships without a `usage_missing` override, so STORY-003 adds it (Section 6.2).
+- **OD4 — Story split.** Phase 2's audit story (STORY-009) follows the gates so the pipeline writes all four columns at once; STORY-008 measures the gate cost (Risk 2); Phase 3 is `/v1` (010), chat state (011), chat rendering (012), audit API and Register (013); Phase 4 is OpenCode E2E (014), Cline E2E (015), docs (016).
 
 ### Evidence (verified against `main` @ `2253871`)
 - `app/services/v1_sse.py:1-17,46-84,125-141`: buffered stream; one content chunk; keep-alives until the pipeline is done.

@@ -121,7 +121,7 @@ from chat_ui.components.admin_shell import refreshed_stamp
 # characters; 7rem held fifteen and clipped it. Past that the cell truncates
 # like any other.
 _GRID = (
-    f"{theme.STAMP_X} 8.5rem 8rem 5.5rem 9rem 7rem 7.5rem 3.5rem minmax(9rem, 1fr) "
+    f"{theme.STAMP_X} 8.5rem 8rem 7.5rem 9rem 7rem 7.5rem 3.5rem minmax(9rem, 1fr) "
     "5.5rem 2.5rem"
 )
 
@@ -129,8 +129,10 @@ _GRID = (
 # sideways inside its own container instead of the page doing it. Raised from
 # 58rem with the control column: its 2.5rem track plus one 0.75rem column gap;
 # and by 2.5rem more with the wider tokens track (PRD-013 STORY-015); and by
-# 7.75rem for the provider track (7rem plus its 0.75rem gap, PRD-020 STORY-012).
-_MIN_WIDTH = "71.5rem"
+# 7.75rem for the provider track (7rem plus its 0.75rem gap, PRD-020 STORY-012);
+# and by 2rem for the verdict track, widened 5.5rem -> 7.5rem so the LIVE tag
+# sits beside the verdict word (PRD-021 F7, STORY-013). Still eleven tracks.
+_MIN_WIDTH = "73.5rem"
 
 
 def _head_cell(label: str, align: str = "left", title: str = "") -> rx.Component:
@@ -247,8 +249,17 @@ def _verdict_tag(row) -> rx.Component:
     )
 
 
-def _tag(label: str, ink: str, exception: bool = True) -> rx.Component:
-    """One verdict tag. Exceptions are set in caps; cleared stays lowercase."""
+def _tag(
+    label: str, ink: str, exception: bool = True, title: str = ""
+) -> rx.Component:
+    """One verdict tag. Exceptions are set in caps; cleared stays lowercase.
+
+    `title` (PRD-021 F7) adds hover and assistive text for a tag whose word is
+    not self-explanatory; the verdict tags pass none and render as before.
+    """
+    attrs = {"role": "cell"}
+    if title:
+        attrs.update({"title": title, "aria-label": title})
     return rx.box(
         label,
         font_family=theme.FONT_DISPLAY,
@@ -257,7 +268,35 @@ def _tag(label: str, ink: str, exception: bool = True) -> rx.Component:
         letter_spacing="0.08em" if exception else "0",
         text_transform="uppercase" if exception else "none",
         color=ink,
-        custom_attrs={"role": "cell"},
+        custom_attrs=attrs,
+    )
+
+
+def _live_tag() -> rx.Component:
+    """The LIVE marker: a row delivered in real time (PRD-021 F7).
+
+    Same typography as a verdict tag, in `theme.INK`: the Register's plain text
+    ink, which no verdict spends, so it cannot read as cleared, held, denied or
+    fault (the chat's upstream-failure ink is chat-only, and the Register's
+    palette test admits only the four verdict inks plus the grounds). No fill
+    or accent (PRD-006 Risk 6). `title` / `aria-label` say what the word means.
+    """
+    return _tag(
+        admin_copy.LIVE_LABEL, theme.INK, title=admin_copy.LIVE_TITLE
+    )
+
+
+def _verdict_cell(row) -> rx.Component:
+    """The verdict tag, and beside it LIVE when the row was real-time.
+
+    One grid child, not two: the row keeps eleven tracks (PRD-021 F7).
+    """
+    return rx.box(
+        _verdict_tag(row),
+        rx.cond(row.live, _live_tag(), rx.fragment()),
+        display="flex",
+        align_items="center",
+        gap="0.4rem",
     )
 
 
@@ -518,7 +557,8 @@ def _row_line(row) -> rx.Component:
     `min_height` rather than `height`: the time cell is two lines, and a fixed
     row height would clip the absolute timestamp under it.
 
-    Eleven children and no twelfth (PRD-020 added provider). `device_full`, `prompt_hash`, `error_message`,
+    Eleven children and no twelfth (PRD-020 added provider; PRD-021's LIVE tag
+    rides inside the verdict cell, `_verdict_cell`). `device_full`, `prompt_hash`, `error_message`,
     `pii_entities`, `pii_detected_input`, `pii_detected_output`,
     `suspicious_pattern`, `pattern_role`, `pattern_action`, `profile` and
     PRD-013's `limit_exceeded`, `conversation_key`, `ingress`, `message_count`,
@@ -534,7 +574,7 @@ def _row_line(row) -> rx.Component:
         _stamp_margin(row),
         _time_cell(row),
         _cell(row.user_id),
-        _verdict_tag(row),
+        _verdict_cell(row),
         _cell(row.model_used),
         _cell(row.provider),
         _cell(row.tokens_used, text_align="right"),

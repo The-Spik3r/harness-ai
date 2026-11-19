@@ -387,6 +387,13 @@ class Settings(BaseSettings):
     # > 0 and <= 60. Consumed by STORY-013.
     V1_SSE_KEEPALIVE_SECONDS: float = 10.0
 
+    # Real-time streaming (PRD-021 Section 9.3, D2). Read per request:
+    # STREAMING_ENABLED (STORY-005, STORY-010), the hold-back bound (STORY-008)
+    # and the coalesce interval (STORY-010, `/v1`). Off means today's behaviour.
+    STREAMING_ENABLED: bool = False
+    STREAM_HOLDBACK_MAX_CHARACTERS: int = 400
+    STREAM_COALESCE_MS: int = 50
+
     # Tool calling on /v1 (PRD-017 Section 4, 9.3). The `/v1` router reads
     # both per request and passes them to the translator (STORY-008); step 7c
     # (STORY-010) will read them too. Per request is the _context_limit_exceeded
@@ -748,6 +755,32 @@ class Settings(BaseSettings):
                 f"V1_SSE_KEEPALIVE_SECONDS must be > 0 and <= 60, got {value}. "
                 "It is the interval in seconds between keep-alive lines on a "
                 "streamed /v1 response. Example: V1_SSE_KEEPALIVE_SECONDS=10."
+            )
+        return value
+
+    @field_validator("STREAM_HOLDBACK_MAX_CHARACTERS")
+    @classmethod
+    def _validate_stream_holdback_max_characters(cls, value: int) -> int:
+        """Within [100, 4000], or a startup error (PRD-021 Section 9.3)."""
+        if not 100 <= value <= 4000:
+            raise ValueError(
+                f"STREAM_HOLDBACK_MAX_CHARACTERS must be between 100 and 4000, "
+                f"got {value}. It bounds the characters the output gate holds "
+                "back before releasing text to a streaming client. "
+                "Example: STREAM_HOLDBACK_MAX_CHARACTERS=400."
+            )
+        return value
+
+    @field_validator("STREAM_COALESCE_MS")
+    @classmethod
+    def _validate_stream_coalesce_ms(cls, value: int) -> int:
+        """Within [0, 500], or a startup error (PRD-021 Section 9.3)."""
+        if not 0 <= value <= 500:
+            raise ValueError(
+                f"STREAM_COALESCE_MS must be between 0 and 500, got {value}. "
+                "It is the milliseconds over which small deltas are merged "
+                "before they are sent; 0 sends each delta as it arrives. "
+                "Example: STREAM_COALESCE_MS=50."
             )
         return value
 

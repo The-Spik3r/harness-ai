@@ -623,3 +623,17 @@ def test_a_journaled_success_has_a_null_audit_id_a_ref_and_a_ref_completion_id()
     assert body["id"] == f"chatcmpl-harness-ref-{ref}"
     assert body["harness"]["audit_id"] is None and body["harness"]["audit_ref"] == ref
     assert "audit_id" in body["harness"]  # present as null, never dropped
+
+
+# --- PRD-021 STORY-010 (D9): reasoning_content from the pipeline result ----------
+
+
+def test_reasoning_reaches_the_message_only_when_the_pipeline_collected_it():
+    plain = _dump(result=_success())
+    assert "reasoning_content" not in plain["choices"][0]["message"]
+
+    shown = _success()
+    shown._reasoning = "thinking about it"
+    message = _dump(result=shown)["choices"][0]["message"]
+    assert message["reasoning_content"] == "thinking about it"
+    assert "reasoning" not in message

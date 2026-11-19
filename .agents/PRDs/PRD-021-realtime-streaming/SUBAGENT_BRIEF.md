@@ -1,0 +1,76 @@
+# Shared brief for PRD-021 subagents (read fully before starting)
+
+You are one subagent in an orchestrated run. An orchestrator verifies your output after you finish. It checks the files, the diff and the tests, so report only what you actually did and saw.
+
+## Repository and branch
+- Repo: `G:\coding\harness-ai`. Branch: `epic/PRD-021-realtime-streaming`. It is checked out. **Never** switch or create branches, push, merge, rebase, amend or force anything.
+- PRD: `.agents/PRDs/PRD-021-realtime-streaming/PRD.md`. Stories: `.agents/stories/PRD-021-realtime-streaming/`. Board: `.agents/PRDs/PRD-021-realtime-streaming/index.md`.
+- Today's date for every `created` / `updated` / `completed` field: **2026-11-19**.
+
+## Commands you follow
+- PLAN subagent: follow `.agents/commands/plan.md` phase by phase, skipping nothing (including SCAN SKILLS and UPDATE STORY FILE + index). PLAN ONLY: no application code, tests or docs, and no commits. If you cannot spawn Explore agents, explore with Grep/Glob/Read yourself. The plan must cite real `file:line` references that you opened.
+  - **Do not read the whole PRD** (this overrides plan.md's "Read parent PRD"; it is 75 KB). Read the story, its Technical Notes, and only the PRD sections the orchestrator names in your prompt: find them with `grep -n "^#" <PRD>` and read them with offset/limit. Read the PRD frontmatter if you need it.
+  - **Design decisions in your prompt are binding.** If the code makes one impossible, say so in your final message instead of choosing another design.
+  - **Keep the plan under ~12 KB.** Cite patterns as `file:line` with an excerpt of at most 5 lines; never paste whole functions or files (the implementer opens them anyway).
+  - Line numbers in the PRD were taken before PRD-020 merged; grep for the symbol rather than trusting them.
+- IMPLEMENT subagent: follow `.agents/commands/implement.md` phase by phase, skipping nothing.
+  - The working tree will contain this story's plan plus the story/index edits the planner made. They belong to this story; do not stop for them.
+  - Validation for this repo: there is no `frontend/` and no npm lint. Use:
+    - `.venv/Scripts/python -c "from app.main import app; print('OK')"`
+    - Only if you touched `chat_ui/`: the probe form from `tests/test_chat_ui_startup_guard.py` (cwd `chat_ui/`, `PYTHONPATH="<repo>/chat_ui;<repo>"`, env `DATABASE_URL`, `OPENROUTER_API_KEY`, `ADMIN_TOKEN` set, then `import chat_ui.chat_ui`). Running that test file is usually enough.
+  - **Do NOT run the full suite** (user decision: it runs in GitHub CI on every push; the orchestrator reads it). Wherever implement.md or the plan says "full suite", this rule wins. **Never run two pytest processes at once**: every DB test shares the one libSQL server, and concurrent runs fail each other with `no such table`. Leave no background process or timer behind when you finish. Run instead, in one pytest call: every new or modified test file, the existing `tests/test_<module>.py` of every pre-existing module you changed, the tests the plan names, and the guard tests (`test_pii_redaction_integration.py` when you rename or remove a test; `test_untouched_app.py` when you touch app files). Do not add every file that merely imports a changed module. Aim for under ~10 minutes. Record the exact pass/fail/skip counts. In the report write "Full suite: GitHub CI on push (user decision)".
+  - Renaming or removing a pre-existing test function: register the old name in `_DELIBERATELY_SUPERSEDED_TESTS` in `tests/test_pii_redaction_integration.py`.
+- **Always prefix pytest with `PYTHONUTF8=1`** (the Spanish Windows locale breaks `test_db_isolation_harness.py` otherwise).
+- DB tests need the libSQL dev server `harness-libsql-dev` on :8080. If many `db` tests error at fixture setup, run `docker restart harness-libsql-dev` and rerun before suspecting the code. Do not start a second one.
+- Pre-existing failures (from the orchestrator's baseline, CI run 44390662276 on `main` @ be78ab6): none.
+
+## Commits (implement subagent)
+- Stage files explicitly; never `git add -A` / `git add .`. Never `--no-verify`; if a hook fails, fix the cause and make a new commit. Never push: the orchestrator pushes after it verifies the story.
+- End every commit message with the `Co-Authored-By:` attribution line from your own session's instructions (it names the model that wrote the commit, e.g. `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`).
+- Order: commit code + tests + archived plan + report (with `commit: pending`) as `<type>(PRD-021): STORY-NNN <summary>`. Capture the SHA. Then make one small follow-up `chore(PRD-021): STORY-NNN report; update status + index` that fills the SHA into the report and story frontmatter.
+
+## Editing files
+- Use the Edit/Write tools for code. Git Bash heredocs on this machine mangle `\\` escapes inside Python edit scripts.
+
+## Regenerating index.md
+After any story frontmatter change, run from the repo root:
+`PYTHONIOENCODING=utf-8 .venv/Scripts/python .agents/scripts/gen_index.py PRD-021`
+It must print `errors: none`.
+
+## Code conventions (non-negotiable)
+- Match the surrounding code: comment density, docstring style (they cite PRD sections and decisions, e.g. "PRD-021 D7"), naming, frozen dataclasses for config models, closed vocabularies, and error messages that name the file, the node and the rule.
+- Every modified pre-existing test assertion gets a comment citing PRD-021 and the decision.
+- Do not implement work that belongs to a later story. If the story text conflicts with the PRD or the real code, follow the code's reality, document the deviation in the plan or report, and tell the orchestrator.
+- **Off means today (D2, D22).** With `STREAMING_ENABLED=false`, or `sink=None`, or `/v1` without a grant, every byte sent upstream and returned to clients is today's. The PRD-015/PRD-017 `/v1` suites and `tests/fixtures/prd020_legacy/` must pass unchanged; never edit them to make a test pass — report it instead.
+- **Grants are read with `authz.holds()`, never `authorize()`** (T8: `holds()` has no RBAC-off bypass).
+- **Legacy mode never streams (OD1, user decision).** Without `PROVIDERS_FILE` every model has `streaming=false`, `reasoning=false`; do not change that. Tests of real time use a file-mode registry via `tests/_providers.py` (writes a registry YAML under `tmp_path`, restores legacy mode on teardown) with `streaming: true` / `reasoning: true`.
+- **Tool-call fragments are never forwarded (D6, T1).** No code path passes a `ToolCallDelta` or any part of its arguments to a sink, a queue or a chunk. Calls leave only through PRD-020's `collect()` → step 7c → the release.
+- **Nothing in a log line, exception or audit row carries content or reasoning text** (T9, T12): name the user, the model and `completion_id` only. Reasoning is never persisted (D8).
+- **Pure modules**: `app/services/delivery.py`, `app/services/stream_assembly.py` and the gate's segmenting logic in `stream_redaction.py` read no settings and do no I/O; the pipeline reads settings per request and passes values in. `collect.py` stays pure. `v1_translate.py` is pure (AST purity test): it imports `upstream.params` / `upstream.types`, never the `upstream` package `__init__` (it pulls httpx and the registry).
+- **No new runtime dependency** in `requirements.txt`.
+- **Upstream API (PRD-020, `app/services/upstream/`)**: `call_upstream` (resolves the route, D10 key choice), `collect(events, *, provider, request)`, `UpstreamError`/`UpstreamResult`/`UpstreamRequest` and the events in `upstream/types.py`, SSE parsing in `upstream/sse.py`, `OpenAICompatibleAdapter(provider, client).complete()/stream()`. `openrouter_client.py` is an alias-only shim; app modules import the package under their old names (`call_openrouter`, `OpenRouterError`, …) so monkeypatch targets keep working. Build on these; do not duplicate them.
+- **Registry API (PRD-020, `app/services/provider_registry.py`)**: `current()`, `resolve(model)` → route with `.provider` and the model's `Capabilities(tools, streaming, reasoning, max_context_tokens)`, `api_key_for(provider)`, `load()`, `reset()`.
+- **T3 rule (PRD-020)**: any capability-based refusal at an ingress is decided only for a model the caller may use (`authz.authorize_route` succeeds); otherwise defer to the pipeline's single denial.
+- **Census guards**: a new public function in `app/db/database.py`, or any new caller of `get_connection()` / `_session()` there, must be registered in `tests/test_db_resilience_retry.py` (`_EXPECTED_KINDS` or `_EXEMPT`, and the caller sets in `test_nothing_opens_a_session_outside_the_unit_and_the_boot_path`). Run that file when you touch `database.py`. Audit fields also have a field-order guard (grep for `usage_estimated` in `tests/`).
+- Tests that start stubs or servers use free ports picked at runtime, deadline loops instead of bare `sleep`, and stop every child on teardown. They must work on Windows (local) and Linux (CI). Timing assertions get generous margins on CI.
+- **Targeted runs on this machine**: run them in the foreground, in small sequential batches (`tests/test_db.py` alone takes ~12 min; split with `-k` if needed). A run killed for memory (exit 137, no output) is environmental: report it, do not loop. If `harness-libsql-dev` is unreachable and `docker` cannot reach the engine, Docker Desktop is down: report it, do not start it yourself.
+- Chat UI: Reflex APIs are checked against the pinned version (installed package source or the `reflex-docs` skill if present), not from memory (`chat_ui/AGENTS.md`). Every user-facing string goes in `chat_ui/chat_ui/copy.py`, in English (O1, user decision).
+- Guards that pin public shapes (learned after STORY-013): adding a field to `GET /audit` means updating `tests/test_pii_redaction_integration.py::test_audit_endpoint_contract_has_no_preview_fields`; a new `admin_copy`/`copy` constant goes into `tests/test_copy.py`'s declared==asserted census; changing a `database.py` reader signature means `tests/test_db.py`'s signature snapshot; admin modules must not even mention chat-only inks (`tests/test_admin_palette.py`, docstrings included). Grep `tests/` for the function/field/constant name and run the hits.
+
+## What to return (your final message, at most ~30 lines)
+- PLAN subagent: the plan path, a 3–5 line summary, the files to CREATE/UPDATE, one line per AC saying how it is covered, open risks/questions, and confirmation that the story frontmatter (`plan`, `status: in-progress`) and the index were updated.
+- IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
+- Targeted runs over many DB-heavy files are slow on this machine (STORY-009: 16 files took 35 min). Prefer `-k` over whole guard files such as `tests/test_db.py` when only a few of its tests touch your change, and grep guards for tail slices (`names[-N:]`) and column counts before editing a persisted list. CI runs everything anyway.
+- `log_query(` calls in `query_pipeline.py`: `**_route_fields(route),` stays the FIRST argument (PRD-020 guard `test_every_log_query_call_in_the_pipeline_passes_the_route_fields` checks the 120 chars after `log_query(`); add new keywords after it.
+
+- Changing a public pipeline signature (`run_query`, `run_conversation`, ...): grep `tests/` for `inspect.signature(` and `kwargs == {` guards on it (e.g. `tests/test_query_pipeline_run_conversation.py`) and run them; STORY-011 missed two that only CI caught.
+
+## Checkpoint
+- Done and pushed: 001-010 (earlier sessions); 011 (153c56f chat consumer: `QueueSink` on both `_do_send` branches, `live_batch.batches/fold`, seven vars incl. `progress_sent_at`; `run_query(..., *, sink=None)`); 012 (052afca progress line, live entry, in-memory `ChatMessage.reasoning`, client-side tick JS). Next: STORY-013.
+- CI: 011's run failed two `run_query` signature guards (fixed d9d9312, green in 12ca218's run); 12ca218's run failed one guard, `test_chat_shell.py` no-tabindex (fixed 2b7c06d, pushed): read that run first on resume. Pre-existing failures: none.
+- User decisions: OD1 legacy never streams; O1 English; OD2 live survey (done).
+- Orchestrator decisions: earlier ones are in the stories' Technical Notes. This session: 011 batch windows re-check the deadline after a timeout (Windows timers fire early; 19880ee); 011 seventh var `progress_sent_at`; 012 reasoning kept only on the in-memory bubble (D8); 012 elapsed counted client-side from change keys (`performance.now()`, clock-skew safe).
+- Critical stories ahead: 014/015 e2e (real pipeline through a real sink).
+- Plans over 12 KB accepted: 003-012 (011 14.0, 012 16.7). Plans corrected at 3.2: 003, 006, 007, 009, 010, 011. Escalations: none.
+- Local DB tests were very slow this session (5-10 min per test in test_chat_state.py); CI covered them. Docker Desktop was down once mid-run (user restarted it).
+- For Phase 6: CI carried-over errors: 009 route-fields guard (9654456), 011 run_query signature guards (d9d9312), 012 tabindex guard (2b7c06d). 012 not checked in a real browser (360 px, focus ring, reduced motion).

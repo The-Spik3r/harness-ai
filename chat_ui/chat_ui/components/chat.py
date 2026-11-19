@@ -19,7 +19,7 @@ from chat_ui.components.bubbles import (
 from chat_ui.state import ChatState
 
 
-def message_bubble(message) -> rx.Component:
+def message_bubble(message, index=None) -> rx.Component:
     """One rx.match over `kind`, one arm per pipeline outcome. A seventh
     outcome later is one new arm, not another level of nesting -- and PRD-010
     STORY-013 was that seventh, so the shape held.
@@ -36,7 +36,7 @@ def message_bubble(message) -> rx.Component:
     return rx.match(
         message.kind,
         ("user", render_user(message)),
-        ("assistant", render_assistant(message)),
+        ("assistant", render_assistant(message, index)),
         ("duplicate", render_duplicate(message)),
         ("injection", render_injection(message)),
         ("forbidden", render_forbidden(message)),

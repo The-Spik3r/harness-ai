@@ -7,7 +7,7 @@ package (D12).
 """
 
 import dataclasses
-from typing import Optional, Sequence
+from typing import Iterator, Optional, Sequence
 
 import httpx
 
@@ -23,6 +23,7 @@ from app.services.upstream.params import (
 from app.services.upstream.types import (
     Finish,
     ProviderAdapter,
+    ReasoningDelta,
     TextDelta,
     ToolCallDelta,
     UpstreamError,
@@ -37,6 +38,7 @@ __all__ = [
     "GenerationParams",
     "OpenAICompatibleAdapter",
     "ProviderAdapter",
+    "ReasoningDelta",
     "TextDelta",
     "ToolCallDelta",
     "ToolParams",
@@ -48,26 +50,16 @@ __all__ = [
     "UsageReport",
     "call_upstream",
     "collect",
+    "stream_upstream",
 ]
 
 _DEFAULT_MODEL = "gpt-4"
 
 
-def call_upstream(
-    messages: Sequence[Message],
-    model: str = _DEFAULT_MODEL,
-    api_key: Optional[str] = None,
-    params: Optional[GenerationParams] = None,
-    client: Optional[httpx.Client] = None,
-    *,
-    tools: Optional[ToolParams] = None,
-) -> UpstreamResult:
-    """tool_calls are parsed only when `tools=` was sent (PRD-017 D18).
-
-    Without it, a null content with tool calls stays today's error. `api_key`
-    is the caller's own key: used only for a `byok` provider (PRD-020 D10);
-    otherwise the provider's own key, or none for a keyless provider.
-    """
+def _resolve_call(
+    messages: Sequence[Message], model: str, api_key: Optional[str]
+) -> tuple[provider_registry.Route, Optional[str]]:
+    """The route and the key for one call, shared by `call_upstream` and `stream_upstream` (D10)."""
     if not messages:
         raise UpstreamError("messages must not be empty")
 
@@ -86,8 +78,50 @@ def call_upstream(
                 else f"set {provider.key_env}"
             )
             raise UpstreamError(f"{provider.label} API key not configured: {hint}")
+    return route, key
 
-    adapter = OpenAICompatibleAdapter(provider, client)
+
+def call_upstream(
+    messages: Sequence[Message],
+    model: str = _DEFAULT_MODEL,
+    api_key: Optional[str] = None,
+    params: Optional[GenerationParams] = None,
+    client: Optional[httpx.Client] = None,
+    *,
+    tools: Optional[ToolParams] = None,
+) -> UpstreamResult:
+    """tool_calls are parsed only when `tools=` was sent (PRD-017 D18).
+
+    Without it, a null content with tool calls stays today's error. `api_key`
+    is the caller's own key: used only for a `byok` provider (PRD-020 D10);
+    otherwise the provider's own key, or none for a keyless provider.
+    """
+    route, key = _resolve_call(messages, model, api_key)
+    adapter = OpenAICompatibleAdapter(route.provider, client)
     result = adapter.complete(UpstreamRequest(messages, route.upstream_model, params, tools), key)
     # model_used stays the requested id (PRD-020 D13), whatever went upstream.
     return dataclasses.replace(result, model_used=model)
+
+
+def stream_upstream(
+    messages: Sequence[Message],
+    model: str = _DEFAULT_MODEL,
+    api_key: Optional[str] = None,
+    params: Optional[GenerationParams] = None,
+    client: Optional[httpx.Client] = None,
+    *,
+    tools: Optional[ToolParams] = None,
+) -> Iterator[UpstreamEvent]:
+    """The answer as normalized events (PRD-021 6.2): `call_upstream`'s routing, streamed.
+
+    A plain function: the route and the key are resolved, and their errors
+    raised, at call time; the network is touched on the first `next()`. Reasoning
+    is mapped only for a route whose model declares `reasoning` (OD1: legacy
+    mode never does).
+    """
+    route, key = _resolve_call(messages, model, api_key)
+    return OpenAICompatibleAdapter(route.provider, client).stream(
+        UpstreamRequest(messages, route.upstream_model, params, tools),
+        key,
+        reasoning=route.capabilities.reasoning,
+    )

@@ -96,6 +96,10 @@ COLUMN_VERDICT = "Verdict"
 COLUMN_MODEL = "Model"
 # PRD-020 D13: the provider that served the row (empty for rows before it).
 COLUMN_PROVIDER = "Provider"
+# PRD-021 F7: the tag on a row that was delivered in real time, and its
+# hover/assistive text so it is not only a caps word.
+LIVE_LABEL = "LIVE"
+LIVE_TITLE = "Delivered in real time"
 COLUMN_TOKENS = "Tokens"
 # PRD-013 (STORY-015): the head keeps its one word, and this states the order
 # of the "2,140 / 312" cell once, on hover, rather than on every row. A head

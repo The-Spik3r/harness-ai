@@ -178,6 +178,9 @@ def _handle_query(request: QueryRequest, identity: Identity) -> QueryResponse:
             ingress="query",  # see 7. above
             message_count=1,
             conversation_key=None,
+            # PRD-021 F7: a foreign-session refusal delivers nothing.
+            streamed_realtime=False,
+            reasoning_shown=False,
         )
         raise HTTPException(status_code=403, detail=_FOREIGN_SESSION_DETAIL)
 

@@ -121,6 +121,11 @@ def _delta(**delta):
     return {"choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
 
 
+# PRD-021 F2: a stream must now carry a finish_reason chunk or stream() raises; the
+# tests below that drain bodies without one append this chunk.
+_FINISH_STOP = {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+
 # --------------------------------------------------------------------------
 # AC4: collect(stream(r)) == complete(r)
 # --------------------------------------------------------------------------
@@ -359,14 +364,17 @@ def test_blank_lines_comments_and_unknown_fields_are_ignored():
         b"event: message\n"
         b"data:" + json.dumps(_delta(content="hi")).encode() + b"\n\n"
         b"\n"
+        # PRD-021 F2: a finish chunk is now required, so the body carries one.
+        b"data:" + json.dumps(_FINISH_STOP).encode() + b"\n\n"
         b"data: [DONE]\n\n"
     )
-    assert _stream_events(body) == [TextDelta("hi")]
+    assert _stream_events(body) == [TextDelta("hi"), Finish("stop")]
 
 
 def test_chunk_with_empty_choices_and_usage_yields_a_usage_report():
     chunk = {"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}}
-    assert _stream_events(_sse(chunk)) == [UsageReport(1, 2, 3)]
+    # PRD-021 F2: the finish chunk is now required; expected events include Finish.
+    assert _stream_events(_sse(_FINISH_STOP, chunk)) == [Finish("stop"), UsageReport(1, 2, 3)]
 
 
 def test_parse_events_is_lazy():
@@ -390,7 +398,11 @@ def _capture():
         seen["json"] = json.loads(request.content)
         seen["headers"] = dict(request.headers)
         if seen["json"].get("stream"):
-            return httpx.Response(200, content=_sse(_delta(content="ok"), {"choices": [], "usage": {"total_tokens": 2}}))
+            # PRD-021 F2: a finish chunk is now required on every stream.
+            return httpx.Response(
+                200,
+                content=_sse(_delta(content="ok"), _FINISH_STOP, {"choices": [], "usage": {"total_tokens": 2}}),
+            )
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 2}})
 
     return seen, handler
@@ -411,7 +423,8 @@ def test_payload_keys():
     assert seen["headers"]["authorization"] == f"Bearer {_KEY}"
     # Everything but the two stream keys is the payload complete() sends.
     assert {k: v for k, v in seen["json"].items() if k not in ("stream", "stream_options")} == whole_payload
-    assert events == [TextDelta("ok"), UsageReport(total_tokens=2)]
+    # PRD-021 F2: Finish("stop") now precedes the usage report.
+    assert events == [TextDelta("ok"), Finish("stop"), UsageReport(total_tokens=2)]
 
 
 def test_stream_is_lazy_and_sends_nothing_until_first_next():
@@ -477,9 +490,9 @@ def _tracked(monkeypatch, body):
 
 
 def test_owned_client_and_response_are_closed_after_a_full_read(monkeypatch):
-    state, _, tracking = _tracked(monkeypatch, _sse(_delta(content="a")))
+    state, _, tracking = _tracked(monkeypatch, _sse(_delta(content="a"), _FINISH_STOP))  # PRD-021 F2: finish chunk required
     monkeypatch.setattr(openai_compatible.httpx, "Client", tracking)
-    assert list(OpenAICompatibleAdapter(_provider()).stream(_request(), _KEY)) == [TextDelta("a")]
+    assert list(OpenAICompatibleAdapter(_provider()).stream(_request(), _KEY)) == [TextDelta("a"), Finish("stop")]
     assert state["stream"].closed and state["clients_closed"] == 1
 
 
@@ -501,9 +514,9 @@ def test_owned_client_and_response_are_closed_on_error(monkeypatch):
 
 
 def test_injected_client_is_not_closed(monkeypatch):
-    state, handler, tracking = _tracked(monkeypatch, _sse(_delta(content="a")))
+    state, handler, tracking = _tracked(monkeypatch, _sse(_delta(content="a"), _FINISH_STOP))  # PRD-021 F2: finish chunk required
     client = tracking()
     adapter = OpenAICompatibleAdapter(_provider(), client)
-    assert list(adapter.stream(_request(), _KEY)) == [TextDelta("a")]
+    assert list(adapter.stream(_request(), _KEY)) == [TextDelta("a"), Finish("stop")]
     assert state["stream"].closed and state["clients_closed"] == 0
     client.close()

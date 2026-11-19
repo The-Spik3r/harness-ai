@@ -79,9 +79,16 @@ def test_run_conversation_signature_matches_the_prd():
     # router (Section 10's internal API); run_query's signature is unchanged.
     assert list(signature.parameters) == [
         "identity", "messages", "device", "model", "openrouter_api_key",
-        "params", "call_openrouter", "session_id", "profile", "ingress", "streamed",
-        "ignored_params", "tools",
+        "params", "call_openrouter", "session_id", "stream_upstream", "profile", "ingress", "streamed",
+        "ignored_params", "tools", "sink",
     ]
+    # PRD-021 STORY-005 (D18): trailing keyword-only `sink`, passed only by an
+    # ingress that reports progress; run_query passes nothing.
+    assert signature.parameters["sink"].default is None
+    # PRD-021 STORY-006 (6.2): keyword-only `stream_upstream`, the injectable
+    # streamed counterpart of `call_openrouter`, defaulting to the real one.
+    assert signature.parameters["stream_upstream"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["sink"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["tools"].default is None
     assert signature.parameters["tools"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["ignored_params"].default is None
@@ -105,7 +112,12 @@ def test_run_query_signature_is_unchanged():
     assert list(signature.parameters) == [
         "identity", "prompt", "device", "model", "openrouter_api_key",
         "call_openrouter", "session_id", "ingress",
+        # PRD-021 D19 (STORY-011): one more keyword-only `sink`, defaulted to
+        # None, so `/query`, which passes nothing, is unchanged (D20).
+        "sink",
     ]
+    assert signature.parameters["sink"].default is None
+    assert signature.parameters["sink"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["session_id"].default is None
     assert signature.parameters["ingress"].default == "query"
     assert signature.parameters["ingress"].kind is inspect.Parameter.KEYWORD_ONLY
@@ -130,9 +142,11 @@ def test_run_query_delegates_to_run_conversation_with_one_user_message(monkeypat
     assert len(calls) == 1
     args, kwargs = calls[0]
     assert args == (_JUAN, [Message("user", "hi")], None, "gpt-4", None)
-    # PRD-013 STORY-005: the default door is forwarded.
+    # PRD-013 STORY-005: the default door is forwarded. PRD-021 D19/D20
+    # (STORY-011): so is the sink, None when the caller passes none (`/query`).
     assert kwargs == {
         "call_openrouter": _fail_if_called, "session_id": "sid", "ingress": "query",
+        "sink": None,
     }
 
 

@@ -42,6 +42,7 @@ import pytest
 
 from app.config import settings
 from app.models.messages import Message, ToolCallSpec
+from app.services.upstream import Finish, ReasoningDelta, TextDelta, UpstreamError, UsageReport, stream_upstream
 from app.services.openrouter_client import (
     GenerationParams,
     OpenRouterError,
@@ -50,6 +51,7 @@ from app.services.openrouter_client import (
 )
 from scripts import stub_openrouter
 from scripts.stub_openrouter import ScriptError, load_script, make_server, parse_script
+from tests._providers import provider_file  # noqa: F401  (fixture)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _EXAMPLE = _REPO_ROOT / "tests" / "e2e" / "scripts" / "example.json"
@@ -888,3 +890,204 @@ def test_streaming_failure_and_header_value_are_handled_like_json(stub, capfd):
     captured = capfd.readouterr()
     for text in (log.getvalue(), captured.out, captured.err):
         assert _SECRET not in text
+
+
+# --------------------------------------------------------------------------
+# PRD-021 STORY-004: a reply may carry `stream: {chunk_chars, delay_ms, reasoning, fail_after}`
+#
+#   AC 1  chunk_chars cuts content and tool arguments; finish, usage, [DONE] follow
+#   AC 2  delay_ms spaces every delta, the first included
+#   AC 3  reasoning deltas (delta.reasoning) precede every content delta
+#   AC 4  fail_after drops the connection: no finish chunk, no [DONE]
+#   AC 5  the log carries no content or reasoning; no shape or no stream request: as today
+# --------------------------------------------------------------------------
+
+
+def _stream_script(shape, **reply):
+    return {"default": {"stream": shape, **reply}}
+
+
+def _sse_read(extra=None):
+    """([(monotonic time, data payload)], start): the stream read line by line to EOF."""
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}], "stream": True}
+    body.update(extra or {})
+    seen = []
+    start = time.monotonic()
+    with httpx.stream(
+        "POST", f"{settings.OPENROUTER_BASE_URL}/chat/completions", json=body,
+        timeout=httpx.Timeout(10),
+    ) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            if line.startswith("data: "):
+                seen.append((time.monotonic(), line[len("data: "):]))
+    return seen, start
+
+
+def _deltas(frames, key):
+    return [
+        c["choices"][0]["delta"][key]
+        for c in frames
+        if c != "[DONE]" and c["choices"] and key in c["choices"][0]["delta"]
+    ]
+
+
+def test_stream_chunk_chars_splits_content_and_ends_with_finish_usage_done(stub):
+    stub(_stream_script({"chunk_chars": 4}, content="abcdefghij", usage={}))
+    frames = _frames(_sse_post({"stream_options": {"include_usage": True}}))
+    assert _deltas(frames, "content") == ["abcd", "efgh", "ij"]
+    assert frames[-1] == "[DONE]"
+    assert frames[-2]["choices"] == [] and frames[-2]["usage"]["total_tokens"] == 2
+    assert frames[-3]["choices"][0]["finish_reason"] == "stop"
+
+
+def test_stream_chunk_chars_splits_tool_arguments_into_nine_fragments(stub):
+    arguments = "DROP TABLE users; -- " + "x" * 51  # 72 characters (PRD-021 T1)
+    assert len(arguments) == 72
+    stub(_stream_script({"chunk_chars": 8}, tool_calls=[{"name": "sql", "arguments": arguments}]))
+    frames = _frames(_sse_post())
+    raw = [t[0] for t in _deltas(frames, "tool_calls")]
+    assert len(raw) == 9
+    assert "".join(r["function"]["arguments"] for r in raw) == arguments
+    assert all(r["function"]["arguments"] for r in raw)
+    assert raw[0]["id"] and raw[0]["function"]["name"] == "sql"
+    assert all("id" not in r and "name" not in r["function"] for r in raw[1:])
+
+
+def test_stream_delay_ms_spaces_every_delta_including_the_first(stub):
+    stub(_stream_script({"chunk_chars": 3, "delay_ms": 200}, content="abcdefghi"))
+    seen, start = _sse_read()
+    stamps = [t for t, data in seen if data != "[DONE]" and '"content"' in data]
+    assert len(stamps) == 3
+    # 10% margin; no upper bound (CI is slower).
+    assert stamps[0] - start >= 0.18
+    assert all(b - a >= 0.18 for a, b in zip(stamps, stamps[1:]))
+
+
+def test_stream_reasoning_deltas_precede_content(stub):
+    stub(_stream_script({"chunk_chars": 5, "reasoning": "thinking it over"}, content="the answer"))
+    response = _sse_post()
+    frames = _frames(response)
+    reasoning = _deltas(frames, "reasoning")
+    assert "".join(reasoning) == "thinking it over" and all(len(p) <= 5 for p in reasoning)
+    assert "".join(_deltas(frames, "content")) == "the answer"
+    kinds = [
+        "r" if "reasoning" in c["choices"][0]["delta"] else "c"
+        for c in frames[:-1]
+        if c["choices"] and c["choices"][0]["delta"]
+    ]
+    assert kinds == sorted(kinds, reverse=True)  # every "r" before every "c"
+    assert "reasoning_content" not in response.text
+
+
+def test_stream_fail_after_drops_the_connection_without_finish(stub):
+    stub(_stream_script({"chunk_chars": 2, "fail_after": 2}, content="abcdefgh", usage={}))
+    seen, _ = _sse_read({"stream_options": {"include_usage": True}})
+    frames = [json.loads(d) if d != "[DONE]" else d for _, d in seen]
+    assert len(frames) == 2 and _deltas(frames, "content") == ["ab", "cd"]
+    assert not any(c["choices"] and c["choices"][0]["finish_reason"] for c in frames)
+    # K = 0: headers, then the close.
+    stub(_stream_script({"fail_after": 0}, content="abcd"))
+    assert _sse_read()[0] == []
+
+
+def _file_registry(provider_file, port):
+    provider_file(f"""
+version: 1
+default_model: local/m
+providers:
+  - name: local
+    label: Local
+    type: openai_compatible
+    base_url: http://127.0.0.1:{port}/v1
+    insecure_http: true
+    models:
+      - id: local/m
+        upstream: up-local
+        capabilities: {{streaming: true, reasoning: true}}
+""")
+
+
+def test_stream_upstream_maps_scripted_reasoning(stub, provider_file):
+    server, _ = stub(_stream_script({"chunk_chars": 4, "reasoning": "hmm hmm"}, content="done now"))
+    _file_registry(provider_file, server.server_address[1])
+    events = list(stream_upstream([Message("user", "x")], model="local/m", api_key=None))
+    # The adapter asks for usage, so the default reply's usage chunk follows the Finish.
+    kinds = [type(e) for e in events if not isinstance(e, UsageReport)]
+    assert kinds == [ReasoningDelta] * 2 + [TextDelta] * 2 + [Finish]
+    assert "".join(e.text for e in events if isinstance(e, ReasoningDelta)) == "hmm hmm"
+
+
+def test_stream_upstream_raises_upstream_error_after_fail_after(stub, provider_file):
+    server, _ = stub(_stream_script({"chunk_chars": 2, "fail_after": 2}, content="abcdefgh"))
+    _file_registry(provider_file, server.server_address[1])
+    events = []
+    with pytest.raises(UpstreamError) as info:
+        for event in stream_upstream([Message("user", "x")], model="local/m", api_key=None):
+            events.append(event)
+    # PRD-021 §6.2: a dropped stream surfaces as UpstreamError, never a raw httpx error.
+    assert info.value.retryable is False
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "abcd"
+    assert not any(isinstance(e, Finish) for e in events)
+
+
+def test_stream_shape_never_reaches_the_log(stub):
+    _, log = stub(
+        _stream_script({"chunk_chars": 3, "reasoning": "REASONING-SECRET-xyz"}, content="CONTENT-SECRET-xyz")
+    )
+    _sse_post()
+    httpx.post(
+        f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+    )
+    text = log.getvalue()
+    assert "SECRET" not in text and "chunk_chars" not in text
+    assert text.isascii()
+    streamed, plain = _lines(log)
+    assert streamed.endswith("stream=yes tools=0 calls=0 -> 200")
+    assert plain.endswith("stream=no tools=0 calls=0 -> 200")
+
+
+def test_shape_without_stream_request_answers_json_as_today(stub):
+    shaped = {"stream": {"chunk_chars": 2, "reasoning": "why", "delay_ms": 1}, "content": "full text"}
+    request = {"model": "m", "messages": [{"role": "user", "content": "x"}]}
+    stub({"default": shaped})
+    shaped_json = httpx.post(f"{settings.OPENROUTER_BASE_URL}/chat/completions", json=request).json()
+    stub({"default": {"content": "full text"}})
+    plain_json = httpx.post(f"{settings.OPENROUTER_BASE_URL}/chat/completions", json=request).json()
+    message = shaped_json["choices"][0]["message"]
+    assert message["content"] == "full text" and "reasoning" not in message
+    for body in (shaped_json, plain_json):
+        body.pop("id")
+        body.pop("created")
+    assert shaped_json == plain_json
+
+
+@pytest.mark.parametrize(
+    "reply, names",
+    [
+        ({"stream": "fast"}, "stream must be an object"),
+        ({"stream": {"speed": 1}}, "stream: unknown key(s): speed"),
+        ({"stream": {"chunk_chars": 0}}, "stream.chunk_chars must be an integer >= 1"),
+        ({"stream": {"chunk_chars": True}}, "stream.chunk_chars must be an integer >= 1"),
+        ({"stream": {"chunk_chars": "4"}}, "stream.chunk_chars must be an integer >= 1"),
+        ({"stream": {"delay_ms": -1}}, "stream.delay_ms must be an integer >= 0"),
+        ({"stream": {"fail_after": -1}}, "stream.fail_after must be an integer >= 0"),
+        ({"stream": {"reasoning": ""}}, "stream.reasoning must be a non-empty string"),
+        ({"stream": {"reasoning": 5}}, "stream.reasoning must be a non-empty string"),
+        ({"stream": {}, "fail_status": 503}, "fail_status replaces the body; remove stream"),
+    ],
+)
+def test_bad_stream_shapes_are_rejected_naming_the_field(reply, names):
+    with pytest.raises(ScriptError) as info:
+        parse_script({"default": reply})
+    assert "default: " in str(info.value) and names in str(info.value)
+    with pytest.raises(ScriptError) as info:  # a rule names its index
+        parse_script({"rules": [{"contains": "a", **reply}]})
+    assert "rules[0]: " in str(info.value) and names in str(info.value)
+
+
+def test_a_rejected_reasoning_value_is_never_echoed():
+    with pytest.raises(ScriptError) as info:
+        parse_script({"default": {"stream": {"reasoning": 12345}}})
+    assert "12345" not in str(info.value)

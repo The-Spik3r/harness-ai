@@ -618,7 +618,11 @@ def translate_result(
     outcome = result.tool_outcome
     reported = upstream.finish_reason
     finish_reason = reported if reported in _FINISH_REASONS else "stop"
-    message = AssistantMessage(content=result.response)  # no tool_calls kwarg: key absent
+    # PRD-021 D9: `reasoning_content` only when the pipeline collected reasoning
+    # (a pure attribute read); None leaves the key absent.
+    message = AssistantMessage(
+        content=result.response, reasoning_content=result.reasoning
+    )  # no tool_calls kwarg: key absent
     actions = None
     if outcome is not None:
         release = outcome.release
@@ -634,7 +638,9 @@ def translate_result(
         ]
         content = None if released and not result.response else result.response
         # An explicit `None` keeps `tool_calls: null` (all denied, Section 10).
-        message = AssistantMessage(content=content, tool_calls=released or None)
+        message = AssistantMessage(
+            content=content, tool_calls=released or None, reasoning_content=result.reasoning
+        )
         actions = [
             HarnessAction(
                 tool_call_id=d.tool_call_id,

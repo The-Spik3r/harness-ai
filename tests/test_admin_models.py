@@ -30,6 +30,9 @@ AUDIT_ROW_FIELDS = {
     "provider",
     "tokens_used",
     "pii_indicator",
+    # PRD-021 F7 (STORY-013): the LIVE marker; named `live` so no `row.streamed`
+    # substring appears beside the disclosure's SSE `streamed`.
+    "live",
     "device_short",
     "device_full",
     "prompt_hash",
@@ -97,7 +100,8 @@ def test_audit_row_constructs_with_no_arguments():
                  "prompt_hash", "error_message", "suspicious_pattern",
                  *AUDIT_FIELD_NAMES):
         assert getattr(row, name) == ""
-    for name in ("pii_indicator", "pii_detected_input", "pii_detected_output"):
+    # PRD-021 F7 (STORY-013): `live` defaults to False like the other flags.
+    for name in ("pii_indicator", "live", "pii_detected_input", "pii_detected_output"):
         assert getattr(row, name) is False
     assert row.pii_entities == []
 

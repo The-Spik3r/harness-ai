@@ -1707,3 +1707,61 @@ def test_no_file_with_v1_tool_models_still_validates_as_before():
         V1_TOOL_MODELS="openai/gpt-4o",
     )
     assert result.v1_tool_models_list == ["openai/gpt-4o"]
+
+
+# --- PRD-021 STORY-002: streaming settings (Section 9.3, D2) ---
+#
+# Nothing reads these yet -- STORY-005 reads STREAMING_ENABLED, STORY-008 the
+# hold-back bound, STORY-010 the coalesce interval. `.env.example` is
+# STORY-016's, not this block's.
+
+_STREAM_VARS = ("STREAMING_ENABLED", "STREAM_HOLDBACK_MAX_CHARACTERS", "STREAM_COALESCE_MS")
+
+
+def test_stream_settings_available_with_documented_defaults(monkeypatch):
+    for var in _STREAM_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.STREAMING_ENABLED is False
+    assert result.STREAM_HOLDBACK_MAX_CHARACTERS == 400
+    assert result.STREAM_COALESCE_MS == 50
+
+
+def test_streaming_enabled_parses_the_string_true():
+    assert _settings(DATABASE_URL=_LOCAL_URL, STREAMING_ENABLED="true").STREAMING_ENABLED is True
+
+
+@pytest.mark.parametrize("value", [99, 4001, 0, -1])
+def test_stream_holdback_out_of_range_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, STREAM_HOLDBACK_MAX_CHARACTERS=value)
+
+    message = str(exc_info.value)
+    assert "STREAM_HOLDBACK_MAX_CHARACTERS" in message
+    assert f"got {value}" in message
+    assert "Example" in message
+
+
+@pytest.mark.parametrize("value", [-1, 501])
+def test_stream_coalesce_ms_out_of_range_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, STREAM_COALESCE_MS=value)
+
+    message = str(exc_info.value)
+    assert "STREAM_COALESCE_MS" in message
+    assert f"got {value}" in message
+    assert "Example" in message
+
+
+@pytest.mark.parametrize("value", [100, 4000])
+def test_stream_holdback_accepts_the_range_bounds(value):
+    result = _settings(DATABASE_URL=_LOCAL_URL, STREAM_HOLDBACK_MAX_CHARACTERS=value)
+
+    assert result.STREAM_HOLDBACK_MAX_CHARACTERS == value
+
+
+@pytest.mark.parametrize("value", [0, 500])
+def test_stream_coalesce_ms_accepts_the_range_bounds(value):
+    assert _settings(DATABASE_URL=_LOCAL_URL, STREAM_COALESCE_MS=value).STREAM_COALESCE_MS == value

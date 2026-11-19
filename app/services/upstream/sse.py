@@ -11,6 +11,7 @@ from typing import Any, Iterable, Iterator, Mapping
 
 from app.services.upstream.types import (
     Finish,
+    ReasoningDelta,
     TextDelta,
     ToolCallDelta,
     UpstreamError,
@@ -19,8 +20,14 @@ from app.services.upstream.types import (
 )
 
 
-def parse_events(lines: Iterable[str], label: str) -> Iterator[UpstreamEvent]:
-    """Events of one stream, ending at `data: [DONE]`; EOF before it is an error."""
+def parse_events(
+    lines: Iterable[str], label: str, *, reasoning: bool = False
+) -> Iterator[UpstreamEvent]:
+    """Events of one stream, ending at `data: [DONE]`; EOF before it is an error.
+
+    `reasoning` (PRD-021 Risk 3) maps a delta's reasoning text to `ReasoningDelta`;
+    off, the reasoning keys are never read and the text is dropped.
+    """
     prefix = f"{label} returned an unexpected response shape: "
     seen_calls: set[int] = set()
     for line in lines:
@@ -40,12 +47,12 @@ def parse_events(lines: Iterable[str], label: str) -> Iterator[UpstreamEvent]:
             raise UpstreamError(f"{prefix}stream data is not JSON") from exc
         if not isinstance(chunk, Mapping):
             raise UpstreamError(f"{prefix}stream data is not an object")
-        yield from _chunk_events(chunk, prefix, seen_calls)
+        yield from _chunk_events(chunk, prefix, seen_calls, reasoning)
     raise UpstreamError(f"{prefix}stream ended without [DONE]")
 
 
 def _chunk_events(
-    chunk: Mapping[str, Any], prefix: str, seen_calls: set[int]
+    chunk: Mapping[str, Any], prefix: str, seen_calls: set[int], reasoning: bool = False
 ) -> Iterator[UpstreamEvent]:
     choices = chunk.get("choices")
     if choices is not None and not isinstance(choices, list):
@@ -58,6 +65,15 @@ def _chunk_events(
         if delta is not None and not isinstance(delta, Mapping):
             raise UpstreamError(f"{prefix}choices[0].delta is not an object")
         if delta:
+            if reasoning:
+                # One event per delta: OpenRouter sends `reasoning`, DeepSeek-style
+                # providers `reasoning_content`. null, "" and non-strings yield none;
+                # `reasoning_details` is never read.
+                for key in ("reasoning_content", "reasoning"):
+                    text = delta.get(key)
+                    if isinstance(text, str) and text:
+                        yield ReasoningDelta(text)
+                        break
             content = delta.get("content")
             if isinstance(content, str):
                 yield TextDelta(content)

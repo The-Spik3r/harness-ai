@@ -16,6 +16,11 @@ if TYPE_CHECKING:  # annotations only: the registry imports settings
     from app.services.provider_registry import Provider
 
 
+# Mirrors provider_registry.USAGE_MISSING; this module may not import the registry
+# at runtime (purity), so a test pins the two equal (PRD-021 D4).
+_USAGE_MODES = ("estimate", "error")
+
+
 def _token_count(value: Any) -> Optional[int]:
     """A provider-reported token count, or None when it is not usable (PRD-013 F3)."""
     # bool is a subclass of int: True/False must not be recorded as 1/0.
@@ -72,6 +77,8 @@ def _resolve_usage(
     content: str,
     calls: tuple[ToolCallSpec, ...],
     request: UpstreamRequest,
+    *,
+    usage_missing: Optional[str] = None,
 ) -> tuple[int, Optional[int], Optional[int], bool]:
     """(tokens_used, input_tokens, output_tokens, usage_estimated) per PRD-020 D8.
 
@@ -85,7 +92,9 @@ def _resolve_usage(
     """
     usage = data.get("usage") if isinstance(data, Mapping) else None
     has_usage = isinstance(usage, Mapping)
-    if provider.usage_missing == "error":
+    # PRD-021 D4: a per-call override wins; the frozen provider is never replaced.
+    mode = usage_missing or provider.usage_missing
+    if mode == "error":
         if not has_usage:
             raise UpstreamError(f"{label} returned an unexpected response shape: 'usage'")
         if "total_tokens" not in usage:
@@ -116,7 +125,11 @@ def _resolve_usage(
 
 
 def result_from_reply(
-    provider: "Provider", request: UpstreamRequest, data: Any
+    provider: "Provider",
+    request: UpstreamRequest,
+    data: Any,
+    *,
+    usage_missing: Optional[str] = None,
 ) -> UpstreamResult:
     """The reply body `data` as an UpstreamResult: everything `complete()` does after `json()`.
 
@@ -154,7 +167,7 @@ def result_from_reply(
     finish_reason = raw_finish_reason if isinstance(raw_finish_reason, str) else None
 
     tokens_used, input_tokens, output_tokens, usage_estimated = _resolve_usage(
-        provider, label, data, content, calls, request
+        provider, label, data, content, calls, request, usage_missing=usage_missing
     )
     return UpstreamResult(
         response=content,

@@ -103,6 +103,26 @@ class QuerySuccessResponse(BaseModel):
     def tool_outcome(self) -> "Optional[ToolOutcome]":
         return self._tool_outcome
 
+    # PRD-021 D8 / STORY-008: the model's reasoning, redacted whole, set by the
+    # pipeline only when the caller holds `reasoning.view` and the answer is not
+    # streamed in real time (otherwise it went to the sink per segment). Private
+    # like `_tool_outcome`: never serialized, never persisted.
+    _reasoning: Any = PrivateAttr(default=None)
+
+    @property
+    def reasoning(self) -> Optional[str]:
+        return self._reasoning
+
+    # PRD-021 STORY-010 (D-C): the collected upstream result, set only when step 7
+    # streamed (the `/v1` router's `_Upstream` wrapper is not called then, and
+    # `translate_result` needs the finish reason and token split). Private like
+    # `_tool_outcome`; typed `Any` so this module imports nothing from `app`.
+    _upstream_result: Any = PrivateAttr(default=None)
+
+    @property
+    def upstream_result(self) -> Any:
+        return self._upstream_result
+
 
 class QueryBlockedDuplicateResponse(BaseModel):
     status: Literal["BLOCKED"] = "BLOCKED"
@@ -279,6 +299,12 @@ class AuditQueryEntry(BaseModel):
     provider_trust: Optional[str] = None
     pii_input_relaxed: bool = False
     usage_estimated: bool = False
+    # PRD-021 F7 / D14: verbatim passthrough of the four real-time columns.
+    # False / False / False / None on every row written before PRD-021.
+    streamed_realtime: bool = False
+    reasoning_shown: bool = False
+    stream_redaction_divergence: bool = False
+    completion_id: Optional[str] = None
 
 
 class AuditResponse(BaseModel):

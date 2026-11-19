@@ -334,3 +334,30 @@ def test_no_key_value_appears_in_reprs_or_errors(provider_file, caplog):
         call_upstream(_MSG, model="remote/m", api_key=_KEY_B, client=_FakeClient(response=_response(500)))
     for text in (repr(route.provider), repr(route), str(excinfo.value), caplog.text):
         assert _KEY_A not in text and _KEY_B not in text
+
+
+def test_stream_total_deadline_bounds_whole_stream(stubs):
+    # PRD-021 D20: `timeout_seconds` bounds the whole stream, not each read. The
+    # stub trickles one character every 50 ms (about 5 s in all); the httpx client
+    # has a generous per-read timeout, so only the total deadline can stop it.
+    import dataclasses
+    import time
+
+    from app.services.upstream import OpenAICompatibleAdapter, UpstreamRequest
+
+    port, _ = stubs({"rules": [], "default": {"content": "x" * 100, "stream": {"chunk_chars": 1, "delay_ms": 50}}})
+    provider = dataclasses.replace(
+        provider_registry.current().providers[0],
+        base_url=f"http://127.0.0.1:{port}/v1",
+        timeout_seconds=0.4,
+    )
+    client = httpx.Client(timeout=10, follow_redirects=False)
+    started = time.monotonic()
+    try:
+        with pytest.raises(UpstreamError) as excinfo:
+            list(OpenAICompatibleAdapter(provider, client).stream(UpstreamRequest(_MSG, "up-model"), _KEY_A))
+    finally:
+        client.close()
+    assert excinfo.value.retryable is True and excinfo.value.upstream_status is None
+    assert "exceeded" in str(excinfo.value)
+    assert time.monotonic() - started < 4  # well under the ~5 s the stream would take

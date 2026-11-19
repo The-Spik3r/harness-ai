@@ -174,6 +174,8 @@ def test_dest_columns_match_the_ddl():
         "ignored_params", "write_id",
         "provider", "upstream_model", "provider_trust",
         "pii_input_relaxed", "usage_estimated",
+        "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
+        "completion_id",
         # session_id: PRD-008 STORY-002; dedup_key: PRD-009 STORY-002;
         # pattern_role, pattern_action: PRD-011 STORY-009 (D6);
         # profile: PRD-012 STORY-011 (D9)
@@ -181,6 +183,7 @@ def test_dest_columns_match_the_ddl():
         # ignored_params: PRD-015 STORY-007 (Section 7.3)
         # write_id: PRD-018 STORY-004 (D4)
         # provider ... usage_estimated: PRD-020 STORY-006 (D13, F5)
+        # streamed_realtime ... completion_id: PRD-021 STORY-009 (F7, D14, D17)
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",

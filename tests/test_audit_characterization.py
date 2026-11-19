@@ -124,6 +124,9 @@ FIELDS_ADDED_SINCE: frozenset[str] = frozenset({
     # PRD-020 STORY-006 (D13): the five provider columns.
     "provider", "upstream_model", "provider_trust", "pii_input_relaxed",
     "usage_estimated",
+    # PRD-021 STORY-009 (F7, D14, D17): the four delivery columns.
+    "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
+    "completion_id",
 })
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

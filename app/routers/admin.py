@@ -36,7 +36,13 @@ router = APIRouter()
 
 
 @router.get("/audit", response_model=AuditResponse)
-def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
+def get_audit(
+    identity: Identity = Depends(require_identity),
+    # PRD-021 F7: exact match on the request's completion id. Applied after the
+    # scoping (AND), so under `audit:read:own` another user's id reads as an
+    # empty list, not a 403. An empty string is a 422, not "no filter".
+    completion_id: Optional[str] = Query(None, min_length=1, max_length=128),
+) -> AuditResponse:
     try:
         authorize(identity, PERMISSION_AUDIT_READ_ALL)
         scope_user_id = None
@@ -49,7 +55,7 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             ) from exc
         scope_user_id = identity.user_id
 
-    total = count_audit_logs(user_id=scope_user_id)
+    total = count_audit_logs(user_id=scope_user_id, completion_id=completion_id)
     queries = [
         AuditQueryEntry(
             audit_id=log.id,
@@ -93,12 +99,19 @@ def get_audit(identity: Identity = Depends(require_identity)) -> AuditResponse:
             provider_trust=log.provider_trust,
             pii_input_relaxed=log.pii_input_relaxed,
             usage_estimated=log.usage_estimated,
+            # Verbatim passthrough (PRD-021 F7, D14); False/None before PRD-021.
+            streamed_realtime=log.streamed_realtime,
+            reasoning_shown=log.reasoning_shown,
+            stream_redaction_divergence=log.stream_redaction_divergence,
+            completion_id=log.completion_id,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,
             pii_entities=log.pii_entities.split(",") if log.pii_entities else [],
         )
-        for log in list_audit_logs(limit=100, user_id=scope_user_id)
+        for log in list_audit_logs(
+            limit=100, user_id=scope_user_id, completion_id=completion_id
+        )
     ]
     return AuditResponse(total=total, queries=queries)
 

@@ -8,6 +8,7 @@ redirect/HTTP-error classification and, through `reply.py`, one set of reply
 rules.
 """
 
+import time
 from typing import Any, Iterator, Optional
 
 import httpx
@@ -22,6 +23,7 @@ from app.services.upstream.reply import (  # noqa: F401 - re-exported: moved to 
 )
 from app.services.upstream.sse import parse_events
 from app.services.upstream.types import (
+    Finish,
     UpstreamError,
     UpstreamEvent,
     UpstreamRequest,
@@ -163,14 +165,25 @@ class OpenAICompatibleAdapter:
             if owns_client:
                 http_client.close()
 
-    def stream(self, request: UpstreamRequest, api_key: Optional[str]) -> Iterator[UpstreamEvent]:
+    def stream(
+        self, request: UpstreamRequest, api_key: Optional[str], *, reasoning: bool = False
+    ) -> Iterator[UpstreamEvent]:
         """The answer as normalized events (PRD-020 D11).
 
         A generator: the request is sent, and every error raised, on the first
         `next()`. It owns the client and the response and closes both when the
-        generator ends, is closed early or fails.
+        generator ends, is closed early or fails. `reasoning` opts the parser into
+        `ReasoningDelta` (PRD-021 Risk 3). A stream that ends without a `Finish`
+        event is a non-retryable shape error (PRD-021 F2).
+
+        One total deadline bounds the whole stream (PRD-021 D20): `timeout_seconds`
+        from the moment the request is sent, connect included, checked after each
+        event. Past it the stream fails like today's timeout (retryable). The
+        check runs between events, so the overshoot is bounded by one httpx
+        per-read timeout; a silent connection is cut by that timeout itself.
         """
         label = self._provider.label
+        deadline = time.monotonic() + self._provider.timeout_seconds
         headers = self._headers(api_key, stream=True)
         payload = self._payload(request, stream=True)
 
@@ -181,7 +194,20 @@ class OpenAICompatibleAdapter:
                 with http_client.stream("POST", self._url(), headers=headers, json=payload) as resp:
                     # A non-2xx body is never read: raise_for_status needs only the status line.
                     self._raise_for_response(resp, label)
-                    yield from parse_events(resp.iter_lines(), label)
+                    finished = False
+                    for event in parse_events(resp.iter_lines(), label, reasoning=reasoning):
+                        if time.monotonic() > deadline:
+                            raise httpx.ReadTimeout(
+                                f"stream exceeded {self._provider.timeout_seconds}s"
+                            )
+                        if isinstance(event, Finish):
+                            finished = True
+                        yield event
+                    if not finished:
+                        raise UpstreamError(
+                            f"{label} returned an unexpected response shape: "
+                            "stream ended without a finish reason"
+                        )
             except httpx.HTTPError as exc:
                 raise self._http_error(exc, label) from exc
         finally:
