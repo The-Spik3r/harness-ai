@@ -12,7 +12,7 @@ labels: [testing, e2e, v1]
 epic_branch: epic/PRD-021-realtime-streaming
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-015-cline-realtime-e2e.plan.md
 report: .agents/reports/PRD-021-realtime-streaming/STORY-015-cline-realtime-e2e.report.md
-commit: pending
+commit: 499649b
 depends_on: [STORY-001, STORY-004, STORY-010]
 blocks: [STORY-016]
 skills: []
