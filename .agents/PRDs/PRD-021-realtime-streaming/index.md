@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | STORY-007 | Hold-back output gate and reasoning gate | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-007-output-and-reasoning-gates.plan.md) | `d1e6fb0` |
 | STORY-008 | Gates in the pipeline, final pass, divergence and reasoning result | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-008-gates-in-pipeline.plan.md) | `e63f658` |
 | STORY-009 | Four audit columns for real-time delivery | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-009-audit-columns.plan.md) | `e87f3ad` |
-| STORY-010 | /v1 real-time SSE and reasoning_content | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-010-v1-realtime-delivery.plan.md) | `pending` |
+| STORY-010 | /v1 real-time SSE and reasoning_content | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-010-v1-realtime-delivery.plan.md) | `03b304d` |
 | STORY-011 | Chat UI state consumes the pipeline's events | feature | ⬜ todo | medium | — | — |
 | STORY-012 | Progress line, live answer and reasoning block in the chat UI | feature | ⬜ todo | medium | — | — |
 | STORY-013 | GET /audit real-time fields, completion_id filter and Register LIVE marker | feature | ⬜ todo | small | — | — |

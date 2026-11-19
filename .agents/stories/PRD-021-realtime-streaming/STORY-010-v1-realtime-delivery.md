@@ -12,7 +12,7 @@ labels: [backend, api, v1, streaming]
 epic_branch: epic/PRD-021-realtime-streaming
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-010-v1-realtime-delivery.plan.md
 report: .agents/reports/PRD-021-realtime-streaming/STORY-010-v1-realtime-delivery.report.md
-commit: pending
+commit: 03b304d
 depends_on: [STORY-004, STORY-009]
 blocks: [STORY-014, STORY-015, STORY-016]
 skills: []
