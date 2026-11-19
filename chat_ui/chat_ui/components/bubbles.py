@@ -14,6 +14,7 @@ datetime maths cannot run at render time.
 import reflex as rx
 
 from chat_ui import copy, theme
+from chat_ui.components.progress_line import progress_line, render_reasoning_block
 from chat_ui.state import ChatState
 
 
@@ -174,7 +175,7 @@ def render_user(message) -> rx.Component:
     )
 
 
-def render_assistant(message) -> rx.Component:
+def render_assistant(message, index=None) -> rx.Component:
     """A cleared exchange: the answer, what was masked, and what it cost."""
     entities = message.pii_entities.join(", ")
     badge_text = rx.cond(
@@ -248,6 +249,19 @@ def render_assistant(message) -> rx.Component:
         _rail(theme.INK_CLEAR),
         _tag(copy.TAG_ASSISTANT, theme.INK_CLEAR),
         _prose(message.content),
+        # PRD-021 STORY-012: the reasoning that came with this answer, collapsed
+        # by default, in memory only (a restored bubble has none). Without an
+        # index there is nothing to toggle, so the block is not offered.
+        rx.cond(
+            message.reasoning != "",
+            render_reasoning_block(
+                message.reasoning,
+                message.reasoning_open,
+                on_toggle=None if index is None else ChatState.toggle_reasoning(index),
+                block_id="" if index is None else f"hx-reasoning-{index}",
+            ),
+            rx.fragment(),
+        ),
         pii_badge,
         footer,
     )
@@ -513,5 +527,14 @@ def render_pending_indicator() -> rx.Component:
         None,
         _rail(theme.MUTE, pulse=True),
         _tag(copy.PENDING_TAG, theme.MUTE),
-        _evidence(copy.PENDING_INDICATOR_TEXT, class_name="hx-pulse"),
+        # PRD-021 STORY-012: the live reasoning and answer when there are any
+        # (only a reader with the grants ever has them), then the progress line.
+        # Components test the text, never a grant.
+        rx.cond(
+            ChatState.live_reasoning != "",
+            render_reasoning_block(ChatState.live_reasoning),
+            rx.fragment(),
+        ),
+        rx.cond(ChatState.live_text != "", _prose(ChatState.live_text), rx.fragment()),
+        progress_line(),
     )

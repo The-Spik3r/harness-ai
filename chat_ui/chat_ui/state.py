@@ -31,6 +31,7 @@ from app.services.storage_faults import storage_unavailable_cause
 from app.services.usage_limits import UsageLimitError
 from .live_batch import END, batches, fold
 from .models import ChatMessage, ChatSessionSummary
+from .progress import progress_word
 from .copy import (
     AUDIT_UNAVAILABLE_NOTICE,
     CONTEXT_LIMIT_DETAIL_TEMPLATE,
@@ -116,6 +117,9 @@ def _to_stored_message(bubble: ChatMessage, session_id: str) -> StoredMessage:
     is falsy, so `or None` tidies; here it would erase the distinction the
     column exists to record, on every row that dropped nothing.
     """
+    # PRD-021 D8: `bubble.reasoning` / `reasoning_open` are deliberately not
+    # copied. The model's reasoning is never persisted, and `StoredMessage` has
+    # no column for it.
     return StoredMessage(
         session_id=session_id,
         kind=bubble.kind,
@@ -314,6 +318,15 @@ class ChatState(rx.State):
         return len(self.messages) > 0
 
     @rx.var
+    def progress_word(self) -> str:
+        """The word the pending entry shows (PRD-021 7.1); the rule and the
+        copy are `progress.progress_word`'s. Changes only when a batch changes
+        the three vars it reads, so it adds no deltas beyond STORY-011's."""
+        return progress_word(
+            self.progress_stage, self.progress_phase, self.progress_action
+        )
+
+    @rx.var
     def rail_scope(self) -> str:
         """"50 most recent of 212" -- the window, stated against the whole list.
 
@@ -353,6 +366,17 @@ class ChatState(rx.State):
     @rx.event
     def set_selected_model(self, model: str):
         self.selected_model = model
+
+    @rx.event
+    def toggle_reasoning(self, index: int):
+        """Expands or collapses the reasoning block under one answer (PRD-021
+        STORY-012). UI state on an in-memory field; never persisted (D8)."""
+        if 0 <= index < len(self.messages):
+            # reflex 0.9.6.post1 istate/proxy.py: pydantic `BaseModel` is in
+            # MUTABLE_TYPES (:378-381), so the item comes back as a
+            # MutableProxy whose `__setattr__` marks `messages` dirty (:652-666).
+            msg = self.messages[index]
+            msg.reasoning_open = not msg.reasoning_open
 
     @rx.event
     async def login(self):
@@ -1403,8 +1427,15 @@ class ChatState(rx.State):
                 return
 
             if isinstance(result, QuerySuccessResponse):
+                # PRD-021 STORY-012, D8: the live reasoning moves onto the
+                # bubble (in memory only) before `_append_and_persist` clears
+                # it, so the block can stay collapsed under the answer. Read
+                # under the lock; it is never copied into the stored row.
+                async with self:
+                    shown_reasoning = self.live_reasoning
                 bubble = ChatMessage(
                     kind="assistant",
+                    reasoning=shown_reasoning,
                     # The redacted text the pipeline released, and the reason
                     # this field is safe to persist. PRD-008 Section 9: "The raw
                     # upstream text is never written to `chat_messages`."

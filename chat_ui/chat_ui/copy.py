@@ -77,6 +77,46 @@ COMPOSER_SEND_LABEL = "Send"
 PENDING_INDICATOR_TEXT = "Waiting on the model"
 PENDING_TAG = "SENDING"
 
+# --- Progress line (PRD-021 STORY-012, Section 7.1, T4) ------------------
+# What the pending entry says the harness is doing. Words name the control or
+# the model's activity, never the mechanism ("Masking personal data", not the
+# name of the tool that does it); no percentage, no ETA. Keyed by the exact
+# `StageName` / `PhaseName` literals of `app/services/delivery.py`, so a new
+# event name with no word fails `tests/test_chat_progress_ui.py`.
+PROGRESS_STAGE_WORDS = {
+    "checking_permissions": "Checking permissions",
+    "checking_usage": "Checking your usage",
+    "checking_duplicates": "Checking for a repeat",
+    "inspecting_prompt": "Inspecting the prompt",
+    "masking_input": "Masking personal data",
+    "evaluating_actions": "Checking the model's actions",
+    "masking_output": "Masking personal data in the answer",
+}
+PROGRESS_PHASE_WORDS = {
+    "waiting": PENDING_INDICATOR_TEXT,
+    "thinking": "Thinking",
+    "writing": "Writing",
+}
+# `preparing_action` is a template over the closed `OperationKind` set; the
+# model's raw tool name never reaches the screen.
+PROGRESS_PREPARING_TEMPLATE = "Preparing an action: {kind}"
+PROGRESS_KIND_WORDS = {
+    "shell": "run a command",
+    "sql": "query a database",
+    "fs_write": "edit a file",
+    "fs_read": "read a file",
+    "http": "make a web request",
+}
+PROGRESS_KIND_FALLBACK = "use a tool"
+PROGRESS_ELAPSED_TEMPLATE = "{n} s"
+PROGRESS_SEPARATOR = " · "
+
+# --- Reasoning block (PRD-021 STORY-012, D8) ------------------------------
+REASONING_LABEL = "Model reasoning — not checked as an answer"
+REASONING_NOT_SAVED = "Not saved with the chat"
+REASONING_SHOW = "Show reasoning"
+REASONING_HIDE = "Hide reasoning"
+
 # --- Verdict tags --------------------------------------------------------
 # One tag per pipeline outcome, in the rail's own vocabulary.
 TAG_USER = "YOU"
