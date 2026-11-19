@@ -65,11 +65,11 @@ It must print `errors: none`.
 - Changing a public pipeline signature (`run_query`, `run_conversation`, ...): grep `tests/` for `inspect.signature(` and `kwargs == {` guards on it (e.g. `tests/test_query_pipeline_run_conversation.py`) and run them; STORY-011 missed two that only CI caught.
 
 ## Checkpoint
-- Done and pushed: 001-007 (earlier sessions); 008 (e63f658 gates wired at the step 7 seams, final pass replaces step 8 for gated requests, `QuerySuccessResponse.reasoning`); 009 (e87f3ad four audit columns, `log_query` requires `streamed_realtime`/`reasoning_shown`; refusals at steps 3-6 write `streamed_realtime=0`); 010 (03b304d `/v1` `realtime_events`, `_CommitSink`, `Visibility.compute(streamed=)`, `_upstream_result`, `reasoning_content` absent when None). Next: STORY-011.
-- CI: green through 008 (bc07e54). 009's run (5758b94) failed one guard (route fields order), fixed in 9654456, pushed; read that run first on resume (it also covers 010). Pre-existing failures: none.
+- Done and pushed: 001-010 (earlier sessions); 011 (153c56f chat consumer: `QueueSink` on both `_do_send` branches, `live_batch.batches/fold`, seven vars incl. `progress_sent_at`; `run_query(..., *, sink=None)`); 012 (052afca progress line, live entry, in-memory `ChatMessage.reasoning`, client-side tick JS). Next: STORY-013.
+- CI: 011's run failed two `run_query` signature guards (fixed d9d9312, green in 12ca218's run); 12ca218's run failed one guard, `test_chat_shell.py` no-tabindex (fixed 2b7c06d, pushed): read that run first on resume. Pre-existing failures: none.
 - User decisions: OD1 legacy never streams; O1 English; OD2 live survey (done).
-- Orchestrator decisions this session: 008 latency p95/segment 16.7 ms chat, no batching; 009 refusal rows streamed_realtime=0 (F7 meaning); a step 7 fault before the first event records streamed_realtime=1 with completion_id NULL (accepted); 010 coalescing applies uniformly (gated segments merge too, <=50 ms); non-realtime `_CommitSink` drops every put but the commit signal; a reasoning-only buffered request records reasoning_shown=1.
-- Critical stories ahead: 011 (chat state consumer: D16 fault -> today's upstream_error bubble, no partial text persisted; D19 flow §6.7), 014/015 e2e.
-- Plans over 12 KB accepted: 003-010 (009 18.3, 010 16.3). Plans corrected at 3.2: 003, 006, 007, 009, 010. Escalations: none.
-- Implementers take 15-45 min; targeted runs over DB-heavy guards are slow (see rule above). One (006) looped on a dead background wait: TaskStop.
-- For Phase 6: nothing unexpected in the tree; CI carried-over error: 009 route-fields guard (fixed 9654456).
+- Orchestrator decisions: earlier ones are in the stories' Technical Notes. This session: 011 batch windows re-check the deadline after a timeout (Windows timers fire early; 19880ee); 011 seventh var `progress_sent_at`; 012 reasoning kept only on the in-memory bubble (D8); 012 elapsed counted client-side from change keys (`performance.now()`, clock-skew safe).
+- Critical stories ahead: 014/015 e2e (real pipeline through a real sink).
+- Plans over 12 KB accepted: 003-012 (011 14.0, 012 16.7). Plans corrected at 3.2: 003, 006, 007, 009, 010, 011. Escalations: none.
+- Local DB tests were very slow this session (5-10 min per test in test_chat_state.py); CI covered them. Docker Desktop was down once mid-run (user restarted it).
+- For Phase 6: CI carried-over errors: 009 route-fields guard (9654456), 011 run_query signature guards (d9d9312), 012 tabindex guard (2b7c06d). 012 not checked in a real browser (360 px, focus ring, reduced motion).
