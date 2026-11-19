@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-006-streamed-step-7.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: 0eb1fc1
 status: COMPLETE
 completed: 2026-11-18
 ---

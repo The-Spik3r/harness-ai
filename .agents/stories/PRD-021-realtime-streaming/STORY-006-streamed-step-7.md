@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Pipeline"
-status: in-progress
+status: done
 labels: [backend, pipeline, streaming, usage]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: .agents/plans/PRD-021-realtime-streaming/STORY-006-streamed-step-7.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-006-streamed-step-7.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-006-streamed-step-7.report.md
+commit: 0eb1fc1
 depends_on: [STORY-003, STORY-005]
 blocks: [STORY-008]
 skills: []
