@@ -542,3 +542,31 @@ def test_openai_sdk_validates_the_tool_call_chunk():
     assert (call.index, call.id, call.function.name, call.function.arguments) == (1, "call_2", "bash", _ARGS_2)
     role = SdkChunk.model_validate(json.loads(_null_role_chunk().model_dump_json()))
     assert role.choices[0].delta.content is None
+
+
+# --- PRD-021 STORY-010: reasoning_content (D9, O5) -----------------------------
+
+
+def test_reasoning_content_is_absent_not_null_when_unset():
+    # Golden strings: the bodies without reasoning are byte-identical to before.
+    assert AssistantMessage(content="x").model_dump_json() == '{"role":"assistant","content":"x"}'
+    assert ChunkDelta(role="assistant", content="x").model_dump_json() == '{"role":"assistant","content":"x"}'
+    assert ChunkDelta().model_dump_json() == "{}"
+    # An explicit None is also absent (unlike `content` / `tool_calls`).
+    assert "reasoning_content" not in AssistantMessage(content="x", reasoning_content=None).model_dump()
+    assert "reasoning_content" not in ChunkDelta(reasoning_content=None).model_dump()
+
+
+def test_reasoning_content_is_present_when_given_and_never_named_reasoning():
+    message = AssistantMessage(content="x", reasoning_content="why")
+    assert list(message.model_dump()) == ["role", "content", "reasoning_content"]
+    assert message.model_dump()["reasoning_content"] == "why"
+    delta = ChunkDelta(reasoning_content="why")
+    assert delta.model_dump() == {"reasoning_content": "why"}
+    for dumped in (message.model_dump(), delta.model_dump()):
+        assert "reasoning" not in dumped
+
+
+def test_reasoning_content_with_tool_calls_keeps_null_content_and_order():
+    dumped = AssistantMessage(content=None, tool_calls=None, reasoning_content="r").model_dump()
+    assert list(dumped) == ["role", "content", "tool_calls", "reasoning_content"]

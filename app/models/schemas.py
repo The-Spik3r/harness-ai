@@ -113,6 +113,16 @@ class QuerySuccessResponse(BaseModel):
     def reasoning(self) -> Optional[str]:
         return self._reasoning
 
+    # PRD-021 STORY-010 (D-C): the collected upstream result, set only when step 7
+    # streamed (the `/v1` router's `_Upstream` wrapper is not called then, and
+    # `translate_result` needs the finish reason and token split). Private like
+    # `_tool_outcome`; typed `Any` so this module imports nothing from `app`.
+    _upstream_result: Any = PrivateAttr(default=None)
+
+    @property
+    def upstream_result(self) -> Any:
+        return self._upstream_result
+
 
 class QueryBlockedDuplicateResponse(BaseModel):
     status: Literal["BLOCKED"] = "BLOCKED"

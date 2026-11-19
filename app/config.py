@@ -387,9 +387,9 @@ class Settings(BaseSettings):
     # > 0 and <= 60. Consumed by STORY-013.
     V1_SSE_KEEPALIVE_SECONDS: float = 10.0
 
-    # Real-time streaming (PRD-021 Section 9.3, D2). Nothing reads these yet:
-    # STORY-005 reads STREAMING_ENABLED, STORY-008 the hold-back bound and
-    # STORY-010 the coalesce interval. Off means today's behaviour.
+    # Real-time streaming (PRD-021 Section 9.3, D2). Read per request:
+    # STREAMING_ENABLED (STORY-005, STORY-010), the hold-back bound (STORY-008)
+    # and the coalesce interval (STORY-010, `/v1`). Off means today's behaviour.
     STREAMING_ENABLED: bool = False
     STREAM_HOLDBACK_MAX_CHARACTERS: int = 400
     STREAM_COALESCE_MS: int = 50

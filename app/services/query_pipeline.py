@@ -683,6 +683,7 @@ def run_conversation(
             holds_reasoning=holds(identity, PERMISSION_REASONING_VIEW),
             caps=route.capabilities,
             ingress=ingress,
+            streamed=streamed,
         )
     realtime_request = bool(visibility is not None and visibility.realtime)
 
@@ -1440,6 +1441,11 @@ def run_conversation(
     if reasoning_text is not None:
         # PRD-021 D8: private and never passed to log_query or chat_messages.
         success._reasoning = reasoning_text
+    if streamed_step:
+        # PRD-021 STORY-010: the streamed step never goes through the router's
+        # `_Upstream` wrapper, so its finish reason and token split travel here.
+        # Private, never serialized.
+        success._upstream_result = openrouter_result
     return success
 
 

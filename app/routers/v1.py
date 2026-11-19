@@ -57,7 +57,12 @@ from app.models.v1_schemas import (
     ModelList,
 )
 from app.services import authz, provider_registry, v1_sse
-from app.services.authz import PERMISSION_QUERY_SUBMIT
+from app.services.authz import (
+    PERMISSION_QUERY_SUBMIT,
+    PERMISSION_REASONING_VIEW,
+    PERMISSION_STREAM_REALTIME,
+)
+from app.services.delivery import QueueSink, Visibility
 from app.services.duplicate_checker import DuplicateCheckError
 from app.services.identity import Identity
 from app.services.upstream import (
@@ -177,6 +182,63 @@ class _Upstream:
         return self.result
 
 
+class _CommitSink(QueueSink):
+    """The sink a `/v1` request passes when step 2d will stream upstream (PRD-021 6.3).
+
+    Its `committed` is the commit signal of a streamed upstream, as
+    `_Upstream.__call__` is of a buffered one: `called` is set on the pipeline
+    thread (the deterministic answer to "commit or not"), `started` wakes the
+    event loop. With `forward=False` (a stream that is not delivered in real
+    time: reasoning only, or `stream: false`) every put is dropped, so nothing
+    accumulates in a queue nobody reads and only the commit signal acts.
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, *, forward: bool) -> None:
+        super().__init__(loop)
+        self.called = False
+        self.completion_id: Optional[str] = None
+        self.started = asyncio.Event()
+        self._forward = forward
+
+    def _put(self, event) -> None:
+        if self._forward:
+            super()._put(event)
+
+    def committed(self, completion_id: str) -> None:
+        self.called = True
+        self.completion_id = completion_id
+        try:
+            self._loop.call_soon_threadsafe(self.started.set)
+        except RuntimeError:
+            pass  # the loop is closed: the consumer is gone
+        super().committed(completion_id)
+
+
+def _visibility(identity: Identity, model: str, stream: bool) -> Optional[Visibility]:
+    """Step 2d's answer for this request, or None when nothing streams (PRD-021 D22).
+
+    One rule: the pipeline's own `Visibility.compute`, with the same inputs, so
+    the router's sink decision cannot drift from step 7's. None (no sink, today's
+    path) when the switch is off or the caller may not use the model: the
+    pipeline's single denial applies then (T3). Grants are read with `holds`,
+    never `authorize` (T8).
+    """
+    if not settings.STREAMING_ENABLED:
+        return None
+    try:
+        caps = authz.authorize_route(identity, model).capabilities
+    except authz.PermissionDenied:
+        return None
+    return Visibility.compute(
+        streaming_enabled=True,
+        holds_realtime=authz.holds(identity, PERMISSION_STREAM_REALTIME),
+        holds_reasoning=authz.holds(identity, PERMISSION_REASONING_VIEW),
+        caps=caps,
+        ingress="v1",
+        streamed=stream,
+    )
+
+
 def _error_body(
     type_: str,
     code: str,
@@ -293,9 +355,11 @@ def _outcome(
         # already written the row.
         return translate_verdict(result)
 
-    # A success means step 7 ran, so the wrapper holds its result.
-    assert upstream.result is not None
-    return translate_result(result, upstream.result, int(time.time()))
+    # A success means step 7 ran: the wrapper holds its result, or, when step 7
+    # streamed (PRD-021), the pipeline carried it on the response.
+    upstream_result = upstream.result or result.upstream_result
+    assert upstream_result is not None
+    return translate_result(result, upstream_result, int(time.time()))
 
 
 def _json_response(pipeline: asyncio.Future, upstream: _Upstream, identity: Identity) -> Any:
@@ -313,10 +377,10 @@ def _json_response(pipeline: asyncio.Future, upstream: _Upstream, identity: Iden
     return JSONResponse(outcome.model_dump(mode="json"), headers=headers)
 
 
-def _sse_events(
-    pipeline: asyncio.Future, upstream: _Upstream, identity: Identity, include_usage: bool
-) -> List[str]:
-    """A finished pipeline as the events after commit (Section 7.6).
+def _sse_outcome(
+    pipeline: asyncio.Future, upstream: _Upstream, identity: Identity
+) -> Union[ChatCompletion, List[str]]:
+    """A finished pipeline as the completion, or the error events after commit (Section 7.6).
 
     The `200` is already sent, so there is no status left to fall back on:
     an exception outside `_PIPELINE_FAULTS` (a bug, which the JSON path
@@ -333,7 +397,7 @@ def _sse_events(
         )
         outcome = translate_fault(INTERNAL_ERROR, HTTPStatus.INTERNAL_SERVER_ERROR.phrase)
     if isinstance(outcome, ChatCompletion):
-        return v1_sse.completion_events(outcome, include_usage)
+        return outcome
     if outcome.harness is not None:
         # Only a verdict carries a pipeline response, and every verdict is
         # decided before step 7 (Risk 5). Sent as the error event regardless.
@@ -343,6 +407,31 @@ def _sse_events(
     return [v1_sse.error_event(
         _error_body(outcome.type, outcome.code, outcome.message, outcome.param, outcome.harness)
     )]
+
+
+def _sse_events(
+    pipeline: asyncio.Future, upstream: _Upstream, identity: Identity, include_usage: bool
+) -> List[str]:
+    """`_sse_outcome` as the buffered stream's events, `[DONE]` included."""
+    outcome = _sse_outcome(pipeline, upstream, identity)
+    if isinstance(outcome, ChatCompletion):
+        return v1_sse.completion_events(outcome, include_usage)
+    return outcome
+
+
+def _realtime_tail(
+    pipeline: asyncio.Future,
+    upstream: _Upstream,
+    identity: Identity,
+) -> Union[v1_sse.Tail, List[str]]:
+    """The realtime stream's end: `_sse_outcome`, so the fault mapping and the T13
+    warning are the buffered stream's. The notes come from step 7c's release (T1)."""
+    outcome = _sse_outcome(pipeline, upstream, identity)
+    if not isinstance(outcome, ChatCompletion):
+        return outcome
+    tool_outcome = pipeline.result().tool_outcome
+    notes = tuple(tool_outcome.release.notes) if tool_outcome is not None else ()
+    return v1_sse.Tail(outcome, notes)
 
 
 def _tools_supported(identity: Identity, model: str) -> bool:
@@ -382,7 +471,17 @@ async def chat_completions(
         logger.info("v1 request refused: user_id=%s code=%s", identity.user_id, exc.code)
         return _error(400, "invalid_request_error", exc.code, exc.message, exc.param)
 
-    upstream = _Upstream(asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
+    upstream = _Upstream(loop)
+    # PRD-021 6.3: a sink only when step 2d will stream upstream (real time or
+    # reasoning); otherwise nothing changes (D22). Real time needs `stream: true`
+    # too: `Visibility.compute(streamed=)` carries that rule.
+    visibility = _visibility(identity, call.model, call.stream)
+    sink: Optional[_CommitSink] = None
+    realtime = bool(visibility is not None and visibility.realtime and call.stream)
+    if visibility is not None and visibility.upstream_streamed:
+        sink = _CommitSink(loop, forward=realtime)
+    extra: Dict[str, Any] = {"sink": sink} if sink is not None else {}
     # A task, not an await: a streamed request waits on it alongside the
     # upstream signal. It is never cancelled (Section 7.6).
     pipeline = asyncio.ensure_future(run_in_pipeline(
@@ -403,21 +502,58 @@ async def chat_completions(
         # None unless the flag is on and tools were sent; run_conversation
         # forwards it to step 7 only when set (PRD-017 STORY-008).
         tools=call.tools,
+        **extra,
     ))
     # Whatever happens to this request, the pipeline finishes and its outcome
     # is retrieved.
     v1_sse.detach(pipeline)
 
     if call.stream:
-        await v1_sse.wait_for_commit(pipeline, upstream.started)
+        await v1_sse.wait_for_commit(
+            pipeline, sink.started if sink is not None else upstream.started
+        )
     else:
         await asyncio.wait({pipeline})
 
     # The commit rule (Section 6.4, D8): until the upstream is called, the
     # outcome is a verdict or a pre-upstream fault and keeps its real status.
     # Read from the wrapper's flag, not from which wait finished first.
-    if not (call.stream and upstream.called):
+    committed = upstream.called or (sink is not None and sink.called)
+    if not (call.stream and committed):
+        if sink is not None:
+            sink.close()
         return _json_response(pipeline, upstream, identity)
+
+    if sink is not None and realtime:
+        # PRD-021 6.6: live deltas. `created` and `model` are fixed here so every
+        # chunk agrees; the id is the commit id the role chunk carries (D15).
+        live_sink = sink
+
+        def on_close(completed: bool) -> None:
+            live_sink.close()
+            if not completed:
+                # D15: the client left; the pipeline finishes, the row is written
+                # and the tokens charged. User and id, never content.
+                logger.info(
+                    "v1 realtime stream disconnected: user_id=%s completion_id=%s",
+                    identity.user_id, live_sink.completion_id,
+                )
+
+        return StreamingResponse(
+            v1_sse.realtime_events(
+                live_sink.queue,
+                pipeline,
+                created=int(time.time()),
+                model=call.model,
+                tail=functools.partial(_realtime_tail, upstream=upstream, identity=identity),
+                include_usage=call.include_usage,
+                interval=settings.V1_SSE_KEEPALIVE_SECONDS,
+                coalesce_s=settings.STREAM_COALESCE_MS / 1000,
+                on_close=on_close,
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # No X-Harness-Audit-Id: the row does not exist yet. Every chunk's id
     # carries it, or the ref when the row was journaled (Section 7.6, PRD-018 D14).

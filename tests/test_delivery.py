@@ -174,3 +174,39 @@ def test_queue_sink_survives_a_closed_loop():
     sink.content("x")
 
     assert sink.queue.empty()
+
+
+# --- PRD-021 STORY-010 (D-A): `streamed=` on the /v1 ingress ---------------------
+
+
+def test_v1_not_streamed_is_never_realtime_and_follows_into_upstream_streamed():
+    # PRD 6.4: `/v1 stream:false` keeps today's buffered body whatever the grants.
+    v = Visibility.compute(
+        streaming_enabled=True, holds_realtime=True, holds_reasoning=False,
+        caps=_caps(True, True), ingress="v1", streamed=False,
+    )
+    assert v == Visibility(realtime=False, reasoning=False, upstream_streamed=False)
+    # Reasoning alone still streams upstream to collect it (rows 3/4 of 6.4).
+    v = Visibility.compute(
+        streaming_enabled=True, holds_realtime=True, holds_reasoning=True,
+        caps=_caps(True, True), ingress="v1", streamed=False,
+    )
+    assert v == Visibility(realtime=False, reasoning=True, upstream_streamed=True)
+
+
+@pytest.mark.parametrize("ingress", ["chat", "query", None])
+def test_streamed_false_changes_nothing_off_the_v1_ingress(ingress):
+    kwargs = dict(
+        streaming_enabled=True, holds_realtime=True, holds_reasoning=True,
+        caps=_caps(True, True), ingress=ingress,
+    )
+    assert Visibility.compute(**kwargs, streamed=False) == Visibility.compute(**kwargs)
+
+
+def test_v1_streamed_true_is_the_default_rule():
+    kwargs = dict(
+        streaming_enabled=True, holds_realtime=True, holds_reasoning=True,
+        caps=_caps(True, True), ingress="v1",
+    )
+    assert Visibility.compute(**kwargs, streamed=True) == Visibility.compute(**kwargs)
+    assert Visibility.compute(**kwargs).realtime is True

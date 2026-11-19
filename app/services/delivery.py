@@ -124,12 +124,20 @@ class Visibility:
         holds_reasoning: bool,
         caps: Any,
         ingress: Optional[str],
+        streamed: bool = True,
     ) -> "Visibility":
         """Pure. `caps` is a `provider_registry.Capabilities` (only `.streaming`
         and `.reasoning` are read). The grants come from `authz.holds()`, never
         `authorize()` (T8). `ingress` may be None (a direct caller): then
-        `upstream_streamed` depends only on the grants."""
+        `upstream_streamed` depends only on the grants.
+
+        PRD-021 6.4 (STORY-010): `/v1` with `stream: false` is never real time,
+        whatever the grants say, so `streamed=False` on that ingress clears
+        `realtime` (and `upstream_streamed` follows). Every other caller keeps
+        the default and the rule above."""
         realtime = streaming_enabled and holds_realtime and caps.streaming
+        if ingress == "v1" and not streamed:
+            realtime = False
         reasoning = streaming_enabled and holds_reasoning and caps.reasoning
         upstream_streamed = (
             streaming_enabled
