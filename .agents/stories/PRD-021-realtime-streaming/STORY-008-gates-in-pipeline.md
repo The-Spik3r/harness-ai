@@ -39,6 +39,7 @@ As a security admin, I want every streamed character to pass the same redaction 
 - Depends on STORY-006's streamed step 7 and STORY-007's `OutputGate`/`redact_reasoning`.
 - The sink receives reasoning only when `visibility.reasoning ∧ visibility.realtime`; for `reasoning` without `realtime` the reasoning is collected and returned whole.
 - The chat ingress without grants streams upstream (phases) but its response path is the buffered one: the gate must not run there (nothing is released), and step 8 is today's.
+- Orchestrator decision (STORY-006 impl, 0eb1fc1): the two gate seams are marked `# STORY-008: output gate` and `# STORY-007/008: reasoning gate` in step 7 of `run_conversation`; `released` flips only when text is actually forwarded, so a gate that holds text back must set it on release, not on receipt. `received_text`/`received_calls` feed the T6 mid-stream estimate and count everything received (orchestrator decision at 006 3.2).
 
 ## Dependencies
 
