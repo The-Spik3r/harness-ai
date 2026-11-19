@@ -5,7 +5,7 @@ You are one subagent in an orchestrated run. An orchestrator verifies your outpu
 ## Repository and branch
 - Repo: `G:\coding\harness-ai`. Branch: `epic/PRD-021-realtime-streaming`. It is checked out. **Never** switch or create branches, push, merge, rebase, amend or force anything.
 - PRD: `.agents/PRDs/PRD-021-realtime-streaming/PRD.md`. Stories: `.agents/stories/PRD-021-realtime-streaming/`. Board: `.agents/PRDs/PRD-021-realtime-streaming/index.md`.
-- Today's date for every `created` / `updated` / `completed` field: **2026-11-18**.
+- Today's date for every `created` / `updated` / `completed` field: **2026-11-19**.
 
 ## Commands you follow
 - PLAN subagent: follow `.agents/commands/plan.md` phase by phase, skipping nothing (including SCAN SKILLS and UPDATE STORY FILE + index). PLAN ONLY: no application code, tests or docs, and no commits. If you cannot spawn Explore agents, explore with Grep/Glob/Read yourself. The plan must cite real `file:line` references that you opened.
