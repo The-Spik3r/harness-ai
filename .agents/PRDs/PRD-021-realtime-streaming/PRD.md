@@ -2,11 +2,11 @@
 id: PRD-021
 slug: realtime-streaming
 title: Real-Time Streaming and Reasoning Visibility, Decided by the Admin — and Honest Progress Feedback When It Is Off
-status: in-progress
+status: done
 base_branch: main
 epic_branch: epic/PRD-021-realtime-streaming
 created: 2026-11-16
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 > **Prerequisite.** This PRD builds on **[PRD-020 provider-registry](../PRD-020-provider-registry/PRD.md)** (draft) and consumes what it leaves ready for this PRD: the `ProviderAdapter` protocol with a synchronous `stream()` and a pure `collect()` (PRD-020 D11, Section 6.4), the `call_upstream` seam (D12), per-model capabilities `tools`/`streaming`/`reasoning`/`max_context_tokens` (D6, F4), the missing-usage estimate (D8) and the audit-column path (D13). It does not redesign the registry. It **adds** three things to PRD-020's surface, each stated where it is used: a `ReasoningDelta` event (Section 6.2), a `stream_upstream` seam beside `call_upstream` (Section 6.2), and four audit columns after PRD-020's five (F7).

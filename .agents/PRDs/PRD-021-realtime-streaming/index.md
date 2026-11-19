@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-021-realtime-streaming` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
-15/16 stories done — 94%
+16/16 stories done — 100%
 
 ## Stories
 
@@ -29,7 +29,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | STORY-013 | GET /audit real-time fields, completion_id filter and Register LIVE marker | feature | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-013-audit-api-and-register.plan.md) | `5313d70` |
 | STORY-014 | OpenCode end-to-end on a real-time stream | technical | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-014-opencode-realtime-e2e.plan.md) | `5eebd78` |
 | STORY-015 | Cline end-to-end on a real-time stream | technical | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-015-cline-realtime-e2e.plan.md) | `499649b` |
-| STORY-016 | Document real-time streaming, grants and progress feedback | enhancement | ⬜ todo | small | — | — |
+| STORY-016 | Document real-time streaming, grants and progress feedback | enhancement | ✅ done | small | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-016-streaming-docs.plan.md) | `305ce41` |
 
 ## Status Icons
 - ⬜ todo

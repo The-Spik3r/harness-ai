@@ -12,7 +12,7 @@ labels: [docs]
 epic_branch: epic/PRD-021-realtime-streaming
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-016-streaming-docs.plan.md
 report: .agents/reports/PRD-021-realtime-streaming/STORY-016-streaming-docs.report.md
-commit: null
+commit: 305ce41
 depends_on: [STORY-010, STORY-012, STORY-013, STORY-014, STORY-015]
 blocks: []
 skills: []
