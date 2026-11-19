@@ -443,6 +443,9 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert admin_copy.STORAGE_COLUMN_COUNT
     # PRD-020 STORY-012 (D13)
     assert admin_copy.COLUMN_PROVIDER
+    # PRD-021 F7 (STORY-013): the Register's LIVE tag and its title.
+    assert admin_copy.LIVE_LABEL
+    assert admin_copy.LIVE_TITLE
     # And nothing is missing from the list: a constant added to admin_copy.py
     # without an assertion here would otherwise ship untested, which is the
     # failure mode "each constant is asserted non-empty" exists to prevent.
@@ -469,6 +472,9 @@ def test_admin_copy_constants_exist_and_not_empty():
         # PRD-020 STORY-012 (D13): the Register's provider head.
         "COLUMN_PROVIDER",
         "COLUMN_TOKENS",
+        # PRD-021 F7 (STORY-013): the Register's LIVE tag.
+        "LIVE_LABEL",
+        "LIVE_TITLE",
         # PRD-013 (STORY-015)
         "COLUMN_TOKENS_TITLE",
         "COLUMN_PII",

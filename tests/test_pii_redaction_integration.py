@@ -195,6 +195,11 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
 
     assert sorted(entry) == [
         "audit_id",
+        # PRD-021 F7 (STORY-013): four additive fields -- completion_id,
+        # reasoning_shown, stream_redaction_divergence, streamed_realtime. An
+        # opaque stream id and three booleans, not prompt text: the leak surface
+        # is no wider.
+        "completion_id",
         # PRD-013 6.10: eight additive fields, interleaved alphabetically
         # (STORY-006): conversation_key, has_tool_calls, ingress, input_tokens,
         # limit_exceeded, message_count, output_tokens, streamed.
@@ -225,9 +230,12 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         # trust label, not prompt text: the leak surface is no wider.
         "provider",
         "provider_trust",
+        "reasoning_shown",
         "role",
         "session_id",
+        "stream_redaction_divergence",
         "streamed",
+        "streamed_realtime",
         "suspicious_pattern_detected",
         "timestamp",
         # PRD-020 D13 (STORY-006): additive, nullable/defaulted.

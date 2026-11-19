@@ -277,7 +277,7 @@ def _live_tag() -> rx.Component:
 
     Same typography as a verdict tag, in `theme.INK`: the Register's plain text
     ink, which no verdict spends, so it cannot read as cleared, held, denied or
-    fault (`INK_UPSTREAM` is the chat's upstream-failure ink, and the Register's
+    fault (the chat's upstream-failure ink is chat-only, and the Register's
     palette test admits only the four verdict inks plus the grounds). No fill
     or accent (PRD-006 Risk 6). `title` / `aria-label` say what the word means.
     """

@@ -1933,11 +1933,17 @@ def test_summary_snapshot_leaves_the_ten_standalone_signatures_unchanged(temp_db
     # `int`, `list[str]` and `list[AuditLog]`, and these are where those types
     # are declared.
     expected = {
+        # PRD-021 F7 (STORY-013): the two audit readers gain a trailing,
+        # defaulted `completion_id` (exact-match filter for GET /audit); the
+        # STORY-006 positional/keyword calls and return types are unchanged.
         "list_audit_logs": (
-            "(limit: int = 100, user_id: Optional[str] = None)"
+            "(limit: int = 100, user_id: Optional[str] = None,"
+            " completion_id: Optional[str] = None)"
             " -> list[app.db.models.AuditLog]"
         ),
-        "count_audit_logs": "(user_id: Optional[str] = None) -> int",
+        "count_audit_logs": (
+            "(user_id: Optional[str] = None, completion_id: Optional[str] = None) -> int"
+        ),
         "count_blocked_duplicates": "() -> int",
         "count_blocked_suspicious": "() -> int",
         "count_unique_users": "() -> int",
