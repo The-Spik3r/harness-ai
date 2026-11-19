@@ -400,6 +400,12 @@ def _deny(
     # authorization arm is a TypeError, not a tool-turn row that claims no
     # tool calls were involved.
     has_tool_calls: bool,
+    # Required for the same reason as the seven above (PRD-021 STORY-009, F7):
+    # a forgotten authorization arm is a TypeError, not a row that cannot say
+    # whether the reply was delivered in real time. Every caller passes False:
+    # a refusal opens no upstream.
+    streamed_realtime: bool,
+    reasoning_shown: bool,
     exc: PermissionDenied,
     reason: str,
     # Required for the same reason as the seven above (PRD-020 D13, STORY-007):
@@ -424,6 +430,8 @@ def _deny(
         streamed=streamed,
         ignored_params=ignored_params,
         has_tool_calls=has_tool_calls,
+        streamed_realtime=streamed_realtime,
+        reasoning_shown=reasoning_shown,
     )
     return QueryBlockedForbiddenResponse(reason=reason, required_permission=exc.permission)
 
@@ -519,6 +527,8 @@ def run_conversation(
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
+            # PRD-021 F7: refused before step 2d, so nothing is known and nothing was sent.
+            streamed_realtime=False, reasoning_shown=False,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
@@ -531,6 +541,7 @@ def run_conversation(
     except PermissionDenied as exc:
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
+            streamed_realtime=False, reasoning_shown=False,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
@@ -543,6 +554,7 @@ def run_conversation(
         except PermissionDenied as exc:
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
+                streamed_realtime=False, reasoning_shown=False,
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
@@ -554,6 +566,7 @@ def run_conversation(
         if not route.provider.byok:
             return _deny(
                 identity, prompt, device, session_id=session_id, dedup_key=key,
+                streamed_realtime=False, reasoning_shown=False,
                 profile=profile_name, ingress=ingress, message_count=message_count,
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
@@ -576,6 +589,7 @@ def run_conversation(
     if _break_glass_refused(identity, ingress):
         return _deny(
             identity, prompt, device, session_id=session_id, dedup_key=key,
+            streamed_realtime=False, reasoning_shown=False,
             profile=profile_name, ingress=ingress, message_count=message_count,
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
@@ -625,6 +639,9 @@ def run_conversation(
         if not admission.admitted:
             refusal = admission.refusal
             log_query(
+                # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+                streamed_realtime=False,
+                reasoning_shown=False,
                 **_route_fields(route),
                 user_id=identity.user_id,
                 prompt=prompt,
@@ -667,6 +684,7 @@ def run_conversation(
             caps=route.capabilities,
             ingress=ingress,
         )
+    realtime_request = bool(visibility is not None and visibility.realtime)
 
     # Step 3: context limits (STORY-008; PRD Sections 6.1 and 6.5, D2).
     #
@@ -696,6 +714,9 @@ def run_conversation(
     if exceeded is not None:
         limit, maximum, actual = exceeded
         log_query(
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
@@ -731,6 +752,9 @@ def run_conversation(
 
     if duplicate_result.is_duplicate:
         log_query(
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
@@ -789,6 +813,9 @@ def run_conversation(
         # else in `.block` -- and is passed rather than spelled so the hit
         # stays the one source of what was done.
         log_query(
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
@@ -827,6 +854,9 @@ def run_conversation(
     if inspection.flags:
         first_flag = inspection.flags[0]
         log_query(
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             **_route_fields(route),
             user_id=identity.user_id,
             prompt=prompt,
@@ -881,6 +911,9 @@ def run_conversation(
     if over is not None:
         maximum, actual = over
         log_query(
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
             **_route_fields(route),
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
@@ -935,6 +968,9 @@ def run_conversation(
             redacted_content, entities = _redact(message.content, policy)
         except PiiRedactorError as exc:
             log_query(
+                # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+                streamed_realtime=False,
+                reasoning_shown=False,
                 **_route_fields(route),
                 pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
@@ -973,10 +1009,10 @@ def run_conversation(
         extra["tools"] = tools
     # PRD-021 6.3: with a sink, the commit id is made here and `committed` is
     # signalled exactly once -- on the first event of a stream, or on entry for a
-    # buffered call. `sink=None`: no id, no phases, no stream. STORY-009 persists
-    # `completion_id` and `realtime_request`; no column carries them yet.
+    # buffered call. `sink=None`: no id, no phases, no stream. STORY-009 (F7, D17)
+    # persists `completion_id` only when `realtime_request`: a buffered row
+    # stores NULL even though a sink was told an id.
     completion_id: Optional[str] = None
-    realtime_request = bool(visibility is not None and visibility.realtime)  # noqa: F841  # STORY-009
     streamed_step = bool(visibility is not None and visibility.upstream_streamed)
     if safe is not None:
         safe.phase("waiting")
@@ -984,6 +1020,9 @@ def run_conversation(
     # sink is something the reader already holds; only then is a mid-stream
     # fault charged. `received_*` is everything that arrived, forwarded or not.
     released = False
+    # PRD-021 F7: a non-empty reasoning text reached the sink (`released` also
+    # flips on content, so it cannot say this). Persisted as `reasoning_shown`.
+    reasoning_sent = False
     received_text: list[str] = []
     received_calls: dict[int, dict[str, Any]] = {}
     # PRD-021 6.5, D7, D8 (STORY-008): the two gates exist only for a streamed
@@ -996,7 +1035,7 @@ def run_conversation(
     gate_result: Optional[GateResult] = None
     raw_reasoning: list[str] = []  # reasoning granted but not realtime: redacted whole
     reasoning_text: Optional[str] = None
-    stream_redaction_divergence = False  # STORY-009 persists it; no column carries it yet
+    stream_redaction_divergence = False
     if streamed_step and visibility is not None and visibility.realtime:
         if gate_applies(policy, settings.PII_REDACTION_ENABLED):
             content_gate = OutputGate(
@@ -1026,6 +1065,12 @@ def run_conversation(
                 if completion_id is None:
                     completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
                     safe.committed(completion_id)
+                    if realtime_request:
+                        # PRD-021 D15: user, model and id; never content or reasoning.
+                        logger.info(
+                            "realtime stream committed: user_id=%s model=%s completion_id=%s",
+                            identity.user_id, model, completion_id,
+                        )
                 events.append(event)
                 moved = phase_of(event, phase_now, tool_kinds)  # type: ignore[arg-type]
                 if moved is not None:
@@ -1051,6 +1096,7 @@ def run_conversation(
                         if out:
                             safe.reasoning(out)
                             released = True
+                            reasoning_sent = True
                     elif visibility.reasoning:
                         raw_reasoning.append(event.text)
                 elif isinstance(event, ToolCallDelta):
@@ -1068,6 +1114,7 @@ def run_conversation(
                 if reasoning_done.remainder:
                     safe.reasoning(reasoning_done.remainder)
                     released = True
+                    reasoning_sent = True
                 if reasoning_done.diverged:
                     logger.warning(
                         "stream redaction diverged (reasoning): user_id=%s completion_id=%s",
@@ -1130,6 +1177,11 @@ def run_conversation(
                 ),
             )
         log_query(
+            # PRD-021 F7, D14, D17: what was true at this point of the request.
+            streamed_realtime=realtime_request,
+            reasoning_shown=reasoning_sent,
+            stream_redaction_divergence=stream_redaction_divergence,
+            completion_id=completion_id if realtime_request else None,
             **_route_fields(route),
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,
@@ -1230,6 +1282,11 @@ def run_conversation(
             redacted_response, output_entities = _redact(openrouter_result.response, policy)
         except PiiRedactorError as exc:
             log_query(
+                # PRD-021 F7, D14, D17: what was true at this point of the request.
+                streamed_realtime=realtime_request,
+                reasoning_shown=reasoning_sent,
+                stream_redaction_divergence=stream_redaction_divergence,
+                completion_id=completion_id if realtime_request else None,
                 **_route_fields(route),
                 pii_input_relaxed=relaxed,
                 user_id=identity.user_id,
@@ -1277,6 +1334,11 @@ def run_conversation(
     # `journal_decisions`, so the release below follows a commit or an fsync.
     try:
         audit_ref = log_query(
+            # PRD-021 F7, D14, D17: what was true at this point of the request.
+            streamed_realtime=realtime_request,
+            reasoning_shown=reasoning_sent or bool(reasoning_text),
+            stream_redaction_divergence=stream_redaction_divergence,
+            completion_id=completion_id if realtime_request else None,
             **_route_fields(route),
             pii_input_relaxed=relaxed,
             user_id=identity.user_id,

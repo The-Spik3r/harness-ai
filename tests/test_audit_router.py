@@ -451,8 +451,13 @@ def test_audit_entry_carries_the_prd020_provider_fields(temp_db):
         provider_trust="local",
         pii_input_relaxed=True,
         usage_estimated=True,
+        streamed_realtime=False,  # PRD-021 STORY-009: required keywords
+        reasoning_shown=False,
     )
-    log_query(user_id="juan@empresa.com", prompt="plain row")
+    log_query(
+        user_id="juan@empresa.com", prompt="plain row",
+        streamed_realtime=False, reasoning_shown=False,
+    )
 
     response = client.get(
         "/audit", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}

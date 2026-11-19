@@ -22,7 +22,7 @@ All stories commit on the epic branch `epic/PRD-021-realtime-streaming`. No per-
 | STORY-006 | Streamed step 7 with phases, held tool calls and real-time charging | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-006-streamed-step-7.plan.md) | `0eb1fc1` |
 | STORY-007 | Hold-back output gate and reasoning gate | feature | ✅ done | large | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-007-output-and-reasoning-gates.plan.md) | `d1e6fb0` |
 | STORY-008 | Gates in the pipeline, final pass, divergence and reasoning result | feature | ✅ done | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-008-gates-in-pipeline.plan.md) | `e63f658` |
-| STORY-009 | Four audit columns for real-time delivery | feature | ⬜ todo | medium | — | — |
+| STORY-009 | Four audit columns for real-time delivery | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-021-realtime-streaming/completed/STORY-009-audit-columns.plan.md) | — |
 | STORY-010 | /v1 real-time SSE and reasoning_content | feature | ⬜ todo | large | — | — |
 | STORY-011 | Chat UI state consumes the pipeline's events | feature | ⬜ todo | medium | — | — |
 | STORY-012 | Progress line, live answer and reasoning block in the chat UI | feature | ⬜ todo | medium | — | — |

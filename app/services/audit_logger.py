@@ -111,6 +111,16 @@ def log_query(
     provider_trust: Optional[str] = None,
     pii_input_relaxed: bool = False,
     usage_estimated: bool = False,
+    # PRD-021 STORY-009 (F7, D14, D17). The first two are REQUIRED, like
+    # _deny's discipline fields: a pipeline arm that forgets them must be a
+    # TypeError, not a row that claims the reply was buffered. The bare `*`
+    # keeps them keyword-only so no positional caller can shift. The other two
+    # default to the truth of a row with no divergence and no realtime stream.
+    *,
+    streamed_realtime: bool,
+    reasoning_shown: bool,
+    stream_redaction_divergence: bool = False,
+    completion_id: Optional[str] = None,
     # PRD-018 D13. Step 8 of a request with tool decisions only: a journaled
     # row carries its decisions in the SAME journal entry, so the callable gets
     # the row's write_id and returns the decision rows keyed `<write_id>:<i>`.
@@ -158,6 +168,10 @@ def log_query(
         provider_trust=provider_trust,
         pii_input_relaxed=pii_input_relaxed,
         usage_estimated=usage_estimated,
+        streamed_realtime=streamed_realtime,
+        reasoning_shown=reasoning_shown,
+        stream_redaction_divergence=stream_redaction_divergence,
+        completion_id=completion_id,
         # PRD-018 D4 (Section 6.4): minted once per call, beside the one
         # timestamp stamp and before the first attempt, so every retry (and,
         # from STORY-008, the journal entry and the drain) carries the same

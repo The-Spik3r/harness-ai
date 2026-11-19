@@ -21,6 +21,10 @@ def log_query(*args, **kwargs) -> int:
     the id of a row that committed, so this wrapper unwraps it once, and the
     first test pins the ref itself.
     """
+    # PRD-021 STORY-009 (F7): the two delivery fields are required keywords on
+    # log_query; these tests model a buffered row, so default them once here.
+    kwargs.setdefault("streamed_realtime", False)
+    kwargs.setdefault("reasoning_shown", False)
     ref = _log_query_ref(*args, **kwargs)
     assert isinstance(ref, AuditRef) and ref.audit_id is not None  # PRD-018 F7
     return ref.audit_id
@@ -429,3 +433,45 @@ def test_prd020_fields_default_when_omitted(temp_db):
         "pii_input_relaxed": False,
         "usage_estimated": False,
     }
+
+
+# --- PRD-021 STORY-009 (F7, D14, D17): four delivery columns -------------------
+
+_PRD021_SUPPLIED = {
+    "streamed_realtime": True,
+    "reasoning_shown": True,
+    "stream_redaction_divergence": True,
+    "completion_id": "chatcmpl-harness-rt-abc123",
+}
+
+
+def test_prd021_fields_persisted_when_supplied(temp_db):
+    audit_id = log_query(user_id="ana@empresa.com", prompt="hello", **_PRD021_SUPPLIED)
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD021_SUPPLIED} == _PRD021_SUPPLIED
+    assert row.streamed_realtime is True and row.reasoning_shown is True
+    assert row.stream_redaction_divergence is True
+
+
+def test_prd021_optional_fields_default_to_no_divergence_and_no_id(temp_db):
+    audit_id = _log_query_ref(
+        user_id="ana@empresa.com", prompt="hello",
+        streamed_realtime=False, reasoning_shown=False,
+    ).audit_id
+
+    row = get_audit_log(audit_id)
+    assert row.streamed_realtime is False and row.reasoning_shown is False
+    assert row.stream_redaction_divergence is False
+    assert row.completion_id is None
+
+
+@pytest.mark.parametrize("omitted", ["streamed_realtime", "reasoning_shown"])
+def test_prd021_delivery_fields_are_required_keywords(temp_db, omitted):
+    """A forgotten arm is a TypeError, not a row that claims the reply was
+    buffered (F7). Called on the raw function: the wrapper above defaults them."""
+    kwargs = {"streamed_realtime": False, "reasoning_shown": False}
+    del kwargs[omitted]
+
+    with pytest.raises(TypeError, match=omitted):
+        _log_query_ref(user_id="ana@empresa.com", prompt="hello", **kwargs)

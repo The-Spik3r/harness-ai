@@ -41,7 +41,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     upstream_model TEXT,
     provider_trust TEXT,
     pii_input_relaxed INTEGER NOT NULL DEFAULT 0,
-    usage_estimated INTEGER NOT NULL DEFAULT 0
+    usage_estimated INTEGER NOT NULL DEFAULT 0,
+    streamed_realtime INTEGER NOT NULL DEFAULT 0,
+    reasoning_shown INTEGER NOT NULL DEFAULT 0,
+    stream_redaction_divergence INTEGER NOT NULL DEFAULT 0,
+    completion_id TEXT
 )
 """
 
@@ -160,6 +164,18 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     "provider_trust": "TEXT",
     "pii_input_relaxed": "INTEGER NOT NULL DEFAULT 0",
     "usage_estimated": "INTEGER NOT NULL DEFAULT 0",
+    # PRD-021 STORY-009 (F7, D14, D17). What was delivered in real time.
+    # Default 0 / NULL with no backfill: that is the truth of every row written
+    # before PRD-021. `streamed_realtime` 1 when the reply was released to the
+    # caller incrementally, `reasoning_shown` 1 when any reasoning text reached
+    # the caller (D8: the text itself is never stored), and
+    # `stream_redaction_divergence` 1 when the final redaction pass disagreed
+    # with what the gate had already released (D14). `completion_id` is the id
+    # of the realtime stream (D17), NULL for any buffered row.
+    "streamed_realtime": "INTEGER NOT NULL DEFAULT 0",
+    "reasoning_shown": "INTEGER NOT NULL DEFAULT 0",
+    "stream_redaction_divergence": "INTEGER NOT NULL DEFAULT 0",
+    "completion_id": "TEXT",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -545,6 +561,12 @@ class AuditLog:
     provider_trust: Optional[str] = None
     pii_input_relaxed: bool = False
     usage_estimated: bool = False
+    # PRD-021 STORY-009 (F7, D14, D17). Declared after usage_estimated to mirror
+    # the table; the defaults let a journaled entry from before this replay.
+    streamed_realtime: bool = False
+    reasoning_shown: bool = False
+    stream_redaction_divergence: bool = False
+    completion_id: Optional[str] = None
     id: Optional[int] = None
 
 

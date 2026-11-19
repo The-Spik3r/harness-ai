@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Pipeline"
-status: todo
+status: in-progress
 labels: [backend, audit, db]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-009-audit-columns.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-009-audit-columns.report.md
 commit: null
 depends_on: [STORY-008]
 blocks: [STORY-010, STORY-011, STORY-013]
