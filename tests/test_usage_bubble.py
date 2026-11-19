@@ -148,7 +148,8 @@ def _capturing_run_conversation(captured):
     (`tests/test_chat_history_send.py`'s helper of the same name)."""
 
     def _fake(identity, messages, device, model, openrouter_api_key,
-              params=None, call_openrouter=None, session_id=None, ingress=None):
+              params=None, call_openrouter=None, session_id=None, ingress=None,
+              sink=None):  # PRD-021 STORY-011: ChatState passes sink
         captured["messages"] = list(messages)
         return QuerySuccessResponse(
             response="ok", audit_id=1, audit_ref=_AUDIT_REF, model_used="gpt-4", tokens_used=1

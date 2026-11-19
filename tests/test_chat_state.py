@@ -1103,7 +1103,8 @@ def _stub_pipeline(monkeypatch, fake):
     signature; tests/test_query_pipeline_audit_fields.py asserts the value.
     """
 
-    def _via_query(*args, ingress=None, **kwargs):
+    # PRD-021 STORY-011: ChatState passes `sink`; the stubs drop it too.
+    def _via_query(*args, ingress=None, sink=None, **kwargs):
         return fake(*args, **kwargs)
 
     monkeypatch.setattr(chat_state_mod, "run_query", _via_query)
@@ -1118,6 +1119,7 @@ def _stub_pipeline(monkeypatch, fake):
         call_openrouter=None,
         session_id=None,
         ingress=None,
+        sink=None,  # PRD-021 STORY-011: ChatState passes sink
     ):
         return fake(
             identity,

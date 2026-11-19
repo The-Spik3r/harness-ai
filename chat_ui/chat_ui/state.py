@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -17,6 +18,7 @@ from app.models.schemas import (
     QueryBlockedUsageLimitResponse,
     QuerySuccessResponse,
 )
+from app.services.delivery import QueueSink
 from app.services import chat_history, chat_sessions, provider_registry
 from app.services.chat_sessions import ChatSessionError
 from app.services.duplicate_checker import DuplicateCheckError
@@ -27,6 +29,7 @@ from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import run_conversation, run_query
 from app.services.storage_faults import storage_unavailable_cause
 from app.services.usage_limits import UsageLimitError
+from .live_batch import END, batches, fold
 from .models import ChatMessage, ChatSessionSummary
 from .copy import (
     AUDIT_UNAVAILABLE_NOTICE,
@@ -232,6 +235,21 @@ class ChatState(rx.State):
     token_input: str = ""
     login_error: str = ""
     pending: bool = False
+    # PRD-021 D19, 7.1: what the current send shows while it runs. Written only
+    # by `_apply_batch` (one `async with self` per 100 ms window), cleared by
+    # `_clear_live` in the same delta that appends the final bubble. Never read
+    # into a ChatMessage or a stored row (D8: reasoning is not persisted; D16:
+    # a fault shows today's bubble, never partial text).
+    progress_stage: str = ""
+    progress_phase: str = ""
+    # The PhaseEvent's action_kind ("" when none); the copy mapping is STORY-012's.
+    progress_action: str = ""
+    # time.time() when the current stage/phase began (0.0 idle): the 300 ms rule.
+    progress_since: float = 0.0
+    # time.time() when the send was claimed (0.0 idle): "Thinking . 14 s".
+    progress_sent_at: float = 0.0
+    live_text: str = ""
+    live_reasoning: str = ""
     selected_model: str = DEFAULT_MODEL
     # PRD-020 D15: the selector's options for the signed-in identity, filled by
     # `login` (never at import: the registry is not loaded then) and reset by
@@ -927,6 +945,58 @@ class ChatState(rx.State):
         )
         return [_to_chat_message(row) for row in rows]
 
+    def _clear_live(self) -> None:
+        """Resets the seven live/progress vars (PRD-021 D19). Synchronous: the
+        caller already holds `async with self`."""
+        self.progress_stage = ""
+        self.progress_phase = ""
+        self.progress_action = ""
+        self.progress_since = 0.0
+        self.progress_sent_at = 0.0
+        self.live_text = ""
+        self.live_reasoning = ""
+
+    async def _apply_batch(self, batch: list) -> None:
+        """Applies one window of delivery events under one `async with self`,
+        which Reflex flushes as one delta (reflex 0.9.6.post1,
+        istate/proxy.py:159-178; PRD-021 Risk 5). Nothing changed -> no lock, no
+        delta. Never call it from inside `async with self` (no nesting)."""
+        async with self:
+            changes = fold(
+                batch,
+                stage=self.progress_stage,
+                phase=self.progress_phase,
+                now=time.time(),
+            )
+            if "live_text" in changes:
+                changes["live_text"] = self.live_text + changes["live_text"]
+            if "live_reasoning" in changes:
+                changes["live_reasoning"] = (
+                    self.live_reasoning + changes["live_reasoning"]
+                )
+            for name, value in changes.items():
+                setattr(self, name, value)
+
+    async def _run_streaming(self, fn, *, sink: QueueSink, **kwargs):
+        """Runs the pipeline on the executor and folds the sink's events into
+        the live vars until it finishes, then returns its result (or raises its
+        exception, into `_do_send`'s except chain, unchanged). PRD-021 D19."""
+        task = asyncio.ensure_future(run_in_pipeline(fn, sink=sink, **kwargs))
+        # Every event precedes END: sink puts are marshalled onto the loop
+        # before the pipeline function returns.
+        task.add_done_callback(lambda _t: sink.queue.put_nowait(END))
+        try:
+            async for batch in batches(sink.queue):
+                await self._apply_batch(batch)
+        except BaseException:
+            # The pipeline is never cancelled (D15); retrieve its outcome so an
+            # unobserved exception is not logged as never retrieved.
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            raise
+        finally:
+            sink.close()
+        return await task
+
     async def _append_and_persist(
         self,
         bubble: ChatMessage,
@@ -969,6 +1039,11 @@ class ChatState(rx.State):
         """
         async with self:
             self.messages.append(bubble)
+            # PRD-021 D19: the bubble replaces the live entry in one frame. The
+            # user's own bubble is appended after the claim, before the
+            # pipeline starts: it must not zero `progress_sent_at`.
+            if bubble.kind != "user":
+                self._clear_live()
 
         if identity is None or not session_id:
             # Nothing to record against: the credential did not resolve, the
@@ -1025,6 +1100,10 @@ class ChatState(rx.State):
                 return
             self.pending = True
             token = self._token
+            # PRD-021 D19: each send starts clean; `progress_sent_at` is set
+            # after the clear so the clear does not undo it.
+            self._clear_live()
+            self.progress_sent_at = time.time()
 
         # Survives the rest of this send, and is re-applied in `finally`.
         # `_append_and_persist`'s successful `touch` clears `sessions_error` --
@@ -1159,6 +1238,10 @@ class ChatState(rx.State):
                 # on the flag" still holds everywhere else here, and
                 # `tests/test_chat_state.py` pins the reference to this
                 # function alone.
+                # PRD-021 D19, O6: one sink for both branches, passed with
+                # STREAMING_ENABLED on or off (stage words need no switch); the
+                # pipeline decides which events exist.
+                sink = QueueSink(asyncio.get_running_loop())
                 if had_session and settings.CHAT_HISTORY_ENABLED:
                     try:
                         # STORY-011's one read, on the dedicated pipeline
@@ -1199,8 +1282,9 @@ class ChatState(rx.State):
                         settings.CONTEXT_MAX_MESSAGES,
                         settings.CONTEXT_MAX_CHARACTERS,
                     )
-                    result = await run_in_pipeline(
+                    result = await self._run_streaming(
                         run_conversation,
+                        sink=sink,
                         identity=identity,
                         messages=messages,
                         device=device,
@@ -1219,8 +1303,9 @@ class ChatState(rx.State):
                     # pipeline executor, not the event loop's default executor --
                     # the same pool session-rail reads and admin snapshots use via
                     # asyncio.to_thread, and the one this change stops starving.
-                    result = await run_in_pipeline(
+                    result = await self._run_streaming(
                         run_query,
+                        sink=sink,
                         identity=identity,
                         prompt=text,
                         device=device,
@@ -1435,6 +1520,9 @@ class ChatState(rx.State):
         finally:
             async with self:
                 self.pending = False
+                # PRD-021 D19: exits that append no bubble (cancel, consumer
+                # fault) still leave nothing live behind.
+                self._clear_live()
                 # In `finally` rather than after the append, so the notice
                 # survives every exit from this send -- including the
                 # upstream/internal-error arms, which return before the append

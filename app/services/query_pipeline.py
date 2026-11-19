@@ -1461,6 +1461,10 @@ def run_query(
     # PRD-013 Section 6.9: `/query` is this adapter's caller, so the default
     # names it. ChatState's history-off branch passes "chat".
     ingress: Optional[Ingress] = "query",
+    # PRD-021 D18/D20: the chat UI's history-off branch passes its sink here so
+    # both branches report progress alike; `/query` passes nothing (None), so
+    # its behavior is unchanged.
+    sink: Optional[DeliverySink] = None,
 ) -> QueryPipelineResult:
     return run_conversation(
         identity,
@@ -1471,4 +1475,5 @@ def run_query(
         call_openrouter=call_openrouter,
         session_id=session_id,
         ingress=ingress,
+        sink=sink,
     )
