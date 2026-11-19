@@ -56,7 +56,11 @@ async def batches(
             try:
                 item = await asyncio.wait_for(queue.get(), remaining)
             except asyncio.TimeoutError:
-                break
+                # Not `break`: on Windows the loop's timers can fire a few ms
+                # early (~15.6 ms clock), which closed windows short and let a
+                # 200 token/s stream reach 11 deltas/s. Re-check the deadline so
+                # every window lasts the full `window_s` (PRD-021 STORY-011 AC5).
+                continue
             if item is END:
                 done = True
                 break

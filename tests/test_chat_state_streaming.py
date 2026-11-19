@@ -239,7 +239,9 @@ async def test_two_hundred_tokens_a_second_makes_at_most_ten_updates_a_second(
     assert len(record) >= 5
     assert len(record) <= elapsed / 0.1 + 2
     span = record[-1][0] - record[0][0]
-    assert (len(record) - 1) / max(span, 0.001) <= 12
+    # AC5's bound, 10/s, with 5% for scheduling jitter between a window's close
+    # and the moment `_apply_batch` records it (every window lasts >= 100 ms).
+    assert (len(record) - 1) / max(span, 0.001) <= 10.5
     text = "".join(e.text for _, b, _ in record for e in b if isinstance(e, ContentEvent))
     assert text == "".join(emitted)
 
