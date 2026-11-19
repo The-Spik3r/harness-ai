@@ -28,6 +28,7 @@
 - [Architecture](#architecture)
 - [Features](#features)
 - [Tool calling](#tool-calling)
+- [Real-time streaming](#real-time-streaming)
 - [Action policy rules](#action-policy-rules)
 - [Requirements](#requirements)
 - [Quickstart — Local](#quickstart--local)
@@ -154,9 +155,10 @@ The transcript write is **not** a pipeline step. It happens in the chat UI after
 | Capability | Description |
 |---|---|
 | **Single entry point** | One pipeline intercepts every prompt/response pair, behind two doors: `POST /query` and the OpenAI-compatible `POST /v1/chat/completions`. Nothing reaches OpenRouter without passing through it. |
-| **OpenAI-compatible endpoint** | `POST /v1/chat/completions` and `GET /v1/models`, so the OpenAI SDKs, Aider and Continue work with only their base URL and key changed. It is a translation layer onto the same pipeline, not a second one: coding-agent traffic runs the `code` profile, every block comes back as an ordinary `400` or `403` error that clients show and do not retry, and `stream: true` is answered after the whole response has been checked. OpenCode and Cline in agent mode work once [tool calling](docs/features.md#tool-calling) is turned on. See [OpenAI-compatible endpoint](docs/features.md#openai-compatible-endpoint). |
+| **OpenAI-compatible endpoint** | `POST /v1/chat/completions` and `GET /v1/models`, so the OpenAI SDKs, Aider and Continue work with only their base URL and key changed. It is a translation layer onto the same pipeline, not a second one: coding-agent traffic runs the `code` profile, every block comes back as an ordinary `400` or `403` error that clients show and do not retry, and `stream: true` is answered after the whole response has been checked unless real-time streaming is granted (see [Real-time streaming](#real-time-streaming)). OpenCode and Cline in agent mode work once [tool calling](docs/features.md#tool-calling) is turned on. See [OpenAI-compatible endpoint](docs/features.md#openai-compatible-endpoint). |
 | **Providers** | `PROVIDERS_FILE`, empty by default: a YAML registry routes each model to OpenRouter, a local server (Ollama, vLLM, LM Studio, llama.cpp, LocalAI) or any OpenAI-compatible cloud, with per-model roles and capabilities, a trust level per provider and an audited provider on every row. Without the file nothing changes. **Whoever controls a provider's host receives its key and every prompt.** See [Providers](docs/features.md#providers). |
 | **Tool calling** | `V1_TOOLS_ENABLED`, off by default: with it on, `/v1` accepts `tools` and tool turns, and **every tool call the model returns is decided by the action policy before the client sees it**. A denied call is dropped and replaced by a note in the reply; the others are released unmodified. Every decision is audited and linked to its request. The harness never executes a tool. See [Tool calling](docs/features.md#tool-calling). |
+| **Real-time streaming** | `STREAMING_ENABLED`, off by default: a role granted `stream:realtime` reads the answer while the model writes it, on `/v1` and in the chat UI, each segment redacted before it is released; `reasoning:view` adds the model's reasoning. Tool calls are never streamed in pieces. See [Real-time streaming](#real-time-streaming). |
 | **Chat UI** | A browser-based chat served from the same port and process as the API, running through the identical pipeline as `POST /query`. |
 | **Role-based access control** | Every request is resolved to a verified `Identity` from a per-user bearer token — no self-declared `user_id` is trusted. Three fixed roles (`admin`, `auditor`, `user`) each hold an explicit permission set; deny-by-default for any unmapped role or permission. `ADMIN_TOKEN` remains a break-glass admin credential, not the primary auth mechanism. |
 | **Duplicate blocking** | Exact-match (word-for-word) detection of a prompt the **same account** already had answered within a rolling 24-hour window. Scoped per user, never across users — see [Duplicate detection scope](docs/features.md#duplicate-detection-scope). |
@@ -197,6 +199,31 @@ cline --data-dir <same dir> --yolo --json -c <repository> -P openai-compatible -
 ```
 
 Use [`tests/e2e/cline/action_policy.yaml`](tests/e2e/cline/action_policy.yaml) as the policy template: it maps Cline's tools, and lists `submit_and_exit` in `opaque_tools`, because Cline's loop ends only on that call. Details and pitfalls: [Setting up Cline](docs/features.md#setting-up-cline). Full reference: **[Tool calling](docs/features.md#tool-calling)**.
+
+## Real-time streaming
+
+**Status: built and tested, behind `STREAMING_ENABLED` (default `false`).** Off, a `stream: true` request is answered as it always was: after the whole response has been checked. Real time needs three things, and all three are required:
+
+1. `STREAMING_ENABLED=true`.
+2. A model from a providers file (`PROVIDERS_FILE`) with `capabilities.streaming: true`, and `reasoning: true` for reasoning. **Legacy mode, with no `PROVIDERS_FILE`, never streams.**
+3. A role granted `stream:realtime` (and `reasoning:view` for reasoning) in `RBAC_ROLES_FILE`. No built-in role holds either, `admin` included, and the file replaces the whole matrix, so restate every role:
+
+```json
+{
+  "admin":    ["query:submit", "query:byok", "audit:read:all", "audit:read:own", "stats:read"],
+  "auditor":  ["audit:read:all", "audit:read:own", "stats:read"],
+  "user":     ["query:submit", "audit:read:own"],
+  "streamer": ["query:submit", "audit:read:own", "stream:realtime"]
+}
+```
+
+| Variable | Default | Range |
+|---|---|---|
+| `STREAMING_ENABLED` | `false` | `true` / `false` |
+| `STREAM_HOLDBACK_MAX_CHARACTERS` | `400` | `100` to `4000` |
+| `STREAM_COALESCE_MS` | `50` | `0` to `500` |
+
+Released text cannot be recalled, and reasoning is not checked as an answer: read [Real-time delivery](docs/features.md#real-time-delivery) for the visibility matrix, what the output gate costs (with the conditions it was measured under), the residual risks and the verified clients (OpenCode 2.3.2 and Cline 3.0.74, both run against the stub upstream, not a live model) before granting either permission.
 
 ## Action policy rules
 
@@ -317,7 +344,7 @@ The chat UI and the REST API share the exact same process, port, and query pipel
 
 **Known limitations (MVP)**
 
-- No token-by-token streaming — the full response renders once available, same as `POST /query` today.
+- No token-by-token streaming unless real time is on: with `STREAMING_ENABLED=true`, a model with `streaming: true` and a role granted `stream:realtime`, the answer appears as it is written (see [Real-time streaming](#real-time-streaming)); otherwise the full response renders once available, same as `POST /query`. The chat never sends tool calls.
 - **The context limits are characters, not tokens.** `CONTEXT_MAX_CHARACTERS` counts characters across message contents — a deliberate proxy, because counting tokens means carrying a per-model tokenizer the harness does not have. Budget conservatively: for English prose, ~200,000 characters is roughly 50,000 tokens, and code runs denser.
 - **Every user turn is checked for patterns on every send, history included.** The chat runs the `chat` profile, which inspects each `user` turn in the conversation and no `assistant` turn. The consequence worth knowing: after an operator adds a pattern to the patterns file, a chat whose *earlier*, already-answered question contains it is blocked on every further send, because that question is re-inspected each time the history goes upstream. Start a new chat to continue. See [Pattern policy](docs/features.md#pattern-policy).
 - **The PII audit fields describe the new turn and the output, not the history.** `pii_detected_input` and `pii_entities` on an audit row cover the message you just sent plus the model's reply. Entities found while re-masking history are masked but not recorded again — otherwise one email in the first turn would mark every later send of that session as a PII event and inflate the figures in `/stats` and the admin console.
@@ -371,7 +398,7 @@ The deep reference lives in [`docs/`](docs/) — the README stays focused on wha
 
 ## Roadmap
 
-**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), action policy rules, tool calling on `/v1` (OpenCode and Cline in agent mode, off by default), database resilience (retry, circuit breaker, an audit journal and `GET /storage/status`), and multi-instance deployment (a sticky, health-checked balancer, `GET /ready` and a rolling restart; see [Multiple instances](docs/deployment.md#multiple-instances)).
+**Shipped** — duplicate detection, prompt-injection blocking, full audit logging (Turso / libSQL), the chat UI, PII redaction on input and output, RBAC, persisted chat sessions, multi-turn context, a configurable per-deployment pattern policy, PII redaction for code, and per-user usage limits, the OpenAI-compatible endpoint (`/v1`), action policy rules, tool calling on `/v1` (OpenCode and Cline in agent mode, off by default), database resilience (retry, circuit breaker, an audit journal and `GET /storage/status`), real-time streaming on `/v1` and in the chat UI (opt-in, per role), and multi-instance deployment (a sticky, health-checked balancer, `GET /ready` and a rolling restart; see [Multiple instances](docs/deployment.md#multiple-instances)).
 
 **Next up** — provider resilience: a second provider as fallback to OpenRouter. Database resilience has shipped (retry, circuit breaker and an audit journal, PRD-018): see [What a database outage does](docs/deployment.md#what-a-database-outage-does). A transient OpenRouter outage still fails requests rather than degrading them.
 

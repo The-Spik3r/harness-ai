@@ -250,19 +250,86 @@ The key is a harness token from `scripts/manage_users.py create-user`, checked e
 
 **A block is an error the client shows, not a malformed answer.** A duplicate, a pattern hit or a context limit is a `400`; a model outside the allowlist, a usage limit or the break-glass token is a `403`. Each has an OpenAI-shaped error object with a harness `code` and the pipeline's own details under `error.harness`. None of them is a `429`, and every non-retryable error carries `x-should-retry: false`, so the OpenAI SDKs raise once instead of retrying. A transient upstream fault is a retryable `502`, and a database outage a retryable `503` with `Retry-After`. The full table is under [`/v1` errors](api.md#post-v1chatcompletions--errors). An answer carries `id: chatcmpl-harness-<audit_id>` and an `X-Harness-Audit-Id` header, so a client log line leads to the audit row; when the row was journaled during a database outage it carries `chatcmpl-harness-ref-<write_id>` and `X-Harness-Audit-Ref` instead.
 
-**`stream: true` is buffered, not streamed.** The harness has to check the complete response before releasing any of it, so a streamed request is answered as Server-Sent Events only after the whole pipeline has run: `: keep-alive` comments every `V1_SSE_KEEPALIVE_SECONDS` while it waits, then the whole answer as one content chunk (plus one chunk per released tool call), the finish chunk, a usage chunk if `stream_options.include_usage` is set, and `[DONE]`. A block decided before the upstream call still gets its real `400`/`403` as JSON, never a `200` stream. A failure after the stream has started (upstream, output redaction, recording action decisions) is one `data: {"error": {...}}` event with no `[DONE]`.
+**`stream: true` is answered in one of two ways, and the default is buffered.** Buffered (the default): the harness checks the complete response before releasing any of it, so a streamed request is answered as Server-Sent Events only after the whole pipeline has run: `: keep-alive` comments every `V1_SSE_KEEPALIVE_SECONDS` while it waits, then the whole answer as one content chunk (plus one chunk per released tool call), the finish chunk, a usage chunk if `stream_options.include_usage` is set, and `[DONE]`. Real time (opt-in, off unless `STREAMING_ENABLED=true`, a role granted `stream:realtime` and a providers-file model with `streaming: true`): the text is released while the model writes it, each segment redacted first; see [Real-time delivery](#real-time-delivery). In both modes a block decided before the upstream call still gets its real `400`/`403` as JSON, never a `200` stream. A failure after the stream has started (upstream, output redaction, recording action decisions) is one `data: {"error": {...}}` event with no `[DONE]`.
 
 **Unknown parameters are answered, and recorded.** `temperature`, `top_p`, `max_tokens` (or `max_completion_tokens`) and `stop` go upstream, and with `V1_TOOLS_ENABLED=true` so do `tools`, `tool_choice` and `parallel_tool_calls`. Parameters the harness cannot honour except at their default (`n`, `logprobs`, `response_format`, …) are refused unless they hold that default. Everything else (`seed`, `presence_penalty`, `user`, `metadata`, unknown keys) is ignored and its **name**, never its value, is recorded in the row's `ignored_params`, which `/audit` returns. A shape refusal is a `400` that runs no pipeline step and writes no row.
 
 **What `/v1` does not do.** Stated plainly, because each one is a reasonable thing to expect:
 
 - **No tool calling unless `V1_TOOLS_ENABLED=true`.** Off (the default), a non-empty `tools`, a `tool_choice` other than `"none"`, an assistant `tool_calls` or a `tool` turn is `400 tools_not_supported` (absent, `null` and `[]` are accepted). On, they are accepted and every call the model returns is decided by the action policy; see [Tool calling](#tool-calling). `functions` and `function_call` are refused either way.
-- **No real token streaming.** `stream: true` is streaming-shaped, not streaming-latency: the first content arrives when the whole answer is ready (above).
+- **No real token streaming unless it is granted.** Without `STREAMING_ENABLED=true`, a role holding `stream:realtime` and a providers-file model with `streaming: true`, `stream: true` is streaming-shaped, not streaming-latency: the first content arrives when the whole answer is ready (above). With all three, the text arrives as it is written: [Real-time delivery](#real-time-delivery). Legacy mode (no `PROVIDERS_FILE`) never streams.
 - **No bring-your-own key.** `/v1` always spends the deployment's OpenRouter key. `openrouter_api_key` in the body is an ignored unknown key.
 - **No model aliasing.** `model` must match a `MODEL_ALLOWLIST` entry exactly; `gpt-4o` is not `openai/gpt-4o`.
 - **`GET /v1/models` lists `MODEL_ALLOWLIST`, even for an `admin`.** An `admin` may send any model (`MODEL_ALLOWLIST_WILDCARD_ROLES`), but "any" cannot be listed, so it sees the same entries as everyone else.
 - **No break-glass.** `ADMIN_TOKEN` is `403 break_glass_not_permitted` on every `/v1` route, and `BREAK_GLASS_INGRESSES` cannot allow it.
 - **No `n` above 1, no `logprobs`, no JSON mode, no images or audio.** `400 unsupported_parameter`, or `400 invalid_messages` for an image content part.
+
+#### Real-time delivery
+
+**Off by default, and off means today.** With `STREAMING_ENABLED=false` (the default), with a role that holds neither permission, or with a model that has no `capabilities.streaming: true`, every byte sent upstream and returned to a client is what it was before this feature. Real time needs all of: the switch on, a role granted `stream:realtime`, and a model from a [providers file](#providers) with `capabilities.streaming: true` (and `reasoning: true` for reasoning). **Legacy mode, with no `PROVIDERS_FILE`, never streams**: every model there has `streaming` and `reasoning` off. For a model without `streaming`, the request is delivered buffered and nothing is refused.
+
+**Two permissions, granted in `RBAC_ROLES_FILE`.** `stream:realtime` lets a role read the answer while the model writes it; `reasoning:view` lets it read the model's reasoning. **No built-in role holds either of them, `admin` included.** Like the `action:*` permissions, they are read regardless of `RBAC_ENABLED`, so turning RBAC off never grants them. The file replaces the whole matrix, so this one restates the three built-in roles and adds `streamer` (live answer) and `thinker` (live answer and reasoning):
+
+```json
+{
+  "admin":    ["query:submit", "query:byok", "audit:read:all", "audit:read:own", "stats:read"],
+  "auditor":  ["audit:read:all", "audit:read:own", "stats:read"],
+  "user":     ["query:submit", "audit:read:own"],
+  "streamer": ["query:submit", "audit:read:own", "stream:realtime"],
+  "thinker":  ["query:submit", "audit:read:own", "stream:realtime", "reasoning:view"]
+}
+```
+
+**What a role sees.** The grants and the model's capabilities decide, per request:
+
+| `stream:realtime` | `reasoning:view` | `stream: true` | `stream: false` | Chat UI |
+|---|---|---|---|---|
+| no | no | today's buffered SSE, byte for byte | today | progress words; final bubble as today |
+| yes | no | real-time content; reasoning dropped (keep-alives while the model thinks) | today | live answer; no reasoning |
+| no | yes | buffered SSE; the role chunk also carries the whole redacted `reasoning_content` | `message.reasoning_content` | progress words; after the answer, a collapsed reasoning block |
+| yes | yes | real-time content and `reasoning_content` deltas | `message.reasoning_content` | live reasoning block, then live answer |
+
+`STREAMING_ENABLED=false` collapses every row to the first. A model without `streaming` collapses the `stream:realtime` column to "no" for that request. A model without `reasoning` never yields reasoning, whatever the grant.
+
+**The settings.** `STREAMING_ENABLED` (default `false`) is the master switch. `STREAM_HOLDBACK_MAX_CHARACTERS` (default `400`, `100` to `4000`) bounds how much text the output gate holds back before it must release it. `STREAM_COALESCE_MS` (default `50`, `0` to `500`) is the interval over which small deltas are merged into one `/v1` chunk; `0` sends each delta as it arrives. `V1_SSE_KEEPALIVE_SECONDS` keeps its meaning. A provider's `timeout_seconds` now bounds the whole stream, not each read.
+
+**What the stream sends.** After the upstream stream has opened and every verdict is decided: a role chunk (`content: ""`); `reasoning_content` deltas (only with both grants); content chunks, one per released segment; **the whole tool calls, once, after the last content**; one note per denied call; the finish chunk, always the last delta; a usage chunk when `stream_options.include_usage` is set; `[DONE]`. `: keep-alive` comments continue while nothing is releasable. The chunk id is `chatcmpl-harness-rt-<uuid>`, and the audit row carries it as `completion_id`. No chunk carries a `harness` object. Reasoning never reaches the `content` field. The sequence was checked with the OpenAI Python SDK's stream accumulator.
+
+**A verdict is still a real status.** A duplicate, a pattern hit, a context limit, a usage limit or a model refusal is decided before the upstream call and is a `400` or `403` as JSON, never a `200` stream. After the stream has started, a failure (upstream, output redaction, recording action decisions) is one `data: {"error": {...}}` event with no `[DONE]`; the `200` has already been sent. A client that hangs up does not cancel the pipeline: the model's answer is still read to the end, audited and charged.
+
+**How text is checked while it streams.** In the buffered mode output redaction is one call over the whole text. In real time, an output gate holds text back and releases only whole segments, each redacted with the preceding released text as context: under `chat`, a segment ends at a sentence end or a newline; under `code`, at a newline. A line with no boundary is cut at its last whitespace once it grows past `STREAM_HOLDBACK_MAX_CHARACTERS`. Under `code` with `PII_CODE_REDACT_OUTPUT` off (the default) there is no gate: deltas are forwarded as they arrive, merged by `STREAM_COALESCE_MS`. At the end the whole text is redacted once, as the buffered mode does, and compared with what was released; a difference sets `stream_redaction_divergence` on the audit row and logs a `WARNING` naming the user and the `completion_id`, never the content. The persisted chat bubble and the audit entities use that final pass. Reasoning is redacted under every policy, including `code` with output redaction off, with the `chat` entity list when the policy's own is narrower.
+
+**Held tool calls.** A tool call's `arguments` are never forwarded in pieces, to a client or to anything else. They leave once, after the stream has ended and the [action policy](#action-policy-rules) has decided each call, through the same release as the buffered mode. Content written before the calls is live; the calls and any denial notes follow it. The chat UI sends no tool calls.
+
+**What it costs.** The output gate runs one redaction call per segment instead of one per response. Measured with `scripts/measure_stream_gate_latency.py` on a 2000-character reply delivered in 12-character deltas, 50 runs (the measurement report states no machine, Python version or OS):
+
+| Policy | Segment p50 / p95 / max | Response p95 | Final whole-text pass p95 |
+|---|---|---|---|
+| `chat` | 13.1 / 16.7 / 20.1 ms | 530.9 ms | 87.5 ms |
+| `code`, with `PII_CODE_REDACT_OUTPUT` on | 2.1 / 3.3 / 3.8 ms | 27.2 ms | 8.8 ms |
+
+The per-segment p95 is far under the 150 ms at which segments would have been batched, so that fallback was not needed. First content is a test-enforced bound, not a measured figure: `tests/test_v1_realtime.py` asserts that, over 20 runs in process, with 8-character upstream pieces 30 ms apart and `STREAM_COALESCE_MS=50`, the p95 time to the first content chunk is at most the upstream delay plus 0.1 s. The chat UI folds events into state in windows of at most 100 ms.
+
+**What it cannot undo.** Four residual risks, each one the cost of reading text early:
+
+- **Released text cannot be recalled.** The gate can miss an entity that crosses a forced cut or that only whole-text context finds. The final pass detects it and sets `stream_redaction_divergence`; what already left stays with the client. Read the divergence rate (see Audit below) before widening a grant.
+- **Reasoning is not an answer.** It may echo the `system` prompt the client itself sent, or what a tool returned, and it is never checked as an answer. A role granted `reasoning:view` is the admin's acceptance of that. Reasoning is redacted, and never persisted.
+- **A crash mid-stream leaves released text unrecorded.** The audit row is written at the end. An `INFO` line at commit names the user, the model and the `completion_id`, never content, so the gap can be found.
+- **Usage can be an estimate.** If the provider sends no usage, the request is charged an estimate of the characters sent and received, marked `usage_estimated`, whatever the provider's `usage_missing` mode. A stream that fails after text was released is charged that estimate too.
+
+**Verified clients.** Both were run end to end against the harness with real time on and the **stub upstream, not a live model**; the end-to-end modules are opt-in (`--run-e2e`).
+
+- **OpenCode v2.3.2**: real time verified (5 passed, 2026-11-19). Reasoning shows only when OpenCode runs with `--thinking`; set `compatibility.reasoningField: reasoning_content` on the provider ([OpenCode models docs](https://opencode.ai/docs/models)). OpenCode accepts unknown keys silently, and with `--thinking` it also displayed the stub's reasoning without the key (an observation, not asserted).
+- **Cline 3.0.74**: real time verified (5 passed, 2026-11-19); it displays `reasoning_content`.
+- **Any other client is not verified.** A client that renders `reasoning_content` as content, or writes it to a file, would show or save text nobody checked as an answer: grant `reasoning:view` only to roles whose client is verified. `tests/e2e/test_opencode.py`, the tool-calling run, still pins OpenCode 2.0.10; do not read it as a real-time claim for that version.
+
+Setup for both is under [Setting up OpenCode](#setting-up-opencode) and [Setting up Cline](#setting-up-cline).
+
+**Audit.** `GET /audit` returns `streamed_realtime` (text was delivered live), `reasoning_shown` (reasoning was delivered), `stream_redaction_divergence` and `completion_id`. `GET /audit?completion_id=<id>` returns the rows whose `completion_id` matches exactly, applied after the caller's scope. The admin console's Register marks real-time rows `LIVE`. Reasoning text is in no row.
+
+**In the chat UI.** The pending entry shows a progress word and the seconds elapsed (for example `Thinking · 14 s`), and a word appears only if its stage is still current 300 ms after it started. With `stream:realtime` the answer appears live in that entry; with `reasoning:view` a collapsible reasoning block labelled `Model reasoning — not checked as an answer` sits with it, collapsed once the answer arrives. Reasoning is kept in memory on the bubble only: a restored transcript shows none, and the block reads `Not saved with the chat`. The progress line and live answer were checked by tests and a compile check, not in a real browser.
+
+**Out of scope.** Real time on `POST /query`, tool calls in the chat UI, releasing a tool call before the stream ends, and storing reasoning.
 
 #### Per-client setup
 
@@ -512,7 +579,7 @@ providers:
 - **No health probes** of providers.
 - **No per-provider cost or budgets.** Usage limits stay per user.
 - **No bring-your-own key on `/v1` or in the chat UI.**
-- **No upstream streaming.** The adapter has `stream()` and `collect()` ready for PRD-021, but nothing streams upstream today and the harness still buffers every answer (see [No real token streaming](#openai-compatible-endpoint)).
+- **Upstream streaming is off by default.** The adapter's `stream()` and `collect()` are used only when `STREAMING_ENABLED=true` and the model has `capabilities.streaming: true`; with no `PROVIDERS_FILE` nothing streams, and the harness buffers every answer (see [Real-time delivery](#real-time-delivery)).
 
 ### Action policy rules
 
@@ -658,7 +725,7 @@ A model-generated `DROP TABLE` through `bash`, with the call denied (trimmed):
 
 **`harness.actions`.** One `{tool_call_id, tool_name, decision, rule, reason}` per evaluated call, released or not, in the model's order. It is in the non-streamed body only.
 
-**Streaming is still buffered.** A `stream: true` request waits for the whole pipeline, then sends, after the keep-alive comments: a role chunk (`content`, or `null`), **one chunk per released call carrying its whole `arguments`**, a finish chunk, a usage chunk when `stream_options.include_usage` is set, and `[DONE]`. The chunks carry no `harness` object. The sequence was checked with the OpenAI Python SDK's stream accumulator, in process, and by OpenCode and Cline, whose E2E requests were all streamed.
+**Streaming: buffered by default, real time on a grant.** By default a `stream: true` request waits for the whole pipeline, then sends, after the keep-alive comments: a role chunk (`content`, or `null`), **one chunk per released call carrying its whole `arguments`**, a finish chunk, a usage chunk when `stream_options.include_usage` is set, and `[DONE]`. In [real time](#real-time-delivery) the text before the calls is released as it is written, and the calls then leave in the same shape, once, after the stream ends and the action policy has decided them: no call and no part of its `arguments` is ever sent before that. The chunks carry no `harness` object. The buffered sequence was checked with the OpenAI Python SDK's stream accumulator, in process, and by OpenCode and Cline, whose E2E requests in the tool-calling runs were all streamed and buffered; the real-time runs are under [Real-time delivery](#real-time-delivery).
 
 **Tool loops and the duplicate check.** An agent loop sends many requests whose last turn is a `tool` result, so the [duplicate check](#duplicate-detection-scope) anchors on the last `user` turn, never on a tool turn, and every other turn goes into the prefix hash with the anchor's position marked. Each step of a loop therefore has a longer prefix and a key of its own: `npm test` twice in one session is not held as a duplicate. A byte-identical resend, such as a client's automatic retry, still is. Keys for requests without tool content are unchanged, so upgrading resets no 24-hour window.
 
@@ -671,7 +738,7 @@ A model-generated `DROP TABLE` through `bash`, with the call denied (trimmed):
 - **Tool schemas are not inspected.** `tools[].description` and `parameters` are forwarded as sent.
 - **Arguments are not pattern-inspected or redacted**, and `functions` / `function_call` are refused.
 - **MCP payloads are not classified.** OpenCode 2.x calls MCP tools inside its `execute` tool, which is `tool.unknown` and always denied; map the MCP tool names in `tools:` for a client that sends them directly.
-- **Streaming is buffered**, so a client sees nothing until the model has finished.
+- **Tool calls are never streamed in pieces.** A client sees nothing of a call until the model has finished and the action policy has decided it, in the buffered mode and in [real time](#real-time-delivery) alike. Under real time the text before the calls arrives live.
 - **`POST /query` and the chat UI never send tool calls.** A `tool_calls` reply from the upstream there stays an upstream error.
 - **`GET /v1/models` has no capability field**; `V1_TOOL_MODELS` is how a deployment says which models may use tools.
 

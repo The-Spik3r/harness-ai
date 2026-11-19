@@ -191,7 +191,11 @@ curl http://localhost:8000/audit \
       "streamed": false,
       "has_tool_calls": false,
       "conversation_key": "5c1f0e9d2b7a4c3e8f6d1a0b9c8e7f6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
-      "limit_exceeded": null
+      "limit_exceeded": null,
+      "streamed_realtime": false,
+      "reasoning_shown": false,
+      "stream_redaction_divergence": false,
+      "completion_id": null
     }
   ]
 }
@@ -221,6 +225,17 @@ Eight fields describe the request itself (PRD-013):
 | `has_tool_calls` | The request carried an assistant `tool_calls` or a `tool` turn, or the upstream response carried tool calls (counted before the action policy decides them). `false` on every row while `V1_TOOLS_ENABLED=false` |
 | `conversation_key` | A grouping key for the conversation the row belongs to; see below |
 | `limit_exceeded` | `requests` or `tokens` on a [usage-limit refusal](#post-query--blocked-usage-limit); `null` on every other row |
+
+Four more fields describe [real-time delivery](features.md#real-time-delivery) (PRD-021):
+
+| Field | Meaning |
+|---|---|
+| `streamed_realtime` | The text was delivered while the model wrote it. `false` on a buffered row, and on every row written before PRD-021 |
+| `reasoning_shown` | The model's reasoning was delivered to the caller. Reasoning text itself is in no row |
+| `stream_redaction_divergence` | The output gate released text that the final whole-text pass would have redacted differently. A `WARNING` names the user and the `completion_id`, never content |
+| `completion_id` | The id the real-time stream carried (`chatcmpl-harness-rt-<uuid>`), so a client log line leads to the row. `null` on a buffered row |
+
+`?completion_id=<id>` (1 to 128 characters; an empty value is a `422`) returns the rows whose `completion_id` equals it exactly, no prefix match. It applies after the scoping, so under `audit:read:own` another user's id is an empty list, not a `403`.
 
 Rows written before PRD-013 return `null` for the six nullable fields and `false` for `streamed` and `has_tool_calls`, which were impossible then. No row is backfilled.
 
@@ -409,6 +424,33 @@ data: [DONE]
 - The usage chunk (empty `choices`) is sent only with `include_usage`.
 - There is no `X-Harness-Audit-Id` header: the row does not exist when the headers go out. Every chunk's `id` carries it (the `chatcmpl-harness-ref-<write_id>` form when the row was journaled).
 - A block decided before the upstream call (every verdict in the table below) is answered as JSON with its own status, exactly as unstreamed. A failure after the stream started is one `data: {"error": {...}}` event, the same object as below, and the stream ends without `[DONE]`.
+
+This is the **buffered** stream, the default. With `STREAMING_ENABLED=true`, a role granted `stream:realtime` and a model with `streaming: true` the answer is **real time** instead:
+
+```
+data: {"id":"chatcmpl-harness-rt-<uuid>","object":"chat.completion.chunk",...,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+: keep-alive
+
+data: {...,"choices":[{"index":0,"delta":{"reasoning_content":"The user wants..."},"finish_reason":null}]}
+
+data: {...,"choices":[{"index":0,"delta":{"content":"I will drop "},"finish_reason":null}]}
+
+data: {...,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read","arguments":"{...the whole arguments...}"}}]},"finish_reason":null}]}
+
+data: {...,"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {...,"choices":[],"usage":{...}}
+
+data: [DONE]
+```
+
+- The role chunk is sent when the upstream stream opens. `: keep-alive` continues every `V1_SSE_KEEPALIVE_SECONDS` while nothing is releasable.
+- `delta.reasoning_content` appears only with both `stream:realtime` and `reasoning:view` and a model with `reasoning: true`; it is never in `content`. Without `stream:realtime`, a role holding `reasoning:view` gets the whole redacted reasoning on the role chunk of the buffered stream, and `message.reasoning_content` on a non-streamed response.
+- Each content chunk is one released segment, redacted before release; chunks are merged over `STREAM_COALESCE_MS`.
+- A tool call is sent **once, whole, after the last content**, never in fragments. One note per denied call follows it as content, and the finish chunk is always the last delta.
+- The `id` is `chatcmpl-harness-rt-<uuid>` on every chunk and is the row's `completion_id`. There is no `X-Harness-Audit-Id` header, and no chunk carries a `harness` object.
+- **Error after commit.** A verdict is decided before the upstream call and keeps its real `400`/`403`. A failure once the stream has started is one `data: {"error": {...}}` event and the stream ends without `[DONE]`; the `200` has already been sent, and text already released cannot be recalled.
 
 ### `POST /v1/chat/completions` — errors
 

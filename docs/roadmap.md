@@ -22,6 +22,7 @@ What has shipped, what is next, and design notes for the planned work. The READM
 - [x] [Tool calling on /v1](features.md#tool-calling) — OpenCode and Cline in agent mode; every tool call decided by the action policy before the client sees it; off by default (`V1_TOOLS_ENABLED`)
 - [x] [Action policy rules](#action-policy-rules) — deny destructive SQL, shell, and filesystem operations. Built in [PRD-016](features.md#action-policy-rules) and decided on every `/v1` tool call since PRD-017
 - [x] [Audit fields and usage limits](features.md#usage-limits) — per-user token budget and rate limit, shared across instances; ingress, token split and conversation key on every audit row; `ADMIN_TOKEN` scoped by ingress
+- [x] [Real-time streaming](features.md#real-time-delivery) — PRD-021: opt-in per role (`stream:realtime`, `reasoning:view`) and off by default (`STREAMING_ENABLED`); text released while the model writes it, each segment redacted first, tool calls held until the action policy has decided them; the chat UI shows a progress line, a live answer and a reasoning block. Verified end to end with OpenCode 2.3.2 and Cline 3.0.74, both against the stub upstream, not a live model
 - [x] [Database resilience](deployment.md#what-a-database-outage-does) — retry and circuit breaker on the database path, an audit journal with a drainer, `503` with `Retry-After` on every ingress, `GET /storage/status` and an admin Storage page
 
 ### Next up — resilience
@@ -49,9 +50,19 @@ OPENAI_BASE_URL=http://localhost:8000/v1
 OPENAI_API_KEY=<harness token, never the OpenRouter key>
 ```
 
-It is a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate, pattern, PII, OpenRouter and audit flow, runs the `code` profile, and maps a block back onto the standard's error shape, so the calling tool shows an ordinary API error instead of a malformed completion. The harness is the only component holding the real OpenRouter key. `stream: true` is answered after the whole response has been checked (buffered upstream and re-emitted as SSE), which is streaming-shaped, not streaming-latency. `ADMIN_TOKEN` is never accepted there. Settings: `V1_ENABLED`, `V1_SSE_KEEPALIVE_SECONDS`, `OPENROUTER_BASE_URL`, `V1_TOOLS_ENABLED`, `V1_TOOL_MODELS` (documented in `.env.example`).
+It is a translation layer, not a second pipeline: it maps the `messages` array onto the existing duplicate, pattern, PII, OpenRouter and audit flow, runs the `code` profile, and maps a block back onto the standard's error shape, so the calling tool shows an ordinary API error instead of a malformed completion. The harness is the only component holding the real OpenRouter key. `stream: true` is answered after the whole response has been checked (buffered upstream and re-emitted as SSE), which is streaming-shaped, not streaming-latency, unless a role is granted real time (PRD-021, below). `ADMIN_TOKEN` is never accepted there. Settings: `V1_ENABLED`, `V1_SSE_KEEPALIVE_SECONDS`, `OPENROUTER_BASE_URL`, `V1_TOOLS_ENABLED`, `V1_TOOL_MODELS` (documented in `.env.example`).
 
-**Tool calling (PRD-017).** With `V1_TOOLS_ENABLED=true`, `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns are accepted, which is what Cline and OpenCode need in agent mode, and every call the model returns is decided before it is released. Off, the default, keeps the `tools_not_supported` refusal. See [Tool calling](features.md#tool-calling). **Still not covered:** `functions` / `function_call` (refused either way) and real streaming (the stream is still buffered).
+**Tool calling (PRD-017).** With `V1_TOOLS_ENABLED=true`, `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns are accepted, which is what Cline and OpenCode need in agent mode, and every call the model returns is decided before it is released. Off, the default, keeps the `tools_not_supported` refusal. See [Tool calling](features.md#tool-calling). **Still not covered:** `functions` / `function_call` (refused either way) and real streaming, which has since shipped behind a grant (see [Real-time delivery](features.md#real-time-delivery)).
+
+**Real-time streaming (PRD-021).** Delivered, off by default: `STREAMING_ENABLED`, plus a role granted `stream:realtime` (and `reasoning:view` for the model's reasoning) and a providers-file model with `capabilities.streaming: true`; legacy mode never streams. The text is released while the model writes it, each segment redacted first, and tool calls are never sent in pieces. Verified clients: OpenCode 2.3.2 and Cline 3.0.74, both end to end against the stub upstream, not a live model. Full behaviour, costs and residual risks: [Real-time delivery](features.md#real-time-delivery). **Still not covered**, each an open item:
+
+- [ ] **Per-call early release**: release a tool call as soon as the next call's first fragment (or the finish) proves its arguments complete, deciding each on its own, instead of after the stream ends.
+- [ ] **Write-ahead audit row** at commit, updated at the end, so a crash mid-stream no longer leaves released text unrecorded.
+- [ ] **Reasoning audit store** with its own retention and read permission; reasoning is not stored today.
+- [ ] **Progress words for `/v1`** through a side channel a client opts into, only once a client is shown to ignore unknown event types safely.
+- [ ] **Streaming on `POST /query`**, as an opt-in SSE variant, if a non-chat client appears.
+- [ ] **Admin-console grant editor** for the permission matrix, covering action and stream permissions together.
+- [ ] **Native-adapter reasoning formats** (PRD-022): Anthropic thinking blocks and Gemini thoughts, normalized into the reasoning stream.
 
 ### MCP servers and agent skills
 

@@ -7,17 +7,17 @@ type: enhancement
 priority: medium
 complexity: small
 phase: "4 - Clients and docs"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-021-realtime-streaming
-plan: null
-report: null
+plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-016-streaming-docs.plan.md
+report: .agents/reports/PRD-021-realtime-streaming/STORY-016-streaming-docs.report.md
 commit: null
 depends_on: [STORY-010, STORY-012, STORY-013, STORY-014, STORY-015]
 blocks: []
 skills: []
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # STORY-016: Document real-time streaming, grants and progress feedback
