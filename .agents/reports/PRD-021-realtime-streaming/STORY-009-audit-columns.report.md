@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-021
 plan: .agents/plans/PRD-021-realtime-streaming/completed/STORY-009-audit-columns.plan.md
 epic_branch: epic/PRD-021-realtime-streaming
-commit: pending
+commit: e87f3ad
 status: COMPLETE
 completed: 2026-11-18
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-18
 
 **Plan**: `.agents/plans/PRD-021-realtime-streaming/completed/STORY-009-audit-columns.plan.md`
 **Epic Branch**: `epic/PRD-021-realtime-streaming`
-**Commit**: `pending`
+**Commit**: `e87f3ad`
 
 ## Summary
 
