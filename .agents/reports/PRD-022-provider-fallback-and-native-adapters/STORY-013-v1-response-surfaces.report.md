@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-013-v1-response-surfaces.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: bcde8a5
 status: COMPLETE
 completed: 2026-11-20
 ---
