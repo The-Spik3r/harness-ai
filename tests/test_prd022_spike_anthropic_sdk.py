@@ -311,11 +311,16 @@ def test_breaker_api_shape_for_prd022():
     init = inspect.signature(CircuitBreaker.__init__).parameters
     assert list(init)[1:] == [
         "name", "failure_threshold", "open_seconds", "clock", "probe", "on_transition",
+        # PRD-022 STORY-010 (F9): additive keyword, None keeps PRD-018's levels.
+        "transition_log_level",
     ]
     assert init["probe"].default is None
     # No per-call open time: the 429 rule max(retry_after, 10) needs force_open.
     assert list(inspect.signature(CircuitBreaker.record_failure).parameters)[1:] == ["failure_class"]
-    assert list(inspect.signature(CircuitBreaker.force_open).parameters)[1:] == ["seconds"]
+    assert list(inspect.signature(CircuitBreaker.force_open).parameters)[1:] == [
+        "seconds",
+        "failure_class",  # PRD-022 STORY-010 (D12): additive, default "forced"
+    ]
     assert list(inspect.signature(CircuitBreaker.record_success).parameters)[1:] == []
 
 

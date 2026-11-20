@@ -455,3 +455,42 @@ def test_a_raising_on_transition_hook_leaves_the_breaker_working(now, caplog):
     with pytest.raises(BreakerOpen):
         breaker.before()
     assert any("on_transition hook failed" in r.getMessage() for r in caplog.records)
+
+
+# --- PRD-022 STORY-010: additive provider-breaker support ------------------------
+
+
+def test_half_open_refusal_carries_its_state(now):
+    breaker = _breaker(now)
+    _open(breaker)
+    with pytest.raises(BreakerOpen) as opened:
+        breaker.before()
+    assert opened.value.state == "open"
+    now[0] = 10.0
+    breaker.before()  # the trial (probe=None)
+    with pytest.raises(BreakerOpen) as busy:
+        breaker.before()
+    assert busy.value.state == "half_open"
+    assert BreakerOpen("x", 1).state == "open"  # the PRD-018 default
+
+
+def test_force_open_names_the_failure_class(now, caplog):
+    breaker = _breaker(now)
+    breaker.force_open(5, failure_class="misconfigured")
+    assert _lines(caplog) == [
+        "breaker name=storage from=closed to=open class=misconfigured"
+    ]
+
+
+def test_transition_log_level_overrides_and_the_default_is_unchanged(now, caplog):
+    def levels(**kw):
+        caplog.clear()
+        breaker = CircuitBreaker("p", 1, 10.0, clock=lambda: now[0], **kw)
+        breaker.record_failure("timeout")  # closed -> open
+        now[0] += 10.0
+        breaker.before()  # open -> half_open
+        breaker.record_success()  # half_open -> closed
+        return [r.levelno for r in caplog.records if r.name == _LOG]
+
+    assert levels() == [logging.WARNING, logging.INFO, logging.INFO]
+    assert levels(transition_log_level=logging.WARNING) == [logging.WARNING] * 3

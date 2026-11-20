@@ -102,6 +102,7 @@ from app.db import storage_counters  # noqa: E402
 from app.services.circuit_breaker import CircuitBreaker  # noqa: E402
 from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
+from app.services.upstream import health as provider_health  # noqa: E402
 
 
 #: The marker on latency-budget assertions (PRD-012 STORY-013).
@@ -738,6 +739,18 @@ def _fresh_storage_counters():
     storage_counters._reset()
     yield
     storage_counters._reset()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_provider_health():
+    """Every test starts with no provider breakers and zeroed counters (PRD-022 STORY-010).
+
+    `upstream/health.py` keeps one breaker per provider as module state, so one
+    test's outage would otherwise leave the next test's provider open.
+    """
+    provider_health.reset()
+    yield
+    provider_health.reset()
 
 
 _audit_buffer_numbers = itertools.count(1)
