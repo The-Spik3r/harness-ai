@@ -196,10 +196,18 @@ class HarnessCompletionInfo(BaseModel):
     # PRD-020 D8 / STORY-009: the usage numbers are the harness's estimate. Emitted
     # only when true, so a reported-usage body is byte-identical to today's.
     usage_estimated: bool = False
+    # PRD-022 D17 / F10: the answering provider and the upstream calls made.
+    # Dropped when None (a result built without the pipeline), so every body that
+    # predates fallback keeps its keys.
+    provider: Optional[str] = None
+    attempts: Optional[int] = None
 
     @model_serializer(mode="wrap")
     def _drop_absent_actions(self, handler):
         data = handler(self)
+        for key in ("provider", "attempts"):
+            if data.get(key) is None:
+                data.pop(key, None)
         if data.get("actions") is None:
             data.pop("actions", None)
         if not data.get("usage_estimated"):

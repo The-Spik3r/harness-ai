@@ -10,6 +10,7 @@ from app.db.database import mark_audit_log_failed
 from app.db.errors import AuditUnavailableError, StorageError
 from app.models.messages import Message, ToolCallSpec, conversation_shape_violation
 from app.models.schemas import (
+    AnsweredBy,
     QueryBlockedContextLimitResponse,
     QueryBlockedDuplicateResponse,
     QueryBlockedForbiddenResponse,
@@ -1755,6 +1756,16 @@ def run_conversation(
         pii_redacted=bool(masked_entities),
         pii_entities_masked=masked_entities,
     )
+    if route is not None:
+        # PRD-022 D17 / F10: who answered (private, never serialized). `route` is
+        # the answering candidate's on a chained request; the single call made one
+        # upstream call with the requested model. This is the only
+        # `QuerySuccessResponse(` in the pipeline, so every real success carries it.
+        success._answered_by = AnsweredBy(
+            route.provider.name,
+            chain_outcome.route.model_id if chain_outcome is not None else model,
+            chain_outcome.attempt if chain_outcome is not None else 1,
+        )
     if outcome is not None:
         # Private, never serialized (STORY-010 DD-1): the router's only source of
         # released calls (T1).

@@ -1,10 +1,23 @@
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, PrivateAttr, field_validator
 
 if TYPE_CHECKING:
     from app.services.tool_release import ToolOutcome
+
+
+@dataclass(frozen=True)
+class AnsweredBy:
+    """Who answered a request (PRD-022 D17, F10): provider name, the answering
+    catalogue id and the number of upstream calls made. Carried privately on
+    `QuerySuccessResponse`; `/v1` surfaces it, `/query` does not.
+    """
+
+    provider: str
+    model: str
+    attempts: int
 
 
 class QueryRequest(BaseModel):
@@ -122,6 +135,16 @@ class QuerySuccessResponse(BaseModel):
     @property
     def upstream_result(self) -> Any:
         return self._upstream_result
+
+    # PRD-022 D17 / F10 / STORY-013: the answering provider, catalogue id and call
+    # count, set on every real success. Private like `_tool_outcome`: never
+    # serialized, so `/query`'s body and OpenAPI do not move. `None` on a result
+    # built without the pipeline (a stub).
+    _answered_by: Optional[AnsweredBy] = PrivateAttr(default=None)
+
+    @property
+    def answered_by(self) -> Optional[AnsweredBy]:
+        return self._answered_by
 
 
 class QueryBlockedDuplicateResponse(BaseModel):

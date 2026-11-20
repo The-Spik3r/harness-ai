@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Chains and breaker"
-status: todo
+status: in-progress
 labels: [backend, api, v1]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-013-v1-response-surfaces.plan.md
 report: null
 commit: null
 depends_on: [STORY-012]

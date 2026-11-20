@@ -16,6 +16,7 @@ import os
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("ADMIN_TOKEN", "test-token")
 
+import json
 import re
 
 import pytest
@@ -568,3 +569,136 @@ def test_streamed_request_on_chained_model_stays_single_candidate(temp_db, chain
 
     assert isinstance(result, QuerySuccessResponse)
     assert ran == [] and streamed == ["remote/m"]
+
+
+# --- STORY-013: /v1 response surfaces -----------------------------------------------
+
+from app.services.upstream.types import ChainExhausted  # noqa: E402
+
+_V1_BODY = {"model": "remote/m", "messages": [{"role": "user", "content": "hello"}]}
+
+
+def _v1(monkeypatch, upstream, body=None):
+    monkeypatch.setattr(v1_router, "call_openrouter", upstream)
+    return TestClient(app, headers=_HEADERS).post("/v1/chat/completions", json=body or _V1_BODY)
+
+
+def test_v1_answer_without_fallback_names_provider_and_one_attempt(temp_db, chained, monkeypatch):
+    response = _v1(monkeypatch, Upstream())
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["model"] == "remote/m"
+    assert (body["harness"]["provider"], body["harness"]["attempts"]) == ("remote", 1)
+    assert response.headers["X-Harness-Provider"] == "remote"
+
+
+def test_v1_fallback_answer_names_the_answering_model_provider_and_attempts(
+    temp_db, chained, monkeypatch
+):
+    response = _v1(monkeypatch, Upstream({"remote/m": _503()}))
+    body = response.json()
+    assert response.status_code == 200, response.text
+    assert body["model"] == "other/m"  # PRD-022 D17: the answering id, not the requested one
+    assert (body["harness"]["provider"], body["harness"]["attempts"]) == ("other", 2)
+    assert response.headers["X-Harness-Provider"] == "other"
+
+
+def test_v1_buffered_sse_carries_the_answering_model(temp_db, chained, monkeypatch):
+    # PRD-022 F10 (accepted deviation): headers go out at commit, before the answer
+    # exists, so a buffered stream has the answering `model` only.
+    response = _v1(monkeypatch, Upstream({"remote/m": _503()}), {**_V1_BODY, "stream": True})
+    assert response.status_code == 200, response.text
+    assert "X-Harness-Provider" not in response.headers
+    chunks = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and line != "data: [DONE]"
+    ]
+    assert chunks and {c["model"] for c in chunks} == {"other/m"}
+
+
+def test_v1_total_outage_is_retryable_with_retry_after(temp_db, chained, monkeypatch):
+    _open_all()
+    response = _v1(monkeypatch, Upstream())
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "upstream_unavailable"
+    assert response.headers["retry-after"].isdigit()
+    assert "x-should-retry" not in response.headers
+
+
+def _raising(exc):
+    def run(*a, **k):
+        raise exc
+
+    return run
+
+
+def test_v1_exhaustion_without_retry_after_has_no_header(temp_db, chained, monkeypatch):
+    monkeypatch.setattr(query_pipeline.chain, "run", _raising(ChainExhausted([("remote", "open")])))
+    response = _v1(monkeypatch, Upstream())
+    assert response.json()["error"]["code"] == "upstream_unavailable"
+    assert "retry-after" not in response.headers
+
+
+def test_v1_capability_only_exhaustion_is_not_retryable_and_names_the_reason(
+    temp_db, chained, monkeypatch
+):
+    monkeypatch.setattr(
+        query_pipeline.chain, "run", _raising(ChainExhausted([("other", "capability")]))
+    )
+    response = _v1(monkeypatch, Upstream())
+    error = response.json()["error"]
+    assert response.status_code == 502 and error["code"] == "upstream_error"
+    assert response.headers["x-should-retry"] == "false"
+    assert "capability" in error["message"] and "other" not in error["message"]
+
+
+def test_v1_mixed_skips_stay_unavailable(temp_db, chained, monkeypatch):
+    monkeypatch.setattr(
+        query_pipeline.chain,
+        "run",
+        _raising(ChainExhausted([("other", "capability"), ("remote", "open")], retry_after_seconds=9)),
+    )
+    response = _v1(monkeypatch, Upstream())
+    assert response.json()["error"]["code"] == "upstream_unavailable"
+    assert response.headers["retry-after"] == "9"
+
+
+def test_v1_last_attempt_4xx_keeps_upstream_error(temp_db, chained, monkeypatch):
+    upstream = Upstream({"remote/m": _503(), "other/m": OpenRouterError("bad", upstream_status=400)})
+    response = _v1(monkeypatch, upstream)
+    assert response.json()["error"]["code"] == "upstream_error"
+    assert response.headers["x-should-retry"] == "false"
+
+
+def test_v1_exhaustion_never_leaks_the_upstream_text(temp_db, chained, monkeypatch):
+    canary = "sk-or-v1-CANARY"
+    failure = OpenRouterError(f"boom {canary}", upstream_status=503, retryable=True, provider="other")
+    upstream = Upstream({"remote/m": failure, "other/m": failure})
+    response = _v1(monkeypatch, upstream)
+    assert response.status_code == 502
+    assert canary not in response.text
+    assert all(canary not in v for v in response.headers.values())
+    monkeypatch.setattr(
+        query_pipeline.chain, "run", _raising(ChainExhausted([("other", "open")], last_error=failure))
+    )
+    response = _v1(monkeypatch, upstream)
+    assert canary not in response.text and "other" not in response.json()["error"]["message"]
+
+
+def test_query_success_body_has_no_provenance_keys(temp_db, chained, monkeypatch):
+    monkeypatch.setattr(query_router, "call_openrouter", Upstream({"remote/m": _503()}))
+    body = TestClient(app, headers=_HEADERS).post(
+        "/query", json={"prompt": "hello", "model": "remote/m"}
+    ).json()
+    assert "provider" not in body and "attempts" not in body and "answered_by" not in body
+    assert "answered_by" not in QuerySuccessResponse.model_json_schema()["properties"]
+
+
+def test_v1_without_a_chain_is_one_attempt(temp_db, provider_file, monkeypatch):  # noqa: F811
+    provider_file(_REGISTRY)  # no PROVIDER_CHAINS_FILE
+    response = _v1(monkeypatch, Upstream())
+    body = response.json()
+    assert response.status_code == 200, response.text
+    assert body["harness"]["attempts"] == 1
+    assert response.headers["X-Harness-Provider"] == body["harness"]["provider"] == "remote"

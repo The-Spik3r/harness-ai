@@ -26,7 +26,7 @@ All stories commit on the epic branch `epic/PRD-022-provider-fallback-and-native
 | STORY-010 | health.py — one CircuitBreaker per provider, fault recording rules, providers_status() | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-010-provider-breakers-health.plan.md) | `1a4ba42` |
 | STORY-011 | chain.py — per-request eligibility, per-route redaction hook, run() with per-attempt callbacks, ChainExhausted | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-011-chain-runner.plan.md) | `8d3ccef` |
 | STORY-012 | Pipeline steps 6+7 through chain.run() for buffered calls — per-attempt rows, exhaustion row, admit/charge once | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-012-pipeline-chain-buffered.plan.md) | `505b126` |
-| STORY-013 | /v1 surfaces — answering model, harness.provider/attempts, X-Harness-Provider, exhaustion with retry-after | feature | ⬜ todo | medium | — | — |
+| STORY-013 | /v1 surfaces — answering model, harness.provider/attempts, X-Harness-Provider, exhaustion with retry-after | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/STORY-013-v1-response-surfaces.plan.md) | — |
 | STORY-014 | Real-time streamed requests through the chain — fall back before release, never after | feature | ⬜ todo | large | — | — |
 | STORY-015 | GET /providers/status and the /stats fallback figures | feature | ⬜ todo | medium | — | — |
 | STORY-016 | Admin console — Providers panel and attempt column on the Register | feature | ⬜ todo | medium | — | — |

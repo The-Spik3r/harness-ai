@@ -598,7 +598,10 @@ def translate_result(
     "stop" (an omitted one included). A missing split is `0` on both sides
     with the reported total, so clients that compute cost from the keys keep
     working; the audit row keeps NULL, which stays the truth. `model` is the
-    requested name, as `model_used` records it.
+    answering catalogue id, as `model_used` records it (PRD-022 D17): on a
+    fallback it is the candidate that answered, not the requested name.
+    `harness.provider` / `harness.attempts` come from `result.answered_by`
+    (F10) and are absent when the result carries none.
 
     PRD-017 Section 6.6, D2, D14, T1: the tool calls come from
     `result.tool_outcome` (step 7c's release), never from `upstream`. When
@@ -653,6 +656,7 @@ def translate_result(
         ]
     prompt_tokens = 0 if upstream.input_tokens is None else upstream.input_tokens
     completion_tokens = 0 if upstream.output_tokens is None else upstream.output_tokens
+    answered_by = result.answered_by
     return ChatCompletion(
         id=(
             chat_completion_id(result.audit_id)
@@ -674,7 +678,42 @@ def translate_result(
             pii_entities_masked=result.pii_entities_masked,
             actions=actions,
             usage_estimated=upstream.usage_estimated,
+            provider=None if answered_by is None else answered_by.provider,
+            attempts=None if answered_by is None else answered_by.attempts,
         ),
+    )
+
+
+# PRD-022 F7, O5: skip reasons that no later request can cure by waiting, so an
+# exhaustion made only of them is not retryable. Closed words, never provider names.
+_NON_RETRYABLE_SKIPS = frozenset({"capability", "forbidden", "byok"})
+
+
+def translate_exhausted(
+    skipped: Sequence[Sequence[str]],
+    last_error: Any,
+    retry_after_seconds: Optional[int],
+) -> V1Error:
+    """A `ChainExhausted` as the error the client reads (PRD-022 F7, O5, D12).
+
+    Takes the exception's attributes, not the exception (this module imports
+    nothing from `app.services.upstream`). With no attempt made and every skip
+    a `capability`, `forbidden` or `byok` one, waiting cannot help: 502
+    `upstream_error`, not retryable, naming only the sorted distinct closed-
+    vocabulary reasons. Anything else is `upstream_unavailable` (retryable) with
+    `retry_after_seconds` as given. T10: `last_error` is only tested for None;
+    its text and the provider names never reach the message.
+    """
+    reasons = {reason for _, reason in skipped}
+    if last_error is None and reasons and reasons <= _NON_RETRYABLE_SKIPS:
+        return translate_fault(
+            UPSTREAM_ERROR,
+            "no provider can serve this request: " + ", ".join(sorted(reasons)),
+        )
+    return translate_fault(
+        UPSTREAM_UNAVAILABLE,
+        "all providers unavailable",
+        retry_after_seconds=retry_after_seconds,
     )
 
 
