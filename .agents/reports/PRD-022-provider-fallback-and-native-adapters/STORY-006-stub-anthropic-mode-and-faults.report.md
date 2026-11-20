@@ -3,7 +3,7 @@ story: STORY-006
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-006-stub-anthropic-mode-and-faults.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: 953d3e8
 status: COMPLETE
 completed: 2026-11-20
 ---
