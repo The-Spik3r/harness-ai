@@ -21,6 +21,7 @@ from app.services import (
     pipeline_executor,
     provider_registry,
 )
+from app.services.upstream import chain_config
 
 from chat_ui import theme
 from chat_ui.components.actions import actions
@@ -272,6 +273,11 @@ app.register_lifespan_task(action_config.load)
 # action_config.load because the key_env warning reads the loaded action
 # policy's secrets.env globs; Reflex runs tasks in registration order.
 app.register_lifespan_task(provider_registry.load)
+# Same bypass (PRD-022 STORY-009): without this the chat UI would serve single-candidate
+# chains while the API serves PROVIDER_CHAINS_FILE's, and a broken file would stop uvicorn
+# but not the deployment serving traffic. After provider_registry.load because chains
+# resolve against its catalogue; Reflex runs tasks in registration order.
+app.register_lifespan_task(chain_config.load)
 # Same bypass again (STORY-016): app.main's fail-fast bootstrap guard would
 # otherwise never run for this ingress, so RBAC_ENABLED=true with zero
 # seeded users would boot the chat UI straight into a silent 401 wall

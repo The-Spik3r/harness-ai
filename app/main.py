@@ -11,6 +11,7 @@ from app.routers import admin as admin_router
 from app.routers import query as query_router
 from app.routers import v1 as v1_router
 from app.services import action_config, authz, pattern_config, pii_policy, pii_redactor, pipeline_executor, provider_registry
+from app.services.upstream import chain_config
 
 
 @asynccontextmanager
@@ -22,6 +23,8 @@ async def lifespan(app: FastAPI):
     pii_policy.load()
     action_config.load()
     provider_registry.load()
+    # PRD-022 STORY-009: after the registry, whose catalogue the chains resolve against.
+    chain_config.load()
     authz.check_bootstrap()
     # PRD-018 D11/D17: the journal opens only after init_db() succeeded and every
     # fail-fast check passed, so a refused startup leaks no journal or thread.
