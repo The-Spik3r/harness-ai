@@ -372,7 +372,7 @@ These are **PRD-022 additions**, through `AUDIT_LOGS_ADDED_COLUMNS` (PRD-020 D13
 The console's Providers panel reads `providers_status()` in-process, beside PRD-018's Storage panel, so it needs no network call (PRD-018 F8).
 
 ### F10 — Response surfaces
-On `/v1`: `model` is the answering catalogue id, plus `harness.provider`, `harness.attempts` and `X-Harness-Provider`. Without a fallback, `model` equals the requested id, as in PRD-020. On `/query`: `QuerySuccessResponse.model_used` carries the answering catalogue id, and the schema is unchanged. The audit's `model_used` keeps PRD-020's "requested" meaning; `route_model` holds the answering id (D17).
+On `/v1`: `model` is the answering catalogue id, plus `harness.provider`, `harness.attempts` and `X-Harness-Provider`. Without a fallback, `model` equals the requested id, as in PRD-020. *(Amended after STORY-013: `harness.provider`, `harness.attempts` and `X-Harness-Provider` are on buffered JSON responses only. An SSE response sends its headers at commit, before any answer exists, and its chunks carry no `harness` object, so a stream carries only the answering `model`.)* On `/query`: `QuerySuccessResponse.model_used` carries the answering catalogue id, and the schema is unchanged. The audit's `model_used` keeps PRD-020's "requested" meaning; `route_model` holds the answering id (D17).
 
 ### F11 — Stub and E2E
 The stub gains `POST /v1/messages` (JSON and SSE) and faults scripted per request. The E2E test runs the OpenAI SDK or OpenCode against `/v1` with tools:
