@@ -295,6 +295,8 @@ PRD-018 specifies one breaker for the storage path (Section 6.5, D6). It is **re
 
 **As specified, PRD-018's breaker is not reusable verbatim.** It is one module-level instance in `database.py`, its probe is hard-wired to `SELECT 1`, and it has no force-open. Rather than write a second breaker, this PRD proposes **one edit to PRD-018 (O10)**. The state machine moves into a small class (for example `app/services/circuit_breaker.py: CircuitBreaker(name, threshold, open_seconds, clock)`) with `before()`, `record_success()`, `record_failure()`, `force_open(seconds)` and `status()`. Half-open is configurable: with a probe callable (storage passes its `SELECT 1`), or with none (admit exactly one live caller, as providers need). Storage keeps exactly one instance and its current behaviour. If PRD-018 is built before that edit, PRD-022's STORY-001 performs the extraction as a refactor with PRD-018's tests unchanged.
 
+> **Status at build time (orchestrator, 2026-11-20):** PRD-018 shipped the extraction already: `app/services/circuit_breaker.py` has `CircuitBreaker` with `before()`, `record_success()`, `record_failure()`, `force_open()`, `status()`, an injected clock and `probe=None` live-trial half-open. O10 is done; STORY-001 only confirms it.
+
 ## 7. Tools/Features
 
 ### F1 — `UpstreamError` extension and the eligibility rule
@@ -375,7 +377,7 @@ On `/v1`: `model` is the answering catalogue id, plus `harness.provider`, `harne
 ### F11 — Stub and E2E
 The stub gains `POST /v1/messages` (JSON and SSE) and faults scripted per request. The E2E test runs the OpenAI SDK or OpenCode against `/v1` with tools:
 - The OpenRouter stub fails and the Anthropic stub answers.
-- Three requests open the breaker, and a fourth reaches OpenRouter zero times (hit counter).
+- Five consecutive failed requests (PRD-018's threshold, the constant in 6.10) open the breaker, and the next one reaches OpenRouter zero times (hit counter). *(Amended 2026-11-20 by the orchestrator: the draft said "three", which contradicts the threshold.)*
 - `/providers/status` is checked.
 
 ## 8. Technology Stack
