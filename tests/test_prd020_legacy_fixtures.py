@@ -430,6 +430,9 @@ def test_success_result_fields_match_recorded():
         assert record.pop("cache_read_tokens") is None
         assert record.pop("cache_write_tokens") is None
         assert record.pop("reasoning_blocks") == 0
+        # PRD-022 STORY-005 (6.5): `dropped_params` is a new field, not a change to the
+        # recorded ones; the OpenAI-compatible adapter leaves it empty.
+        assert record.pop("dropped_params") == ()
         return record
 
     results = {

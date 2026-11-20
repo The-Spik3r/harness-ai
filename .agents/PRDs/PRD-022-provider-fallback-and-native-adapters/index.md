@@ -18,7 +18,7 @@ All stories commit on the epic branch `epic/PRD-022-provider-fallback-and-native
 | STORY-002 | UpstreamError kind/provider/retry_after + fallback_eligible, ChainExhausted, cache fields on results | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-002-upstream-error-and-result-fields.plan.md) | `cab7b16` |
 | STORY-003 | PRD-022 audit columns, request_id on every row, attempt=1 on step-7 rows, /audit filter | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-003-audit-columns-and-request-id.plan.md) | `f1e3d41` |
 | STORY-004 | Registry accepts type anthropic and the PRD-022 catalogue fields; adapter dispatch by provider type | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-004-registry-anthropic-type-and-fields.plan.md) | `324c142` |
-| STORY-005 | AnthropicAdapter.complete() — request/response mapping, SDK error mapping, cache tokens | feature | ⬜ todo | large | — | — |
+| STORY-005 | AnthropicAdapter.complete() — request/response mapping, SDK error mapping, cache tokens | feature | 🟡 in-progress | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/STORY-005-anthropic-adapter-complete.plan.md) | — |
 | STORY-006 | Stub upstream — Anthropic Messages mode (JSON + SSE) and scripted faults | technical | ⬜ todo | medium | — | — |
 | STORY-007 | AnthropicAdapter.stream() — events, buffered tool input, ReasoningDelta, collect property | feature | ⬜ todo | medium | — | — |
 | STORY-008 | Anthropic as a primary through the pipeline — dropped params, cache tokens on the row, /v1 tool loop | feature | ⬜ todo | medium | — | — |

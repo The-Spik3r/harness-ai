@@ -318,8 +318,9 @@ def test_result_and_usage_defaults():
     assert (result.cache_read_tokens, result.cache_write_tokens, result.reasoning_blocks) == (None, None, 0)
     usage = UsageReport(1, 2, 3)
     assert (usage.cache_read_tokens, usage.cache_write_tokens) == (None, None)
-    assert [f.name for f in dataclasses.fields(UpstreamResult)][-3:] == [
-        "cache_read_tokens", "cache_write_tokens", "reasoning_blocks",
+    assert [f.name for f in dataclasses.fields(UpstreamResult)][-4:] == [
+        # PRD-022 STORY-005 (6.5): `dropped_params` is the new last field of the result.
+        "cache_read_tokens", "cache_write_tokens", "reasoning_blocks", "dropped_params",
     ]
 
 

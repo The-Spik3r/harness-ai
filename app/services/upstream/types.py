@@ -6,7 +6,7 @@ OpenRouterError / OpenRouterResult, unchanged (PRD-020 D12).
 """
 
 from dataclasses import dataclass
-from typing import Iterator, Optional, Protocol, Sequence, Union
+from typing import Any, Iterator, Optional, Protocol, Sequence, Union
 
 from app.models.messages import Message, ToolCallSpec
 from app.services.upstream.params import GenerationParams, ToolParams
@@ -130,6 +130,10 @@ class UpstreamResult:
     cache_read_tokens: Optional[int] = None
     cache_write_tokens: Optional[int] = None
     reasoning_blocks: int = 0
+    # PRD-022 STORY-005 (6.5, D2): the bare names of the sampling params the
+    # request set and the model does not accept, so the adapter left them out.
+    # Declared last with a default, the same precedent; STORY-008 audits them.
+    dropped_params: tuple[str, ...] = ()
 
 
 
@@ -141,6 +145,11 @@ class UpstreamRequest:
     upstream_model: str
     params: Optional[GenerationParams] = None
     tools: Optional[ToolParams] = None
+    # PRD-022 STORY-005 (D4): the route's CatalogModel, for the native adapter's
+    # capabilities and default_max_tokens. `Any`, not the registry type: v1_translate
+    # imports this module and its AST purity test forbids a registry import, even
+    # under TYPE_CHECKING. None for every request built outside the seam.
+    model: Optional[Any] = None
 
 
 # PRD-020 STORY-013 (D11): what a streaming adapter yields. The wire's chunks are

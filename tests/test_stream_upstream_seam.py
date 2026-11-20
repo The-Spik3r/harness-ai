@@ -12,6 +12,7 @@ import io
 import json
 import os
 import threading
+import types
 import typing
 from pathlib import Path
 
@@ -432,13 +433,37 @@ def _assert_unavailable(error):
     assert "SECRET-PROMPT-TEXT" not in str(error)  # T10: no prompt text in an error
 
 
-def test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005(provider_file):
+# PRD-022 STORY-005 (D4): replaces test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005;
+# the registry's anthropic type now dispatches to the native adapter instead of failing fast.
+def test_call_upstream_dispatches_to_the_anthropic_adapter(provider_file, monkeypatch):
+    from app.services.upstream import anthropic as anthropic_mod
+
     provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
-    with pytest.raises(UpstreamError) as excinfo:
-        call_upstream(_SECRET_PROMPT, model="claude-x")
-    _assert_unavailable(excinfo.value)
+    seen = {}
+
+    class _Messages:
+        def create(self, **body):
+            seen["body"] = body
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(type="text", text="hello")],
+                stop_reason="end_turn",
+                model="claude-x-upstream",
+                usage=types.SimpleNamespace(input_tokens=2, output_tokens=3),
+            )
+
+    class _Client:
+        messages = _Messages()
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(anthropic_mod, "_open_sdk_client", lambda provider, key: _Client())
+    result = call_upstream(_SECRET_PROMPT, model="claude-x")
+    assert result.response == "hello" and result.model_used == "claude-x"
+    assert seen["body"]["max_tokens"] == 1024 and seen["closed"] is True
 
 
+# PRD-022 STORY-005: AnthropicAdapter.stream raises the same incompatible error until STORY-007.
 def test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time(provider_file):
     provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
     with pytest.raises(UpstreamError) as excinfo:  # raised by the call, not the first next()

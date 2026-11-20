@@ -13,6 +13,7 @@ import httpx
 
 from app.models.messages import Message
 from app.services import provider_registry
+from app.services.upstream.anthropic import AnthropicAdapter
 from app.services.upstream.collect import collect
 from app.services.upstream.openai_compatible import OpenAICompatibleAdapter
 from app.services.upstream.params import (
@@ -35,6 +36,7 @@ from app.services.upstream.types import (
 )
 
 __all__ = [
+    "AnthropicAdapter",
     "ChainExhausted",
     "Finish",
     "GenerationParams",
@@ -88,28 +90,13 @@ def _resolve_call(
     return route, key
 
 
-def _anthropic_unavailable(
-    provider: provider_registry.Provider, client: Optional[httpx.Client]
-) -> ProviderAdapter:
-    """STORY-005 replaces this entry with the native adapter (PRD-022 D4).
-
-    Until then a `type: anthropic` route fails fast and is never retried; the message
-    carries the provider label only, never request text (T10).
-    """
-    raise UpstreamError(
-        f"{provider.label}: the 'anthropic' adapter is not available yet",
-        provider=provider.name,
-        kind="incompatible",
-    )
-
-
 # Adapter per registry provider type (PRD-022 D4). `client` is the openai_compatible
 # adapter's injectable httpx client; the SDK-based adapter builds its own.
 _ADAPTER_FACTORIES: dict[
     str, Callable[[provider_registry.Provider, Optional[httpx.Client]], ProviderAdapter]
 ] = {
     "openai_compatible": lambda provider, client: OpenAICompatibleAdapter(provider, client),
-    "anthropic": _anthropic_unavailable,
+    "anthropic": lambda provider, client: AnthropicAdapter(provider),
 }
 
 
@@ -137,7 +124,7 @@ def call_upstream(
     """
     route, key = _resolve_call(messages, model, api_key)
     adapter = _build_adapter(route.provider, client)
-    result = adapter.complete(UpstreamRequest(messages, route.upstream_model, params, tools), key)
+    result = adapter.complete(UpstreamRequest(messages, route.upstream_model, params, tools, route.model), key)
     # model_used stays the requested id (PRD-020 D13), whatever went upstream.
     return dataclasses.replace(result, model_used=model)
 
@@ -160,7 +147,7 @@ def stream_upstream(
     """
     route, key = _resolve_call(messages, model, api_key)
     return _build_adapter(route.provider, client).stream(
-        UpstreamRequest(messages, route.upstream_model, params, tools),
+        UpstreamRequest(messages, route.upstream_model, params, tools, route.model),
         key,
         reasoning=route.capabilities.reasoning,
     )
