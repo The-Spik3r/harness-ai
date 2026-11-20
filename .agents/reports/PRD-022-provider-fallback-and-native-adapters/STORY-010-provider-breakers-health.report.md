@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-010-provider-breakers-health.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: 1a4ba42
 status: COMPLETE
 completed: 2026-11-20
 ---

@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Chains and breaker"
-status: todo
+status: done
 labels: [backend, resilience, concurrency]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-010-provider-breakers-health.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-010-provider-breakers-health.report.md
+commit: 1a4ba42
 depends_on: [STORY-002]
 blocks: [STORY-011, STORY-015]
 skills: []
