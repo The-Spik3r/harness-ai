@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-003-audit-columns-and-request-id.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: f1e3d41
 status: COMPLETE
 completed: 2026-11-20
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-20
 
 **Plan**: `.agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-003-audit-columns-and-request-id.plan.md`
 **Epic Branch**: `epic/PRD-022-provider-fallback-and-native-adapters`
-**Commit**: `pending`
+**Commit**: `f1e3d41`
 
 ## Summary
 

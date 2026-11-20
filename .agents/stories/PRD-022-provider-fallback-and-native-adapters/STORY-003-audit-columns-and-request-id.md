@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, audit, db]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-003-audit-columns-and-request-id.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-003-audit-columns-and-request-id.report.md
+commit: f1e3d41
 depends_on: [STORY-001]
 blocks: [STORY-008, STORY-012]
 skills: []
@@ -28,11 +28,11 @@ As a compliance admin, I want every row to carry a per-request `request_id` and 
 
 ## Acceptance Criteria
 
-- [ ] Given an existing database, when the app starts, then `audit_logs` gains `request_id TEXT`, `attempt INTEGER`, `route_model TEXT`, `fallback_reason TEXT`, `skipped_providers TEXT`, `cache_read_tokens INTEGER`, `cache_write_tokens INTEGER` through `AUDIT_LOGS_ADDED_COLUMNS` (idempotent; a fresh DB gets them from `CREATE TABLE`), and the buffered audit writer (PRD-018) persists them
-- [ ] Given one `run_conversation` call, when it writes any row (verdict, block, refusal, failure or success), then every row carries the same uuid4 `request_id`; two calls never share one
-- [ ] Given a request with no chain (today's single call), when step 7 writes its failure or success row, then `attempt=1` and `route_model=<the requested catalogue id>`; rows written before step 7 have `attempt` and `route_model` NULL; `fallback_reason`, `skipped_providers` are NULL; `cache_*_tokens` come from the result when present, else NULL
-- [ ] Given `GET /audit`, when called, then rows include the seven new fields, and `?request_id=<id>` returns only that request's rows (role checks unchanged)
-- [ ] Given the existing suite, when run with no chain file, then captured responses are unchanged and rows differ only by the new columns (guard tests such as column censuses updated with a comment citing PRD-022 D10)
+- [x] Given an existing database, when the app starts, then `audit_logs` gains `request_id TEXT`, `attempt INTEGER`, `route_model TEXT`, `fallback_reason TEXT`, `skipped_providers TEXT`, `cache_read_tokens INTEGER`, `cache_write_tokens INTEGER` through `AUDIT_LOGS_ADDED_COLUMNS` (idempotent; a fresh DB gets them from `CREATE TABLE`), and the buffered audit writer (PRD-018) persists them
+- [x] Given one `run_conversation` call, when it writes any row (verdict, block, refusal, failure or success), then every row carries the same uuid4 `request_id`; two calls never share one
+- [x] Given a request with no chain (today's single call), when step 7 writes its failure or success row, then `attempt=1` and `route_model=<the requested catalogue id>`; rows written before step 7 have `attempt` and `route_model` NULL; `fallback_reason`, `skipped_providers` are NULL; `cache_*_tokens` come from the result when present, else NULL
+- [x] Given `GET /audit`, when called, then rows include the seven new fields, and `?request_id=<id>` returns only that request's rows (role checks unchanged)
+- [x] Given the existing suite, when run with no chain file, then captured responses are unchanged and rows differ only by the new columns (guard tests such as column censuses updated with a comment citing PRD-022 D10)
 
 ## Technical Notes
 
