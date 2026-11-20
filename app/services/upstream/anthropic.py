@@ -241,7 +241,9 @@ def map_response(message: Any, provider: Provider) -> UpstreamResult:
     if usage is None:
         raise _shape(provider, "no usage")
     text = "".join(texts)
-    if not text and not calls:
+    # A refusal is an answer, never a fault (PRD-022 6.2, T4): an empty one is still
+    # `content_filter`, not a `shape` error a chain could treat as a provider fault.
+    if not text and not calls and finish != "content_filter":
         raise _shape(provider, "no text and no tool call")
     cache_write = _count(getattr(usage, "cache_creation_input_tokens", None))
     cache_read = _count(getattr(usage, "cache_read_input_tokens", None))

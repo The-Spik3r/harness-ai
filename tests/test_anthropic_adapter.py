@@ -379,6 +379,18 @@ def test_map_response_stop_reasons(stop, finish):
     assert map_response(_msg(stop_reason=stop), _provider()).finish_reason == finish
 
 
+def test_an_empty_refusal_is_an_answer_not_a_shape_error():
+    # PRD-022 6.2 / T4: a refusal is an answer, never a fault, even with no content.
+    result = map_response(_msg(content=[], stop_reason="refusal"), _provider())
+    assert (result.response, result.finish_reason, result.tool_calls) == ("", "content_filter", ())
+
+
+def test_empty_content_without_refusal_is_still_shape():
+    with pytest.raises(UpstreamError) as caught:
+        map_response(_msg(content=[]), _provider())
+    assert caught.value.kind == "shape"
+
+
 @pytest.mark.parametrize("stop", ["pause_turn", None, "something_new"])
 def test_pause_turn_and_unknown_stop_reasons_are_shape(stop):
     with pytest.raises(UpstreamError) as caught:

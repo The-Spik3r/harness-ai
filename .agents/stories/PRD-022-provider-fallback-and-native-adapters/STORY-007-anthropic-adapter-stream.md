@@ -36,6 +36,8 @@ As PRD-021's real-time pipeline, I want an Anthropic model to stream as PRD-020'
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-006 plan review): a `refusal` with no text and no tool call is an answer (`content_filter`, empty response), never a `shape` error (PRD 6.2, T4). `map_response` was fixed for this; the stream path must match it (the property test compares both).
+
 - `app/services/upstream/anthropic.py` (STORY-005); `collect.py`; PRD-021's `ReasoningDelta` in `types.py:109`; the OpenAI-compatible `stream()` for structure (`openai_compatible.py`, `sse.py`).
 - `ProviderAdapter.stream` signature as built: `stream(self, request, api_key, *, reasoning: bool = False)` (`types.py:118-125`).
 - Release semantics (D9) are the pipeline's job (STORY-014); the adapter just yields events in arrival order.
