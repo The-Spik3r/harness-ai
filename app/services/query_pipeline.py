@@ -36,6 +36,7 @@ from app.services.conversation_key import conversation_key
 from app.services.delivery import DeliverySink, StageName, Visibility
 from app.services.duplicate_checker import check_duplicate, dedup_key
 from app.services.identity import Identity
+from app.services import provider_registry
 from app.services.provider_registry import Route
 from app.services.stream_assembly import phase_of
 from app.services.stream_redaction import (
@@ -45,7 +46,11 @@ from app.services.stream_redaction import (
     reasoning_policy,
     redact_reasoning,
 )
+# PRD-022 STORY-012: the chain modules, called as attributes (`chain.run(...)`) so a
+# test's monkeypatch of the source module reaches the pipeline.
+from app.services.upstream import chain, chain_config, health
 from app.services.upstream import (
+    ChainExhausted,
     GenerationParams,
     ReasoningDelta,
     TextDelta,
@@ -302,6 +307,87 @@ def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
     if not policy.structure_safe:
         return redact(text)
     return redact_for_policy(text, policy)
+
+
+@dataclasses.dataclass(frozen=True)
+class _Prepared:
+    """What one route may receive at step 6: the messages, the final turn's entities, relaxed or not."""
+
+    messages: tuple[Message, ...]
+    entities: tuple[str, ...]
+    relaxed: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class _OverLimit:
+    """The conversation breaks the policy's redaction size limit for this route (PRD-012 D4)."""
+
+    maximum: int
+    actual: int
+
+
+def _prepare_input(
+    messages: Sequence[Message], policy: PiiPolicy, route: Route
+) -> Union[_Prepared, _OverLimit]:
+    """Step 6 for one route: the size limit, then the redaction of every covered turn.
+
+    PRD-022 6.3, D16, T3: always from the raw `messages`, so a fallback route never
+    receives text redacted for another route's trust. Pure and silent: it logs and
+    writes nothing, the caller owns the rows. `PiiRedactorError` propagates
+    unchanged (fail closed). The body is step 6 as PRD-012 / PRD-020 D7 wrote it.
+    """
+    # Named apart from the pipeline's `relaxed`: the source guard in
+    # tests/test_query_pipeline_pii_relaxation.py counts that decision once.
+    skip_input = route.relaxes_input()
+    over = None if skip_input else _redaction_limit_exceeded(messages, policy)
+    if over is not None:
+        return _OverLimit(*over)
+
+    # Every role the policy covers is redacted, history included (PRD-010
+    # D5): history must never leave the process unmasked, whatever its
+    # source -- under `code` too, because a /v1 caller writes its own
+    # `assistant` turns (PRD-012 T7). `chat` covers every role, so it is
+    # today's "redact every message". Only the final turn's entities
+    # count toward the audit's PII fields (PRD-010 D7): re-redacting history
+    # that already passed once is not a new PII event, or every later row of
+    # a session would misreport one. The final turn is `user` or `tool` (step
+    # 0, PRD-017 D7), and both policies cover both roles. A `tool` turn's
+    # content is redacted like any covered turn (PRD-017 Section 6.5);
+    # assistant `tool_calls` are not (D13).
+    #
+    # Relaxed (PRD-020 D7): the loop is bypassed. The original messages go
+    # upstream as received (same objects, tool fields included) and no entity
+    # is recorded.
+    redacted_messages: list[Message] = list(messages) if skip_input else []
+    input_entities: list[str] = []
+    last_index = len(messages) - 1
+    for index, message in enumerate([] if skip_input else messages):
+        if message.role not in policy.input_roles:
+            # The same object, every field included, so it reaches upstream
+            # byte-identical: `code`'s `system` turn, the client's own prompt
+            # (PRD-012 D3). Every policy covers `user`, `assistant` and `tool`,
+            # so no turn that carries tool fields takes this branch.
+            redacted_messages.append(message)
+            continue
+        redacted_content, entities = _redact(message.content, policy)
+        # `replace`, not `Message(role, content)`: an assistant turn's
+        # `tool_calls` and a tool turn's `tool_call_id` go upstream as received.
+        # Arguments are never redacted; only `content` reaches `_redact`
+        # (PRD-012 Section 6.5, PRD-017 D13).
+        redacted_messages.append(dataclasses.replace(message, content=redacted_content))
+        if index == last_index:
+            input_entities = entities
+    return _Prepared(tuple(redacted_messages), tuple(input_entities), skip_input)
+
+
+def _forces_tool(tools: Optional[ToolParams]) -> bool:
+    """Whether the request forces a tool call (PRD-022 F4): `required`, or a named function.
+
+    `auto`, `none` and no `tool_choice` are not forced."""
+    if tools is None:
+        return False
+    choice = tools.tool_choice
+    return choice == "required" or (choice is not None and not isinstance(choice, str))
 
 
 def _merge_ignored_params(
@@ -922,6 +1008,14 @@ def run_conversation(
     # back to `chat` (D8).
     policy = get_pii_policy(profile_name)
 
+    # PRD-022 6.1: the request's chain, asked once. A model with no chain, and every
+    # streamed realtime request, take PRD-020/021's single call: step 6 inline, one
+    # `call_openrouter` / `stream_upstream`, no health, no deadline. STORY-014 adds the
+    # release window and per-attempt state that let a stream fall back.
+    streamed_step = bool(visibility is not None and visibility.upstream_streamed)
+    req_chain = chain_config.chain_for(model, ingress)
+    chained = len(req_chain.candidates) > 1 and not streamed_step
+
     # PRD-020 D7, 6.6, T4: decided once, by the Route alone (an internal
     # provider that declares `pii: relaxed`, with the PII switch on) -- never
     # from a request field, role, profile or host. It skips only input
@@ -930,8 +1024,38 @@ def run_conversation(
     # analyzed, and `pii_input_relaxed` records that it was a decision.
     relaxed = route.relaxes_input()
     # PRD-021 T10: configuration only -- the switch and the route, never a finding.
+    # PRD-022: on a chain this is the primary's decision and is emitted once; the
+    # primary's capability / BYOK / deadline skips now precede its redaction.
     if safe is not None and settings.PII_REDACTION_ENABLED and not relaxed:
         safe.stage("masking_input")
+
+    # The two step-6 rows, as local functions so the chain's per-candidate
+    # `prepare` writes the very rows the single call does. They take `route` by
+    # that name: the source guard wants `**_route_fields(route),` first after
+    # the log call, and the census counts these as the same two sites as before.
+    def _log_redaction_failed(route: Route, relaxed: bool, exc: PiiRedactorError) -> None:
+        log_query(
+            **_route_fields(route),
+            request_id=request_id,
+            # PRD-021 F7: refused before the upstream opened: nothing was delivered.
+            streamed_realtime=False,
+            reasoning_shown=False,
+            pii_input_relaxed=relaxed,
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            success=False,
+            error_message=str(exc),
+            session_id=session_id,
+            dedup_key=key,
+            profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
+            ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
+        )
 
     # The redaction size limit (PRD-012 Sections 6.1, 6.7; D4, T5). Here, at
     # the head of step 6 and not in step 3, because what it measures depends
@@ -947,9 +1071,9 @@ def run_conversation(
     # serve as a prior query (PRD-009 Section 6.3): the same request sent
     # after the operator raises the limit is answered, not held. `chat` has
     # no limit, so /query and the chat UI cannot reach this arm.
-    over = None if relaxed else _redaction_limit_exceeded(messages, policy)
-    if over is not None:
-        maximum, actual = over
+    def _refuse_redaction_limit(
+        route: Route, relaxed: bool, over: _OverLimit
+    ) -> QueryBlockedContextLimitResponse:
         log_query(
             **_route_fields(route),
             request_id=request_id,
@@ -961,7 +1085,7 @@ def run_conversation(
             prompt=prompt,
             device=device,
             success=False,
-            error_message=f"redaction limit: characters {actual} > {maximum}",
+            error_message=f"redaction limit: characters {over.actual} > {over.maximum}",
             session_id=session_id,
             dedup_key=key,
             profile=profile_name,
@@ -975,69 +1099,27 @@ def run_conversation(
         return QueryBlockedContextLimitResponse(
             reason="Conversation exceeds redaction limit",
             limit="redaction_characters",
-            maximum=maximum,
-            actual=actual,
+            maximum=over.maximum,
+            actual=over.actual,
         )
 
-    # Every role the policy covers is redacted, history included (PRD-010
-    # D5): history must never leave the process unmasked, whatever its
-    # source -- under `code` too, because a /v1 caller writes its own
-    # `assistant` turns (PRD-012 T7). `chat` covers every role, so it is
-    # today's "redact every message". Only the final turn's entities
-    # count toward the audit's PII fields (PRD-010 D7): re-redacting history
-    # that already passed once is not a new PII event, or every later row of
-    # a session would misreport one. The final turn is `user` or `tool` (step
-    # 0, PRD-017 D7), and both policies cover both roles. A `tool` turn's
-    # content is redacted like any covered turn (PRD-017 Section 6.5);
-    # assistant `tool_calls` are not (D13).
-    #
-    # Relaxed (PRD-020 D7): the loop is bypassed. The original messages go
-    # upstream as received (same objects, tool fields included) and no entity
-    # is recorded.
-    redacted_messages: list[Message] = list(messages) if relaxed else []
+    redacted_messages: list[Message] = []
     input_entities: list[str] = []
-    last_index = len(messages) - 1
-    for index, message in enumerate([] if relaxed else messages):
-        if message.role not in policy.input_roles:
-            # The same object, every field included, so it reaches upstream
-            # byte-identical: `code`'s `system` turn, the client's own prompt
-            # (PRD-012 D3). Every policy covers `user`, `assistant` and `tool`,
-            # so no turn that carries tool fields takes this branch.
-            redacted_messages.append(message)
-            continue
+    # A chain prepares per candidate inside `chain.run` (PRD-022 6.3, D16, T3); the
+    # inline path prepares the primary's text now, exactly as step 6 always did.
+    # `primary_over` keeps the primary's verdict when the chain skips it for size.
+    primary_over: Optional[_OverLimit] = None
+    if not chained:
         try:
-            redacted_content, entities = _redact(message.content, policy)
+            prepared = _prepare_input(messages, policy, route)
         except PiiRedactorError as exc:
-            log_query(
-                **_route_fields(route),
-                request_id=request_id,
-                # PRD-021 F7: refused before the upstream opened: nothing was delivered.
-                streamed_realtime=False,
-                reasoning_shown=False,
-                pii_input_relaxed=relaxed,
-                user_id=identity.user_id,
-                prompt=prompt,
-                device=device,
-                success=False,
-                error_message=str(exc),
-                session_id=session_id,
-                dedup_key=key,
-                profile=profile_name,
-                ingress=ingress,
-                message_count=message_count,
-                conversation_key=conv_key,
-                streamed=streamed,
-                ignored_params=ignored_params,
-                has_tool_calls=request_has_tool_turns,
-            )
+            _log_redaction_failed(route, relaxed, exc)
             raise
-        # `replace`, not `Message(role, content)`: an assistant turn's
-        # `tool_calls` and a tool turn's `tool_call_id` go upstream as received.
-        # Arguments are never redacted; only `content` reaches `_redact`
-        # (PRD-012 Section 6.5, PRD-017 D13).
-        redacted_messages.append(dataclasses.replace(message, content=redacted_content))
-        if index == last_index:
-            input_entities = entities
+        if isinstance(prepared, _OverLimit):
+            return _refuse_redaction_limit(route, relaxed, prepared)
+        redacted_messages = list(prepared.messages)
+        input_entities = list(prepared.entities)
+        relaxed = prepared.relaxed
 
     # Step 7: upstream. params is forwarded only when set: the existing
     # injected call_openrouter stubs across the suite have signature
@@ -1055,7 +1137,6 @@ def run_conversation(
     # persists `completion_id` only when `realtime_request`: a buffered row
     # stores NULL even though a sink was told an id.
     completion_id: Optional[str] = None
-    streamed_step = bool(visibility is not None and visibility.upstream_streamed)
     if safe is not None:
         safe.phase("waiting")
     # T6: what counts as released. A non-empty text or reasoning passed to the
@@ -1094,8 +1175,195 @@ def run_conversation(
     if safe is not None and not streamed_step:
         completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
         safe.committed(completion_id)
+
+    # PRD-022 F8, D10: the attempt number and catalogue id a row written at or after
+    # step 7 carries. A single call is attempt 1 on the requested id with no chain
+    # columns; a chained request overwrites these from the answering attempt.
+    attempt_no = 1
+    route_model = model
+    fallback_reason: Optional[str] = None
+    skipped: Optional[str] = None
+
+    # The step-7 failure row, shared by the single call's `except`, the chain's
+    # `on_attempt_failed` and its no-attempt exhaustion row. Named `route` and keyword
+    # -only, every argument required, like `_deny` (the rule at its definition): a
+    # forgotten attempt, id or skip list is a TypeError, not a NULL that says the
+    # call was never made. The live locals (`completion_id`, `reasoning_sent`, ...)
+    # are read when it runs, as the inline arm always read them.
+    def _log_failed_attempt(
+        route: Route,
+        *,
+        relaxed: bool,
+        request_id: str,
+        attempt: Optional[int],
+        route_model: Optional[str],
+        error_message: str,
+        skipped_providers: Optional[str],
+    ) -> None:
+        log_query(
+            **_route_fields(route),
+            request_id=request_id,
+            # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
+            # requested catalogue id; the rows before it leave both NULL.
+            attempt=attempt,
+            route_model=route_model,
+            skipped_providers=skipped_providers,
+            # PRD-021 F7, D14, D17: what was true at this point of the request.
+            streamed_realtime=realtime_request,
+            reasoning_shown=reasoning_sent,
+            stream_redaction_divergence=stream_redaction_divergence,
+            completion_id=completion_id if realtime_request else None,
+            pii_input_relaxed=relaxed,
+            user_id=identity.user_id,
+            prompt=prompt,
+            device=device,
+            model_used=model,
+            # No input_tokens/output_tokens: there is no result to read them
+            # from, and NULL says no upstream usage was reported (PRD-013 6.2).
+            success=False,
+            error_message=error_message,
+            session_id=session_id,
+            dedup_key=key,
+            profile=profile_name,
+            ingress=ingress,
+            message_count=message_count,
+            conversation_key=conv_key,
+            streamed=streamed,
+            ignored_params=ignored_params,
+            has_tool_calls=request_has_tool_turns,
+        )
+
+    # PRD-022 6.1, 6.3, 6.9: a chained buffered request walks `chain.run`. The runner
+    # skips, redacts per candidate (`prepare`), calls (`attempt`), records health and
+    # counts; the pipeline owns the rows. `chain_outcome` stays None on the single call.
+    chain_outcome: Optional[chain.ChainOutcome] = None
+    if chained:
+        primary_route = route
+        answer_prepared: Optional[_Prepared] = None
+        attempt_route: Route = route
+        attempts_failed = 0
+
+        def prepare(candidate_route: Route) -> Any:
+            nonlocal primary_over
+            try:
+                prepared_for = _prepare_input(messages, policy, candidate_route)
+            except PiiRedactorError as exc:
+                # Fail closed on any candidate: today's arm, then the error leaves.
+                _log_redaction_failed(candidate_route, candidate_route.relaxes_input(), exc)
+                raise
+            if isinstance(prepared_for, _OverLimit):
+                if candidate_route is primary_route:
+                    primary_over = prepared_for
+                return chain.REDACTION_LIMIT  # a skip, no row (6.3)
+            return prepared_for
+
+        def attempt(
+            candidate_route: Route, sent: _Prepared, timeout: Optional[float]
+        ) -> OpenRouterResult:
+            nonlocal answer_prepared, attempt_route
+            answer_prepared = sent
+            attempt_route = candidate_route
+            kw = dict(extra)
+            # Passed only when set: stubs of (messages, model, api_key) keep working.
+            if timeout is not None:
+                kw["timeout"] = timeout
+            return call_openrouter(
+                list(sent.messages),
+                model=candidate_route.model_id,
+                # D15: the caller's key reaches only the primary; the runner skips
+                # every other candidate as `byok` when a key was passed.
+                api_key=openrouter_api_key if candidate_route is primary_route else None,
+                **kw,
+            )
+
+        def on_attempt_failed(candidate: Any, error: OpenRouterError, *, attempt: int) -> None:
+            nonlocal attempts_failed
+            # One row per failed attempt, written before the next candidate starts (F8).
+            _log_failed_attempt(
+                attempt_route,
+                relaxed=attempt_route.relaxes_input(),
+                request_id=request_id,
+                attempt=attempt,
+                route_model=attempt_route.model_id,
+                error_message=str(error),
+                skipped_providers=None,
+            )
+            attempts_failed += 1
+
+        def permitted(candidate_model: str) -> bool:
+            # D7: RBAC per fallback candidate, through this module's binding.
+            try:
+                authorize_route(identity, candidate_model)
+            except PermissionDenied:
+                return False
+            return True
+
+        health.sync({p.name for p in provider_registry.current().providers})
+        try:
+            chain_outcome = chain.run(
+                req_chain,
+                primary=route,
+                limits=chain_config.current_limits(),
+                needs=chain.RequestNeeds(
+                    tools=tools is not None,
+                    forced_tool_choice=_forces_tool(tools),
+                    streaming=False,
+                    estimate=lambda r: estimate_tokens(
+                        messages,
+                        ("", ()),
+                        r.provider.estimate_chars_per_token,
+                        tools=tools.tools if tools is not None else None,
+                    ),
+                ),
+                byok=openrouter_api_key is not None,
+                policy=policy,
+                resolve=provider_registry.resolve,
+                permitted=permitted,
+                prepare=prepare,
+                attempt=attempt,
+                on_attempt_failed=on_attempt_failed,
+                released=lambda: False,  # buffered: nothing is released before the answer
+            )
+        except ChainExhausted as exc:
+            if attempts_failed == 0:
+                if primary_over is not None:
+                    # A size limit is deterministic: "all providers unavailable, retry"
+                    # would mislead. No attempt ran and the primary was over the
+                    # redaction limit, so today's verdict and row stand (orchestrator
+                    # note, 3.2).
+                    return _refuse_redaction_limit(route, False, primary_over)
+                # No call was made: one row on the primary's PRD-020 columns, with
+                # the skips (F7, F8). Skips after a last attempt reach the counters
+                # only, a known limitation: that attempt's row was already written.
+                _log_failed_attempt(
+                    route,
+                    relaxed=route.relaxes_input(),
+                    request_id=request_id,
+                    attempt=None,
+                    route_model=model,
+                    error_message=str(exc),
+                    skipped_providers=",".join(f"{p}:{r}" for p, r in exc.skipped) or None,
+                )
+            raise
+        # Any other OpenRouterError from `run` already has its row (`on_attempt_failed`).
+        # The answering attempt now speaks for the request: step 8's error row, the
+        # success row and `_merge_ignored_params` read `route`, and `answer_prepared`
+        # is what that attempt was sent (T3), never the primary's text.
+        route = chain_outcome.route
+        assert answer_prepared is not None
+        relaxed = answer_prepared.relaxed
+        input_entities = list(answer_prepared.entities)
+        redacted_messages = list(answer_prepared.messages)
+        attempt_no = chain_outcome.attempt
+        route_model = chain_outcome.route.model_id
+        fallback_reason = chain_outcome.fallback_reason
+        skipped = chain_outcome.skipped
+
     try:
-        if streamed_step:
+        if chain_outcome is not None:
+            # Already answered by the chain; the `except` below is for the single call.
+            openrouter_result = chain_outcome.result
+        elif streamed_step:
             assert safe is not None and visibility is not None and route is not None
             stream_request = UpstreamRequest(redacted_messages, route.upstream_model, params, tools, route.model)
             tool_kinds = {n: m.kind for n, m in action_config.get_policy().tools.items()}
@@ -1221,38 +1489,21 @@ def run_conversation(
                     tools=tools.tools if tools is not None else None,
                 ),
             )
-        log_query(
-            **_route_fields(route),
+        _log_failed_attempt(
+            route,
+            relaxed=relaxed,
             request_id=request_id,
-            # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
-            # requested catalogue id; the rows before it leave both NULL.
             attempt=1,
             route_model=model,
-            # PRD-021 F7, D14, D17: what was true at this point of the request.
-            streamed_realtime=realtime_request,
-            reasoning_shown=reasoning_sent,
-            stream_redaction_divergence=stream_redaction_divergence,
-            completion_id=completion_id if realtime_request else None,
-            pii_input_relaxed=relaxed,
-            user_id=identity.user_id,
-            prompt=prompt,
-            device=device,
-            model_used=model,
-            # No input_tokens/output_tokens: there is no result to read them
-            # from, and NULL says no upstream usage was reported (PRD-013 6.2).
-            success=False,
             error_message=str(exc),
-            session_id=session_id,
-            dedup_key=key,
-            profile=profile_name,
-            ingress=ingress,
-            message_count=message_count,
-            conversation_key=conv_key,
-            streamed=streamed,
-            ignored_params=ignored_params,
-            has_tool_calls=request_has_tool_turns,
+            skipped_providers=None,
         )
         raise
+
+    # PRD-022 D17: a chained request's rows say what was asked (`model_used` the
+    # requested id; `route_model` the answering one); the response carries the
+    # answering id. A single call keeps the result's own value, as before.
+    row_model_used = model if chained else openrouter_result.model_used
 
     # Step 7b: charge (PRD-013 Sections 6.1, 6.5; D8; F11; T3, T8).
     #
@@ -1334,10 +1585,12 @@ def run_conversation(
             log_query(
                 **_route_fields(route),
                 request_id=request_id,
-                # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
-                # requested catalogue id; the rows before it leave both NULL.
-                attempt=1,
-                route_model=model,
+                # PRD-022 F8, D10: the answering attempt (1 on the requested id for a
+                # single call); the rows before step 7 leave these NULL.
+                attempt=attempt_no,
+                route_model=route_model,
+                fallback_reason=fallback_reason,
+                skipped_providers=skipped,
                 # PRD-021 F7, D14, D17: what was true at this point of the request.
                 streamed_realtime=realtime_request,
                 reasoning_shown=reasoning_sent,
@@ -1348,7 +1601,7 @@ def run_conversation(
                 prompt=prompt,
                 device=device,
                 response=openrouter_result.response,
-                model_used=openrouter_result.model_used,
+                model_used=row_model_used,
                 tokens_used=openrouter_result.tokens_used,
                 input_tokens=openrouter_result.input_tokens,
                 output_tokens=openrouter_result.output_tokens,
@@ -1391,10 +1644,12 @@ def run_conversation(
         audit_ref = log_query(
             **_route_fields(route),
             request_id=request_id,
-            # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
-            # requested catalogue id; the rows before it leave both NULL.
-            attempt=1,
-            route_model=model,
+            # PRD-022 F8, D10: the answering attempt (1 on the requested id for a
+            # single call); the rows before step 7 leave these NULL.
+            attempt=attempt_no,
+            route_model=route_model,
+            fallback_reason=fallback_reason,
+            skipped_providers=skipped,
             # PRD-022 D10: counts only; NULL when the provider reports none;
             # the failure rows leave them NULL.
             cache_read_tokens=openrouter_result.cache_read_tokens,
@@ -1409,7 +1664,7 @@ def run_conversation(
             prompt=prompt,
             device=device,
             response=openrouter_result.response,
-            model_used=openrouter_result.model_used,
+            model_used=row_model_used,
             tokens_used=openrouter_result.tokens_used,
             input_tokens=openrouter_result.input_tokens,
             output_tokens=openrouter_result.output_tokens,

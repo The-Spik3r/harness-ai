@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - Chains and breaker"
-status: todo
+status: in-progress
 labels: [backend, pipeline, audit, security]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-012-pipeline-chain-buffered.plan.md
 report: null
 commit: null
 depends_on: [STORY-003, STORY-011]
