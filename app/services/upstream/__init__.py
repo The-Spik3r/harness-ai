@@ -13,7 +13,7 @@ import httpx
 
 from app.models.messages import Message
 from app.services import provider_registry
-from app.services.upstream.anthropic import AnthropicAdapter
+from app.services.upstream.anthropic import AnthropicAdapter, dropped_params as _anthropic_dropped_params
 from app.services.upstream.collect import collect
 from app.services.upstream.openai_compatible import OpenAICompatibleAdapter
 from app.services.upstream.params import (
@@ -105,6 +105,18 @@ def _build_adapter(
 ) -> ProviderAdapter:
     # Indexed, not `.get`: the registry vocabulary is closed, so a gap must be loud.
     return _ADAPTER_FACTORIES[provider.type](provider, client)
+
+
+def dropped_params_for(route: provider_registry.Route, request: UpstreamRequest) -> tuple[str, ...]:
+    """Bare names of the params `request` set that `route`'s adapter would not send (PRD-022 6.5).
+
+    The realtime path reports what `complete()` reports on `UpstreamResult`;
+    dispatching here keeps the pipeline free of provider types. A provider
+    type that drops nothing returns `()`.
+    """
+    if route.provider.type == "anthropic":
+        return _anthropic_dropped_params(request, route.model)
+    return ()
 
 
 def call_upstream(

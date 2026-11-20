@@ -57,6 +57,7 @@ from app.services.upstream import (
     UpstreamResult as OpenRouterResult,
     call_upstream as call_openrouter,
     collect,
+    dropped_params_for,
     stream_upstream,
 )
 from app.services.pattern_config import get_profile
@@ -301,6 +302,23 @@ def _redact(text: str, policy: PiiPolicy) -> Tuple[str, list[str]]:
     if not policy.structure_safe:
         return redact(text)
     return redact_for_policy(text, policy)
+
+
+def _merge_ignored_params(
+    edge: Optional[str], dropped: Sequence[str], route: Optional[Route]
+) -> Optional[str]:
+    """The success row's `ignored_params`: the edge's names, then `name@provider` per adapter drop.
+
+    PRD-022 6.5, D4. Nothing dropped returns the edge value unchanged (None stays
+    None), so an OpenAI-compatible route is byte-identical to PRD-020/021."""
+    if not dropped or route is None:
+        return edge
+    names = edge.split(",") if edge else []
+    for name in dropped:
+        tagged = f"{name}@{route.provider.name}"
+        if tagged not in names:
+            names.append(tagged)
+    return ",".join(names)
 
 
 def _route_fields(route: Optional[Route]) -> dict:
@@ -1079,7 +1097,7 @@ def run_conversation(
     try:
         if streamed_step:
             assert safe is not None and visibility is not None and route is not None
-            stream_request = UpstreamRequest(redacted_messages, route.upstream_model, params, tools)
+            stream_request = UpstreamRequest(redacted_messages, route.upstream_model, params, tools, route.model)
             tool_kinds = {n: m.kind for n, m in action_config.get_policy().tools.items()}
             phase_now: Optional[str] = "waiting"
             events: list[UpstreamEvent] = []
@@ -1162,6 +1180,8 @@ def run_conversation(
             # usage chunk is estimated whatever the provider's mode; progress-only
             # keeps today's rule (nothing was released, nothing is charged).
             # model_used stays the requested id, as call_upstream makes it (PRD-020 D13).
+            # PRD-022 STORY-008 6.5: `collect` carries no dropped params; the same
+            # rule `complete()` applies, asked of the route (D4: one rule, two callers).
             openrouter_result = dataclasses.replace(
                 collect(
                     events,
@@ -1170,6 +1190,7 @@ def run_conversation(
                     usage_missing="estimate" if visibility.realtime else None,
                 ),
                 model_used=model,
+                dropped_params=dropped_params_for(route, stream_request),
             )
         else:
             openrouter_result = call_openrouter(
@@ -1408,7 +1429,10 @@ def run_conversation(
             message_count=message_count,
             conversation_key=conv_key,
             streamed=streamed,
-            ignored_params=ignored_params,
+            # PRD-022 STORY-008 6.5: params the adapter dropped, `name@provider`, after the edge's.
+            ignored_params=_merge_ignored_params(
+                ignored_params, getattr(openrouter_result, "dropped_params", ()), route
+            ),
             journal_decisions=(
                 None
                 if outcome is None
