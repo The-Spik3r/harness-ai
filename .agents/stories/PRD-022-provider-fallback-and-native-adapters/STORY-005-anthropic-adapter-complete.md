@@ -41,6 +41,7 @@ As a coding agent, I want a Claude model reached through the Messages API to giv
 - The dropped-parameter channel: a new defaulted `UpstreamResult` field (e.g. `dropped_params: tuple[str, ...] = ()`) is acceptable; record the choice in the plan.
 - `reasoning` capability on: request thinking per STORY-001's finding (6.6); `complete()` never puts thinking text in `response` (D14).
 - Use the SDK version pinned by STORY-001; if STORY-001 recommended raw `httpx` (D2 fallback), the orchestrator will have amended this story.
+- Orchestrator decision (STORY-001 findings, binding): build `anthropic.Anthropic(api_key=key, base_url=provider.base_url, timeout=<timeout>, max_retries=0, http_client=anthropic.DefaultHttpxClient(follow_redirects=False))` -- the SDK's default client follows redirects; a 30x then surfaces as `APIStatusError` and maps to a non-retryable `status` error (PRD-020 D5). The SDK sends the key as `Authorization: Bearer` (not `x-api-key`). Catch `APITimeoutError` before `APIConnectionError` (subclass). `OverloadedError` (529) subclasses `InternalServerError`. `retry-after` comes from `exc.response.headers.get("retry-after")` (int >= 1, else None). `stop_reason` has a 7th value `model_context_window_exceeded` -> `length` (PRD 6.5 amended). Thinking `{"type":"adaptive","display":"summarized"}` exists in 2.11.0. Facts and SDK file paths: the STORY-001 report.
 
 ## Dependencies
 

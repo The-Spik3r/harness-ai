@@ -40,6 +40,7 @@ As the chain runner and the breaker, I want every upstream failure to say which 
 - `ChainExhausted` lives in `types.py` and is exported from the package `__init__` so `v1.py` and the pipeline import it without importing `chain.py`.
 - 401 is `kind="misconfigured"` but stays `retryable=False` (client contract unchanged; PRD 6.2 note).
 - Frozen dataclasses; new fields last and defaulted (PRD-013/017 precedent).
+- Orchestrator decision (STORY-001 findings): `UpstreamError` today has only `upstream_status`/`retryable`; `_classify_http_error` lives at `app/services/upstream/openai_compatible.py:54` and is typed on `httpx.HTTPError` -- set `kind`/`provider` there; the Anthropic adapter has its own mapping. `ToolCallDelta`'s field is `arguments` (not `arguments_fragment`).
 
 ## Dependencies
 

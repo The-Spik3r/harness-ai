@@ -220,7 +220,7 @@ A fallback candidate's redaction can fail. A `PiiRedactorError` ends the chain t
 | `text` blocks | `response`, concatenated | |
 | `tool_use` blocks | `ToolCallSpec(id, name, json.dumps(input, ensure_ascii=False, separators=(",", ":")))` | The one place the harness serializes arguments. The action policy classifies this string and the client receives it, so PRD-017 T1 holds |
 | `thinking` / `redacted_thinking` | counted into `reasoning_blocks`; not in `response` | D14. Streamed summarized `thinking` text becomes `ReasoningDelta` (6.6). `redacted_thinking` is encrypted and never emitted |
-| `stop_reason` `end_turn` / `stop_sequence` / `max_tokens` / `tool_use` / `refusal` | `stop` / `stop` / `length` / `tool_calls` / `content_filter` | `pause_turn` cannot occur because no server tools are sent; if it does, it is a `shape` error |
+| `stop_reason` `end_turn` / `stop_sequence` / `max_tokens` / `model_context_window_exceeded` / `tool_use` / `refusal` | `stop` / `stop` / `length` / `length` / `tool_calls` / `content_filter` | `pause_turn` cannot occur because no server tools are sent; if it does, it is a `shape` error |
 | `usage.input_tokens + cache_creation_input_tokens + cache_read_input_tokens` | prompt tokens | Anthropic's `input_tokens` excludes cached tokens, so counting it alone would under-charge (PRD-013 F11) |
 | `usage.output_tokens` | completion tokens | Includes thinking |
 | the cache pair | `cache_write_tokens`, `cache_read_tokens` | Recorded per row |
@@ -229,7 +229,7 @@ Anthropic always reports usage, so PRD-020's `usage_missing` setting has no effe
 
 **Prompt caching.** With `prompt_cache: auto`, the adapter sends top-level `cache_control: {"type": "ephemeral"}`. Caching matches on the prefix, and the harness's prefixes are stable: redaction placeholders are deterministic (`<PERSON>`), and `code` leaves `system` untouched.
 
-**Transport.** The adapter uses the official SDK: `anthropic.Anthropic(api_key=<key_env value or BYOK>, base_url=provider.base_url, timeout=provider.timeout_seconds, max_retries=0)`. `base_url` passes PRD-020 D5 (F3) at load time. SDK errors map to `UpstreamError` kinds: `APITimeoutError` → `timeout`, `APIConnectionError` → `transport`, `AuthenticationError` → `misconfigured`, `RateLimitError` → 429 with `retry_after_seconds`, `APIStatusError` → `status`. Messages keep PRD-020's convention of a `label` prefix.
+**Transport.** The adapter uses the official SDK: `anthropic.Anthropic(api_key=<key_env value or BYOK>, base_url=provider.base_url, timeout=provider.timeout_seconds, max_retries=0)`. `base_url` passes PRD-020 D5 (F3) at load time. SDK errors map to `UpstreamError` kinds: `APITimeoutError` → `timeout`, `APIConnectionError` → `transport`, `AuthenticationError` → `misconfigured`, `RateLimitError` → 429 with `retry_after_seconds`, `APIStatusError` → `status`. Messages keep PRD-020's convention of a `label` prefix. *(Amended after STORY-001: SDK 2.11.0 sends the key as `Authorization: Bearer`, and its default client follows redirects, so the adapter passes `http_client=anthropic.DefaultHttpxClient(follow_redirects=False)`; a 30x is then a non-retryable `status` error, as PRD-020 D5. `APITimeoutError` subclasses `APIConnectionError` and is matched first; `retry-after` is read from `exc.response.headers`.)*
 
 ### 6.6 Streaming (PRD-020 D11, PRD-021, D9)
 
@@ -383,7 +383,7 @@ The stub gains `POST /v1/messages` (JSON and SSE) and faults scripted per reques
 ## 8. Technology Stack
 
 - Python 3.11, FastAPI, pydantic-settings, as today.
-- **New:** the `anthropic` Python SDK, pinned exactly in `requirements.txt`, like `presidio-*==2.2.364` and `sqlglot==30.27.0`. Its 1.x line is built on `httpx2`, not `httpx`, which adds a second HTTP stack beside PRD-020's `httpx.Client(follow_redirects=False)`. STORY-001 confirms the version and checks that redirects are not followed with the key attached. If the SDK cannot guarantee that, D2 falls back to raw `httpx`.
+- **New:** the `anthropic` Python SDK, pinned exactly in `requirements.txt`, like `presidio-*==2.2.364` and `sqlglot==30.27.0`. STORY-001 pinned `anthropic==2.11.0`. It is built on `httpx2` (already in the venv through `openai`), not `httpx`, which adds a second HTTP stack beside PRD-020's `httpx.Client(follow_redirects=False)`. Its default client follows redirects (cross-origin ones drop the key); with `DefaultHttpxClient(follow_redirects=False)` no redirect is followed, so D2's raw-`httpx` fallback is not needed (STORY-001 report, `tests/test_prd022_spike_anthropic_sdk.py`).
 - PRD-018's breaker state machine (6.10). No new resilience library, the same choice PRD-018 makes against `tenacity`/`pybreaker`.
 - PyYAML through `strict_yaml`.
 - `.agents/skills/frontend-design` applies to the Providers panel: "distinctive, intentional visual design … making choices that don't read as templated defaults". The panel follows `chat_ui/chat_ui/theme.py`.

@@ -39,6 +39,7 @@ As an operator, I want each provider to have its own circuit breaker with PRD-01
 - `app/services/circuit_breaker.py` (`CircuitBreaker` `:93`, `before` `:183`, `record_success` `:246`, `record_failure` `:259`, `force_open` `:281`, `status` `:294`, `BreakerOpen` `:78`); storage's use in `app/db/database.py:154-155, 321-322`; PRD-018 counters in `app/db/storage_counters.py`; `storage_status()` `database.py:1341` for the `instance` and shape.
 - The 429 open-time rule may need a small optional argument on `CircuitBreaker` (e.g. `record_failure(cls, open_seconds=None)`); if so, storage's behaviour and PRD-018's tests stay unchanged.
 - New file `app/services/upstream/health.py`; pure of settings; injected clock for tests. No wiring into the pipeline here (STORY-011/012).
+- Orchestrator decision (STORY-001 findings, binding): `record_failure(cls)` has no per-call open time; `force_open(seconds)` on a closed breaker does NOT set `last_failure_class`, and on an open breaker it can SHORTEN the window. So in `health.py`: for `misconfigured` and the 429 rule, first `record_failure(kind)` (so status shows the kind), then `force_open(seconds)` only when that extends the current open deadline (never shorten: a 300 s misconfigured window must not be cut by a later 429). Keep this in `health.py`; touch `CircuitBreaker` only with PRD-018's tests unchanged.
 
 ## Dependencies
 

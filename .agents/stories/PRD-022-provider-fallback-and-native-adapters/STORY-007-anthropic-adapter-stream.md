@@ -39,6 +39,7 @@ As PRD-021's real-time pipeline, I want an Anthropic model to stream as PRD-020'
 - `app/services/upstream/anthropic.py` (STORY-005); `collect.py`; PRD-021's `ReasoningDelta` in `types.py:109`; the OpenAI-compatible `stream()` for structure (`openai_compatible.py`, `sse.py`).
 - `ProviderAdapter.stream` signature as built: `stream(self, request, api_key, *, reasoning: bool = False)` (`types.py:118-125`).
 - Release semantics (D9) are the pipeline's job (STORY-014); the adapter just yields events in arrival order.
+- Orchestrator decision (STORY-001 findings): the thinking request shape `{"type":"adaptive","display":"summarized"}` is valid in the pinned SDK; `MessageDeltaUsage` carries both cache fields (use them for `UsageReport`).
 
 ## Dependencies
 

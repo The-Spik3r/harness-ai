@@ -39,6 +39,7 @@ As an operator, I want to declare an Anthropic-native provider and its models in
 - `app/services/provider_registry.py:49` `TYPES`, `:61`/`:80`/`:81` key lists, `:86-129` dataclasses, `:297` `_parse_capabilities`, `:315` `_parse_model`, `:346-352` the type refusal (its message names PRD-022; update it), `:533` `_build_legacy`.
 - `app/services/upstream/__init__.py:84-127`: today both seams hard-code `OpenAICompatibleAdapter(route.provider, client)`. The `client: httpx.Client` argument is meaningful only for the OpenAI-compatible adapter; keep the seam signatures unchanged.
 - Existing registry tests: extend, do not rewrite; the "only type is openai_compatible" assertion changes — comment it citing PRD-022 F1-addition.
+- Orchestrator decision (STORY-001 findings): the type->adapter factory keeps `client: httpx.Client` meaningful only for `openai_compatible`; the anthropic adapter builds its own SDK client (see STORY-005's note).
 
 ## Dependencies
 

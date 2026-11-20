@@ -38,6 +38,7 @@ As a test author, I want the stub upstream to speak the Anthropic Messages API a
 - `scripts/stub_openrouter.py` (770 lines): `Request.from_body` `:168`, `Rule.matches` `:227`, `_parse_reply` `:353`, `_send_sse` `:522`, `do_POST` `:618`, `make_server` `:709`. Reuse the script format; add fields rather than a second script language. Check which faults (status replies, redirects `:510`) already exist before adding.
 - The script schema is validated (`parse_script` `:442`): new keys go through the same validation with errors naming the rule index.
 - The SSE event names come from STORY-001's report; the property test in STORY-007 replays every script through both `complete()` and `stream()`.
+- Orchestrator decision (STORY-001 findings): the SDK sends `Authorization: Bearer <key>` and `anthropic-version`; the stub's Messages mode must accept the Bearer header (it may accept `x-api-key` too). Use the SSE event names recorded in the STORY-001 report.
 
 ## Dependencies
 
