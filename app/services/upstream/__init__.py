@@ -21,6 +21,7 @@ from app.services.upstream.params import (
     UnsupportedParameterError,
 )
 from app.services.upstream.types import (
+    ChainExhausted,
     Finish,
     ProviderAdapter,
     ReasoningDelta,
@@ -34,6 +35,7 @@ from app.services.upstream.types import (
 )
 
 __all__ = [
+    "ChainExhausted",
     "Finish",
     "GenerationParams",
     "OpenAICompatibleAdapter",
@@ -77,7 +79,12 @@ def _resolve_call(
                 if provider.byok
                 else f"set {provider.key_env}"
             )
-            raise UpstreamError(f"{provider.label} API key not configured: {hint}")
+            # PRD-022 6.2: a provider with no usable key is `misconfigured` (D8).
+            raise UpstreamError(
+                f"{provider.label} API key not configured: {hint}",
+                provider=provider.name,
+                kind="misconfigured",
+            )
     return route, key
 
 

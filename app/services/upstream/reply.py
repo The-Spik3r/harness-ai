@@ -9,7 +9,12 @@ rules and one set of message texts (PRD-020 D11).
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from app.models.messages import ToolCallSpec
-from app.services.upstream.types import UpstreamError, UpstreamRequest, UpstreamResult
+from app.services.upstream.types import (
+    UpstreamError,
+    UpstreamRequest,
+    UpstreamResult,
+    tag_shape,
+)
 from app.services.usage_estimate import estimate_tokens
 
 if TYPE_CHECKING:  # annotations only: the registry imports settings
@@ -135,8 +140,22 @@ def result_from_reply(
 
     Shape errors are non-retryable `UpstreamError`s naming the field (T7);
     `model_used` is the upstream id the request carried (the caller maps it back
-    to the requested id, D13).
+    to the requested id, D13). PRD-022 6.2: every error raised here is a
+    deterministic fault of the response, tagged `kind="shape"` with the provider.
     """
+    try:
+        return _result_from_reply(provider, request, data, usage_missing=usage_missing)
+    except UpstreamError as exc:
+        raise tag_shape(exc, provider.name)
+
+
+def _result_from_reply(
+    provider: "Provider",
+    request: UpstreamRequest,
+    data: Any,
+    *,
+    usage_missing: Optional[str] = None,
+) -> UpstreamResult:
     label = provider.label
     tools = request.tools
     try:

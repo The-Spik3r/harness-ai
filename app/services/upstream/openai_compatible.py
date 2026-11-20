@@ -28,6 +28,7 @@ from app.services.upstream.types import (
     UpstreamEvent,
     UpstreamRequest,
     UpstreamResult,
+    tag_shape,
 )
 
 
@@ -61,6 +62,29 @@ def _classify_http_error(exc: httpx.HTTPError) -> tuple[Optional[int], bool]:
     if isinstance(exc, httpx.TransportError):
         return None, True
     return None, False
+
+
+def _classify_kind(exc: httpx.HTTPError) -> Optional[str]:
+    """The PRD-022 6.2 `kind` of a failed request: 401 is the provider's own key (D8)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return "misconfigured" if exc.response.status_code == 401 else "status"
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.TransportError):
+        return "transport"
+    return None
+
+
+def _retry_after_seconds(response: httpx.Response) -> Optional[int]:
+    """A 429's `Retry-After` as whole seconds, at least 1 (PRD-022 6.2).
+
+    Only the integer form is read; an HTTP-date, a malformed value or no header
+    is None, so no clock is consulted.
+    """
+    if response.status_code != 429:
+        return None
+    value = response.headers.get("retry-after", "").strip()
+    return max(1, int(value)) if value.isdigit() else None
 
 
 class OpenAICompatibleAdapter:
@@ -118,25 +142,33 @@ class OpenAICompatibleAdapter:
         return f"{self._provider.base_url.rstrip('/')}/chat/completions"
 
     @staticmethod
-    def _raise_for_response(resp: httpx.Response, label: str) -> None:
+    def _raise_for_response(resp: httpx.Response, provider: Provider) -> None:
         # Checked here, not via raise_for_status alone: whether httpx treats a 3xx
         # as an error varies by version. The Location is never quoted.
         if 300 <= resp.status_code < 400:
             raise UpstreamError(
-                f"{label} request failed: unexpected redirect (HTTP {resp.status_code}); "
+                f"{provider.label} request failed: unexpected redirect (HTTP {resp.status_code}); "
                 "redirects are not followed",
                 upstream_status=resp.status_code,
                 retryable=False,
+                provider=provider.name,
+                kind="status",
             )
         resp.raise_for_status()
 
     @staticmethod
-    def _http_error(exc: httpx.HTTPError, label: str) -> UpstreamError:
+    def _http_error(exc: httpx.HTTPError, provider: Provider) -> UpstreamError:
         upstream_status, retryable = _classify_http_error(exc)
+        retry_after = (
+            _retry_after_seconds(exc.response) if isinstance(exc, httpx.HTTPStatusError) else None
+        )
         return UpstreamError(
-            f"{label} request failed: {exc}",
+            f"{provider.label} request failed: {exc}",
             upstream_status=upstream_status,
             retryable=retryable,
+            provider=provider.name,
+            kind=_classify_kind(exc),
+            retry_after_seconds=retry_after,
         )
 
     def complete(self, request: UpstreamRequest, api_key: Optional[str]) -> UpstreamResult:
@@ -150,15 +182,17 @@ class OpenAICompatibleAdapter:
         try:
             try:
                 resp = http_client.post(self._url(), headers=headers, json=payload)
-                self._raise_for_response(resp, label)
+                self._raise_for_response(resp, provider)
             except httpx.HTTPError as exc:
-                raise self._http_error(exc, label) from exc
+                raise self._http_error(exc, provider) from exc
 
             try:
                 data = resp.json()
             except ValueError as exc:
                 raise UpstreamError(
-                    f"{label} returned an unexpected response shape: {exc}"
+                    f"{label} returned an unexpected response shape: {exc}",
+                    provider=provider.name,
+                    kind="shape",
                 ) from exc
             return result_from_reply(provider, request, data)
         finally:
@@ -182,7 +216,8 @@ class OpenAICompatibleAdapter:
         check runs between events, so the overshoot is bounded by one httpx
         per-read timeout; a silent connection is cut by that timeout itself.
         """
-        label = self._provider.label
+        provider = self._provider
+        label = provider.label
         deadline = time.monotonic() + self._provider.timeout_seconds
         headers = self._headers(api_key, stream=True)
         payload = self._payload(request, stream=True)
@@ -193,23 +228,29 @@ class OpenAICompatibleAdapter:
             try:
                 with http_client.stream("POST", self._url(), headers=headers, json=payload) as resp:
                     # A non-2xx body is never read: raise_for_status needs only the status line.
-                    self._raise_for_response(resp, label)
+                    self._raise_for_response(resp, provider)
                     finished = False
-                    for event in parse_events(resp.iter_lines(), label, reasoning=reasoning):
-                        if time.monotonic() > deadline:
-                            raise httpx.ReadTimeout(
-                                f"stream exceeded {self._provider.timeout_seconds}s"
-                            )
-                        if isinstance(event, Finish):
-                            finished = True
-                        yield event
+                    try:
+                        for event in parse_events(resp.iter_lines(), label, reasoning=reasoning):
+                            if time.monotonic() > deadline:
+                                raise httpx.ReadTimeout(
+                                    f"stream exceeded {self._provider.timeout_seconds}s"
+                                )
+                            if isinstance(event, Finish):
+                                finished = True
+                            yield event
+                    except UpstreamError as exc:
+                        # PRD-022 6.2: a malformed chunk is a deterministic shape fault.
+                        raise tag_shape(exc, provider.name)
                     if not finished:
                         raise UpstreamError(
                             f"{label} returned an unexpected response shape: "
-                            "stream ended without a finish reason"
+                            "stream ended without a finish reason",
+                            provider=provider.name,
+                            kind="shape",
                         )
             except httpx.HTTPError as exc:
-                raise self._http_error(exc, label) from exc
+                raise self._http_error(exc, provider) from exc
         finally:
             if owns_client:
                 http_client.close()

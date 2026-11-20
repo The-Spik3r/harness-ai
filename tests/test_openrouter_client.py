@@ -442,6 +442,8 @@ def test_the_split_fields_are_declared_last_and_in_order():
         "tool_calls",
         # PRD-020 STORY-009 (D9): usage_estimated appended last with a default.
         "usage_estimated",
+        # PRD-022 STORY-002 (D11): cache pair and reasoning_blocks appended last with defaults.
+        "cache_read_tokens", "cache_write_tokens", "reasoning_blocks",
     ]
 
 

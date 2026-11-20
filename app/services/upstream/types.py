@@ -12,6 +12,19 @@ from app.models.messages import Message, ToolCallSpec
 from app.services.upstream.params import GenerationParams, ToolParams
 
 
+# PRD-022 STORY-002 (6.2, D11): the closed vocabulary of `UpstreamError.kind`.
+UPSTREAM_ERROR_KINDS = (
+    "timeout",
+    "transport",
+    "status",
+    "shape",
+    "refusal",
+    "incompatible",
+    "misconfigured",
+    "exhausted",
+)
+
+
 class UpstreamError(Exception):
     """A failed upstream call, and what the client knows about why (PRD-015 D7).
 
@@ -21,6 +34,12 @@ class UpstreamError(Exception):
     may then succeed; STORY-011 maps it to `/v1`'s retry semantics. The
     message is the only positional argument, so `str(exc)` -- and with it the
     audit row's error_message and /query's 502 detail -- is unchanged.
+
+    PRD-022 D11 / 6.2: `provider` (the configured provider name) and `kind`
+    (one of UPSTREAM_ERROR_KINDS, None when unclassified) say what failed, and
+    `retry_after_seconds` carries a 429's integer Retry-After. They expose a
+    kind and a status only, never body text (T10). `fallback_eligible` is
+    derived, never stored.
     """
 
     def __init__(
@@ -29,10 +48,58 @@ class UpstreamError(Exception):
         *,
         upstream_status: Optional[int] = None,
         retryable: bool = False,
+        provider: Optional[str] = None,
+        kind: Optional[str] = None,
+        retry_after_seconds: Optional[int] = None,
     ) -> None:
+        if kind is not None and kind not in UPSTREAM_ERROR_KINDS:
+            raise ValueError(f"kind must be one of {UPSTREAM_ERROR_KINDS}, got {kind!r}")
         super().__init__(message)
         self.upstream_status = upstream_status
         self.retryable = retryable
+        self.provider = provider
+        self.kind = kind
+        self.retry_after_seconds = retry_after_seconds
+
+    @property
+    def fallback_eligible(self) -> bool:
+        """PRD-022 6.2: a transient fault, or a provider whose own key is wrong (D8)."""
+        return self.retryable or self.kind == "misconfigured"
+
+
+class ChainExhausted(UpstreamError):
+    """Every candidate of a fallback chain was skipped or failed (PRD-022 6.2, F7).
+
+    `skipped` is (provider, reason) pairs, reasons being closed-vocabulary
+    words; `last_error` is the last candidate's failure, if any was attempted.
+    Retryable, so `/v1` maps it to `upstream_unavailable`.
+    """
+
+    def __init__(
+        self,
+        skipped: Sequence[Sequence[str]] = (),
+        *,
+        last_error: Optional[UpstreamError] = None,
+        retry_after_seconds: Optional[int] = None,
+    ) -> None:
+        super().__init__(
+            "all providers unavailable",
+            upstream_status=None,
+            retryable=True,
+            provider=None,
+            kind="exhausted",
+            retry_after_seconds=retry_after_seconds,
+        )
+        self.skipped: tuple[tuple[str, str], ...] = tuple(tuple(p) for p in skipped)
+        self.last_error = last_error
+
+
+def tag_shape(exc: UpstreamError, provider_name: str) -> UpstreamError:
+    """Label a still-unclassified error a non-retryable `shape` fault of `provider_name` (PRD-022 6.2)."""
+    if exc.kind is None:
+        exc.kind = "shape"
+        exc.provider = provider_name
+    return exc
 
 
 
@@ -57,6 +124,12 @@ class UpstreamResult:
     # tokens_used is the harness's estimate. Declared last with a default, the
     # same precedent, so older construction keeps working.
     usage_estimated: bool = False
+    # PRD-022 STORY-002 (D11): prompt-cache token counts and the number of
+    # reasoning blocks, None / 0 until a native adapter fills them. Declared
+    # last with defaults, the same precedent.
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
+    reasoning_blocks: int = 0
 
 
 
@@ -96,6 +169,9 @@ class UsageReport:
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    # PRD-022 STORY-002 (D11): declared last with defaults.
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
 
 
 @dataclass(frozen=True)

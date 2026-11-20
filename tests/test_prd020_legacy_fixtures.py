@@ -425,6 +425,11 @@ def test_success_result_fields_match_recorded():
         # change to today's recorded ones; a reported usage always leaves it False.
         record = dataclasses.asdict(result)
         assert record.pop("usage_estimated") is False
+        # PRD-022 STORY-002 (D11): the cache pair and reasoning_blocks are new fields, not a
+        # change to the recorded ones; the OpenAI-compatible adapter leaves them at defaults.
+        assert record.pop("cache_read_tokens") is None
+        assert record.pop("cache_write_tokens") is None
+        assert record.pop("reasoning_blocks") == 0
         return record
 
     results = {

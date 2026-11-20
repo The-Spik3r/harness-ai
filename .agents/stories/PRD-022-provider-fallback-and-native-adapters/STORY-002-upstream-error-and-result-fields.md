@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: done
 labels: [backend, upstream, contract]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-002-upstream-error-and-result-fields.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-002-upstream-error-and-result-fields.report.md
 commit: null
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-010]
