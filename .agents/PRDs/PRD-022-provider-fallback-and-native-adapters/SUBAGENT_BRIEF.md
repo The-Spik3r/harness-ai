@@ -25,7 +25,7 @@ You are one subagent in an orchestrated run. An orchestrator verifies your outpu
 
 ## Commits (implement subagent)
 - Stage files explicitly; never `git add -A` / `git add .`. Never `--no-verify`; if a hook fails, fix the cause and make a new commit. Never push: the orchestrator pushes after it verifies the story.
-- End every commit message with exactly: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
+- End every commit message with the `Co-Authored-By:` line your harness's attribution reminder gives for your own model (e.g. `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`); if you have none, use `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never amend to change it.
 - Order: commit code + tests + archived plan + report (with `commit: pending`) as `<type>(PRD-022): {STORY-ID} <summary>`. Capture the SHA. Then make one small follow-up `chore(PRD-022): {STORY-ID} report; update status + index` that fills the SHA into the report and story frontmatter.
 
 ## Editing files
