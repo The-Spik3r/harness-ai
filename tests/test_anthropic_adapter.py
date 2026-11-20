@@ -674,3 +674,41 @@ def test_a_large_default_max_tokens_does_not_trip_the_sdks_streaming_guard(stub)
     request = _req(model=_model(max_tokens=64000))
     result = AnthropicAdapter(_provider(base_url=stub.url)).complete(request, _KEY)
     assert result.response == "from the wire" and stub.seen[0][2]["max_tokens"] == 64000
+
+
+# --- PRD-022 STORY-011 (F5): the per-attempt timeout ---------------------------
+
+
+def test_the_per_attempt_timeout_reaches_an_owned_sdk_client(monkeypatch):
+    seen = []
+
+    def fake_anthropic(**kwargs):
+        seen.append(kwargs["timeout"])
+        return _FakeClient()
+
+    monkeypatch.setattr(adapter_mod.anthropic, "DefaultHttpxClient", lambda **kw: "HTTP")
+    monkeypatch.setattr(adapter_mod.anthropic, "Anthropic", fake_anthropic)
+    adapter = AnthropicAdapter(_provider(timeout_seconds=12.5))
+    adapter.complete(dataclasses.replace(_req(), timeout_seconds=3.0), _KEY)
+    adapter.complete(_req(), _KEY)
+    assert seen == [3.0, 12.5]  # unset keeps the provider's timeout
+
+
+def test_the_per_attempt_timeout_reaches_an_injected_client_through_with_options():
+    class _Opt(_FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.options = []
+
+        def with_options(self, **kwargs):
+            self.options.append(kwargs)
+            return self
+
+    client = _Opt()
+    adapter = AnthropicAdapter(_provider(), sdk_client=client)
+    adapter.complete(dataclasses.replace(_req(), timeout_seconds=2.5), _KEY)
+    adapter.complete(_req(), _KEY)  # unset: the injected client is used as is
+    # the stream path builds its client through the same helper
+    assert adapter._client_for(_provider(), _KEY, 1.5) is client
+    assert adapter._client_for(_provider(), _KEY, None) is client
+    assert client.options == [{"timeout": 2.5}, {"timeout": 1.5}]

@@ -150,6 +150,10 @@ class UpstreamRequest:
     # imports this module and its AST purity test forbids a registry import, even
     # under TYPE_CHECKING. None for every request built outside the seam.
     model: Optional[Any] = None
+    # PRD-022 STORY-011 (F5, D13): the per-attempt timeout the chain runner computed
+    # (the smaller of the provider's and the deadline's remainder). None keeps the
+    # provider's own `timeout_seconds`, so an unset request behaves as before.
+    timeout_seconds: Optional[float] = None
 
 
 # PRD-020 STORY-013 (D11): what a streaming adapter yields. The wire's chunks are

@@ -548,3 +548,39 @@ def test_chat_ui_registers_chain_load_after_the_registry_load():
     registry = source.index("app.register_lifespan_task(provider_registry.load)")
     chains = source.index("app.register_lifespan_task(chain_config.load)")
     assert registry < chains < source.index("app.register_lifespan_task(authz.check_bootstrap)")
+
+
+# --- PRD-022 STORY-011: limits on the snapshot, shared trust ordering ----------------------
+
+
+def test_the_snapshot_carries_the_limits_it_was_validated_with(registry):
+    snapshot, _ = _validate(registry, _doc(_chain("a1", "a1", "b1")), ChainLimits(3, 7.5, 1.0))
+    assert snapshot.limits == ChainLimits(3, 7.5, 1.0)
+    assert ChainSnapshot({}).limits is None  # a hand-built snapshot keeps working
+
+
+def test_current_limits_follow_the_loaded_snapshot(provider_file, chains_file, monkeypatch):  # noqa: F811
+    assert chain_config.current_limits() is None
+    provider_file(REGISTRY, env=_ENV)
+    monkeypatch.setattr(settings, "PROVIDER_MIN_ATTEMPT_SECONDS", 1.5)
+    chains_file(_yaml("  - match: {model: a1}\n    candidates: [{model: a1}, {model: b1}]\n"))
+    assert chain_config.current_limits().min_attempt_seconds == 1.5
+    chain_config.reset()
+    assert chain_config.current_limits() is None
+
+
+@pytest.mark.parametrize(
+    "primary,other,expected",
+    [
+        ("internal", "external", True),
+        ("internal", "internal", False),
+        ("external", "external", False),
+        ("external", "internal", False),
+    ],
+)
+def test_trust_lowered_compares_with_the_primary(primary, other, expected):
+    from types import SimpleNamespace
+
+    assert chain_config.trust_lowered(
+        SimpleNamespace(trust=primary), SimpleNamespace(trust=other)
+    ) is expected

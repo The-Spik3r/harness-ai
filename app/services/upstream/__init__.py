@@ -127,16 +127,21 @@ def call_upstream(
     client: Optional[httpx.Client] = None,
     *,
     tools: Optional[ToolParams] = None,
+    timeout: Optional[float] = None,
 ) -> UpstreamResult:
     """tool_calls are parsed only when `tools=` was sent (PRD-017 D18).
 
     Without it, a null content with tool calls stays today's error. `api_key`
     is the caller's own key: used only for a `byok` provider (PRD-020 D10);
     otherwise the provider's own key, or none for a keyless provider.
+    `timeout` (PRD-022 F5) is the per-attempt bound the chain runner computed;
+    None keeps the provider's `timeout_seconds`.
     """
     route, key = _resolve_call(messages, model, api_key)
     adapter = _build_adapter(route.provider, client)
-    result = adapter.complete(UpstreamRequest(messages, route.upstream_model, params, tools, route.model), key)
+    result = adapter.complete(
+        UpstreamRequest(messages, route.upstream_model, params, tools, route.model, timeout), key
+    )
     # model_used stays the requested id (PRD-020 D13), whatever went upstream.
     return dataclasses.replace(result, model_used=model)
 
@@ -149,6 +154,7 @@ def stream_upstream(
     client: Optional[httpx.Client] = None,
     *,
     tools: Optional[ToolParams] = None,
+    timeout: Optional[float] = None,
 ) -> Iterator[UpstreamEvent]:
     """The answer as normalized events (PRD-021 6.2): `call_upstream`'s routing, streamed.
 
@@ -159,7 +165,7 @@ def stream_upstream(
     """
     route, key = _resolve_call(messages, model, api_key)
     return _build_adapter(route.provider, client).stream(
-        UpstreamRequest(messages, route.upstream_model, params, tools, route.model),
+        UpstreamRequest(messages, route.upstream_model, params, tools, route.model, timeout),
         key,
         reasoning=route.capabilities.reasoning,
     )

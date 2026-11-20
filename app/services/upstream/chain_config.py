@@ -81,6 +81,15 @@ class ChainLimits:
     min_attempt_seconds: float
 
 
+def trust_lowered(primary_provider, provider) -> bool:
+    """Does answering from `provider` instead of the primary's cross the trust line? (PRD-022 D6)
+
+    Always compared with the primary, never the previous entry. Pure; shared by the
+    startup validator and the runtime runner so both use one ordering.
+    """
+    return primary_provider.trust == "internal" and provider.trust == "external"
+
+
 def _single(model: str, ingress: Optional[str] = None) -> Chain:
     return Chain(model, ingress, (Candidate(model),))
 
@@ -90,6 +99,9 @@ class ChainSnapshot:
     """Every configured chain, keyed `(model, ingress)`; `ingress` None matches any ingress."""
 
     chains: Mapping[tuple[str, Optional[str]], Chain]
+    # PRD-022 STORY-011: the limits the file was validated with, so the runner reads
+    # the same deadline and minimum attempt (None for a hand-built snapshot).
+    limits: Optional[ChainLimits] = None
 
     def chain_for(self, model: str, ingress: Optional[str]) -> Chain:
         """Exact `(model, ingress)`, then `(model, None)`, then the single-candidate chain."""
@@ -201,7 +213,7 @@ def _check_entry(
 
     primary_provider = providers[primary.provider_name]
     provider = providers[entry.provider_name]
-    crossing = primary_provider.trust == "internal" and provider.trust == "external"
+    crossing = trust_lowered(primary_provider, provider)
     if crossing and not candidate.allow_lower_trust:
         raise _fail(
             source,
@@ -300,7 +312,7 @@ def validate_chains(
             )
         chains[key] = Chain(model, ingress, candidates)
 
-    return ChainSnapshot(MappingProxyType(chains)), tuple(warnings)
+    return ChainSnapshot(MappingProxyType(chains), limits), tuple(warnings)
 
 
 # --- State and public API (the only I/O) --------------------------------------
@@ -360,6 +372,11 @@ def reset() -> None:
 
 def current() -> Optional[ChainSnapshot]:
     return _snapshot
+
+
+def current_limits() -> Optional[ChainLimits]:
+    """The loaded snapshot's limits; None with no chains (no deadline, today's single call)."""
+    return None if _snapshot is None else _snapshot.limits
 
 
 def chain_for(model: str, ingress: Optional[str]) -> Chain:

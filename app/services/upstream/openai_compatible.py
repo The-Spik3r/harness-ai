@@ -131,12 +131,16 @@ class OpenAICompatibleAdapter:
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def _open_client(self) -> httpx.Client:
+    def _timeout(self, request: UpstreamRequest) -> float:
+        # PRD-022 F5: the chain runner's per-attempt bound, else the provider's own.
+        if request.timeout_seconds is not None:
+            return request.timeout_seconds
+        return self._provider.timeout_seconds
+
+    def _open_client(self, timeout: float) -> httpx.Client:
         # PRD-020 D5/F3: redirects are never followed, so a provider cannot bounce
         # the request (and its Authorization header) to another host.
-        return self._client or httpx.Client(
-            timeout=self._provider.timeout_seconds, follow_redirects=False
-        )
+        return self._client or httpx.Client(timeout=timeout, follow_redirects=False)
 
     def _url(self) -> str:
         return f"{self._provider.base_url.rstrip('/')}/chat/completions"
@@ -176,12 +180,17 @@ class OpenAICompatibleAdapter:
         label = provider.label
         headers = self._headers(api_key)
         payload = self._payload(request)
+        timeout = self._timeout(request)
 
         owns_client = self._client is None
-        http_client = self._open_client()
+        http_client = self._open_client(timeout)
         try:
             try:
-                resp = http_client.post(self._url(), headers=headers, json=payload)
+                # An injected client carries its own default timeout, so a bound the
+                # chain runner set is passed per call, and only then (suite stubs);
+                # an owned client was built with it.
+                extra = {"timeout": timeout} if request.timeout_seconds is not None and not owns_client else {}
+                resp = http_client.post(self._url(), headers=headers, json=payload, **extra)
                 self._raise_for_response(resp, provider)
             except httpx.HTTPError as exc:
                 raise self._http_error(exc, provider) from exc
@@ -218,15 +227,19 @@ class OpenAICompatibleAdapter:
         """
         provider = self._provider
         label = provider.label
-        deadline = time.monotonic() + self._provider.timeout_seconds
+        timeout = self._timeout(request)
+        deadline = time.monotonic() + timeout
         headers = self._headers(api_key, stream=True)
         payload = self._payload(request, stream=True)
 
         owns_client = self._client is None
-        http_client = self._open_client()
+        http_client = self._open_client(timeout)
         try:
             try:
-                with http_client.stream("POST", self._url(), headers=headers, json=payload) as resp:
+                extra = {"timeout": timeout} if request.timeout_seconds is not None and not owns_client else {}
+                with http_client.stream(
+                    "POST", self._url(), headers=headers, json=payload, **extra
+                ) as resp:
                     # A non-2xx body is never read: raise_for_status needs only the status line.
                     self._raise_for_response(resp, provider)
                     finished = False
@@ -234,7 +247,7 @@ class OpenAICompatibleAdapter:
                         for event in parse_events(resp.iter_lines(), label, reasoning=reasoning):
                             if time.monotonic() > deadline:
                                 raise httpx.ReadTimeout(
-                                    f"stream exceeded {self._provider.timeout_seconds}s"
+                                    f"stream exceeded {timeout}s"
                                 )
                             if isinstance(event, Finish):
                                 finished = True

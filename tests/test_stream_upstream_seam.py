@@ -536,3 +536,18 @@ def test_openai_compatible_dispatch_builds_one_adapter_with_provider_and_client(
         client.close()
     provider = provider_registry.resolve("s/m").provider
     assert builds == [(provider, client), (provider, client)]
+
+
+def test_stream_upstream_timeout_reaches_the_request_only_when_set(provider_file, monkeypatch):
+    # PRD-022 STORY-011 (F5): the per-attempt bound travels on UpstreamRequest.
+    seen = []
+
+    def fake_stream(self, request, api_key, *, reasoning=False):
+        seen.append(request.timeout_seconds)
+        return iter(())
+
+    monkeypatch.setattr(OpenAICompatibleAdapter, "stream", fake_stream)
+    provider_file(_yaml(1, reasoning=True))
+    list(stream_upstream(_MSG, model="s/m", timeout=3.5))
+    list(stream_upstream(_MSG, model="s/m"))
+    assert seen == [3.5, None]

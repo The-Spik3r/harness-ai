@@ -468,12 +468,17 @@ def _map_events(sdk_events: Any, provider: Provider, reasoning: bool) -> Iterato
         raise _shape(provider, "stream ended without a stop")
 
 
-def _open_sdk_client(provider: Provider, api_key: Optional[str]) -> anthropic.Anthropic:
-    """One SDK client for one call (STORY-001): no SDK retries, an explicit timeout, no redirects."""
+def _open_sdk_client(
+    provider: Provider, api_key: Optional[str], timeout: Optional[float] = None
+) -> anthropic.Anthropic:
+    """One SDK client for one call (STORY-001): no SDK retries, an explicit timeout, no redirects.
+
+    `timeout` is the chain runner's per-attempt bound (PRD-022 F5); None keeps the provider's.
+    """
     return anthropic.Anthropic(
         api_key=api_key,
         base_url=provider.base_url,
-        timeout=provider.timeout_seconds,
+        timeout=provider.timeout_seconds if timeout is None else timeout,
         max_retries=0,
         http_client=anthropic.DefaultHttpxClient(follow_redirects=False),
     )
@@ -497,7 +502,7 @@ class AnthropicAdapter:
                 provider=provider.name,
                 kind="misconfigured",
             )
-        client = self._sdk_client if not owns_client else _open_sdk_client(provider, api_key)
+        client = self._client_for(provider, api_key, request.timeout_seconds)
         try:
             try:
                 message = client.messages.create(**body)
@@ -528,13 +533,30 @@ class AnthropicAdapter:
                 provider=provider.name,
                 kind="misconfigured",
             )
-        return self._events(body, api_key, reasoning, owns_client)
+        return self._events(body, api_key, reasoning, owns_client, request.timeout_seconds)
+
+    def _client_for(
+        self, provider: Provider, api_key: Optional[str], timeout: Optional[float]
+    ) -> Any:
+        """The SDK client for one call; a per-attempt `timeout` (PRD-022 F5) reaches an injected one too."""
+        if self._sdk_client is None:
+            if timeout is None:  # the two-argument form stays what suites patch
+                return _open_sdk_client(provider, api_key)
+            return _open_sdk_client(provider, api_key, timeout)
+        if timeout is None:
+            return self._sdk_client
+        return self._sdk_client.with_options(timeout=timeout)
 
     def _events(
-        self, body: dict[str, Any], api_key: Optional[str], reasoning: bool, owns_client: bool
+        self,
+        body: dict[str, Any],
+        api_key: Optional[str],
+        reasoning: bool,
+        owns_client: bool,
+        timeout: Optional[float] = None,
     ) -> Iterator[UpstreamEvent]:
         provider = self._provider
-        client = self._sdk_client if not owns_client else _open_sdk_client(provider, api_key)
+        client = self._client_for(provider, api_key, timeout)
         sdk_stream = None
         try:
             try:
