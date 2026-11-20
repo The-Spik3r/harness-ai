@@ -12,7 +12,7 @@ labels: [backend, upstream, contract]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-002-upstream-error-and-result-fields.plan.md
 report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-002-upstream-error-and-result-fields.report.md
-commit: null
+commit: cab7b16
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-010]
 skills: []

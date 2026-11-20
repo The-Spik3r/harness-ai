@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-002-upstream-error-and-result-fields.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: cab7b16
 status: COMPLETE
 completed: 2026-11-20
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-20
 
 **Plan**: `.agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-002-upstream-error-and-result-fields.plan.md`
 **Epic Branch**: `epic/PRD-022-provider-fallback-and-native-adapters`
-**Commit**: `pending`
+**Commit**: `cab7b16`
 
 ## Summary
 
