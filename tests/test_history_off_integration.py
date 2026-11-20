@@ -293,7 +293,9 @@ def test_the_response_and_the_audit_row_are_what_they_were_with_history_on(
 
     # PRD-018 STORY-004 (D4): write_id is minted per log_query call, so it must
     # differ between the two rows like id and timestamp do.
-    volatile = ("id", "timestamp", "write_id")
+    # PRD-022 F8 (STORY-003): request_id is minted per request and now stamped on
+    # every pipeline row, so it differs between the two rows too.
+    volatile = ("id", "timestamp", "write_id", "request_id")
     assert {k: v for k, v in off_row.items() if k not in volatile} == {
         k: v for k, v in on_row.items() if k not in volatile
     }
