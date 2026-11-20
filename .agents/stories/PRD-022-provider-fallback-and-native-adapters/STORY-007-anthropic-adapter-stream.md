@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Anthropic native adapter"
-status: in-progress
+status: done
 labels: [backend, upstream, anthropic, streaming]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-007-anthropic-adapter-stream.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-007-anthropic-adapter-stream.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-007-anthropic-adapter-stream.report.md
+commit: 7347293
 depends_on: [STORY-005, STORY-006]
 blocks: [STORY-008]
 skills: []
@@ -28,11 +28,11 @@ As PRD-021's real-time pipeline, I want an Anthropic model to stream as PRD-020'
 
 ## Acceptance Criteria
 
-- [ ] Given a Messages SSE stream, when `stream(request, key, *, reasoning=...)` iterates it, then `text_delta` → `TextDelta`; a `tool_use` block's `input_json_delta` fragments are buffered until `content_block_stop`, parsed, canonically serialized (same function as `complete()`), and emitted as **one** `ToolCallDelta(index, id, name, arguments=<whole string>)`; `message_delta` → `Finish` (mapped reason) and `UsageReport` with cache fields
-- [ ] Given `reasoning=True` (the route's capability), when thinking deltas arrive, then each non-empty `thinking_delta` becomes `ReasoningDelta(text)` and the request asks for summarized thinking per STORY-001; with `reasoning=False` thinking is neither requested nor emitted; `redacted_thinking` and `signature_delta` are never emitted
-- [ ] Given every stub script from STORY-006 (text, tools, parallel tools, thinking, refusal, cache usage), when replayed, then `collect(stream(r)) == complete(r)` (property test, no network beyond the local stub)
-- [ ] Given a stream that ends without `message_stop`/`Finish`, an unparseable buffered tool input, or an SDK error mid-stream, when iterated, then a `UpstreamError` with the right `kind` (`shape` / `transport` / mapped status) is raised; nothing is invented
-- [ ] Given `stream_upstream` on an anthropic route, when called, then route/key errors raise at call time and the network is touched on the first `next()` (PRD-021 seam contract)
+- [x] Given a Messages SSE stream, when `stream(request, key, *, reasoning=...)` iterates it, then `text_delta` → `TextDelta`; a `tool_use` block's `input_json_delta` fragments are buffered until `content_block_stop`, parsed, canonically serialized (same function as `complete()`), and emitted as **one** `ToolCallDelta(index, id, name, arguments=<whole string>)`; `message_delta` → `Finish` (mapped reason) and `UsageReport` with cache fields
+- [x] Given `reasoning=True` (the route's capability), when thinking deltas arrive, then each non-empty `thinking_delta` becomes `ReasoningDelta(text)` and the request asks for summarized thinking per STORY-001; with `reasoning=False` thinking is neither requested nor emitted; `redacted_thinking` and `signature_delta` are never emitted
+- [x] Given every stub script from STORY-006 (text, tools, parallel tools, thinking, refusal, cache usage), when replayed, then `collect(stream(r)) == complete(r)` (property test, no network beyond the local stub)
+- [x] Given a stream that ends without `message_stop`/`Finish`, an unparseable buffered tool input, or an SDK error mid-stream, when iterated, then a `UpstreamError` with the right `kind` (`shape` / `transport` / mapped status) is raised; nothing is invented
+- [x] Given `stream_upstream` on an anthropic route, when called, then route/key errors raise at call time and the network is touched on the first `next()` (PRD-021 seam contract)
 
 ## Technical Notes
 
