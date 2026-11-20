@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Anthropic native adapter"
-status: in-progress
+status: done
 labels: [backend, upstream, anthropic]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-005-anthropic-adapter-complete.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-005-anthropic-adapter-complete.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-005-anthropic-adapter-complete.report.md
+commit: 12e9dd9
 depends_on: [STORY-002, STORY-004]
 blocks: [STORY-007]
 skills: []
@@ -28,11 +28,11 @@ As a coding agent, I want a Claude model reached through the Messages API to giv
 
 ## Acceptance Criteria
 
-- [ ] Given an `UpstreamRequest`, when mapped, then every row of PRD 6.5's request table holds (system hoisting joined by `\n\n`; `""` assistant content omitted; `tool_calls` → `tool_use` with `json.loads(arguments)`; consecutive `tool` turns → one `user` message of `tool_result` blocks; tools → `input_schema`; `tool_choice` none/auto/required/named; `parallel_tool_calls: false` → `disable_parallel_tool_use`; `max_tokens` default from `default_max_tokens`; `stop` → `stop_sequences`; `temperature`/`top_p` only with `sampling_params`), and the request's top-level key set equals an explicit allowlist (T9 test)
-- [ ] Given `arguments` that is not a JSON object, or a forced `tool_choice` on a model without `forced_tool_choice`, when mapped, then `UpstreamError(kind="incompatible", retryable=False)` is raised before any network call; nothing is guessed
-- [ ] Given a Messages response, when mapped, then text blocks concatenate into `response`; `tool_use` → `ToolCallSpec(id, name, json.dumps(input, ensure_ascii=False, separators=(",", ":")))`; `thinking`/`redacted_thinking` only increment `reasoning_blocks`; `stop_reason` maps per 6.5 (`refusal` → `content_filter`, `pause_turn` → `shape` error); prompt tokens = `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` (unit test with all three non-zero); cache fields set; missing `usage` is a `shape` error
-- [ ] Given SDK exceptions, when raised, then `APITimeoutError` → `timeout`, `APIConnectionError` → `transport`, `AuthenticationError` → `misconfigured` (401, not retryable), `RateLimitError` → `status` 429 retryable with `retry_after_seconds`, 529/5xx → `status` retryable, other `APIStatusError` → `status` non-retryable; messages start with the provider `label`; the key never appears in a message
-- [ ] Given `sampling_params: false` and a request with `temperature`/`top_p`, when sent, then they are dropped and the result reports the dropped names so the row's `ignored_params` can record `temperature@<provider name>` (the pipeline wiring is STORY-008); `prompt_cache: auto` adds top-level `cache_control: {"type": "ephemeral"}`; the client is built with `max_retries=0`, `timeout=provider.timeout_seconds`, `base_url=provider.base_url`; all tests run without network (SDK transport mocked or a local fake)
+- [x] Given an `UpstreamRequest`, when mapped, then every row of PRD 6.5's request table holds (system hoisting joined by `\n\n`; `""` assistant content omitted; `tool_calls` → `tool_use` with `json.loads(arguments)`; consecutive `tool` turns → one `user` message of `tool_result` blocks; tools → `input_schema`; `tool_choice` none/auto/required/named; `parallel_tool_calls: false` → `disable_parallel_tool_use`; `max_tokens` default from `default_max_tokens`; `stop` → `stop_sequences`; `temperature`/`top_p` only with `sampling_params`), and the request's top-level key set equals an explicit allowlist (T9 test)
+- [x] Given `arguments` that is not a JSON object, or a forced `tool_choice` on a model without `forced_tool_choice`, when mapped, then `UpstreamError(kind="incompatible", retryable=False)` is raised before any network call; nothing is guessed
+- [x] Given a Messages response, when mapped, then text blocks concatenate into `response`; `tool_use` → `ToolCallSpec(id, name, json.dumps(input, ensure_ascii=False, separators=(",", ":")))`; `thinking`/`redacted_thinking` only increment `reasoning_blocks`; `stop_reason` maps per 6.5 (`refusal` → `content_filter`, `pause_turn` → `shape` error); prompt tokens = `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` (unit test with all three non-zero); cache fields set; missing `usage` is a `shape` error
+- [x] Given SDK exceptions, when raised, then `APITimeoutError` → `timeout`, `APIConnectionError` → `transport`, `AuthenticationError` → `misconfigured` (401, not retryable), `RateLimitError` → `status` 429 retryable with `retry_after_seconds`, 529/5xx → `status` retryable, other `APIStatusError` → `status` non-retryable; messages start with the provider `label`; the key never appears in a message
+- [x] Given `sampling_params: false` and a request with `temperature`/`top_p`, when sent, then they are dropped and the result reports the dropped names so the row's `ignored_params` can record `temperature@<provider name>` (the pipeline wiring is STORY-008); `prompt_cache: auto` adds top-level `cache_control: {"type": "ephemeral"}`; the client is built with `max_retries=0`, `timeout=provider.timeout_seconds`, `base_url=provider.base_url`; all tests run without network (SDK transport mocked or a local fake)
 
 ## Technical Notes
 
