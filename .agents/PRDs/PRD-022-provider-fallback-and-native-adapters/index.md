@@ -6,7 +6,7 @@
 
 ## Progress
 
-0/18 stories done — 0%
+1/18 stories done — 6%
 
 ## Stories
 
@@ -14,7 +14,7 @@ All stories commit on the epic branch `epic/PRD-022-provider-fallback-and-native
 
 | ID | Title | Type | Status | Complexity | Plan | Commit |
 |----|-------|------|--------|------------|------|--------|
-| STORY-001 | Spike — confirm built PRD-018/020/021 seams, pin the anthropic SDK, check redirects and the Messages wire format | spike | 🟡 in-progress | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/STORY-001-foundations-spike.plan.md) | — |
+| STORY-001 | Spike — confirm built PRD-018/020/021 seams, pin the anthropic SDK, check redirects and the Messages wire format | spike | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-001-foundations-spike.plan.md) | `dff6bb9` |
 | STORY-002 | UpstreamError kind/provider/retry_after + fallback_eligible, ChainExhausted, cache fields on results | feature | ⬜ todo | medium | — | — |
 | STORY-003 | PRD-022 audit columns, request_id on every row, attempt=1 on step-7 rows, /audit filter | feature | ⬜ todo | medium | — | — |
 | STORY-004 | Registry accepts type anthropic and the PRD-022 catalogue fields; adapter dispatch by provider type | feature | ⬜ todo | medium | — | — |

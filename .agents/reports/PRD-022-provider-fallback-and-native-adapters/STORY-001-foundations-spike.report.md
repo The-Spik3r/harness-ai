@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-001-foundations-spike.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: dff6bb9
 status: COMPLETE
 completed: 2026-11-20
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-20
 
 **Plan**: `.agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-001-foundations-spike.plan.md`
 **Epic Branch**: `epic/PRD-022-provider-fallback-and-native-adapters`
-**Commit**: `pending`
+**Commit**: `dff6bb9`
 
 ## Summary
 
