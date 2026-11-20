@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-011-chain-runner.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: 8d3ccef
 status: COMPLETE
 completed: 2026-11-20
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-20
 
 **Plan**: `.agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-011-chain-runner.plan.md`
 **Epic Branch**: `epic/PRD-022-provider-fallback-and-native-adapters`
-**Commit**: `pending`
+**Commit**: `8d3ccef`
 
 ## Summary
 

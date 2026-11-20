@@ -12,7 +12,7 @@ labels: [backend, upstream, security, resilience]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-011-chain-runner.plan.md
 report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-011-chain-runner.report.md
-commit: null
+commit: 8d3ccef
 depends_on: [STORY-009, STORY-010]
 blocks: [STORY-012]
 skills: []
