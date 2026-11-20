@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Anthropic native adapter"
-status: in-progress
+status: done
 labels: [backend, pipeline, v1, anthropic]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-008-anthropic-primary-end-to-end.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-008-anthropic-primary-end-to-end.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-008-anthropic-primary-end-to-end.report.md
+commit: 501d693
 depends_on: [STORY-003, STORY-007]
 blocks: [STORY-017]
 skills: []

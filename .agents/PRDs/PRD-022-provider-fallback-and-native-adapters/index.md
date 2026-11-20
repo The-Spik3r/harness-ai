@@ -6,7 +6,7 @@
 
 ## Progress
 
-7/18 stories done — 39%
+8/18 stories done — 44%
 
 ## Stories
 
@@ -21,7 +21,7 @@ All stories commit on the epic branch `epic/PRD-022-provider-fallback-and-native
 | STORY-005 | AnthropicAdapter.complete() — request/response mapping, SDK error mapping, cache tokens | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-005-anthropic-adapter-complete.plan.md) | `12e9dd9` |
 | STORY-006 | Stub upstream — Anthropic Messages mode (JSON + SSE) and scripted faults | technical | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-006-stub-anthropic-mode-and-faults.plan.md) | `953d3e8` |
 | STORY-007 | AnthropicAdapter.stream() — events, buffered tool input, ReasoningDelta, collect property | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-007-anthropic-adapter-stream.plan.md) | `7347293` |
-| STORY-008 | Anthropic as a primary through the pipeline — dropped params, cache tokens on the row, /v1 tool loop | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/STORY-008-anthropic-primary-end-to-end.plan.md) | — |
+| STORY-008 | Anthropic as a primary through the pipeline — dropped params, cache tokens on the row, /v1 tool loop | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-008-anthropic-primary-end-to-end.plan.md) | `501d693` |
 | STORY-009 | PROVIDER_CHAINS_FILE loader, settings, and startup validation (trust, capability, catalogue) | feature | ⬜ todo | medium | — | — |
 | STORY-010 | health.py — one CircuitBreaker per provider, fault recording rules, providers_status() | feature | ⬜ todo | medium | — | — |
 | STORY-011 | chain.py — per-request eligibility, per-route redaction hook, run() with per-attempt callbacks, ChainExhausted | feature | ⬜ todo | large | — | — |

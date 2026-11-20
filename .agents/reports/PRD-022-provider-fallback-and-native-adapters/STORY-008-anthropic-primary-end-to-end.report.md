@@ -3,7 +3,7 @@ story: STORY-008
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-008-anthropic-primary-end-to-end.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: 501d693
 status: COMPLETE
 completed: 2026-11-20
 ---
