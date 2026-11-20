@@ -36,6 +36,8 @@ As a coding agent on a real-time `/v1` stream, I want a provider failure before 
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-007): the Anthropic stream raises in-stream SSE `error` events as `UpstreamError` mapped by `error.type` (`overloaded_error` 529 / `api_error` 500 / `rate_limit_error` 429 retryable; auth/permission `misconfigured`; else 502 final), so a pre-release in-stream overload falls back like an HTTP 529. An empty refusal yields one `TextDelta("")` right before `UsageReport`/`Finish(content_filter)`: an empty `TextDelta` must not count as released content when closing the window. `message_stop` is not required once `message_delta` arrived. The adapter has no total stream deadline (only the SDK per-read timeout): the per-attempt timeout here is the only one for anthropic routes.
+
 - `app/services/query_pipeline.py:1011-1150` streamed branch: `released` (`:1023`) is already the D9 signal; `committed` fires on the first event (`:1066-1068`) — PRD 6.6 says commit does not close the window.
 - Release-of-tool-calls: PRD-021's `tool_release.py` decides when a tool call is released; treat that as closing the window too.
 - Call `stream_upstream` per candidate through the existing injectable parameter (`run_conversation(..., stream_upstream=...)`, `:451`).

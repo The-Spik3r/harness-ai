@@ -36,6 +36,8 @@ As an operator, I want a catalogue model on a `type: anthropic` provider to work
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-007): `AnthropicAdapter.stream()` is real (eager route/key/`incompatible` errors, lazy network); `collect(stream)` equals `complete()` except `reasoning_blocks` (0 on the stream path; no consumer outside the adapter).
+
 - Pipeline step 7: `app/services/query_pipeline.py:1001-1206`; `ignored_params` flows from the `/v1` edge (`v1_translate.py`) into `run_conversation`; append the adapter's dropped names for the success row only.
 - Write the tests as integration tests against the stub (see existing PRD-017/PRD-020 `/v1` stub tests for the harness fixture), not against the real API.
 - No chain here: `attempt=1` always.
