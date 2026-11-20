@@ -67,6 +67,17 @@ def _p(base_url="https://example.com/v1", extra="", models="      - id: m1\n"):
 _SECOND = "  - name: p2\n    type: openai_compatible\n    base_url: https://b.example/v1\n"
 
 
+_ANTHROPIC = (
+    "version: 1\ndefault_model: m1\nproviders:\n  - name: p1\n"
+    "    type: anthropic\n    base_url: https://api.anthropic.com\n{extra}"
+    "    models:\n{models}"
+)
+
+
+def _a(extra="", models="      - id: m1\n        default_max_tokens: 4096\n"):
+    return _ANTHROPIC.format(extra=extra, models=models)
+
+
 @pytest.fixture(autouse=True)
 def _restore():
     yield
@@ -165,7 +176,34 @@ _BAD = [
         MINIMAL.replace("default_model: m1", "default_model: zzz"),
         "'zzz' is not catalogued",
     ),
-    ("type", MINIMAL.replace("openai_compatible", "anthropic"), "PRD-022"),
+    # PRD-022 F1-addition (STORY-004): "anthropic" is now a valid type, so the unknown-type row
+    # uses another name and expects the allowed set (both type names) in the message.
+    ("type", MINIMAL.replace("openai_compatible", "bedrock"), "'bedrock' is not one of"),
+    ("type-names-anthropic", MINIMAL.replace("openai_compatible", "bedrock"), "anthropic"),
+    ("type-names-openai", MINIMAL.replace("openai_compatible", "bedrock"), "openai_compatible"),
+    # PRD-022 STORY-004: the catalogue fields and the anthropic-only rules.
+    ("anthropic-no-max-tokens", _a(models="      - id: m1\n"), "default_max_tokens: required"),
+    (
+        "max-tokens-zero",
+        _a(models="      - id: m1\n        default_max_tokens: 0\n"),
+        "default_max_tokens: must be at least 1",
+    ),
+    (
+        "max-tokens-bool",
+        _a(models="      - id: m1\n        default_max_tokens: true\n"),
+        "default_max_tokens: must be an integer",
+    ),
+    (
+        "max-tokens-str",
+        _a(models="      - id: m1\n        default_max_tokens: '8'\n"),
+        "default_max_tokens: must be an integer",
+    ),
+    (
+        "prompt-cache-bad",
+        _a(models="      - id: m1\n        default_max_tokens: 9\n        prompt_cache: sometimes\n"),
+        "prompt_cache: 'sometimes' is not one of",
+    ),
+    ("anthropic-passthrough", _a(extra="    passthrough: true\n"), "passthrough: refused"),
     ("bad-name", MINIMAL.replace("name: p1", "name: Bad_Name"), "name: must match"),
     ("pii-relaxed-external", _p(extra="    pii: relaxed\n"), "requires 'trust: internal'"),
     ("internal-public-ip", _p("https://8.8.8.8/v1", "    trust: internal\n"), "public IP"),
@@ -533,3 +571,52 @@ def test_providers_file_sets_env(tmp_path, monkeypatch):
         tmp_path, _p(extra="    key_env: FIX_KEY\n"), monkeypatch=monkeypatch, env={"FIX_KEY": KEY}
     ) as reg:
         assert provider_registry.api_key_for(reg.providers[0]) == KEY
+
+
+# --- PRD-022 STORY-004: type anthropic and the catalogue fields ----------------
+
+
+def test_anthropic_provider_loads_with_the_new_fields(provider_file):
+    reg = provider_file(
+        _a(
+            extra="    usage_missing: error\n",
+            models=(
+                "      - id: m1\n        default_max_tokens: 4096\n        prompt_cache: auto\n"
+                "        capabilities: {forced_tool_choice: true, sampling_params: true}\n"
+            ),
+        )
+    )
+    provider = reg.providers[0]
+    assert provider.type == "anthropic" and provider.usage_missing == "error"
+    model = reg.models_by_id["m1"]
+    assert (model.default_max_tokens, model.prompt_cache) == (4096, "auto")
+    assert model.capabilities.forced_tool_choice and model.capabilities.sampling_params
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        model.default_max_tokens = 1
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        model.capabilities.forced_tool_choice = False
+    assert provider_registry.resolve("m1").provider.type == "anthropic"
+
+
+def test_anthropic_missing_max_tokens_names_provider_model_and_rule(tmp_path, monkeypatch):
+    path = write_registry(tmp_path, _a(models="      - id: m1\n"))
+    monkeypatch.setattr(settings, "PROVIDERS_FILE", path)
+    with pytest.raises(ProviderRegistryError, match=r"'p1'.*'m1'.*default_max_tokens: required"):
+        provider_registry.load()
+
+
+def test_mixed_registry_routes_each_type(provider_file):
+    second = (
+        "  - name: p2\n    type: openai_compatible\n    base_url: https://b.example/v1\n"
+        "    models:\n      - id: m2\n"
+    )
+    provider_file(_a() + second)
+    assert provider_registry.resolve("m1").provider.type == "anthropic"
+    assert provider_registry.resolve("m2").provider.type == "openai_compatible"
+
+
+def test_openai_compatible_model_gets_the_new_defaults(provider_file):
+    model = provider_file(MINIMAL).models_by_id["m1"]
+    assert model.default_max_tokens is None and model.prompt_cache == "off"
+    assert model.capabilities.forced_tool_choice is False
+    assert model.capabilities.sampling_params is False

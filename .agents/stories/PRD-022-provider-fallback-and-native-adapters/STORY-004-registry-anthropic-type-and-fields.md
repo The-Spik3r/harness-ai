@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Anthropic native adapter"
-status: todo
+status: done
 labels: [backend, registry, config]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-004-registry-anthropic-type-and-fields.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-004-registry-anthropic-type-and-fields.report.md
+commit: pending
 depends_on: [STORY-001]
 blocks: [STORY-005, STORY-009]
 skills: []

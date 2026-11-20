@@ -402,3 +402,81 @@ def test_stream_upstream_against_the_stub_collects_to_the_stub_answer(provider_f
     )
     assert result.response == "stub says hi" and result.finish_reason == "stop"
 
+
+
+# --- PRD-022 STORY-004: adapter dispatch by provider type -----------------------
+
+
+def _anthropic_yaml(*, key_env="ANTHROPIC_STUB_KEY"):
+    return f"""
+version: 1
+default_model: claude-x
+providers:
+  - name: ant
+    label: Anthropic
+    type: anthropic
+    base_url: https://api.anthropic.com
+    key_env: {key_env}
+    models:
+      - id: claude-x
+        default_max_tokens: 1024
+"""
+
+
+_SECRET_PROMPT = [Message("user", "SECRET-PROMPT-TEXT")]
+
+
+def _assert_unavailable(error):
+    assert error.kind == "incompatible" and error.provider == "ant"
+    assert error.retryable is False and error.fallback_eligible is False
+    assert "SECRET-PROMPT-TEXT" not in str(error)  # T10: no prompt text in an error
+
+
+def test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005(provider_file):
+    provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    with pytest.raises(UpstreamError) as excinfo:
+        call_upstream(_SECRET_PROMPT, model="claude-x")
+    _assert_unavailable(excinfo.value)
+
+
+def test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time(provider_file):
+    provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    with pytest.raises(UpstreamError) as excinfo:  # raised by the call, not the first next()
+        stream_upstream(_SECRET_PROMPT, model="claude-x")
+    _assert_unavailable(excinfo.value)
+
+
+def test_keyless_anthropic_route_is_misconfigured_before_dispatch(provider_file, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_STUB_KEY", raising=False)
+    # key_env must be set to load (F-rule), so unset it after the registry is built.
+    provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    monkeypatch.setattr(provider_registry, "api_key_for", lambda provider: None)
+    for seam in (call_upstream, stream_upstream):
+        with pytest.raises(UpstreamError) as excinfo:
+            seam(_SECRET_PROMPT, model="claude-x")
+        assert excinfo.value.kind == "misconfigured"
+
+
+def test_openai_compatible_dispatch_builds_one_adapter_with_provider_and_client(provider_file, monkeypatch):
+    provider_file(_yaml(1, reasoning=False))
+    builds = []
+
+    class _Spy:
+        def __init__(self, provider, client):
+            builds.append((provider, client))
+
+        def complete(self, request, api_key):
+            return upstream.UpstreamResult("ok", "s/m", 1)
+
+        def stream(self, request, api_key, *, reasoning=False):
+            return iter(())
+
+    monkeypatch.setitem(upstream._ADAPTER_FACTORIES, "openai_compatible", _Spy)
+    client = httpx.Client()
+    try:
+        call_upstream(_MSG, model="s/m", client=client)
+        stream_upstream(_MSG, model="s/m", client=client)
+    finally:
+        client.close()
+    provider = provider_registry.resolve("s/m").provider
+    assert builds == [(provider, client), (provider, client)]

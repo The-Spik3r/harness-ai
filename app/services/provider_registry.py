@@ -46,10 +46,12 @@ class ProviderRegistryError(ValueError):
 
 # --- Vocabulary (closed, PRD-020 F1) ------------------------------------------
 
-TYPES = ("openai_compatible",)
+# PRD-022 D4 adds "anthropic" to PRD-020's single type.
+TYPES = ("openai_compatible", "anthropic")
 TRUSTS = ("external", "internal")
 PII_MODES = ("standard", "relaxed")
 USAGE_MISSING = ("estimate", "error")
+PROMPT_CACHE = ("off", "auto")  # PRD-022 6.5: per-model prompt caching, off by default
 
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 _PRIVATE_NETWORKS = tuple(
@@ -77,8 +79,15 @@ _PROVIDER_KEYS = (
     "models",
 )
 _PROVIDER_REQUIRED = ("name", "type", "base_url")
-_MODEL_KEYS = ("id", "upstream", "roles", "capabilities")
-_CAPABILITY_KEYS = ("tools", "streaming", "reasoning", "max_context_tokens")
+_MODEL_KEYS = ("id", "upstream", "roles", "capabilities", "default_max_tokens", "prompt_cache")
+_CAPABILITY_KEYS = (
+    "tools",
+    "streaming",
+    "reasoning",
+    "max_context_tokens",
+    "forced_tool_choice",
+    "sampling_params",
+)
 
 
 # --- Model (frozen; NO key field anywhere, T1) --------------------------------
@@ -92,17 +101,26 @@ class Capabilities:
     streaming: bool = False
     reasoning: bool = False
     max_context_tokens: Optional[int] = None
+    # PRD-022 6.5: claimed, not assumed (PRD-020 O6). Read by the Anthropic adapter only.
+    forced_tool_choice: bool = False
+    sampling_params: bool = False
 
 
 @dataclass(frozen=True)
 class CatalogModel:
-    """One catalogued model. `roles` None means "inherit the provider's, else every role" (F2)."""
+    """One catalogued model. `roles` None means "inherit the provider's, else every role" (F2).
+
+    `default_max_tokens` and `prompt_cache` are PRD-022 6.5 fields, parsed for every provider
+    type and unused by `openai_compatible`; only `type: anthropic` requires `default_max_tokens`.
+    """
 
     id: str
     upstream: str
     roles: Optional[tuple[str, ...]]
     capabilities: Capabilities
     provider_name: str
+    default_max_tokens: Optional[int] = None
+    prompt_cache: str = "off"
 
 
 @dataclass(frozen=True)
@@ -309,10 +327,14 @@ def _parse_capabilities(source: str, where: str, value: Any) -> Capabilities:
         streaming=_bool(source, here, body, "streaming", False),
         reasoning=_bool(source, here, body, "reasoning", False),
         max_context_tokens=ctx,
+        forced_tool_choice=_bool(source, here, body, "forced_tool_choice", False),
+        sampling_params=_bool(source, here, body, "sampling_params", False),
     )
 
 
-def _parse_model(source: str, where: str, value: Any, provider_name: str) -> CatalogModel:
+def _parse_model(
+    source: str, where: str, value: Any, provider_name: str, provider_type: str
+) -> CatalogModel:
     body = _mapping(source, where, value)
     _check_keys(source, where, body, _MODEL_KEYS, ("id",))
     model_id = body["id"]
@@ -322,12 +344,28 @@ def _parse_model(source: str, where: str, value: Any, provider_name: str) -> Cat
     upstream = body.get("upstream", model_id)
     if not isinstance(upstream, str) or not upstream.strip():
         raise _fail(source, where, "upstream: must be a non-empty string")
+    max_tokens = body.get("default_max_tokens")
+    if "default_max_tokens" in body:
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int):
+            raise _fail(source, where, "default_max_tokens: must be an integer")
+        if max_tokens < 1:
+            raise _fail(source, where, f"default_max_tokens: must be at least 1, got {max_tokens}")
+    elif provider_type == "anthropic":
+        raise _fail(
+            source,
+            where,
+            "default_max_tokens: required for 'type: anthropic' "
+            "(the Messages API requires max_tokens, PRD-022 6.5)",
+        )
+    prompt_cache = _choice(source, where, "prompt_cache", body.get("prompt_cache", "off"), PROMPT_CACHE)
     return CatalogModel(
         id=model_id,
         upstream=upstream,
         roles=_check_roles(source, where, body["roles"]) if "roles" in body else None,
         capabilities=_parse_capabilities(source, where, body.get("capabilities", {})),
         provider_name=provider_name,
+        default_max_tokens=max_tokens,
+        prompt_cache=prompt_cache,
     )
 
 
@@ -343,13 +381,7 @@ def _parse_provider(source: str, index: int, value: Any) -> Provider:
     label = body.get("label", name)
     if not isinstance(label, str) or not label.strip():
         raise _fail(source, where, "label: must be a non-empty string")
-    if body["type"] != "openai_compatible":
-        raise _fail(
-            source,
-            where,
-            f"type: {body['type']!r} is not supported; the only type is 'openai_compatible' "
-            "(other types arrive with PRD-022)",
-        )
+    provider_type = _choice(source, where, "type", body["type"], TYPES)
     insecure_http = _bool(source, where, body, "insecure_http", False)
     base_url = _check_base_url(source, where, body["base_url"], insecure_http)
     _, _, kind = classify_base_url(base_url)
@@ -369,6 +401,12 @@ def _parse_provider(source: str, index: int, value: Any) -> Provider:
 
     passthrough = _bool(source, where, body, "passthrough", False)
     byok = _bool(source, where, body, "byok", False)
+    if passthrough and provider_type == "anthropic":
+        raise _fail(
+            source,
+            where,
+            "passthrough: refused for 'type: anthropic' (catalogue ids only, PRD-022 D4)",
+        )
     if "passthrough_capabilities" in body and not passthrough:
         raise _fail(
             source, where, "passthrough_capabilities: only valid with 'passthrough: true' (F4)"
@@ -385,7 +423,7 @@ def _parse_provider(source: str, index: int, value: Any) -> Provider:
     if not isinstance(raw_models, list):
         raise _fail(source, where, f"models: must be a list, got {type(raw_models).__name__}")
     models = tuple(
-        _parse_model(source, f"{where} models[{i}]", m, name) for i, m in enumerate(raw_models)
+        _parse_model(source, f"{where} models[{i}]", m, name, provider_type) for i, m in enumerate(raw_models)
     )
     if byok and not passthrough and not models:
         raise _fail(source, where, "byok: true with no models and no passthrough is unusable")
@@ -393,7 +431,7 @@ def _parse_provider(source: str, index: int, value: Any) -> Provider:
     return Provider(
         name=name,
         label=label,
-        type="openai_compatible",
+        type=provider_type,
         base_url=base_url,
         key_env=key_env.strip() if key_env else None,
         insecure_http=insecure_http,
@@ -402,6 +440,7 @@ def _parse_provider(source: str, index: int, value: Any) -> Provider:
         byok=byok,
         passthrough=passthrough,
         passthrough_capabilities=pass_caps,
+        # No effect for `type: anthropic`: it always reports usage (a missing one is `shape`, 6.5).
         usage_missing=_choice(
             source, where, "usage_missing", body.get("usage_missing", "estimate"), USAGE_MISSING
         ),
