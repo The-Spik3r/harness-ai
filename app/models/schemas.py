@@ -305,6 +305,14 @@ class AuditQueryEntry(BaseModel):
     reasoning_shown: bool = False
     stream_redaction_divergence: bool = False
     completion_id: Optional[str] = None
+    # PRD-022 F8 / D10: ids, counts and labels only, never prompt text.
+    request_id: Optional[str] = None
+    attempt: Optional[int] = None
+    route_model: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    skipped_providers: Optional[str] = None
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
 
 
 class AuditResponse(BaseModel):

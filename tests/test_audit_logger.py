@@ -128,7 +128,9 @@ def test_no_ip_or_location_field_in_logged_row(temp_db):
     fetched = get_audit_log(audit_id)
 
     for field_name, value in vars(fetched).items():
-        assert "ip" not in field_name.lower()
+        # PRD-022 D10 (STORY-003): word match, not substring -- the new
+        # `skipped_providers` column contains "ip" by accident.
+        assert "ip" not in field_name.lower().split("_")
         assert "location" not in field_name.lower()
         if isinstance(value, str):
             assert "ip address" not in value.lower()
@@ -475,3 +477,34 @@ def test_prd021_delivery_fields_are_required_keywords(temp_db, omitted):
 
     with pytest.raises(TypeError, match=omitted):
         _log_query_ref(user_id="ana@empresa.com", prompt="hello", **kwargs)
+
+
+# --- PRD-022 STORY-003 (F8, D10): seven request-trail and cache columns --------
+
+_PRD022_SUPPLIED = {
+    "request_id": "7b1f0c9e-5a3d-4e21-9c44-0a1b2c3d4e5f",
+    "attempt": 1,
+    "route_model": "anthropic/claude-sonnet",
+    "fallback_reason": "unavailable",
+    "skipped_providers": "openrouter,ollama",
+    "cache_read_tokens": 128,
+    "cache_write_tokens": 64,
+}
+
+
+def test_prd022_fields_persisted_when_supplied(temp_db):
+    audit_id = log_query(user_id="ana@empresa.com", prompt="hello", **_PRD022_SUPPLIED)
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD022_SUPPLIED} == _PRD022_SUPPLIED
+
+
+def test_prd022_fields_default_to_none_when_omitted(temp_db):
+    """Every one is optional: log_query's public contract for a caller that
+    does not know them (the foreign-session refusal in the router)."""
+    audit_id = log_query(user_id="juan@empresa.com", prompt="hello")
+
+    row = get_audit_log(audit_id)
+    assert {name: getattr(row, name) for name in _PRD022_SUPPLIED} == dict.fromkeys(
+        _PRD022_SUPPLIED
+    )

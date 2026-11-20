@@ -1102,9 +1102,21 @@ def test_schema_has_no_ip_or_location_column(temp_db):
         "reasoning_shown",
         "stream_redaction_divergence",
         "completion_id",
+        # PRD-022 STORY-003 (F8, D10): seven request-trail and cache columns.
+        "request_id",
+        "attempt",
+        "route_model",
+        "fallback_reason",
+        "skipped_providers",
+        "cache_read_tokens",
+        "cache_write_tokens",
     }
     assert set(columns) == expected
-    assert not any("ip" in c.lower() or "location" in c.lower() for c in columns)
+    # PRD-022 D10 (STORY-003): "ip" matched as a word, not a substring -- the
+    # new `skipped_providers` column contains the letters by accident.
+    assert not any(
+        "ip" in c.lower().split("_") or "location" in c.lower() for c in columns
+    )
 
 
 def test_count_audit_logs_empty_returns_zero(temp_db):
@@ -1936,13 +1948,17 @@ def test_summary_snapshot_leaves_the_ten_standalone_signatures_unchanged(temp_db
         # PRD-021 F7 (STORY-013): the two audit readers gain a trailing,
         # defaulted `completion_id` (exact-match filter for GET /audit); the
         # STORY-006 positional/keyword calls and return types are unchanged.
+        # PRD-022 STORY-003 (F8, D10): a second trailing, defaulted
+        # `request_id` filter, the same kind; earlier calls are unchanged.
         "list_audit_logs": (
             "(limit: int = 100, user_id: Optional[str] = None,"
-            " completion_id: Optional[str] = None)"
+            " completion_id: Optional[str] = None,"
+            " request_id: Optional[str] = None)"
             " -> list[app.db.models.AuditLog]"
         ),
         "count_audit_logs": (
-            "(user_id: Optional[str] = None, completion_id: Optional[str] = None) -> int"
+            "(user_id: Optional[str] = None, completion_id: Optional[str] = None,"
+            " request_id: Optional[str] = None) -> int"
         ),
         "count_blocked_duplicates": "() -> int",
         "count_blocked_suspicious": "() -> int",
@@ -2278,9 +2294,10 @@ def test_audit_log_carries_session_id_without_breaking_construction():
     # 6.2) appended eight more after profile, and PRD-015 STORY-007 appended
     # ignored_params, and PRD-018 STORY-004 (D4) appended write_id, and PRD-020
     # STORY-006 (D13) appended five provider columns after that, and PRD-021
-    # STORY-009 (F7) four delivery columns. The claim is unchanged: the
-    # surrogate key stays the trailing field.
-    assert names[-25:] == [
+    # STORY-009 (F7) four delivery columns, and PRD-022 STORY-003 (D10) seven
+    # request-trail and cache columns. The claim is unchanged: the surrogate
+    # key stays the trailing field.
+    assert names[-32:] == [
         "session_id", "dedup_key", "pattern_role", "pattern_action", "profile",
         "ingress", "message_count", "input_tokens", "output_tokens",
         "streamed", "has_tool_calls", "conversation_key", "limit_exceeded",
@@ -2288,7 +2305,9 @@ def test_audit_log_carries_session_id_without_breaking_construction():
         "provider", "upstream_model", "provider_trust", "pii_input_relaxed",
         "usage_estimated",
         "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
-        "completion_id", "id",
+        "completion_id",
+        "request_id", "attempt", "route_model", "fallback_reason",
+        "skipped_providers", "cache_read_tokens", "cache_write_tokens", "id",
     ]
 
 
@@ -3023,9 +3042,10 @@ def test_the_prd013_columns_are_declared_last_and_in_order():
     after them, and PRD-018 STORY-004 (D4) appended write_id after that, and
     PRD-020 STORY-006 (D13) appended five provider columns after that, and
     PRD-021 STORY-009 (F7) four delivery columns, so they are the eight before
-    the last eleven."""
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-19:-11] == list(_PRD013_COLUMNS)
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-19:-11] == list(_PRD013_COLUMNS)
+    the last eleven. PRD-022 STORY-003 (D10) appended seven more: the eight
+    are now before the last eighteen ([-19:-11] -> [-26:-18])."""
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-26:-18] == list(_PRD013_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-26:-18] == list(_PRD013_COLUMNS)
 
 
 @pytest.mark.parametrize("name", list(_PRD013_COLUMNS))
@@ -3073,6 +3093,14 @@ def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, mo
         "ALTER TABLE audit_logs ADD COLUMN reasoning_shown INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN stream_redaction_divergence INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN completion_id TEXT",
+        # PRD-022 STORY-003 (F8, D10): the seven audit columns follow it.
+        "ALTER TABLE audit_logs ADD COLUMN request_id TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN attempt INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN route_model TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN fallback_reason TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN skipped_providers TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN cache_read_tokens INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN cache_write_tokens INTEGER",
     ]
     assert not any(
         sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
@@ -3088,7 +3116,7 @@ def test_init_db_migrates_a_pre_prd013_database(uninitialized_db, db_connect, mo
         raw = conn.execute(
             f"SELECT {', '.join(_PRD013_COLUMNS)} FROM audit_logs ORDER BY id"
         ).fetchall()
-    assert len(columns) == 43  # PRD-018 STORY-004 (D4): + write_id; PRD-020 STORY-006 (D13): + five provider columns; PRD-021 STORY-009 (F7): + four delivery columns
+    assert len(columns) == 50  # PRD-018 STORY-004 (D4): + write_id; PRD-020 STORY-006 (D13): + five provider columns; PRD-021 STORY-009 (F7): + four delivery columns; PRD-022 STORY-003 (D10): + seven request-trail and cache columns
     for name in _PRD013_COLUMNS:
         assert columns.count(name) == 1, f"{name} present {columns.count(name)} times"
 
@@ -3233,9 +3261,11 @@ def test_audit_log_carries_the_prd013_fields_without_breaking_construction():
     # PRD-018 STORY-004 (D4): write_id sits between ignored_params and id.
     # PRD-020 STORY-006 (D13): five provider fields sit between write_id and id.
     # PRD-021 STORY-009 (F7): four delivery fields follow them, before id.
-    assert names[-20:] == [
+    # PRD-022 STORY-003 (D10): seven request-trail and cache fields follow
+    # those, before id ([-20:] -> [-27:]).
+    assert names[-27:] == [
         *_PRD013_COLUMNS, "ignored_params", "write_id", *_PRD020_COLUMNS,
-        *_PRD021_COLUMNS, "id",
+        *_PRD021_COLUMNS, *_PRD022_COLUMNS, "id",
     ]
 
 
@@ -3307,8 +3337,9 @@ def test_audit_logs_declares_ignored_params_in_both_places_last():
     # PRD-018 STORY-004 (D4): write_id now follows ignored_params in both places.
     # PRD-020 STORY-006 (D13): the five provider columns follow write_id.
     # PRD-021 STORY-009 (F7): and four delivery columns follow those.
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-11] == "ignored_params"
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-11] == "ignored_params"
+    # PRD-022 STORY-003 (D10): seven more follow, so [-11] -> [-18].
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-18] == "ignored_params"
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-18] == "ignored_params"
 
 
 def test_init_db_creates_ignored_params_as_nullable_text(temp_db):
@@ -3343,6 +3374,14 @@ def test_init_db_migrates_a_pre_prd015_database(uninitialized_db, db_connect, mo
         "ALTER TABLE audit_logs ADD COLUMN reasoning_shown INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN stream_redaction_divergence INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN completion_id TEXT",
+        # PRD-022 STORY-003 (F8, D10): the seven audit columns follow it.
+        "ALTER TABLE audit_logs ADD COLUMN request_id TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN attempt INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN route_model TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN fallback_reason TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN skipped_providers TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN cache_read_tokens INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN cache_write_tokens INTEGER",
     ]
     assert not any(
         sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in statements
@@ -3356,7 +3395,7 @@ def test_init_db_migrates_a_pre_prd015_database(uninitialized_db, db_connect, mo
     with get_connection() as conn:
         columns = _column_names(conn, "audit_logs")
         raw = conn.execute("SELECT ignored_params FROM audit_logs").fetchall()
-    assert len(columns) == 43  # PRD-018 STORY-004 (D4): + write_id; PRD-020 STORY-006 (D13): + five provider columns; PRD-021 STORY-009 (F7): + four delivery columns
+    assert len(columns) == 50  # PRD-018 STORY-004 (D4): + write_id; PRD-020 STORY-006 (D13): + five provider columns; PRD-021 STORY-009 (F7): + four delivery columns; PRD-022 STORY-003 (D10): + seven request-trail and cache columns
     assert columns.count("ignored_params") == 1
     assert [row["ignored_params"] for row in raw] == [None]
 
@@ -5291,8 +5330,10 @@ def test_audit_logs_declares_each_prd020_column_in_both_places(name, ddl):
 def test_the_prd020_columns_are_declared_last_and_in_order():
     # PRD-021 STORY-009 (F7): four columns now follow PRD-020's five, so the
     # PRD-020 block is the five just before the last four.
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-9:-4] == list(_PRD020_COLUMNS)
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-9:-4] == list(_PRD020_COLUMNS)
+    # PRD-022 STORY-003 (D10): seven more follow those four, so [-9:-4] ->
+    # [-16:-11].
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-16:-11] == list(_PRD020_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-16:-11] == list(_PRD020_COLUMNS)
 
 
 @pytest.mark.parametrize("name", list(_PRD020_COLUMNS))
@@ -5320,7 +5361,8 @@ def test_init_db_converges_an_older_database_to_the_prd020_columns(
     init_db()
 
     # PRD-021 STORY-009 (F7): the four delivery ALTERs now follow PRD-020's five.
-    assert [s for s in statements if "ADD COLUMN" in s.upper()][-9:-4] == [
+    # PRD-022 STORY-003 (D10): seven ALTERs follow the four, so [-9:-4] -> [-16:-11].
+    assert [s for s in statements if "ADD COLUMN" in s.upper()][-16:-11] == [
         f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
         for name, ddl in _PRD020_COLUMNS.items()
     ]
@@ -5437,9 +5479,12 @@ def test_audit_logs_declares_each_prd021_column_in_both_places(name, ddl):
 
 def test_the_prd021_columns_are_declared_last_and_in_order():
     """AC 1: after PRD-020's five (provider ... usage_estimated), in both lists."""
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-4:] == list(_PRD021_COLUMNS)
-    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-4:] == list(_PRD021_COLUMNS)
-    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-5] == "usage_estimated"
+    # PRD-022 STORY-003 (D10) appends seven columns after these four, so the
+    # positional anchors move by seven: the same order claim, re-anchored
+    # ([-4:] -> [-11:-7], [-5] -> [-12]). PRD-022's own block checks the tail.
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-11:-7] == list(_PRD021_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-11:-7] == list(_PRD021_COLUMNS)
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-12] == "usage_estimated"
 
 
 @pytest.mark.parametrize("name", list(_PRD021_COLUMNS))
@@ -5467,7 +5512,8 @@ def test_init_db_converges_an_older_database_to_the_prd021_columns(
 
     init_db()
 
-    assert [s for s in statements if "ADD COLUMN" in s.upper()][-4:] == [
+    # PRD-022 STORY-003 (D10): seven ALTERs follow these four; [-4:] -> [-11:-7].
+    assert [s for s in statements if "ADD COLUMN" in s.upper()][-11:-7] == [
         f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
         for name, ddl in _PRD021_COLUMNS.items()
     ]
@@ -5550,3 +5596,166 @@ def test_prd021_fields_round_trip_on_both_read_shapes(temp_db):
     # A miscount in insert_audit_log's hand-counted lists shifts a neighbour.
     assert get_audit_log(ids[0]).prompt_hash == "h05"
     assert get_audit_log(ids[0]).write_id is None
+
+
+# ---------------------------------------------------------------------------
+# PRD-022 STORY-003: seven request-trail and cache columns on audit_logs
+# (F8, D10).
+# ---------------------------------------------------------------------------
+
+#: name -> DDL, in the order the mapping ALTERs and the CREATE declares. A
+#: literal, like _PRD021_COLUMNS. All nullable, no default clause.
+_PRD022_COLUMNS = {
+    "request_id": "TEXT",
+    "attempt": "INTEGER",
+    "route_model": "TEXT",
+    "fallback_reason": "TEXT",
+    "skipped_providers": "TEXT",
+    "cache_read_tokens": "INTEGER",
+    "cache_write_tokens": "INTEGER",
+}
+_PRD022_ROW_A = {
+    "request_id": "7b1f0c9e-5a3d-4e21-9c44-0a1b2c3d4e5f",
+    "attempt": 1,
+    "route_model": "anthropic/claude-sonnet",
+    "fallback_reason": "unavailable",
+    "skipped_providers": "openrouter,ollama",
+    "cache_read_tokens": 128,
+    "cache_write_tokens": 64,
+}
+_PRD022_ROW_B = {
+    "request_id": "0d9e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+    "attempt": 2,
+    "route_model": "free/for-all",
+    "fallback_reason": None,
+    "skipped_providers": None,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": None,
+}
+_PRD022_DEFAULTS = {name: None for name in _PRD022_COLUMNS}
+
+
+def _prd022_fields(entry: AuditLog) -> dict:
+    return {name: getattr(entry, name) for name in _PRD022_COLUMNS}
+
+
+@pytest.mark.parametrize(("name", "ddl"), list(_PRD022_COLUMNS.items()), ids=list(_PRD022_COLUMNS))
+def test_audit_logs_declares_each_prd022_column_in_both_places(name, ddl):
+    """AC 1: the mapping converges an old database, the CREATE builds a fresh
+    one, and each column is in both with the same declaration."""
+    assert AUDIT_LOGS_ADDED_COLUMNS[name] == ddl
+    assert f"{name} {ddl}" in CREATE_AUDIT_LOGS_TABLE
+
+
+def test_the_prd022_columns_are_declared_last_and_in_order():
+    """AC 1: after PRD-021's four (streamed_realtime ... completion_id), last
+    in both lists and in the dataclass (before `id`)."""
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-7:] == list(_PRD022_COLUMNS)
+    assert _declared_columns(CREATE_AUDIT_LOGS_TABLE)[-7:] == list(_PRD022_COLUMNS)
+    assert list(AUDIT_LOGS_ADDED_COLUMNS)[-8] == "completion_id"
+    names = [field.name for field in dataclasses.fields(AuditLog)]
+    assert names[-8:] == [*_PRD022_COLUMNS, "id"]
+
+
+@pytest.mark.parametrize("name", list(_PRD022_COLUMNS))
+def test_init_db_creates_each_prd022_column_with_its_shape(temp_db, name):
+    with get_connection() as conn:
+        info = {row["name"]: row for row in conn.execute("PRAGMA table_info(audit_logs)")}
+
+    assert info[name]["type"] == _PRD022_COLUMNS[name]
+    assert info[name]["notnull"] == 0
+    assert info[name]["dflt_value"] is None
+
+
+def test_init_db_converges_an_older_database_to_the_prd022_columns(
+    uninitialized_db, db_connect, monkeypatch
+):
+    """AC 1: an older database gets exactly the seven ALTERed in (after
+    PRD-021's four), the seeded row reads all NULL with no UPDATE issued, and a
+    second boot is a no-op."""
+    _create_pre_prd015_database(db_connect, uninitialized_db)
+    statements = _count_statements(monkeypatch)
+
+    init_db()
+
+    assert [s for s in statements if "ADD COLUMN" in s.upper()][-7:] == [
+        f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"
+        for name, ddl in _PRD022_COLUMNS.items()
+    ]
+    assert not any(
+        s.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for s in statements
+    ), statements
+
+    statements.clear()
+    init_db()
+    assert statements, "the proxy captured nothing -- the patch did not take"
+    assert not any("ALTER" in s.upper() for s in statements), statements
+
+    with get_connection() as conn:
+        raw = conn.execute(
+            f"SELECT {', '.join(_PRD022_COLUMNS)} FROM audit_logs ORDER BY id"
+        ).fetchall()
+    assert len(raw) == 1
+    assert tuple(raw[0][name] for name in _PRD022_COLUMNS) == (None,) * 7
+    assert _prd022_fields(get_audit_log(1)) == _PRD022_DEFAULTS
+
+
+def test_a_fresh_database_has_the_prd022_columns_without_any_alter(
+    uninitialized_db, monkeypatch
+):
+    """AC 1: the CREATE declares them, so a new database issues no ALTER."""
+    statements = _count_statements(monkeypatch)
+
+    init_db()
+
+    assert not any("ADD COLUMN" in s.upper() for s in statements), statements
+    with get_connection() as conn:
+        names = [row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)")]
+    assert set(_PRD022_COLUMNS) <= set(names)
+
+
+def test_prd022_fields_round_trip_on_both_read_shapes_and_filter_by_request_id(temp_db):
+    """AC 1 and 4: two rows with different values plus a default row, through
+    `SELECT *` (get/list) and the hand-written `_SUMMARY_SQL` json_object (raw
+    keys, then summary_snapshot); then the exact-match `request_id` filter."""
+    ids = [
+        insert_audit_log(
+            AuditLog(
+                timestamp=f"2026-11-20T09:{minute}:00Z",
+                user_id="ana@empresa.com",
+                prompt_hash=f"h{minute}",
+                **fields,
+            )
+        )
+        for minute, fields in (("05", _PRD022_ROW_A), ("10", _PRD022_ROW_B), ("15", {}))
+    ]
+
+    assert [_prd022_fields(get_audit_log(i)) for i in ids] == [
+        _PRD022_ROW_A,
+        _PRD022_ROW_B,
+        _PRD022_DEFAULTS,
+    ]
+    with get_connection() as conn:
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+    entries = {entry["id"]: entry for entry in json.loads(raw["rows"])}
+    assert all(set(_PRD022_COLUMNS) <= set(entry) for entry in entries.values())
+    assert [entries[i]["request_id"] for i in ids] == [
+        _PRD022_ROW_A["request_id"], _PRD022_ROW_B["request_id"], None,
+    ]
+
+    snapshot = summary_snapshot()
+    assert snapshot.errors == {}
+    assert snapshot.rows == list_audit_logs()
+    for i in ids:
+        assert {r.id: r for r in snapshot.rows}[i] == get_audit_log(i)
+    # A miscount in insert_audit_log's hand-counted lists shifts a neighbour.
+    assert get_audit_log(ids[0]).prompt_hash == "h05"
+
+    # The filter: exact, bound, combinable with the others.
+    only_a = _PRD022_ROW_A["request_id"]
+    assert count_audit_logs(request_id=only_a) == 1
+    assert [r.id for r in list_audit_logs(request_id=only_a)] == [ids[0]]
+    assert count_audit_logs(request_id=only_a[:8]) == 0
+    assert count_audit_logs(request_id="%") == 0
+    assert count_audit_logs(user_id="nobody@empresa.com", request_id=only_a) == 0
+    assert count_audit_logs() == 3

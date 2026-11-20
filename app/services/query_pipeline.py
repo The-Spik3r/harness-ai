@@ -412,9 +412,15 @@ def _deny(
     # a forgotten arm is a TypeError, not a row that cannot say where the
     # request was routed. None for every arm at or before the model check.
     route: Optional[Route],
+    *,
+    # Required for the same reason as the arms above (PRD-022 D10): a
+    # forgotten authorization arm is a TypeError, not a refusal row that
+    # cannot be joined to its request.
+    request_id: str,
 ) -> QueryBlockedForbiddenResponse:
     log_query(
         **_route_fields(route),
+        request_id=request_id,
         user_id=identity.user_id,
         prompt=prompt,
         device=device,
@@ -475,6 +481,11 @@ def run_conversation(
     # caller, `run_query` included -- computes and emits nothing.
     sink: Optional[DeliverySink] = None,
 ) -> QueryPipelineResult:
+    # PRD-022 F8, D10: one id per call, minted before anything can write a row,
+    # and carried by every row this call writes (refusals, the upstream-failure
+    # row, the success row). It is the join key between a request's rows; the
+    # chain's later attempts share it. Never read from the request.
+    request_id = str(uuid.uuid4())
     # Step 0 (PRD Section 6.1): structural validation, before anything else
     # can run -- a malformed conversation is a programming error, not an
     # outcome, so it writes no audit row.
@@ -533,6 +544,7 @@ def run_conversation(
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
             reason="Missing required permission", route=None,
+            request_id=request_id,
         )
 
     try:
@@ -546,6 +558,7 @@ def run_conversation(
             conversation_key=conv_key, streamed=streamed,
             ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
             reason="Model not permitted for this role", route=None,
+            request_id=request_id,
         )
 
     if openrouter_api_key is not None:
@@ -559,6 +572,7 @@ def run_conversation(
                 conversation_key=conv_key, streamed=streamed,
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns, exc=exc,
                 reason="Missing required permission", route=None,
+                request_id=request_id,
             )
         # PRD-020 D10: the caller's key goes only to a provider declared
         # `byok: true`. Refused before 2b/2c, so nothing is sent or charged.
@@ -572,6 +586,7 @@ def run_conversation(
                 ignored_params=ignored_params, has_tool_calls=request_has_tool_turns,
                 exc=PermissionDenied(f"query:byok:{route.provider.name}"),
                 reason="Missing required permission", route=None,
+                request_id=request_id,
             )
 
     # Step 2b: break-glass ingress policy (PRD-013 Sections 6.1, 6.8; D4, F12, T9).
@@ -596,6 +611,7 @@ def run_conversation(
             exc=PermissionDenied("ingress:break_glass"),
             reason="Break-glass credential not permitted on this ingress",
             route=route,
+            request_id=request_id,
         )
 
     # Step 2c: the usage gate (PRD-013 Sections 6.1, 6.5-6.7; D7, D8, F10).
@@ -640,6 +656,7 @@ def run_conversation(
             refusal = admission.refusal
             log_query(
                 **_route_fields(route),
+                request_id=request_id,
                 # PRD-021 F7: refused before the upstream opened: nothing was delivered.
                 streamed_realtime=False,
                 reasoning_shown=False,
@@ -716,6 +733,7 @@ def run_conversation(
         limit, maximum, actual = exceeded
         log_query(
             **_route_fields(route),
+            request_id=request_id,
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
@@ -754,6 +772,7 @@ def run_conversation(
     if duplicate_result.is_duplicate:
         log_query(
             **_route_fields(route),
+            request_id=request_id,
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
@@ -815,6 +834,7 @@ def run_conversation(
         # stays the one source of what was done.
         log_query(
             **_route_fields(route),
+            request_id=request_id,
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
@@ -856,6 +876,7 @@ def run_conversation(
         first_flag = inspection.flags[0]
         log_query(
             **_route_fields(route),
+            request_id=request_id,
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
@@ -913,6 +934,7 @@ def run_conversation(
         maximum, actual = over
         log_query(
             **_route_fields(route),
+            request_id=request_id,
             # PRD-021 F7: refused before the upstream opened: nothing was delivered.
             streamed_realtime=False,
             reasoning_shown=False,
@@ -970,6 +992,7 @@ def run_conversation(
         except PiiRedactorError as exc:
             log_query(
                 **_route_fields(route),
+                request_id=request_id,
                 # PRD-021 F7: refused before the upstream opened: nothing was delivered.
                 streamed_realtime=False,
                 reasoning_shown=False,
@@ -1179,6 +1202,11 @@ def run_conversation(
             )
         log_query(
             **_route_fields(route),
+            request_id=request_id,
+            # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
+            # requested catalogue id; the rows before it leave both NULL.
+            attempt=1,
+            route_model=model,
             # PRD-021 F7, D14, D17: what was true at this point of the request.
             streamed_realtime=realtime_request,
             reasoning_shown=reasoning_sent,
@@ -1284,6 +1312,11 @@ def run_conversation(
         except PiiRedactorError as exc:
             log_query(
                 **_route_fields(route),
+                request_id=request_id,
+                # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
+                # requested catalogue id; the rows before it leave both NULL.
+                attempt=1,
+                route_model=model,
                 # PRD-021 F7, D14, D17: what was true at this point of the request.
                 streamed_realtime=realtime_request,
                 reasoning_shown=reasoning_sent,
@@ -1336,6 +1369,15 @@ def run_conversation(
     try:
         audit_ref = log_query(
             **_route_fields(route),
+            request_id=request_id,
+            # PRD-022 F8, D10: a row written at or after step 7 is attempt 1 on the
+            # requested catalogue id; the rows before it leave both NULL.
+            attempt=1,
+            route_model=model,
+            # PRD-022 D10: counts only; NULL when the provider reports none;
+            # the failure rows leave them NULL.
+            cache_read_tokens=openrouter_result.cache_read_tokens,
+            cache_write_tokens=openrouter_result.cache_write_tokens,
             # PRD-021 F7, D14, D17: what was true at this point of the request.
             streamed_realtime=realtime_request,
             reasoning_shown=reasoning_sent or bool(reasoning_text),

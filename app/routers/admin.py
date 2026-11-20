@@ -42,6 +42,9 @@ def get_audit(
     # scoping (AND), so under `audit:read:own` another user's id reads as an
     # empty list, not a 403. An empty string is a 422, not "no filter".
     completion_id: Optional[str] = Query(None, min_length=1, max_length=128),
+    # PRD-022 F8 / D10: the same filter on the request id; one request's rows
+    # (every attempt) share it. Exact match, ANDed with the scoping.
+    request_id: Optional[str] = Query(None, min_length=1, max_length=128),
 ) -> AuditResponse:
     try:
         authorize(identity, PERMISSION_AUDIT_READ_ALL)
@@ -55,7 +58,9 @@ def get_audit(
             ) from exc
         scope_user_id = identity.user_id
 
-    total = count_audit_logs(user_id=scope_user_id, completion_id=completion_id)
+    total = count_audit_logs(
+        user_id=scope_user_id, completion_id=completion_id, request_id=request_id
+    )
     queries = [
         AuditQueryEntry(
             audit_id=log.id,
@@ -104,13 +109,23 @@ def get_audit(
             reasoning_shown=log.reasoning_shown,
             stream_redaction_divergence=log.stream_redaction_divergence,
             completion_id=log.completion_id,
+            request_id=log.request_id,
+            attempt=log.attempt,
+            route_model=log.route_model,
+            fallback_reason=log.fallback_reason,
+            skipped_providers=log.skipped_providers,
+            cache_read_tokens=log.cache_read_tokens,
+            cache_write_tokens=log.cache_write_tokens,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,
             pii_entities=log.pii_entities.split(",") if log.pii_entities else [],
         )
         for log in list_audit_logs(
-            limit=100, user_id=scope_user_id, completion_id=completion_id
+            limit=100,
+            user_id=scope_user_id,
+            completion_id=completion_id,
+            request_id=request_id,
         )
     ]
     return AuditResponse(total=total, queries=queries)

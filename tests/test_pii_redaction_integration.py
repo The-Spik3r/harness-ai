@@ -194,7 +194,15 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
     entry = client.get("/audit", headers=_ADMIN_HEADERS).json()["queries"][0]
 
     assert sorted(entry) == [
+        # PRD-022 F8 / D10 (STORY-003): seven additive fields -- attempt,
+        # cache_read_tokens, cache_write_tokens, fallback_reason, request_id,
+        # route_model, skipped_providers. An id, two counts, an attempt number
+        # and labels (a model id, a closed reason kind, provider names), never
+        # prompt text: the leak surface is no wider.
+        "attempt",
         "audit_id",
+        "cache_read_tokens",
+        "cache_write_tokens",
         # PRD-021 F7 (STORY-013): four additive fields -- completion_id,
         # reasoning_shown, stream_redaction_divergence, streamed_realtime. An
         # opaque stream id and three booleans, not prompt text: the leak surface
@@ -206,6 +214,7 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "conversation_key",
         "denied_permission",
         "device",
+        "fallback_reason",
         "has_tool_calls",
         # PRD-015 Section 10: additive, nullable (STORY-007).
         "ignored_params",
@@ -231,8 +240,11 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "provider",
         "provider_trust",
         "reasoning_shown",
+        "request_id",
         "role",
+        "route_model",
         "session_id",
+        "skipped_providers",
         "stream_redaction_divergence",
         "streamed",
         "streamed_realtime",

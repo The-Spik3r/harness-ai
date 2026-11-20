@@ -239,6 +239,14 @@ def test_init_db_migrates_a_pre_prd018_database(uninitialized_db, monkeypatch):
         "ALTER TABLE audit_logs ADD COLUMN reasoning_shown INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN stream_redaction_divergence INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN completion_id TEXT",
+        # PRD-022 STORY-003 (F8, D10): the seven audit columns follow it.
+        "ALTER TABLE audit_logs ADD COLUMN request_id TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN attempt INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN route_model TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN fallback_reason TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN skipped_providers TEXT",
+        "ALTER TABLE audit_logs ADD COLUMN cache_read_tokens INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN cache_write_tokens INTEGER",
         "ALTER TABLE action_decisions ADD COLUMN write_id TEXT",
     ]
     assert not any(
@@ -315,12 +323,15 @@ def test_existing_constructions_still_work_and_default_write_id_to_none():
     # `id` stays the trailing field of each: write_id sits before it.
     # PRD-020 STORY-006 (D13): AuditLog's five provider fields now sit between
     # write_id and id; `id` is still trailing. PRD-021 STORY-009 (F7): four
-    # delivery fields follow usage_estimated.
-    assert [f.name for f in dataclasses.fields(AuditLog)][-11:] == [
+    # delivery fields follow usage_estimated. PRD-022 STORY-003 (D10): seven
+    # audit fields follow completion_id, `id` still trailing.
+    assert [f.name for f in dataclasses.fields(AuditLog)][-18:] == [
         "write_id", "provider", "upstream_model", "provider_trust",
         "pii_input_relaxed", "usage_estimated",
         "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
-        "completion_id", "id",
+        "completion_id",
+        "request_id", "attempt", "route_model", "fallback_reason",
+        "skipped_providers", "cache_read_tokens", "cache_write_tokens", "id",
     ]
     assert [f.name for f in dataclasses.fields(ActionDecisionRow)][-2:] == [
         "write_id",

@@ -1583,9 +1583,12 @@ _INSERT_AUDIT_LOG_SQL = """
                 provider, upstream_model, provider_trust,
                 pii_input_relaxed, usage_estimated,
                 streamed_realtime, reasoning_shown,
-                stream_redaction_divergence, completion_id
+                stream_redaction_divergence, completion_id,
+                request_id, attempt, route_model, fallback_reason,
+                skipped_providers, cache_read_tokens, cache_write_tokens
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -1684,6 +1687,13 @@ def _insert_audit_row(conn: _Connection, entry: AuditLog) -> int:
             int(entry.reasoning_shown),
             int(entry.stream_redaction_divergence),
             entry.completion_id,
+            entry.request_id,
+            entry.attempt,
+            entry.route_model,
+            entry.fallback_reason,
+            entry.skipped_providers,
+            entry.cache_read_tokens,
+            entry.cache_write_tokens,
         ),
     )
     if keyed:
@@ -1839,6 +1849,13 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         reasoning_shown=bool(row["reasoning_shown"]),
         stream_redaction_divergence=bool(row["stream_redaction_divergence"]),
         completion_id=row["completion_id"],
+        request_id=row["request_id"],
+        attempt=row["attempt"],
+        route_model=row["route_model"],
+        fallback_reason=row["fallback_reason"],
+        skipped_providers=row["skipped_providers"],
+        cache_read_tokens=row["cache_read_tokens"],
+        cache_write_tokens=row["cache_write_tokens"],
     )
 
 
@@ -1855,7 +1872,9 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
 
 
 def _audit_filter(
-    user_id: Optional[str], completion_id: Optional[str]
+    user_id: Optional[str],
+    completion_id: Optional[str],
+    request_id: Optional[str] = None,
 ) -> tuple[str, list[Any]]:
     """The WHERE clause and bound values of the audit readers.
 
@@ -1863,6 +1882,9 @@ def _audit_filter(
     value like `user_id`; the clause text is fixed and no caller text reaches
     the SQL. The two filters combine with AND. With neither, the clause is
     empty and the statements are today's.
+
+    PRD-022 F8 / D10: `request_id` is the same kind of filter, an exact bound
+    match ANDed with the others.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -1872,14 +1894,19 @@ def _audit_filter(
     if completion_id is not None:
         clauses.append("completion_id = ?")
         params.append(completion_id)
+    if request_id is not None:
+        clauses.append("request_id = ?")
+        params.append(request_id)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     return where, params
 
 
 def count_audit_logs(
-    user_id: Optional[str] = None, completion_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    completion_id: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> int:
-    where, params = _audit_filter(user_id, completion_id)
+    where, params = _audit_filter(user_id, completion_id, request_id)
 
     def _op(conn: _Connection) -> int:
         row = conn.execute(
@@ -1894,8 +1921,9 @@ def list_audit_logs(
     limit: int = 100,
     user_id: Optional[str] = None,
     completion_id: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> list[AuditLog]:
-    where, params = _audit_filter(user_id, completion_id)
+    where, params = _audit_filter(user_id, completion_id, request_id)
 
     def _op(conn: _Connection) -> list[AuditLog]:
         rows = conn.execute(
@@ -2312,7 +2340,14 @@ SELECT
               'streamed_realtime', streamed_realtime,
               'reasoning_shown', reasoning_shown,
               'stream_redaction_divergence', stream_redaction_divergence,
-              'completion_id', completion_id))
+              'completion_id', completion_id,
+              'request_id', request_id,
+              'attempt', attempt,
+              'route_model', route_model,
+              'fallback_reason', fallback_reason,
+              'skipped_providers', skipped_providers,
+              'cache_read_tokens', cache_read_tokens,
+              'cache_write_tokens', cache_write_tokens))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
