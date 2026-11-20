@@ -36,6 +36,8 @@ As an integrating developer, I want a provider outage on a buffered request to c
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-008): the success row's `ignored_params` is `_merge_ignored_params(edge, result.dropped_params, route)` in `query_pipeline.py`; the realtime branch gets `dropped_params` from `upstream.dropped_params_for(route, request)`. With a chain, pass the *answering attempt's* route and request to both, never the primary's.
+
 - `app/services/query_pipeline.py` steps 6 (`:880-999`) and 7 buffered branch (`:1151-1206`), 7b charge (`:1208`), success row (`:1337`). `_route_fields(route)` `:306` produces PRD-020's columns per route: call it with the **attempt's** route. Call `chain.run` through its module binding (PRD 6.9, `query_pipeline.py:17-20` pattern) so tests can replace it.
 - Step 6 becomes `prepare(route)`: factor today's step-6 body (limit check + redaction loop + entity capture) into a function of `(messages, policy, route)` used both for the primary and for each candidate; the primary's behaviour and row on a limit breach / redaction error stay exactly as today.
 - The attempt-row callback uses required keyword arguments `request_id`, `attempt`, `route` (PRD 6.9, `_deny` rule).
