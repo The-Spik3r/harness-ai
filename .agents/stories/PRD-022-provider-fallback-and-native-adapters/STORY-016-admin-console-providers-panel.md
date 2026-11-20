@@ -38,6 +38,7 @@ As an operator in the admin console, I want a Providers panel beside the Storage
 - `chat_ui/chat_ui/admin_*.py` (find the Storage panel added by PRD-018 and the Register's PRD-020 `provider` column); `chat_ui/chat_ui/theme.py`.
 - Skill `frontend-design` (verbatim): "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults." PRD Section 8: "distinctive, intentional visual design … making choices that don't read as templated defaults". The panel follows `chat_ui/chat_ui/theme.py`.
 - Validation: the chat_ui probe form in the brief.
+- Orchestrator decision (STORY-015): read `health.providers_status(names)` with names from `provider_registry.current().providers`, as `GET /providers/status` does (`app/routers/admin.py`); each breaker is PRD-018's `BreakerStatus` (`since` always a UTC string, never null). `SUMMARY_FIGURES` is now 16: the last three (`fallback_answers`, `failed_attempts`, `answers_by_provider`) are `/stats`-only, and `AdminState.load()` commits only the figures `_READS` names (`chat_ui/chat_ui/admin_state.py`). The Providers panel must not add them to `_READS`.
 
 ## Dependencies
 

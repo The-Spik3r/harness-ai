@@ -452,11 +452,13 @@ Breaker state shared across instances (process-local, as PRD-018's is). Verifyin
  "providers": {
    "openrouter":       {"breaker": {"state": "open", "since": "2026-11-16T10:04:21Z", "consecutive_failures": 5,
                                     "last_failure_class": "timeout", "retry_after_seconds": 7}},
-   "anthropic-direct": {"breaker": {"state": "closed", "since": null, "consecutive_failures": 0,
+   "anthropic-direct": {"breaker": {"state": "closed", "since": "2026-11-16T09:00:00Z", "consecutive_failures": 0,
                                     "last_failure_class": null, "retry_after_seconds": null}}},
  "counters": {"attempts_failed": {"openrouter:timeout": 5}, "fallback_answers": 3,
               "skipped": {"openrouter:open": 12}, "breaker_opens": 1}}
 ```
+
+*(Amended after STORY-015: `since` is always a UTC string, PRD-018 D16's meaning: the last transition, or the breaker's creation for one that never moved. It is never null.)*
 
 **`GET /stats`** gains `fallback_answers`, `failed_attempts` and `answers_by_provider: [{provider, count}]`. **`GET /audit`** rows gain the F8 columns (PRD-020's five are already there) and `?request_id=`.
 
