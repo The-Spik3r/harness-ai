@@ -587,12 +587,16 @@ def test_an_owned_client_is_closed_and_an_injected_one_is_not(monkeypatch):
     assert injected.closed is False
 
 
-def test_stream_raises_incompatible_at_call_time():
+# PRD-022 STORY-007 (D4): replaces test_stream_raises_incompatible_at_call_time; stream() is real now,
+# and still refuses at call time (before any network) a request it cannot carry.
+def test_stream_raises_incompatible_at_call_time_for_a_request_it_cannot_carry():
+    client = _FakeClient()
+    bad = _req([Message("user", "q"), Message("assistant", "", (ToolCallSpec("c1", "get", "[1]"),))])
     with pytest.raises(UpstreamError) as caught:
-        AnthropicAdapter(_provider(), sdk_client=_FakeClient()).stream(_req(), _KEY)
+        AnthropicAdapter(_provider(), sdk_client=client).stream(bad, _KEY)
     error = caught.value
     assert (error.kind, error.provider, error.retryable) == ("incompatible", "ant", False)
-    assert "STORY-007" in str(error)
+    assert client.bodies == []
 
 
 def test_upstream_result_dropped_params_defaults_empty():

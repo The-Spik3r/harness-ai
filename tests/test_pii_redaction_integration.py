@@ -518,10 +518,20 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_stream_upstream_seam.py:
 #       test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005 ->
 #         test_call_upstream_dispatches_to_the_anthropic_adapter
+#
+# PRD-022 STORY-007 (D4): AnthropicAdapter.stream() is real; the placeholder refusals go.
+#   - test_anthropic_adapter.py:
+#       test_stream_raises_incompatible_at_call_time ->
+#         test_stream_raises_incompatible_at_call_time_for_a_request_it_cannot_carry
+#   - test_stream_upstream_seam.py:
+#       test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time ->
+#         test_stream_upstream_on_an_anthropic_model_streams_through_the_adapter
 _DELIBERATELY_SUPERSEDED_TESTS = {
     "tests/test_stream_upstream_seam.py": {
         "test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005",
+        "test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time",
     },
+    "tests/test_anthropic_adapter.py": {"test_stream_raises_incompatible_at_call_time"},
     "tests/test_db_resilience_write_id.py": {
         "test_log_query_mints_a_hex_write_id_and_still_returns_int",
     },

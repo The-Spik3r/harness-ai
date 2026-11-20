@@ -311,6 +311,7 @@ def stub():
         started.append((server, thread))
         return server.server_address[1], log
 
+    start.servers = started  # (server, thread) pairs, for endpoint_hits()
     yield start
     for server, thread in started:
         server.shutdown()
@@ -463,12 +464,42 @@ def test_call_upstream_dispatches_to_the_anthropic_adapter(provider_file, monkey
     assert seen["body"]["max_tokens"] == 1024 and seen["closed"] is True
 
 
-# PRD-022 STORY-005: AnthropicAdapter.stream raises the same incompatible error until STORY-007.
-def test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time(provider_file):
+# PRD-022 STORY-007 (D4): replaces test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time;
+# AnthropicAdapter.stream is real now, so the seam streams through the registry and the key checks
+# stay eager while the network stays lazy.
+def test_stream_upstream_on_an_anthropic_model_streams_through_the_adapter(provider_file, stub):
+    port, _ = stub(
+        {"default": {"content": "stub says hi", "usage": {
+            "prompt_tokens": 10, "completion_tokens": 4,
+            "cache_creation_input_tokens": 3, "cache_read_input_tokens": 2,
+        }}},
+        require_key="k",
+    )
+    provider_file(
+        _anthropic_yaml().replace(
+            "base_url: https://api.anthropic.com", f"base_url: http://127.0.0.1:{port}\n    insecure_http: true"
+        ),
+        env={"ANTHROPIC_STUB_KEY": "k"},
+    )
+    server = stub.servers[-1][0]
+    with pytest.raises(UpstreamError, match="No provider route for the requested model"):
+        stream_upstream(_SECRET_PROMPT, model="nope/none")
+    events = stream_upstream(_SECRET_PROMPT, model="claude-x")
+    assert server.endpoint_hits() == {"chat": 0, "messages": 0}  # lazy: nothing sent before next()
+    drained = list(events)
+    assert server.endpoint_hits() == {"chat": 0, "messages": 1}
+    assert isinstance(drained[0], TextDelta) and drained[-1] == Finish("stop")
+    report = next(e for e in drained if isinstance(e, UsageReport))
+    assert (report.prompt_tokens, report.completion_tokens, report.total_tokens) == (15, 4, 19)
+    assert (report.cache_write_tokens, report.cache_read_tokens) == (3, 2)
+
+
+def test_stream_upstream_on_an_anthropic_model_refuses_a_keyless_route_at_call_time(provider_file, monkeypatch):
     provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    monkeypatch.setattr(provider_registry, "api_key_for", lambda provider: None)
     with pytest.raises(UpstreamError) as excinfo:  # raised by the call, not the first next()
         stream_upstream(_SECRET_PROMPT, model="claude-x")
-    _assert_unavailable(excinfo.value)
+    assert excinfo.value.kind == "misconfigured" and "SECRET-PROMPT-TEXT" not in str(excinfo.value)
 
 
 def test_keyless_anthropic_route_is_misconfigured_before_dispatch(provider_file, monkeypatch):
