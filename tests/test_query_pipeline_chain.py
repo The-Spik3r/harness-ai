@@ -537,7 +537,11 @@ def test_pipeline_counts_nothing_itself(temp_db, chained, monkeypatch):
 # --- Realtime stays single-candidate --------------------------------------------------
 
 
-def test_streamed_request_on_chained_model_stays_single_candidate(temp_db, chained, monkeypatch):
+def test_streamed_request_on_chained_model_walks_the_chain(temp_db, chained, monkeypatch):
+    # PRD-022 STORY-014 (6.6) supersedes STORY-012's interim rule (`..._stays_single_candidate`):
+    # a streamed request on a chained model goes through `chain.run`, and a candidate that does
+    # not declare `streaming` (this registry's) is skipped `capability`. The streaming chain
+    # cases live in `tests/test_query_pipeline_chain_stream.py`.
     from app.services.delivery import Visibility
 
     class _Sink:
@@ -555,20 +559,23 @@ def test_streamed_request_on_chained_model_stays_single_candidate(temp_db, chain
         ),
     )
     ran = []
-    monkeypatch.setattr(chain_mod, "run", lambda *a, **k: ran.append(1))
+    real_run = chain_mod.run
+    monkeypatch.setattr(chain_mod, "run", lambda *a, **k: (ran.append(1), real_run(*a, **k))[1])
     streamed = []
 
     def stream(messages, model, api_key=None, **kw):
         streamed.append(model)
-        from app.services.upstream import Finish, TextDelta
+        yield from ()
 
-        yield TextDelta("hi")
-        yield Finish("stop")
+    before = _last_audit_id()
+    with pytest.raises(ChainExhausted) as excinfo:
+        _run([Message("user", "hello")], Upstream(), sink=_Sink(), stream_upstream=stream)
 
-    result = _run([Message("user", "hello")], Upstream(), sink=_Sink(), stream_upstream=stream)
-
-    assert isinstance(result, QuerySuccessResponse)
-    assert ran == [] and streamed == ["remote/m"]
+    # PRD-022 STORY-014: the chain ran and skipped both candidates; nothing was streamed.
+    assert ran == [1] and streamed == []
+    assert ("remote", "capability") in excinfo.value.skipped
+    (row,) = _rows(before)
+    assert row.attempt is None and row.success is False
 
 
 # --- STORY-013: /v1 response surfaces -----------------------------------------------

@@ -1009,13 +1009,14 @@ def run_conversation(
     # back to `chat` (D8).
     policy = get_pii_policy(profile_name)
 
-    # PRD-022 6.1: the request's chain, asked once. A model with no chain, and every
-    # streamed realtime request, take PRD-020/021's single call: step 6 inline, one
-    # `call_openrouter` / `stream_upstream`, no health, no deadline. STORY-014 adds the
-    # release window and per-attempt state that let a stream fall back.
+    # PRD-022 6.1: the request's chain, asked once. A model with no chain takes
+    # PRD-020/021's single call: step 6 inline, one `call_openrouter` /
+    # `stream_upstream`, no health, no deadline. A streamed request walks the same
+    # chain as a buffered one (STORY-014, 6.6): `stream_attempt` below keeps fresh
+    # per-attempt state, and `released` closes the fallback window (D9).
     streamed_step = bool(visibility is not None and visibility.upstream_streamed)
     req_chain = chain_config.chain_for(model, ingress)
-    chained = len(req_chain.candidates) > 1 and not streamed_step
+    chained = len(req_chain.candidates) > 1
 
     # PRD-020 D7, 6.6, T4: decided once, by the Route alone (an internal
     # provider that declares `pii: relaxed`, with the PII switch on) -- never
@@ -1147,32 +1148,13 @@ def run_conversation(
     # PRD-021 F7: a non-empty reasoning text reached the sink (`released` also
     # flips on content, so it cannot say this). Persisted as `reasoning_shown`.
     reasoning_sent = False
-    received_text: list[str] = []
-    received_calls: dict[int, dict[str, Any]] = {}
-    # PRD-021 6.5, D7, D8 (STORY-008): the two gates exist only for a streamed
-    # realtime request. The content gate runs when the master switch is on and the
-    # policy redacts output (`code` may not: raw forward, no final pass, step 8
-    # as today). `_redact` is called through a lambda so the spy on this module's
-    # binding sees the gate's final pass as it sees step 8's.
-    content_gate: Optional[OutputGate] = None
-    reasoning_gate: Optional[OutputGate] = None
+    # PRD-021 6.5, D7, D8 (STORY-008): the gate state is per attempt (PRD-022 STORY-014,
+    # D9): `stream_attempt` builds the two gates, the received buffers and the
+    # divergence flag afresh, so a failed attempt's held text never reaches the next.
+    # These three are read by the rows and by step 8: the answering attempt's values.
     gate_result: Optional[GateResult] = None
-    raw_reasoning: list[str] = []  # reasoning granted but not realtime: redacted whole
     reasoning_text: Optional[str] = None
     stream_redaction_divergence = False
-    if streamed_step and visibility is not None and visibility.realtime:
-        if gate_applies(policy, settings.PII_REDACTION_ENABLED):
-            content_gate = OutputGate(
-                policy,
-                settings.STREAM_HOLDBACK_MAX_CHARACTERS,
-                final_redact=lambda text, pol: _redact(text, pol),
-            )
-        if visibility.reasoning:
-            reasoning_gate = OutputGate(
-                reasoning_policy(policy),
-                settings.STREAM_HOLDBACK_MAX_CHARACTERS,
-                final_redact=redact_reasoning,
-            )
     if safe is not None and not streamed_step:
         completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
         safe.committed(completion_id)
@@ -1238,140 +1220,114 @@ def run_conversation(
     # skips, redacts per candidate (`prepare`), calls (`attempt`), records health and
     # counts; the pipeline owns the rows. `chain_outcome` stays None on the single call.
     chain_outcome: Optional[chain.ChainOutcome] = None
-    if chained:
-        primary_route = route
-        answer_prepared: Optional[_Prepared] = None
-        attempt_route: Route = route
-        attempts_failed = 0
+    primary_route = route
+    answer_prepared: Optional[_Prepared] = None
+    attempt_route: Route = route
+    attempts_failed = 0
+    # The attempt number a streamed attempt writes on its own row (equals `chain.run`'s
+    # counter; 1 on the single call).
+    stream_attempt_no = 0
 
-        def prepare(candidate_route: Route) -> Any:
-            nonlocal primary_over
-            try:
-                prepared_for = _prepare_input(messages, policy, candidate_route)
-            except PiiRedactorError as exc:
-                # Fail closed on any candidate: today's arm, then the error leaves.
-                _log_redaction_failed(candidate_route, candidate_route.relaxes_input(), exc)
-                raise
-            if isinstance(prepared_for, _OverLimit):
-                if candidate_route is primary_route:
-                    primary_over = prepared_for
-                return chain.REDACTION_LIMIT  # a skip, no row (6.3)
-            return prepared_for
-
-        def attempt(
-            candidate_route: Route, sent: _Prepared, timeout: Optional[float]
-        ) -> OpenRouterResult:
-            nonlocal answer_prepared, attempt_route
-            answer_prepared = sent
-            attempt_route = candidate_route
-            kw = dict(extra)
-            # Passed only when set: stubs of (messages, model, api_key) keep working.
-            if timeout is not None:
-                kw["timeout"] = timeout
-            return call_openrouter(
-                list(sent.messages),
-                model=candidate_route.model_id,
-                # D15: the caller's key reaches only the primary; the runner skips
-                # every other candidate as `byok` when a key was passed.
-                api_key=openrouter_api_key if candidate_route is primary_route else None,
-                **kw,
-            )
-
-        def on_attempt_failed(candidate: Any, error: OpenRouterError, *, attempt: int) -> None:
-            nonlocal attempts_failed
-            # One row per failed attempt, written before the next candidate starts (F8).
-            _log_failed_attempt(
-                attempt_route,
-                relaxed=attempt_route.relaxes_input(),
-                request_id=request_id,
-                attempt=attempt,
-                route_model=attempt_route.model_id,
-                error_message=str(error),
-                skipped_providers=None,
-            )
-            attempts_failed += 1
-
-        def permitted(candidate_model: str) -> bool:
-            # D7: RBAC per fallback candidate, through this module's binding.
-            try:
-                authorize_route(identity, candidate_model)
-            except PermissionDenied:
-                return False
-            return True
-
-        health.sync({p.name for p in provider_registry.current().providers})
-        try:
-            chain_outcome = chain.run(
-                req_chain,
-                primary=route,
-                limits=chain_config.current_limits(),
-                needs=chain.RequestNeeds(
-                    tools=tools is not None,
-                    forced_tool_choice=_forces_tool(tools),
-                    streaming=False,
-                    estimate=lambda r: estimate_tokens(
-                        messages,
-                        ("", ()),
-                        r.provider.estimate_chars_per_token,
-                        tools=tools.tools if tools is not None else None,
+    # PRD-021 T6 / PRD-020 D8: text already shown to a reader was spent upstream, so
+    # the estimate of what THIS attempt received is charged before its failure row.
+    # PRD-022 STORY-014: per attempt, so a failed attempt that released nothing never
+    # charges and the next one starts from its own buffers.
+    def _charge_received(
+        charge_route: Route,
+        sent_messages: list[Message],
+        received_text: list[str],
+        received_calls: dict[int, dict[str, Any]],
+    ) -> None:
+        if admission is None or openrouter_api_key is not None:
+            return
+        charge(
+            identity.user_id,
+            admission.day,
+            None,
+            None,
+            estimate_tokens(
+                sent_messages,
+                (
+                    "".join(received_text),
+                    tuple(
+                        ToolCallSpec(c["id"] or "", c["name"] or "", "".join(c["arguments"]))
+                        for _, c in sorted(received_calls.items())
                     ),
                 ),
-                byok=openrouter_api_key is not None,
-                policy=policy,
-                resolve=provider_registry.resolve,
-                permitted=permitted,
-                prepare=prepare,
-                attempt=attempt,
-                on_attempt_failed=on_attempt_failed,
-                released=lambda: False,  # buffered: nothing is released before the answer
-            )
-        except ChainExhausted as exc:
-            if attempts_failed == 0:
-                if primary_over is not None:
-                    # A size limit is deterministic: "all providers unavailable, retry"
-                    # would mislead. No attempt ran and the primary was over the
-                    # redaction limit, so today's verdict and row stand (orchestrator
-                    # note, 3.2).
-                    return _refuse_redaction_limit(route, False, primary_over)
-                # No call was made: one row on the primary's PRD-020 columns, with
-                # the skips (F7, F8). Skips after a last attempt reach the counters
-                # only, a known limitation: that attempt's row was already written.
-                _log_failed_attempt(
-                    route,
-                    relaxed=route.relaxes_input(),
-                    request_id=request_id,
-                    attempt=None,
-                    route_model=model,
-                    error_message=str(exc),
-                    skipped_providers=",".join(f"{p}:{r}" for p, r in exc.skipped) or None,
-                )
-            raise
-        # Any other OpenRouterError from `run` already has its row (`on_attempt_failed`).
-        # The answering attempt now speaks for the request: step 8's error row, the
-        # success row and `_merge_ignored_params` read `route`, and `answer_prepared`
-        # is what that attempt was sent (T3), never the primary's text.
-        route = chain_outcome.route
-        assert answer_prepared is not None
-        relaxed = answer_prepared.relaxed
-        input_entities = list(answer_prepared.entities)
-        redacted_messages = list(answer_prepared.messages)
-        attempt_no = chain_outcome.attempt
-        route_model = chain_outcome.route.model_id
-        fallback_reason = chain_outcome.fallback_reason
-        skipped = chain_outcome.skipped
+                charge_route.provider.estimate_chars_per_token,
+                tools=tools.tools if tools is not None else None,
+            ),
+        )
 
-    try:
-        if chain_outcome is not None:
-            # Already answered by the chain; the `except` below is for the single call.
-            openrouter_result = chain_outcome.result
-        elif streamed_step:
-            assert safe is not None and visibility is not None and route is not None
-            stream_request = UpstreamRequest(redacted_messages, route.upstream_model, params, tools, route.model)
-            tool_kinds = {n: m.kind for n, m in action_config.get_policy().tools.items()}
-            phase_now: Optional[str] = "waiting"
-            events: list[UpstreamEvent] = []
+    # PRD-022 6.6, D9, STORY-014: one streamed attempt. All per-attempt state is made
+    # here; only the commit id, `released` and `reasoning_sent` span attempts. The
+    # window closes where `released` flips -- on a non-empty content or reasoning
+    # delta passed to the sink (never on receipt, never on a held gate) -- and
+    # `chain.run` reads it live. Tool calls are held to the end of the stream (D6)
+    # and released by step 7c after the chain has returned, so they cannot close it.
+    def stream_attempt(
+        candidate_route: Route, sent: _Prepared, timeout: Optional[float]
+    ) -> OpenRouterResult:
+        nonlocal released, reasoning_sent, completion_id, gate_result, reasoning_text
+        nonlocal stream_redaction_divergence, answer_prepared, attempt_route, stream_attempt_no
+        assert safe is not None and visibility is not None
+        stream_attempt_no += 1
+        answer_prepared = sent
+        attempt_route = candidate_route
+        # Fresh state (AC4): a failed attempt's divergence flag or text never reaches
+        # the next attempt's row or answer.
+        gate_result = None
+        reasoning_text = None
+        stream_redaction_divergence = False
+        received_text: list[str] = []
+        received_calls: dict[int, dict[str, Any]] = {}
+        events: list[UpstreamEvent] = []
+        raw_reasoning: list[str] = []  # reasoning granted but not realtime: redacted whole
+        # The gates exist only for a streamed realtime request. The content gate runs
+        # when the master switch is on and the policy redacts output (`code` may not:
+        # raw forward, no final pass, step 8 as today). `_redact` is called through a
+        # lambda so the spy on this module's binding sees the gate's final pass as it
+        # sees step 8's.
+        content_gate: Optional[OutputGate] = None
+        reasoning_gate: Optional[OutputGate] = None
+        if visibility.realtime:
+            if gate_applies(policy, settings.PII_REDACTION_ENABLED):
+                content_gate = OutputGate(
+                    policy,
+                    settings.STREAM_HOLDBACK_MAX_CHARACTERS,
+                    final_redact=lambda text, pol: _redact(text, pol),
+                )
+            if visibility.reasoning:
+                reasoning_gate = OutputGate(
+                    reasoning_policy(policy),
+                    settings.STREAM_HOLDBACK_MAX_CHARACTERS,
+                    final_redact=redact_reasoning,
+                )
+        stream_request = UpstreamRequest(
+            list(sent.messages), candidate_route.upstream_model, params, tools, candidate_route.model
+        )
+        tool_kinds = {n: m.kind for n, m in action_config.get_policy().tools.items()}
+        phase_now: Optional[str] = "waiting"
+        if stream_attempt_no > 1:
+            # A fallback restarts the wait; repeating `waiting` is allowed (6.6).
+            safe.phase("waiting")
+        kw = dict(extra)
+        # Passed only when set: stubs of (messages, model, api_key) keep working.
+        if timeout is not None:
+            kw["timeout"] = timeout
+        # D15: on a chain the caller's key reaches only the primary; the single call
+        # passes it as it always did.
+        call_key = (
+            (openrouter_api_key if candidate_route is primary_route else None)
+            if chained
+            else openrouter_api_key
+        )
+        try:
             for event in stream_upstream(
-                redacted_messages, model=model, api_key=openrouter_api_key, **extra
+                list(sent.messages),
+                model=candidate_route.model_id if chained else model,
+                api_key=call_key,
+                **kw,
             ):
                 if completion_id is None:
                     completion_id = "chatcmpl-harness-rt-" + uuid.uuid4().hex
@@ -1451,16 +1407,166 @@ def run_conversation(
             # model_used stays the requested id, as call_upstream makes it (PRD-020 D13).
             # PRD-022 STORY-008 6.5: `collect` carries no dropped params; the same
             # rule `complete()` applies, asked of the route (D4: one rule, two callers).
-            openrouter_result = dataclasses.replace(
+            return dataclasses.replace(
                 collect(
                     events,
-                    provider=route.provider,
+                    provider=candidate_route.provider,
                     request=stream_request,
                     usage_missing="estimate" if visibility.realtime else None,
                 ),
-                model_used=model,
-                dropped_params=dropped_params_for(route, stream_request),
+                # D17: on a chain the response carries the answering id, as the buffered
+                # attempt's `call_openrouter(model=candidate)` result does; rows keep `model`.
+                model_used=candidate_route.model_id if chained else model,
+                dropped_params=dropped_params_for(candidate_route, stream_request),
             )
+        except (OpenRouterError, PiiRedactorError) as exc:
+            # A gate failure (PiiRedactorError from feed/finish) is the same fault as
+            # a dropped stream: the same T6 charge (what THIS attempt received, only
+            # when something was released), before the row. Nothing released: nothing
+            # charged. One row per attempt (D10): an `UpstreamError` is written by the
+            # chain's `on_attempt_failed`; a gate failure never reaches it, so a
+            # chained attempt writes its own row here, and the single call's `except`
+            # below writes it unchained.
+            if released:
+                _charge_received(candidate_route, list(sent.messages), received_text, received_calls)
+            if chained and isinstance(exc, PiiRedactorError):
+                _log_failed_attempt(
+                    candidate_route,
+                    relaxed=candidate_route.relaxes_input(),
+                    request_id=request_id,
+                    attempt=stream_attempt_no,
+                    route_model=candidate_route.model_id,
+                    error_message=str(exc),
+                    skipped_providers=None,
+                )
+            raise
+
+    if chained:
+
+        def prepare(candidate_route: Route) -> Any:
+            nonlocal primary_over
+            try:
+                prepared_for = _prepare_input(messages, policy, candidate_route)
+            except PiiRedactorError as exc:
+                # Fail closed on any candidate: today's arm, then the error leaves.
+                _log_redaction_failed(candidate_route, candidate_route.relaxes_input(), exc)
+                raise
+            if isinstance(prepared_for, _OverLimit):
+                if candidate_route is primary_route:
+                    primary_over = prepared_for
+                return chain.REDACTION_LIMIT  # a skip, no row (6.3)
+            return prepared_for
+
+        def attempt(
+            candidate_route: Route, sent: _Prepared, timeout: Optional[float]
+        ) -> OpenRouterResult:
+            nonlocal answer_prepared, attempt_route
+            answer_prepared = sent
+            attempt_route = candidate_route
+            kw = dict(extra)
+            # Passed only when set: stubs of (messages, model, api_key) keep working.
+            if timeout is not None:
+                kw["timeout"] = timeout
+            return call_openrouter(
+                list(sent.messages),
+                model=candidate_route.model_id,
+                # D15: the caller's key reaches only the primary; the runner skips
+                # every other candidate as `byok` when a key was passed.
+                api_key=openrouter_api_key if candidate_route is primary_route else None,
+                **kw,
+            )
+
+        def on_attempt_failed(candidate: Any, error: OpenRouterError, *, attempt: int) -> None:
+            nonlocal attempts_failed
+            # One row per failed attempt, written before the next candidate starts (F8).
+            _log_failed_attempt(
+                attempt_route,
+                relaxed=attempt_route.relaxes_input(),
+                request_id=request_id,
+                attempt=attempt,
+                route_model=attempt_route.model_id,
+                error_message=str(error),
+                skipped_providers=None,
+            )
+            attempts_failed += 1
+
+        def permitted(candidate_model: str) -> bool:
+            # D7: RBAC per fallback candidate, through this module's binding.
+            try:
+                authorize_route(identity, candidate_model)
+            except PermissionDenied:
+                return False
+            return True
+
+        health.sync({p.name for p in provider_registry.current().providers})
+        try:
+            chain_outcome = chain.run(
+                req_chain,
+                primary=route,
+                limits=chain_config.current_limits(),
+                needs=chain.RequestNeeds(
+                    tools=tools is not None,
+                    forced_tool_choice=_forces_tool(tools),
+                    streaming=streamed_step,  # STORY-014: a non-streaming candidate is skipped `capability`
+                    estimate=lambda r: estimate_tokens(
+                        messages,
+                        ("", ()),
+                        r.provider.estimate_chars_per_token,
+                        tools=tools.tools if tools is not None else None,
+                    ),
+                ),
+                byok=openrouter_api_key is not None,
+                policy=policy,
+                resolve=provider_registry.resolve,
+                permitted=permitted,
+                prepare=prepare,
+                attempt=stream_attempt if streamed_step else attempt,
+                on_attempt_failed=on_attempt_failed,
+                # Buffered: nothing is released before the answer. Streamed: read live.
+                released=(lambda: released) if streamed_step else (lambda: False),
+            )
+        except ChainExhausted as exc:
+            if attempts_failed == 0:
+                if primary_over is not None:
+                    # A size limit is deterministic: "all providers unavailable, retry"
+                    # would mislead. No attempt ran and the primary was over the
+                    # redaction limit, so today's verdict and row stand (orchestrator
+                    # note, 3.2).
+                    return _refuse_redaction_limit(route, False, primary_over)
+                # No call was made: one row on the primary's PRD-020 columns, with
+                # the skips (F7, F8). Skips after a last attempt reach the counters
+                # only, a known limitation: that attempt's row was already written.
+                _log_failed_attempt(
+                    route,
+                    relaxed=route.relaxes_input(),
+                    request_id=request_id,
+                    attempt=None,
+                    route_model=model,
+                    error_message=str(exc),
+                    skipped_providers=",".join(f"{p}:{r}" for p, r in exc.skipped) or None,
+                )
+            raise
+        # Any other OpenRouterError from `run` already has its row (`on_attempt_failed`).
+        # The answering attempt now speaks for the request: step 8's error row, the
+        # success row and `_merge_ignored_params` read `route`, and `answer_prepared`
+        # is what that attempt was sent (T3), never the primary's text.
+        route = chain_outcome.route
+        assert answer_prepared is not None
+        relaxed = answer_prepared.relaxed
+        input_entities = list(answer_prepared.entities)
+        redacted_messages = list(answer_prepared.messages)
+        attempt_no = chain_outcome.attempt
+        route_model = chain_outcome.route.model_id
+        fallback_reason = chain_outcome.fallback_reason
+        skipped = chain_outcome.skipped
+
+    try:
+        if chain_outcome is not None:
+            # Already answered by the chain; the `except` below is for the single call.
+            openrouter_result = chain_outcome.result
+        elif streamed_step:
+            # Unchained: the same closure, once, with today's arguments (no timeout).
+            openrouter_result = stream_attempt(route, prepared, None)
         else:
             openrouter_result = call_openrouter(
                 redacted_messages, model=model, api_key=openrouter_api_key, **extra
@@ -1468,28 +1574,8 @@ def run_conversation(
     except (OpenRouterError, PiiRedactorError) as exc:
         # A gate failure (PiiRedactorError from feed/finish) is the same fault as
         # a dropped stream: the same T6 charge, the same failure row (STORY-008).
-        # PRD-021 T6 / PRD-020 D8: text already shown to a reader was spent
-        # upstream, so charge the estimate of what was received before the fault,
-        # before the failure row. Nothing released: nothing charged (today's rule).
-        if released and admission is not None and openrouter_api_key is None and route is not None:
-            charge(
-                identity.user_id,
-                admission.day,
-                None,
-                None,
-                estimate_tokens(
-                    redacted_messages,
-                    (
-                        "".join(received_text),
-                        tuple(
-                            ToolCallSpec(c["id"] or "", c["name"] or "", "".join(c["arguments"]))
-                            for _, c in sorted(received_calls.items())
-                        ),
-                    ),
-                    route.provider.estimate_chars_per_token,
-                    tools=tools.tools if tools is not None else None,
-                ),
-            )
+        # The T6 charge for a released stream already ran inside `stream_attempt`
+        # (PRD-022 STORY-014); the buffered call releases nothing, so nothing is charged.
         _log_failed_attempt(
             route,
             relaxed=relaxed,

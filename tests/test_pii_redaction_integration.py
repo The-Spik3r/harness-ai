@@ -539,6 +539,11 @@ _DELIBERATELY_SUPERSEDED_TESTS = {
         "test_the_sheet_carries_all_nine_stats_response_figures",
         "test_the_blocked_figures_are_the_two_that_indent",
     },
+    # PRD-022 STORY-014: a streamed request on a chained model now walks the chain (6.6);
+    # STORY-012 had pinned it to a single candidate.
+    "tests/test_query_pipeline_chain.py": {
+        "test_streamed_request_on_chained_model_stays_single_candidate",
+    },
     "tests/test_summary.py": {"test_the_three_blocks_are_headed"},
     "tests/test_openrouter_client.py": {
         "test_null_content_with_tool_calls_names_prd_016",
