@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "4 - Observability, streaming, docs"
-status: todo
+status: done
 labels: [backend, pipeline, streaming]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-014-streaming-fallback-window.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-014-streaming-fallback-window.report.md
+commit: 0766643
 depends_on: [STORY-012, STORY-013]
 blocks: [STORY-017]
 skills: []

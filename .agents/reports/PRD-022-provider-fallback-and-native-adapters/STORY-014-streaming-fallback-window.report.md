@@ -3,7 +3,7 @@ story: STORY-014
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-014-streaming-fallback-window.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: 0766643
 status: COMPLETE
 completed: 2026-11-20
 ---

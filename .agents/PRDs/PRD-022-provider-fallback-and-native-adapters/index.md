@@ -6,7 +6,7 @@
 
 ## Progress
 
-13/18 stories done — 72%
+14/18 stories done — 78%
 
 ## Stories
 
@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-022-provider-fallback-and-native
 | STORY-011 | chain.py — per-request eligibility, per-route redaction hook, run() with per-attempt callbacks, ChainExhausted | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-011-chain-runner.plan.md) | `8d3ccef` |
 | STORY-012 | Pipeline steps 6+7 through chain.run() for buffered calls — per-attempt rows, exhaustion row, admit/charge once | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-012-pipeline-chain-buffered.plan.md) | `505b126` |
 | STORY-013 | /v1 surfaces — answering model, harness.provider/attempts, X-Harness-Provider, exhaustion with retry-after | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-013-v1-response-surfaces.plan.md) | `bcde8a5` |
-| STORY-014 | Real-time streamed requests through the chain — fall back before release, never after | feature | ⬜ todo | large | — | — |
+| STORY-014 | Real-time streamed requests through the chain — fall back before release, never after | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-014-streaming-fallback-window.plan.md) | `257443` |
 | STORY-015 | GET /providers/status and the /stats fallback figures | feature | ⬜ todo | medium | — | — |
 | STORY-016 | Admin console — Providers panel and attempt column on the Register | feature | ⬜ todo | medium | — | — |
 | STORY-017 | E2E — OpenRouter killed, Anthropic answers a tools request, breaker opens, status reports it | technical | ⬜ todo | medium | — | — |
