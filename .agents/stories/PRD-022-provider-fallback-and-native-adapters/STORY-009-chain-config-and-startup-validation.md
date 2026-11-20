@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - Chains and breaker"
-status: in-progress
+status: done
 labels: [backend, config, security]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-009-chain-config-and-startup-validation.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-009-chain-config-and-startup-validation.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-009-chain-config-and-startup-validation.report.md
+commit: 3629dd5
 depends_on: [STORY-004]
 blocks: [STORY-011]
 skills: []

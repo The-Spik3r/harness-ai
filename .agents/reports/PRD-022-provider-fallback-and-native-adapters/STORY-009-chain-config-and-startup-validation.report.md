@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-009-chain-config-and-startup-validation.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: 3629dd5
 status: COMPLETE
 completed: 2026-11-20
 ---
