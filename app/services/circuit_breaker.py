@@ -78,9 +78,15 @@ class BreakerStatus:
 class BreakerOpen(Exception):
     """The circuit is open (or its half-open trial is taken): do not call through."""
 
-    def __init__(self, name: str, retry_after_seconds: int) -> None:
+    def __init__(
+        self, name: str, retry_after_seconds: int, state: str = "open"
+    ) -> None:
         self.name = name
         self.retry_after_seconds = retry_after_seconds
+        # PRD-022 STORY-010: which refusal this is ("open" | "half_open"), so a
+        # caller can tell a closed window from a taken trial without peeking at
+        # `status()` afterwards (racy). Default keeps every PRD-018 raise as is.
+        self.state = state
         super().__init__(
             f"{name} circuit breaker is open; retry after {retry_after_seconds} s"
         )
@@ -104,6 +110,11 @@ class CircuitBreaker:
     caller can count transitions without this class knowing what it protects
     (PRD-018 STORY-012: storage counts `breaker_opens`). A hook that raises is
     logged and swallowed: it can never break the breaker.
+
+    `transition_log_level` (PRD-022 STORY-010) overrides the level of the
+    transition line. `None` keeps PRD-018's WARNING for `open` and INFO for the
+    rest (storage); provider breakers pass WARNING so every transition, a
+    recovery included, is one WARNING line (PRD-022 F9).
     """
 
     def __init__(
@@ -114,6 +125,7 @@ class CircuitBreaker:
         clock: Callable[[], float] = time.monotonic,
         probe: Optional[Callable[[], bool]] = None,
         on_transition: Optional[Callable[[str, str, str], None]] = None,
+        transition_log_level: Optional[int] = None,
     ) -> None:
         if failure_threshold < 1:
             raise ValueError(
@@ -131,6 +143,7 @@ class CircuitBreaker:
         self._clock = clock
         self._probe = probe
         self._on_transition = on_transition
+        self._transition_log_level = transition_log_level
         self._lock = threading.Lock()
         self._state: BreakerState = "closed"
         self._since = _wall_clock().strftime(_TIMESTAMP_FORMAT)
@@ -165,7 +178,9 @@ class CircuitBreaker:
     def _emit(self, transitions: list[_Transition]) -> None:
         for frm, to, cls in transitions:
             logger.log(
-                logging.WARNING if to == "open" else logging.INFO,
+                self._transition_log_level
+                if self._transition_log_level is not None
+                else (logging.WARNING if to == "open" else logging.INFO),
                 "breaker name=%s from=%s to=%s class=%s",
                 self._name,
                 frm,
@@ -208,7 +223,7 @@ class CircuitBreaker:
                         # The lease: the previous trial never reported.
                         self._trial_claimed_at = now
                         return
-                    raise BreakerOpen(self._name, 1)
+                    raise BreakerOpen(self._name, 1, "half_open")
         finally:
             self._emit(transitions)
         assert claimed is not None and self._probe is not None
@@ -278,14 +293,18 @@ class CircuitBreaker:
                 self._last_class = failure_class
         self._emit(transitions)
 
-    def force_open(self, seconds: float) -> None:
-        """Open now for `seconds`, whatever the state (PRD-022 provider outages)."""
+    def force_open(self, seconds: float, failure_class: str = "forced") -> None:
+        """Open now for `seconds`, whatever the state (PRD-022 provider outages).
+
+        `failure_class` is the class on the transition line when this opens a
+        closed or half-open breaker; the default keeps PRD-018's `forced`.
+        """
         transitions: list[_Transition] = []
         with self._lock:
             changed = self._state != "open"
             now = self._clock()
             if changed:
-                transitions.append(self._open(now, seconds, "forced"))
+                transitions.append(self._open(now, seconds, failure_class))
             else:
                 self._open_until = now + seconds
                 self._generation += 1

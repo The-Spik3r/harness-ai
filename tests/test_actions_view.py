@@ -584,7 +584,10 @@ def test_the_actions_vars_are_declared_and_the_computed_ones_are_not():
 def test_the_actions_view_is_not_a_summary_read():
     fields = {field for field, *_ in admin_state_mod._READS}
     assert not {"actions", "action_rows"} & fields
-    assert len(admin_state_mod._READS) == len(SUMMARY_FIGURES)
+    # PRD-022 STORY-015: the console's `_READS` is the first thirteen figures.
+    # The last three are `/stats`-only and the console does not read them.
+    assert len(admin_state_mod._READS) == len(SUMMARY_FIGURES[:13])
+    assert SUMMARY_FIGURES[13:] == ("fallback_answers", "failed_attempts", "answers_by_provider")
 
 
 def test_the_console_has_the_read_functions_and_not_the_writer():

@@ -70,6 +70,7 @@ from app.services.upstream import (
     UpstreamResult as OpenRouterResult,
     call_upstream as call_openrouter,
 )
+from app.services.upstream.types import ChainExhausted
 from app.services.pii_redactor import PiiRedactorError
 from app.services.pipeline_executor import run_in_pipeline
 from app.services.query_pipeline import ActionAuditError, run_conversation
@@ -95,6 +96,7 @@ from app.services.v1_translate import (
     V1Error,
     V1RequestError,
     translate_device,
+    translate_exhausted,
     translate_fault,
     translate_request,
     translate_result,
@@ -348,6 +350,11 @@ def _outcome(
             return translate_fault(
                 code, STORAGE_UNAVAILABLE_MESSAGE, retry_after_seconds=cause.retry_after_seconds
             )
+        if isinstance(exc, ChainExhausted):
+            # PRD-022 F7, O5: classified from the attributes (closed vocabulary),
+            # never `str(exc)`; a last attempt that failed non-eligibly is the
+            # original `OpenRouterError`, not this, and keeps `upstream_error`.
+            return translate_exhausted(exc.skipped, exc.last_error, exc.retry_after_seconds)
         return translate_fault(code, str(exc))
 
     if not isinstance(result, QuerySuccessResponse):
@@ -374,6 +381,10 @@ def _json_response(pipeline: asyncio.Future, upstream: _Upstream, identity: Iden
         if harness.audit_id is not None
         else {"X-Harness-Audit-Ref": harness.audit_ref}
     )
+    if harness.provider is not None:
+        # PRD-022 F10: JSON only. A stream's headers go out at commit, before the
+        # answer exists, so the buffered-SSE answer carries only the `model`.
+        headers["X-Harness-Provider"] = harness.provider
     return JSONResponse(outcome.model_dump(mode="json"), headers=headers)
 
 

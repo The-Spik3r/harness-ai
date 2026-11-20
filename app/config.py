@@ -285,6 +285,20 @@ class Settings(BaseSettings):
     # does (STORY-003).
     PROVIDERS_FILE: str = ""
 
+    # PRD-022 Section 9.3: path to the YAML of fallback chains. Empty means no
+    # chains: every request has the single-candidate chain of PRD-020/021 and no
+    # file is read. Needs PROVIDERS_FILE (chains resolve ids through the
+    # registry, D5). Settings never opens it; chain_config.load() does.
+    PROVIDER_CHAINS_FILE: str = ""
+    # PRD-022 9.3: most candidates in one chain, primary included (1..5).
+    PROVIDER_CHAIN_MAX_CANDIDATES: int = 3
+    # PRD-022 9.3: wall-clock budget across a request's attempts. None means
+    # the primary provider's `timeout_seconds`.
+    PROVIDER_CHAIN_DEADLINE_SECONDS: Optional[float] = None
+    # PRD-022 9.3: a further attempt starts only with at least this much of the
+    # chain deadline left; must be below the deadline.
+    PROVIDER_MIN_ATTEMPT_SECONDS: float = 5.0
+
     # The profile any call site that passes none gets -- /query and the chat
     # UI (PRD-011 Section 6.6, D2).
     #
@@ -523,6 +537,43 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"OPENROUTER_TIMEOUT_SECONDS must be greater than 0, got {value}. "
                 "It is the upstream request timeout in seconds."
+            )
+        return value
+
+    @field_validator("PROVIDER_CHAIN_MAX_CANDIDATES")
+    @classmethod
+    def _validate_provider_chain_max_candidates(cls, value: int) -> int:
+        """A chain holds its primary plus at most four fallbacks (PRD-022 9.3)."""
+        if not 1 <= value <= 5:
+            raise ValueError(
+                f"PROVIDER_CHAIN_MAX_CANDIDATES must be between 1 and 5, got {value}. "
+                "It is the most candidates in one chain, the primary included. "
+                "Example: PROVIDER_CHAIN_MAX_CANDIDATES=3."
+            )
+        return value
+
+    @field_validator("PROVIDER_CHAIN_DEADLINE_SECONDS")
+    @classmethod
+    def _validate_provider_chain_deadline_seconds(cls, value: Optional[float]) -> Optional[float]:
+        """Unset means the primary's timeout; a set value must be positive (PRD-022 9.3)."""
+        if value is not None and value <= 0:
+            raise ValueError(
+                f"PROVIDER_CHAIN_DEADLINE_SECONDS must be greater than 0, got {value}. "
+                "It is the wall-clock budget in seconds across a request's attempts; "
+                "leave it unset to use the primary provider's timeout_seconds. "
+                "Example: PROVIDER_CHAIN_DEADLINE_SECONDS=60."
+            )
+        return value
+
+    @field_validator("PROVIDER_MIN_ATTEMPT_SECONDS")
+    @classmethod
+    def _validate_provider_min_attempt_seconds(cls, value: float) -> float:
+        """A fallback attempt needs a positive minimum budget (PRD-022 9.3)."""
+        if value <= 0:
+            raise ValueError(
+                f"PROVIDER_MIN_ATTEMPT_SECONDS must be greater than 0, got {value}. "
+                "It is the least time left in the chain deadline for a further attempt "
+                "to start. Example: PROVIDER_MIN_ATTEMPT_SECONDS=5."
             )
         return value
 
@@ -815,6 +866,29 @@ class Settings(BaseSettings):
                 "V1_TOOL_MODELS must be empty when PROVIDERS_FILE is set: tool "
                 "capability now lives in the registry (models[].capabilities.tools) "
                 "(PRD-020 D6). Empty V1_TOOL_MODELS. Example: V1_TOOL_MODELS="
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_provider_chains(self) -> "Settings":
+        """Chains need the registry, and the minimum attempt must fit the deadline (PRD-022 9.3, D5).
+
+        The message names settings only, never the path. The effective deadline
+        when PROVIDER_CHAIN_DEADLINE_SECONDS is unset is the primary's
+        `timeout_seconds`, which only the registry knows: chain_config checks it.
+        """
+        if self.PROVIDER_CHAINS_FILE and not self.PROVIDERS_FILE:
+            raise ValueError(
+                "PROVIDER_CHAINS_FILE requires PROVIDERS_FILE: a chain names catalogued "
+                "models, and only the registry file catalogues them (PRD-022 D5). Set "
+                "PROVIDERS_FILE, or empty PROVIDER_CHAINS_FILE."
+            )
+        deadline = self.PROVIDER_CHAIN_DEADLINE_SECONDS
+        if deadline is not None and self.PROVIDER_MIN_ATTEMPT_SECONDS >= deadline:
+            raise ValueError(
+                f"PROVIDER_MIN_ATTEMPT_SECONDS ({self.PROVIDER_MIN_ATTEMPT_SECONDS}) must be "
+                f"less than PROVIDER_CHAIN_DEADLINE_SECONDS ({deadline}): no fallback could "
+                "ever start. Lower the first or raise the second (PRD-022 9.3)."
             )
         return self
 

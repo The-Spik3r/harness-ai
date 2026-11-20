@@ -220,7 +220,7 @@ A fallback candidate's redaction can fail. A `PiiRedactorError` ends the chain t
 | `text` blocks | `response`, concatenated | |
 | `tool_use` blocks | `ToolCallSpec(id, name, json.dumps(input, ensure_ascii=False, separators=(",", ":")))` | The one place the harness serializes arguments. The action policy classifies this string and the client receives it, so PRD-017 T1 holds |
 | `thinking` / `redacted_thinking` | counted into `reasoning_blocks`; not in `response` | D14. Streamed summarized `thinking` text becomes `ReasoningDelta` (6.6). `redacted_thinking` is encrypted and never emitted |
-| `stop_reason` `end_turn` / `stop_sequence` / `max_tokens` / `tool_use` / `refusal` | `stop` / `stop` / `length` / `tool_calls` / `content_filter` | `pause_turn` cannot occur because no server tools are sent; if it does, it is a `shape` error |
+| `stop_reason` `end_turn` / `stop_sequence` / `max_tokens` / `model_context_window_exceeded` / `tool_use` / `refusal` | `stop` / `stop` / `length` / `length` / `tool_calls` / `content_filter` | `pause_turn` cannot occur because no server tools are sent; if it does, it is a `shape` error |
 | `usage.input_tokens + cache_creation_input_tokens + cache_read_input_tokens` | prompt tokens | Anthropic's `input_tokens` excludes cached tokens, so counting it alone would under-charge (PRD-013 F11) |
 | `usage.output_tokens` | completion tokens | Includes thinking |
 | the cache pair | `cache_write_tokens`, `cache_read_tokens` | Recorded per row |
@@ -229,7 +229,7 @@ Anthropic always reports usage, so PRD-020's `usage_missing` setting has no effe
 
 **Prompt caching.** With `prompt_cache: auto`, the adapter sends top-level `cache_control: {"type": "ephemeral"}`. Caching matches on the prefix, and the harness's prefixes are stable: redaction placeholders are deterministic (`<PERSON>`), and `code` leaves `system` untouched.
 
-**Transport.** The adapter uses the official SDK: `anthropic.Anthropic(api_key=<key_env value or BYOK>, base_url=provider.base_url, timeout=provider.timeout_seconds, max_retries=0)`. `base_url` passes PRD-020 D5 (F3) at load time. SDK errors map to `UpstreamError` kinds: `APITimeoutError` → `timeout`, `APIConnectionError` → `transport`, `AuthenticationError` → `misconfigured`, `RateLimitError` → 429 with `retry_after_seconds`, `APIStatusError` → `status`. Messages keep PRD-020's convention of a `label` prefix.
+**Transport.** The adapter uses the official SDK: `anthropic.Anthropic(api_key=<key_env value or BYOK>, base_url=provider.base_url, timeout=provider.timeout_seconds, max_retries=0)`. `base_url` passes PRD-020 D5 (F3) at load time. SDK errors map to `UpstreamError` kinds: `APITimeoutError` → `timeout`, `APIConnectionError` → `transport`, `AuthenticationError` → `misconfigured`, `RateLimitError` → 429 with `retry_after_seconds`, `APIStatusError` → `status`. Messages keep PRD-020's convention of a `label` prefix. *(Amended after STORY-001: SDK 2.11.0 sends the key as `Authorization: Bearer`, and its default client follows redirects, so the adapter passes `http_client=anthropic.DefaultHttpxClient(follow_redirects=False)`; a 30x is then a non-retryable `status` error, as PRD-020 D5. `APITimeoutError` subclasses `APIConnectionError` and is matched first; `retry-after` is read from `exc.response.headers`.)*
 
 ### 6.6 Streaming (PRD-020 D11, PRD-021, D9)
 
@@ -294,6 +294,8 @@ PRD-018 specifies one breaker for the storage path (Section 6.5, D6). It is **re
 | Open means | `StorageUnavailableError`: fail closed, never wave through | skip this candidate. If none remain, `ChainExhausted`: fail, never route around a trust, RBAC or capability rule | same principle |
 
 **As specified, PRD-018's breaker is not reusable verbatim.** It is one module-level instance in `database.py`, its probe is hard-wired to `SELECT 1`, and it has no force-open. Rather than write a second breaker, this PRD proposes **one edit to PRD-018 (O10)**. The state machine moves into a small class (for example `app/services/circuit_breaker.py: CircuitBreaker(name, threshold, open_seconds, clock)`) with `before()`, `record_success()`, `record_failure()`, `force_open(seconds)` and `status()`. Half-open is configurable: with a probe callable (storage passes its `SELECT 1`), or with none (admit exactly one live caller, as providers need). Storage keeps exactly one instance and its current behaviour. If PRD-018 is built before that edit, PRD-022's STORY-001 performs the extraction as a refactor with PRD-018's tests unchanged.
+
+> **Status at build time (orchestrator, 2026-11-20):** PRD-018 shipped the extraction already: `app/services/circuit_breaker.py` has `CircuitBreaker` with `before()`, `record_success()`, `record_failure()`, `force_open()`, `status()`, an injected clock and `probe=None` live-trial half-open. O10 is done; STORY-001 only confirms it.
 
 ## 7. Tools/Features
 
@@ -370,18 +372,18 @@ These are **PRD-022 additions**, through `AUDIT_LOGS_ADDED_COLUMNS` (PRD-020 D13
 The console's Providers panel reads `providers_status()` in-process, beside PRD-018's Storage panel, so it needs no network call (PRD-018 F8).
 
 ### F10 — Response surfaces
-On `/v1`: `model` is the answering catalogue id, plus `harness.provider`, `harness.attempts` and `X-Harness-Provider`. Without a fallback, `model` equals the requested id, as in PRD-020. On `/query`: `QuerySuccessResponse.model_used` carries the answering catalogue id, and the schema is unchanged. The audit's `model_used` keeps PRD-020's "requested" meaning; `route_model` holds the answering id (D17).
+On `/v1`: `model` is the answering catalogue id, plus `harness.provider`, `harness.attempts` and `X-Harness-Provider`. Without a fallback, `model` equals the requested id, as in PRD-020. *(Amended after STORY-013: `harness.provider`, `harness.attempts` and `X-Harness-Provider` are on buffered JSON responses only. An SSE response sends its headers at commit, before any answer exists, and its chunks carry no `harness` object, so a stream carries only the answering `model`.)* On `/query`: `QuerySuccessResponse.model_used` carries the answering catalogue id, and the schema is unchanged. The audit's `model_used` keeps PRD-020's "requested" meaning; `route_model` holds the answering id (D17).
 
 ### F11 — Stub and E2E
 The stub gains `POST /v1/messages` (JSON and SSE) and faults scripted per request. The E2E test runs the OpenAI SDK or OpenCode against `/v1` with tools:
 - The OpenRouter stub fails and the Anthropic stub answers.
-- Three requests open the breaker, and a fourth reaches OpenRouter zero times (hit counter).
+- Five consecutive failed requests (PRD-018's threshold, the constant in 6.10) open the breaker, and the next one reaches OpenRouter zero times (hit counter). *(Amended 2026-11-20 by the orchestrator: the draft said "three", which contradicts the threshold.)*
 - `/providers/status` is checked.
 
 ## 8. Technology Stack
 
 - Python 3.11, FastAPI, pydantic-settings, as today.
-- **New:** the `anthropic` Python SDK, pinned exactly in `requirements.txt`, like `presidio-*==2.2.364` and `sqlglot==30.27.0`. Its 1.x line is built on `httpx2`, not `httpx`, which adds a second HTTP stack beside PRD-020's `httpx.Client(follow_redirects=False)`. STORY-001 confirms the version and checks that redirects are not followed with the key attached. If the SDK cannot guarantee that, D2 falls back to raw `httpx`.
+- **New:** the `anthropic` Python SDK, pinned exactly in `requirements.txt`, like `presidio-*==2.2.364` and `sqlglot==30.27.0`. STORY-001 pinned `anthropic==2.11.0`. It is built on `httpx2` (already in the venv through `openai`), not `httpx`, which adds a second HTTP stack beside PRD-020's `httpx.Client(follow_redirects=False)`. Its default client follows redirects (cross-origin ones drop the key); with `DefaultHttpxClient(follow_redirects=False)` no redirect is followed, so D2's raw-`httpx` fallback is not needed (STORY-001 report, `tests/test_prd022_spike_anthropic_sdk.py`).
 - PRD-018's breaker state machine (6.10). No new resilience library, the same choice PRD-018 makes against `tenacity`/`pybreaker`.
 - PyYAML through `strict_yaml`.
 - `.agents/skills/frontend-design` applies to the Providers panel: "distinctive, intentional visual design … making choices that don't read as templated defaults". The panel follows `chat_ui/chat_ui/theme.py`.
@@ -450,11 +452,13 @@ Breaker state shared across instances (process-local, as PRD-018's is). Verifyin
  "providers": {
    "openrouter":       {"breaker": {"state": "open", "since": "2026-11-16T10:04:21Z", "consecutive_failures": 5,
                                     "last_failure_class": "timeout", "retry_after_seconds": 7}},
-   "anthropic-direct": {"breaker": {"state": "closed", "since": null, "consecutive_failures": 0,
+   "anthropic-direct": {"breaker": {"state": "closed", "since": "2026-11-16T09:00:00Z", "consecutive_failures": 0,
                                     "last_failure_class": null, "retry_after_seconds": null}}},
  "counters": {"attempts_failed": {"openrouter:timeout": 5}, "fallback_answers": 3,
               "skipped": {"openrouter:open": 12}, "breaker_opens": 1}}
 ```
+
+*(Amended after STORY-015: `since` is always a UTC string, PRD-018 D16's meaning: the last transition, or the breaker's creation for one that never moved. It is never null.)*
 
 **`GET /stats`** gains `fallback_answers`, `failed_attempts` and `answers_by_provider: [{provider, count}]`. **`GET /audit`** rows gain the F8 columns (PRD-020's five are already there) and `?request_id=`.
 

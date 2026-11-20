@@ -79,11 +79,33 @@ usage chunk, `[DONE]`. `chunk_chars` cuts reasoning, content and each call's
 sends K deltas and then closes the connection with no finish chunk and no
 `[DONE]`. The log line never carries the shape, content or reasoning.
 
+Messages mode (PRD-022 STORY-006). `POST <anything>/messages` answers from the
+SAME script (same rules, matchers and `times` counts) as an Anthropic Messages
+JSON body, or as SSE when the request carries `"stream": true`. The request is
+viewed like a Chat one: top-level `system` is a leading `system` message, a user
+turn made only of `tool_result` blocks reads as role `tool`, tool names come from
+`tool["name"]`, and `tool_use` blocks count for `after_call`. Auth is
+`Authorization: Bearer <key>` (what the SDK sends) or `x-api-key: <key>`. Four
+additive reply keys also work on Chat: `stop_reason` (one of the seven Anthropic
+values; mapped to a Chat `finish_reason` there, and a script's `finish_reason`
+is mapped forward on /messages; not combinable with `finish_reason`),
+`retry_after` (integer >= 1, only with `fail_status`; sent as `Retry-After`),
+`fault` (`timeout`: read the request, send nothing and hold the connection until
+the server closes; `malformed`: status 200 and a truncated body or first frame;
+replaces the body like `fail_status`) and, inside `usage`,
+`cache_creation_input_tokens` / `cache_read_input_tokens` (Messages bodies only;
+`prompt_tokens` is then Anthropic's `input_tokens`, which EXCLUDES the cache
+counts). `stream.reasoning` becomes a `thinking` block. A tool call's
+`arguments` must parse to a JSON object on /messages (else a 500, never echoed).
+`server.endpoint_hits()` returns `{"chat": n, "messages": n}`, counting every
+POST to either endpoint, faulted ones included.
+
 Each request is logged as one ASCII line on stderr: the model, the message
 count, the request's other parameter keys, the rule that answered, and the
 counts `tools=<n>` (tools offered) and `calls=<n>` (calls answered). Message
-content, tool names, arguments and request headers -- `Authorization` above
-all -- are never logged; only the presence of that header is, as `auth=yes|no`.
+content, tool names, arguments and request headers -- `Authorization` and
+`x-api-key` above all -- are never logged; only the presence of the key header
+is, as `auth=yes|no` (and `ver=yes|no` for `anthropic-version` on /messages).
 """
 
 import argparse
@@ -102,9 +124,11 @@ _PREFIX = "stub_openrouter"
 _SCRIPT_KEYS = frozenset({"rules", "default"})
 _REPLY_KEYS = frozenset(
     {"content", "finish_reason", "usage", "delay_seconds", "fail_status", "tool_calls",
-     "redirect_status", "location", "stream"}
+     "redirect_status", "location", "stream", "stop_reason", "retry_after", "fault"}
 )
-_BODY_KEYS = frozenset({"content", "finish_reason", "usage", "tool_calls", "stream"})
+_BODY_KEYS = frozenset(
+    {"content", "finish_reason", "usage", "tool_calls", "stream", "stop_reason"}
+)
 _STREAM_KEYS = frozenset({"chunk_chars", "delay_ms", "reasoning", "fail_after"})
 _REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 _DEFAULT_LOCATION = "http://127.0.0.1:9/never"
@@ -114,7 +138,30 @@ _ROLES = frozenset({"system", "user", "assistant", "tool"})
 _QUALIFIER_KEYS = frozenset({"role", "last_role", "after_call", "advertises"})  # rule only
 _TOOL_CALL_KEYS = frozenset({"id", "name", "arguments"})
 _GENERATED_ID = re.compile(r"call_\d+")
-_USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "total_tokens"})
+_CHAT_USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "total_tokens"})
+_CACHE_USAGE_KEYS = frozenset({"cache_creation_input_tokens", "cache_read_input_tokens"})
+_USAGE_KEYS = _CHAT_USAGE_KEYS | _CACHE_USAGE_KEYS
+
+# The seven stop reasons STORY-001 recorded, and how the two endpoints translate (PRD-022 6.5).
+_STOP_REASONS = (
+    "end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal",
+    "model_context_window_exceeded",
+)
+_STOP_TO_FINISH = {
+    "end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length",
+    "model_context_window_exceeded": "length", "tool_use": "tool_calls",
+    "refusal": "content_filter",
+}  # pause_turn has no Chat twin: verbatim
+_FINISH_TO_STOP = {
+    "stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use",
+    "content_filter": "refusal",
+}  # any other finish_reason is sent verbatim
+_FAULTS = ("timeout", "malformed")
+_HOLD_SECONDS = 60  # a `timeout` fault's ceiling when nothing closes the server first
+_ERROR_TYPES = {
+    400: "invalid_request_error", 401: "authentication_error", 403: "permission_error",
+    404: "not_found_error", 429: "rate_limit_error", 529: "overloaded_error",
+}
 
 _BUILT_IN_DEFAULT_CONTENT = f"{_PREFIX}: no rule matched"
 
@@ -155,6 +202,12 @@ class Reply:
     redirect_status: Optional[int] = None
     location: str = _DEFAULT_LOCATION
     stream: Optional[StreamShape] = None
+    # PRD-022 STORY-006: additive keys; the defaults leave every old script's behaviour alone.
+    stop_reason: Optional[str] = None  # None: derived from finish_reason on /messages
+    retry_after: Optional[int] = None  # sent as Retry-After with fail_status
+    fault: Optional[str] = None  # "timeout" | "malformed", replaces the body
+    cache_creation_tokens: int = 0  # Messages bodies only
+    cache_read_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -174,6 +227,54 @@ class Request:
                 if isinstance(function, dict) and isinstance(function.get("name"), str):
                     names.add(function["name"])
         return cls(messages=tuple(body["messages"]), tool_names=frozenset(names))
+
+    @classmethod
+    def from_messages_body(cls, body: dict) -> "Request":
+        """The same view of an Anthropic Messages body (PRD-022 STORY-006).
+
+        `system` becomes a leading system message, a user turn holding only
+        `tool_result` blocks becomes role `tool`, tool names come from `name`.
+        """
+        messages = []
+        system = body.get("system")
+        if isinstance(system, list):
+            system = "".join(
+                block.get("text", "")
+                for block in system
+                if isinstance(block, dict) and isinstance(block.get("text"), str)
+            )
+        if isinstance(system, str) and system:
+            messages.append({"role": "system", "content": system})
+        for message in body["messages"]:
+            content = message.get("content") if isinstance(message, dict) else None
+            if (
+                isinstance(content, list)
+                and content
+                and all(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+            ):
+                messages.append({"role": "tool", "content": "".join(_result_text(b) for b in content)})
+            else:
+                messages.append(message)
+        tools = body.get("tools")
+        names = {
+            tool["name"]
+            for tool in (tools if isinstance(tools, list) else [])
+            if isinstance(tool, dict) and isinstance(tool.get("name"), str)
+        }
+        return cls(messages=tuple(messages), tool_names=frozenset(names))
+
+
+def _result_text(block: dict) -> str:
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    return ""
 
 
 def _role(message: Any) -> Optional[str]:
@@ -210,6 +311,11 @@ def _called_names(message: dict) -> "set[str]":
             function = call.get("function") if isinstance(call, dict) else None
             if isinstance(function, dict) and isinstance(function.get("name"), str):
                 names.add(function["name"])
+    content = message.get("content")  # Messages mode: tool_use blocks (PRD-022 STORY-006)
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use" and isinstance(block.get("name"), str):
+                names.add(block["name"])
     return names
 
 
@@ -287,11 +393,18 @@ def _parse_usage(raw: Any, where: str) -> dict:
             raise ScriptError(f"{where}: usage.{key} must be a non-negative integer, got {value!r}")
     prompt = raw.get("prompt_tokens", 1)
     completion = raw.get("completion_tokens", 1)
-    return {
+    return {  # exactly the Chat keys: the cache counts are split off by _cache_counts
         "prompt_tokens": prompt,
         "completion_tokens": completion,
         "total_tokens": raw.get("total_tokens", prompt + completion),
     }
+
+
+def _cache_counts(raw: Any) -> "tuple[int, int]":
+    """(cache_creation, cache_read) of an already validated usage object; (0, 0) for none."""
+    if not isinstance(raw, dict):
+        return 0, 0
+    return raw.get("cache_creation_input_tokens", 0), raw.get("cache_read_input_tokens", 0)
 
 
 def _parse_stream(raw: Any, where: str) -> StreamShape:
@@ -355,6 +468,22 @@ def _parse_reply(raw: dict, where: str) -> Reply:
     if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
         raise ScriptError(f"{where}: delay_seconds must be a number >= 0, got {delay!r}")
 
+    if "retry_after" in raw:
+        retry_after = raw["retry_after"]
+        if not (_is_count(retry_after) and retry_after >= 1):
+            raise ScriptError(f"{where}: retry_after must be an integer >= 1, got {retry_after!r}")
+        if "fail_status" not in raw:
+            raise ScriptError(f"{where}: retry_after needs fail_status")
+
+    if "fault" in raw:
+        fault = raw["fault"]
+        if not isinstance(fault, str) or fault not in _FAULTS:
+            raise ScriptError(f"{where}: fault must be one of {', '.join(_FAULTS)}, got {fault!r}")
+        others = sorted(({"fail_status", "redirect_status"} | _BODY_KEYS) & set(raw))
+        if others:
+            raise ScriptError(f"{where}: fault replaces the body; remove {', '.join(others)}")
+        return Reply(delay_seconds=float(delay), fault=fault)
+
     if "fail_status" in raw:
         status = raw["fail_status"]
         if isinstance(status, bool) or not isinstance(status, int) or not 400 <= status <= 599:
@@ -364,7 +493,7 @@ def _parse_reply(raw: dict, where: str) -> Reply:
             raise ScriptError(
                 f"{where}: fail_status replaces the body; remove {', '.join(with_body)}"
             )
-        return Reply(delay_seconds=float(delay), fail_status=status)
+        return Reply(delay_seconds=float(delay), fail_status=status, retry_after=raw.get("retry_after"))
 
     if "redirect_status" in raw:
         status = raw["redirect_status"]
@@ -392,7 +521,15 @@ def _parse_reply(raw: dict, where: str) -> Reply:
     finish_reason = raw.get("finish_reason", "tool_calls" if calls else "stop")
     if finish_reason is not None and not isinstance(finish_reason, str):
         raise ScriptError(f"{where}: finish_reason must be a string or null, got {finish_reason!r}")
+    stop_reason = raw.get("stop_reason")
+    if "stop_reason" in raw:
+        if "finish_reason" in raw:
+            raise ScriptError(f"{where}: stop_reason and finish_reason are two spellings of one thing; use one")
+        if not isinstance(stop_reason, str) or stop_reason not in _STOP_REASONS:
+            raise ScriptError(f"{where}: stop_reason must be one of {', '.join(_STOP_REASONS)}, got {stop_reason!r}")
+        finish_reason = _STOP_TO_FINISH.get(stop_reason, stop_reason)  # what Chat answers
     shape = _parse_stream(raw["stream"], where) if "stream" in raw else None
+    cache = _cache_counts(raw.get("usage"))
     return Reply(
         content=content,
         finish_reason=finish_reason,
@@ -400,6 +537,9 @@ def _parse_reply(raw: dict, where: str) -> Reply:
         delay_seconds=float(delay),
         tool_calls=calls,
         stream=shape,
+        stop_reason=stop_reason,
+        cache_creation_tokens=cache[0],
+        cache_read_tokens=cache[1],
     )
 
 
@@ -482,6 +622,10 @@ class _StubHandler(BaseHTTPRequestHandler):
     call_ids: "itertools.count"
     hits: dict
     hits_lock: threading.Lock
+    tool_ids: "itertools.count"  # toolu_stub_<n> (PRD-022 STORY-006)
+    request_ids: "itertools.count"  # request-id: req_stub_<n>
+    endpoint_hits: dict  # {"chat": n, "messages": n}, under hits_lock
+    release: threading.Event  # set by server_close: a `timeout` fault stops holding its connection
     require_key: Optional[str] = None
     # One small write per SSE frame: without this, Nagle plus delayed ACK costs ~40 ms a frame.
     disable_nagle_algorithm = True
@@ -496,10 +640,12 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.log_stream.write(safe + "\n")
             self.log_stream.flush()
 
-    def _send_json(self, status: int, body: dict) -> None:
+    def _send_json(self, status: int, body: dict, headers: Optional[dict] = None) -> None:
         data = json.dumps(body).encode("utf-8")
         try:
             self.send_response(status)
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -606,8 +752,263 @@ class _StubHandler(BaseHTTPRequestHandler):
         except _DISCONNECTS:
             pass
 
-    def _send_error_body(self, status: int, message: str) -> None:
-        self._send_json(status, {"error": {"message": f"{_PREFIX}: {message}", "code": status}})
+    def _send_error_body(self, status: int, message: str, retry_after: Optional[int] = None) -> None:
+        headers = {"Retry-After": str(retry_after)} if retry_after is not None else None
+        self._send_json(status, {"error": {"message": f"{_PREFIX}: {message}", "code": status}}, headers)
+
+    def _send_fault(self, fault: str, streaming: bool, endpoint: str) -> None:
+        """A scripted transport fault (PRD-022 STORY-006), the same on both endpoints.
+
+        `timeout` sends nothing and holds the connection until the server closes
+        (the release event) or _HOLD_SECONDS pass; `malformed` is a 200 whose body
+        (or first SSE frame) stops mid-token.
+        """
+        self.close_connection = True
+        if fault == "timeout":
+            self.release.wait(_HOLD_SECONDS)
+            return
+        try:
+            if streaming:
+                frame = (
+                    b'data: {"choices":'
+                    if endpoint == "chat"
+                    else b'event: message_start\ndata: {"type":"message_start","message":'
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(frame)
+                self.wfile.flush()
+            else:
+                data = b'{"id": "'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+        except _DISCONNECTS:
+            pass
+
+    # -- Anthropic Messages mode (PRD-022 STORY-006) ---------------------------
+
+    def _send_messages_error(self, status: int, message: str, retry_after: Optional[int] = None) -> None:
+        error_type = _ERROR_TYPES.get(status, "api_error")
+        headers = {"request-id": f"req_stub_{next(self.request_ids)}"}
+        if retry_after is not None:
+            headers["Retry-After"] = str(retry_after)
+        self._send_json(
+            status, {"type": "error", "error": {"type": error_type, "message": f"{_PREFIX}: {message}"}}, headers
+        )
+
+    @staticmethod
+    def _stop_reason(reply: Reply) -> Optional[str]:
+        if reply.stop_reason is not None:
+            return reply.stop_reason
+        return _FINISH_TO_STOP.get(reply.finish_reason, reply.finish_reason)
+
+    @staticmethod
+    def _wire_usage(reply: Reply, output_tokens: Optional[int] = None) -> dict:
+        usage = reply.usage or {}
+        return {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0) if output_tokens is None else output_tokens,
+            "cache_creation_input_tokens": reply.cache_creation_tokens,
+            "cache_read_input_tokens": reply.cache_read_tokens,
+        }
+
+    def _messages_body(self, model: Any, reply: Reply, calls: list) -> Optional[dict]:
+        """The Messages JSON body, or None when a call's arguments are not a JSON object."""
+        blocks: list = []
+        if reply.stream is not None and reply.stream.reasoning is not None:
+            blocks.append({"type": "thinking", "thinking": reply.stream.reasoning, "signature": "stub-signature"})
+        if isinstance(reply.content, str) and reply.content:
+            blocks.append({"type": "text", "text": reply.content})
+        for call in calls:
+            try:
+                tool_input = json.loads(call["arguments"])
+            except ValueError:
+                return None
+            if not isinstance(tool_input, dict):
+                return None
+            blocks.append({"type": "tool_use", "id": call["id"], "name": call["name"], "input": tool_input})
+        return {
+            "id": f"msg_stub_{next(self.ids)}",
+            "type": "message",
+            "role": "assistant",
+            "model": model,
+            "content": blocks,
+            "stop_reason": self._stop_reason(reply),
+            "stop_sequence": None,
+            "usage": None if reply.usage is None else self._wire_usage(reply),
+        }
+
+    def _send_messages_sse(self, model: Any, reply: Reply, calls: list) -> None:
+        """The reply as Messages SSE (PRD-022 6.6): message_start, ping, blocks, message_delta, message_stop.
+
+        Same pacing as the Chat stream (`stream:` shape): `delay_ms` before each
+        delta frame, `fail_after: K` closes after K delta frames with no tail.
+        """
+        shape = reply.stream
+        size = shape.chunk_chars if shape else None
+
+        def cut(text: str) -> list:
+            if size is None:
+                half = len(text) // 2
+                return [text[:half], text[half:]] if half else [text]
+            return [text[i:i + size] for i in range(0, len(text), size)]
+
+        def frame(event: str, data: dict) -> bytes:
+            return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
+
+        def delta(index: int, payload: dict) -> tuple:
+            return "delta", frame("content_block_delta", {"type": "content_block_delta", "index": index, "delta": payload})
+
+        def start(index: int, block: dict) -> tuple:
+            return "other", frame("content_block_start", {"type": "content_block_start", "index": index, "content_block": block})
+
+        def stop(index: int) -> tuple:
+            return "other", frame("content_block_stop", {"type": "content_block_stop", "index": index})
+
+        message: dict = {
+            "id": f"msg_stub_{next(self.ids)}", "type": "message", "role": "assistant", "model": model,
+            "content": [], "stop_reason": None, "stop_sequence": None,
+        }
+        if reply.usage is not None:
+            message["usage"] = self._wire_usage(reply, output_tokens=1)
+        frames: list = [
+            ("other", frame("message_start", {"type": "message_start", "message": message})),
+            ("other", frame("ping", {"type": "ping"})),
+        ]
+        index = 0
+        if shape is not None and shape.reasoning is not None:
+            frames.append(start(index, {"type": "thinking", "thinking": ""}))
+            for part in cut(shape.reasoning):
+                frames.append(delta(index, {"type": "thinking_delta", "thinking": part}))
+            frames.append(delta(index, {"type": "signature_delta", "signature": "stub-signature"}))
+            frames.append(stop(index))
+            index += 1
+        if isinstance(reply.content, str) and reply.content:
+            frames.append(start(index, {"type": "text", "text": ""}))
+            for part in cut(reply.content):
+                frames.append(delta(index, {"type": "text_delta", "text": part}))
+            frames.append(stop(index))
+            index += 1
+        for call in calls:
+            frames.append(start(index, {"type": "tool_use", "id": call["id"], "name": call["name"], "input": {}}))
+            for part in cut(call["arguments"]) or [""]:
+                frames.append(delta(index, {"type": "input_json_delta", "partial_json": part}))
+            frames.append(stop(index))
+            index += 1
+        tail: list = []
+        message_delta: dict = {
+            "type": "message_delta",
+            "delta": {"stop_reason": self._stop_reason(reply), "stop_sequence": None},
+        }
+        if reply.usage is not None:
+            message_delta["usage"] = {"output_tokens": reply.usage.get("completion_tokens", 0)}
+        tail.append(("tail", frame("message_delta", message_delta)))
+        tail.append(("tail", frame("message_stop", {"type": "message_stop"})))
+        pause = shape.delay_ms / 1000 if shape else 0.0
+        limit = shape.fail_after if shape else None
+        if limit is not None:
+            tail = []  # the fault: no message_delta, no message_stop; the close is the EOF
+        headers = {"request-id": f"req_stub_{next(self.request_ids)}"}
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.end_headers()
+            self.close_connection = True
+            self.wfile.flush()
+            sent = 0
+            for kind, data in frames + tail:
+                if kind == "delta":
+                    if limit is not None and sent >= limit:
+                        break
+                    if pause:
+                        time.sleep(pause)
+                    sent += 1
+                self.wfile.write(data)
+                self.wfile.flush()
+                if kind == "delta" and limit is not None and sent >= limit:
+                    break
+        except _DISCONNECTS:
+            pass
+
+    def _post_messages(self, raw: bytes) -> None:
+        """POST .../messages: the same script as Chat, answered as Anthropic Messages."""
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            body = None
+        max_tokens = body.get("max_tokens") if isinstance(body, dict) else None
+        valid = (
+            isinstance(body, dict)
+            and isinstance(body.get("messages"), list)
+            and isinstance(body.get("model"), str)
+            and body["model"]
+            and isinstance(max_tokens, int)
+            and not isinstance(max_tokens, bool)
+            and max_tokens >= 1
+        )
+        if not valid:
+            self._log(f"{_PREFIX}: POST {ascii(self.path)} api=messages unreadable body -> 400")
+            self._send_messages_error(400, "body must be a JSON object with messages, model and max_tokens >= 1")
+            return
+
+        model = body["model"]
+        params = sorted(str(key) for key in body if key not in ("model", "messages"))
+        tools = body.get("tools")
+        offered = len(tools) if isinstance(tools, list) else 0
+        with self.hits_lock:
+            label, reply = self.script.select_request(Request.from_messages_body(body), self.hits)
+        # Presence only, never a value: x-api-key and Authorization are compared in-process.
+        bearer = self.headers.get("Authorization")
+        api_key = self.headers.get("x-api-key")
+        auth = "yes" if bearer is not None or api_key is not None else "no"
+        version = "yes" if self.headers.get("anthropic-version") is not None else "no"
+        unauthorized = self.require_key is not None and (
+            bearer != f"Bearer {self.require_key}" and api_key != self.require_key
+        )
+        streaming = body.get("stream") is True
+        status = 401 if unauthorized else (reply.fail_status or 200)
+        fault_tag = f" fault={reply.fault}" if reply.fault else ""
+        self._log(
+            f"{_PREFIX}: POST {ascii(self.path)} api=messages model={ascii(model)} messages={len(body['messages'])} "
+            f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} auth={auth} ver={version} "
+            f"stream={'yes' if streaming else 'no'} tools={offered} calls={len(reply.tool_calls)}{fault_tag} -> {status}"
+        )
+
+        if reply.delay_seconds:
+            time.sleep(reply.delay_seconds)
+        if unauthorized:
+            self._send_messages_error(401, "unauthorized")
+            return
+        if reply.redirect_status is not None:
+            self._send_redirect(reply.redirect_status, reply.location)
+            return
+        if reply.fail_status is not None:
+            self._send_messages_error(reply.fail_status, "scripted failure", reply.retry_after)
+            return
+        if reply.fault is not None:
+            self._send_fault(reply.fault, streaming, "messages")
+            return
+        calls = [
+            {"id": call.id or f"toolu_stub_{next(self.tool_ids)}", "name": call.name, "arguments": call.arguments}
+            for call in reply.tool_calls
+        ]
+        if streaming:
+            self._send_messages_sse(model, reply, calls)
+            return
+        wire = self._messages_body(model, reply, calls)
+        if wire is None:  # never echo the arguments
+            self._send_messages_error(500, "tool arguments are not a JSON object")
+            return
+        self._send_json(200, wire, {"request-id": f"req_stub_{next(self.request_ids)}"})
 
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler's spelling
         if self.path.rstrip("/") == "/health":
@@ -619,9 +1020,19 @@ class _StubHandler(BaseHTTPRequestHandler):
         # Content-Length is the only header this handler ever reads.
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length)
-        if not self.path.rstrip("/").endswith("/chat/completions"):
+        path = self.path.rstrip("/")
+        if path.endswith("/chat/completions"):
+            endpoint = "chat"
+        elif path.endswith("/messages"):
+            endpoint = "messages"
+        else:
             self._log(f"{_PREFIX}: POST {ascii(self.path)} -> 404")
             self._send_error_body(404, "only POST .../chat/completions is served")
+            return
+        with self.hits_lock:  # every POST to a served endpoint, faulted ones included
+            self.endpoint_hits[endpoint] += 1
+        if endpoint == "messages":
+            self._post_messages(raw)
             return
         try:
             body = json.loads(raw)
@@ -647,11 +1058,12 @@ class _StubHandler(BaseHTTPRequestHandler):
         unauthorized = self.require_key is not None and authorization != f"Bearer {self.require_key}"
         streaming = body.get("stream") is True
         status = 401 if unauthorized else (reply.redirect_status or reply.fail_status or 200)
+        fault_tag = f" fault={reply.fault}" if reply.fault else ""  # absent unless scripted
         # Counts only: never a tool name, argument or content (PRD-017 D13, PRD-015 T6).
         self._log(
             f"{_PREFIX}: POST {ascii(self.path)} model={ascii(model)} messages={len(messages)} "
             f"params=[{','.join(params)}] rule={label} delay={reply.delay_seconds:g} auth={auth} "
-            f"stream={'yes' if streaming else 'no'} tools={offered} calls={len(reply.tool_calls)} -> {status}"
+            f"stream={'yes' if streaming else 'no'} tools={offered} calls={len(reply.tool_calls)}{fault_tag} -> {status}"
         )
 
         if reply.delay_seconds:
@@ -663,7 +1075,10 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send_redirect(reply.redirect_status, reply.location)
             return
         if reply.fail_status is not None:
-            self._send_error_body(reply.fail_status, "scripted failure")
+            self._send_error_body(reply.fail_status, "scripted failure", reply.retry_after)
+            return
+        if reply.fault is not None:
+            self._send_fault(reply.fault, streaming, "chat")
             return
         message: dict = {"role": "assistant", "content": reply.content}
         # Ids are generated per answer, so a rule answering twice yields fresh ones.
@@ -704,6 +1119,19 @@ class _StubHandler(BaseHTTPRequestHandler):
 class _StubServer(ThreadingHTTPServer):
     # A handler asleep on a delay rule must never hold up shutdown.
     daemon_threads = True
+    release: threading.Event
+    _endpoint_hits: dict
+    _hits_lock: threading.Lock
+
+    def endpoint_hits(self) -> dict:
+        """{"chat": n, "messages": n}: every POST to either endpoint so far (PRD-022 STORY-006)."""
+        with self._hits_lock:
+            return dict(self._endpoint_hits)
+
+    def server_close(self) -> None:
+        # Frees every `timeout` fault still holding a connection, so teardown never waits.
+        self.release.set()
+        super().server_close()
 
 
 def make_server(
@@ -717,8 +1145,13 @@ def make_server(
 
     `require_key` is in-process only (tests, PRD-020 STORY-005): a request whose
     Authorization is not exactly `Bearer <require_key>` is answered 401. The value
-    is compared, never logged or echoed.
+    is compared, never logged or echoed. On /messages `x-api-key: <require_key>` is
+    accepted as well (PRD-022 STORY-006). `server.endpoint_hits()` counts requests
+    per endpoint; `server.server_close()` releases held `timeout` faults.
     """
+    release = threading.Event()
+    endpoint_hits = {"chat": 0, "messages": 0}
+    hits_lock = threading.Lock()
     handler = type(
         "_BoundStubHandler",
         (_StubHandler,),
@@ -729,11 +1162,17 @@ def make_server(
             "ids": itertools.count(1),
             "call_ids": itertools.count(1),
             "hits": {},
-            "hits_lock": threading.Lock(),
+            "hits_lock": hits_lock,
+            "tool_ids": itertools.count(1),
+            "request_ids": itertools.count(1),
+            "endpoint_hits": endpoint_hits,
+            "release": release,
             "require_key": require_key,
         },
     )
-    return _StubServer((host, port), handler)
+    server = _StubServer((host, port), handler)
+    server.release, server._endpoint_hits, server._hits_lock = release, endpoint_hits, hits_lock
+    return server
 
 
 def _build_parser() -> argparse.ArgumentParser:

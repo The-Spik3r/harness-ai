@@ -12,6 +12,7 @@ import io
 import json
 import os
 import threading
+import types
 import typing
 from pathlib import Path
 
@@ -310,6 +311,7 @@ def stub():
         started.append((server, thread))
         return server.server_address[1], log
 
+    start.servers = started  # (server, thread) pairs, for endpoint_hits()
     yield start
     for server, thread in started:
         server.shutdown()
@@ -402,3 +404,150 @@ def test_stream_upstream_against_the_stub_collects_to_the_stub_answer(provider_f
     )
     assert result.response == "stub says hi" and result.finish_reason == "stop"
 
+
+
+# --- PRD-022 STORY-004: adapter dispatch by provider type -----------------------
+
+
+def _anthropic_yaml(*, key_env="ANTHROPIC_STUB_KEY"):
+    return f"""
+version: 1
+default_model: claude-x
+providers:
+  - name: ant
+    label: Anthropic
+    type: anthropic
+    base_url: https://api.anthropic.com
+    key_env: {key_env}
+    models:
+      - id: claude-x
+        default_max_tokens: 1024
+"""
+
+
+_SECRET_PROMPT = [Message("user", "SECRET-PROMPT-TEXT")]
+
+
+def _assert_unavailable(error):
+    assert error.kind == "incompatible" and error.provider == "ant"
+    assert error.retryable is False and error.fallback_eligible is False
+    assert "SECRET-PROMPT-TEXT" not in str(error)  # T10: no prompt text in an error
+
+
+# PRD-022 STORY-005 (D4): replaces test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005;
+# the registry's anthropic type now dispatches to the native adapter instead of failing fast.
+def test_call_upstream_dispatches_to_the_anthropic_adapter(provider_file, monkeypatch):
+    from app.services.upstream import anthropic as anthropic_mod
+
+    provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    seen = {}
+
+    class _Messages:
+        def create(self, **body):
+            seen["body"] = body
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(type="text", text="hello")],
+                stop_reason="end_turn",
+                model="claude-x-upstream",
+                usage=types.SimpleNamespace(input_tokens=2, output_tokens=3),
+            )
+
+    class _Client:
+        messages = _Messages()
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(anthropic_mod, "_open_sdk_client", lambda provider, key: _Client())
+    result = call_upstream(_SECRET_PROMPT, model="claude-x")
+    assert result.response == "hello" and result.model_used == "claude-x"
+    assert seen["body"]["max_tokens"] == 1024 and seen["closed"] is True
+
+
+# PRD-022 STORY-007 (D4): replaces test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time;
+# AnthropicAdapter.stream is real now, so the seam streams through the registry and the key checks
+# stay eager while the network stays lazy.
+def test_stream_upstream_on_an_anthropic_model_streams_through_the_adapter(provider_file, stub):
+    port, _ = stub(
+        {"default": {"content": "stub says hi", "usage": {
+            "prompt_tokens": 10, "completion_tokens": 4,
+            "cache_creation_input_tokens": 3, "cache_read_input_tokens": 2,
+        }}},
+        require_key="k",
+    )
+    provider_file(
+        _anthropic_yaml().replace(
+            "base_url: https://api.anthropic.com", f"base_url: http://127.0.0.1:{port}\n    insecure_http: true"
+        ),
+        env={"ANTHROPIC_STUB_KEY": "k"},
+    )
+    server = stub.servers[-1][0]
+    with pytest.raises(UpstreamError, match="No provider route for the requested model"):
+        stream_upstream(_SECRET_PROMPT, model="nope/none")
+    events = stream_upstream(_SECRET_PROMPT, model="claude-x")
+    assert server.endpoint_hits() == {"chat": 0, "messages": 0}  # lazy: nothing sent before next()
+    drained = list(events)
+    assert server.endpoint_hits() == {"chat": 0, "messages": 1}
+    assert isinstance(drained[0], TextDelta) and drained[-1] == Finish("stop")
+    report = next(e for e in drained if isinstance(e, UsageReport))
+    assert (report.prompt_tokens, report.completion_tokens, report.total_tokens) == (15, 4, 19)
+    assert (report.cache_write_tokens, report.cache_read_tokens) == (3, 2)
+
+
+def test_stream_upstream_on_an_anthropic_model_refuses_a_keyless_route_at_call_time(provider_file, monkeypatch):
+    provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    monkeypatch.setattr(provider_registry, "api_key_for", lambda provider: None)
+    with pytest.raises(UpstreamError) as excinfo:  # raised by the call, not the first next()
+        stream_upstream(_SECRET_PROMPT, model="claude-x")
+    assert excinfo.value.kind == "misconfigured" and "SECRET-PROMPT-TEXT" not in str(excinfo.value)
+
+
+def test_keyless_anthropic_route_is_misconfigured_before_dispatch(provider_file, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_STUB_KEY", raising=False)
+    # key_env must be set to load (F-rule), so unset it after the registry is built.
+    provider_file(_anthropic_yaml(), env={"ANTHROPIC_STUB_KEY": "k"})
+    monkeypatch.setattr(provider_registry, "api_key_for", lambda provider: None)
+    for seam in (call_upstream, stream_upstream):
+        with pytest.raises(UpstreamError) as excinfo:
+            seam(_SECRET_PROMPT, model="claude-x")
+        assert excinfo.value.kind == "misconfigured"
+
+
+def test_openai_compatible_dispatch_builds_one_adapter_with_provider_and_client(provider_file, monkeypatch):
+    provider_file(_yaml(1, reasoning=False))
+    builds = []
+
+    class _Spy:
+        def __init__(self, provider, client):
+            builds.append((provider, client))
+
+        def complete(self, request, api_key):
+            return upstream.UpstreamResult("ok", "s/m", 1)
+
+        def stream(self, request, api_key, *, reasoning=False):
+            return iter(())
+
+    monkeypatch.setitem(upstream._ADAPTER_FACTORIES, "openai_compatible", _Spy)
+    client = httpx.Client()
+    try:
+        call_upstream(_MSG, model="s/m", client=client)
+        stream_upstream(_MSG, model="s/m", client=client)
+    finally:
+        client.close()
+    provider = provider_registry.resolve("s/m").provider
+    assert builds == [(provider, client), (provider, client)]
+
+
+def test_stream_upstream_timeout_reaches_the_request_only_when_set(provider_file, monkeypatch):
+    # PRD-022 STORY-011 (F5): the per-attempt bound travels on UpstreamRequest.
+    seen = []
+
+    def fake_stream(self, request, api_key, *, reasoning=False):
+        seen.append(request.timeout_seconds)
+        return iter(())
+
+    monkeypatch.setattr(OpenAICompatibleAdapter, "stream", fake_stream)
+    provider_file(_yaml(1, reasoning=True))
+    list(stream_upstream(_MSG, model="s/m", timeout=3.5))
+    list(stream_upstream(_MSG, model="s/m"))
+    assert seen == [3.5, None]

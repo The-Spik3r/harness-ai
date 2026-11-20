@@ -138,6 +138,10 @@ def _individually(row_limit: int = 100, ranked_limit: int = 5) -> dict:
         "input_tokens": sum_input_tokens(),
         "output_tokens": sum_output_tokens(),
         "blocked_usage_limits": count_blocked_usage_limits(),
+        # PRD-022 STORY-015: the three `/stats`-only figures.
+        "fallback_answers": database._count_fallback_answers(),
+        "failed_attempts": database._count_failed_attempts(),
+        "answers_by_provider": database._top_answering_providers(limit=ranked_limit),
     }
 
 
@@ -320,8 +324,32 @@ def test_prd013_stats_reports_the_batched_figures_unchanged(temp_db):
 
 
 def test_prd013_summary_figures_are_the_ten_plus_three_in_order():
-    assert len(SUMMARY_FIGURES) == 13
-    assert SUMMARY_FIGURES[-3:] == _NEW_FIGURES
+    # PRD-022 STORY-015: three more `/stats`-only figures follow, 16 in all.
+    assert len(SUMMARY_FIGURES) == 16
+    assert SUMMARY_FIGURES[10:13] == _NEW_FIGURES
+
+
+def test_prd022_fallback_figures_agree_batched_fallback_and_oracle(temp_db):
+    """PRD-022 STORY-015: the three `/stats`-only figures on a non-trivial seed."""
+    _seed_every_figure()
+    insert_audit_log(_row(6, provider="A", attempt=1, success=True))
+    insert_audit_log(_row(7, provider="B", attempt=2, success=True))
+    insert_audit_log(_row(8, provider="A", attempt=3, success=True))
+    insert_audit_log(_row(9, provider="B", attempt=1, success=False))
+
+    batched = summary_snapshot()
+    fallback = _summary_figure_by_figure(100, 5, RuntimeError("not raised: no failure"))
+    oracle = _individually()
+
+    assert batched.errors == {} and fallback.errors == {}
+    for name in ("fallback_answers", "failed_attempts", "answers_by_provider"):
+        assert batched.figures[name] == fallback.figures[name] == oracle[name], name
+    assert batched.fallback_answers == 2
+    assert batched.failed_attempts == 1
+    assert batched.answers_by_provider == [
+        {"provider": "A", "count": 2},
+        {"provider": "B", "count": 1},
+    ]
 
 
 def test_prd013_batched_read_and_fallback_agree_on_all_thirteen(temp_db):
@@ -411,8 +439,15 @@ def test_prd013_console_read_table_matches_summary_figures():
 
     reads = admin_state._READS
 
-    assert len(reads) == len(SUMMARY_FIGURES)
-    assert tuple(field for field, _, _, _ in reads) == SUMMARY_FIGURES
+    # PRD-022 STORY-015: `_READS` is the first thirteen figures; the last three
+    # are `/stats`-only (PRD-022 STORY-015) and the console does not read them.
+    assert len(reads) == len(SUMMARY_FIGURES[:13])
+    assert tuple(field for field, _, _, _ in reads) == SUMMARY_FIGURES[:13]
+    assert SUMMARY_FIGURES[13:] == (
+        "fallback_answers",
+        "failed_attempts",
+        "answers_by_provider",
+    )
     by_field = {field: fn for field, _, fn, _ in reads}
     assert by_field["input_tokens"] is sum_input_tokens
     assert by_field["output_tokens"] is sum_output_tokens

@@ -194,7 +194,15 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
     entry = client.get("/audit", headers=_ADMIN_HEADERS).json()["queries"][0]
 
     assert sorted(entry) == [
+        # PRD-022 F8 / D10 (STORY-003): seven additive fields -- attempt,
+        # cache_read_tokens, cache_write_tokens, fallback_reason, request_id,
+        # route_model, skipped_providers. An id, two counts, an attempt number
+        # and labels (a model id, a closed reason kind, provider names), never
+        # prompt text: the leak surface is no wider.
+        "attempt",
         "audit_id",
+        "cache_read_tokens",
+        "cache_write_tokens",
         # PRD-021 F7 (STORY-013): four additive fields -- completion_id,
         # reasoning_shown, stream_redaction_divergence, streamed_realtime. An
         # opaque stream id and three booleans, not prompt text: the leak surface
@@ -206,6 +214,7 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "conversation_key",
         "denied_permission",
         "device",
+        "fallback_reason",
         "has_tool_calls",
         # PRD-015 Section 10: additive, nullable (STORY-007).
         "ignored_params",
@@ -231,8 +240,11 @@ def test_audit_endpoint_contract_has_no_preview_fields(temp_db, monkeypatch):
         "provider",
         "provider_trust",
         "reasoning_shown",
+        "request_id",
         "role",
+        "route_model",
         "session_id",
+        "skipped_providers",
         "stream_redaction_divergence",
         "streamed",
         "streamed_realtime",
@@ -501,13 +513,36 @@ def test_pre_epic_test_files_are_unmodified_by_this_epic(path):
 #   - test_db_resilience_write_id.py:
 #       test_log_query_mints_a_hex_write_id_and_still_returns_int ->
 #         test_log_query_mints_a_hex_write_id_and_returns_its_ref
+#
+# PRD-022 STORY-005 (D4): a `type: anthropic` route dispatches to the native adapter.
+#   - test_stream_upstream_seam.py:
+#       test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005 ->
+#         test_call_upstream_dispatches_to_the_anthropic_adapter
+#
+# PRD-022 STORY-007 (D4): AnthropicAdapter.stream() is real; the placeholder refusals go.
+#   - test_anthropic_adapter.py:
+#       test_stream_raises_incompatible_at_call_time ->
+#         test_stream_raises_incompatible_at_call_time_for_a_request_it_cannot_carry
+#   - test_stream_upstream_seam.py:
+#       test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time ->
+#         test_stream_upstream_on_an_anthropic_model_streams_through_the_adapter
 _DELIBERATELY_SUPERSEDED_TESTS = {
+    "tests/test_stream_upstream_seam.py": {
+        "test_call_upstream_on_an_anthropic_model_is_incompatible_until_story_005",
+        "test_stream_upstream_on_an_anthropic_model_is_incompatible_at_call_time",
+    },
+    "tests/test_anthropic_adapter.py": {"test_stream_raises_incompatible_at_call_time"},
     "tests/test_db_resilience_write_id.py": {
         "test_log_query_mints_a_hex_write_id_and_still_returns_int",
     },
     "tests/test_admin_state.py": {
         "test_the_sheet_carries_all_nine_stats_response_figures",
         "test_the_blocked_figures_are_the_two_that_indent",
+    },
+    # PRD-022 STORY-014: a streamed request on a chained model now walks the chain (6.6);
+    # STORY-012 had pinned it to a single candidate.
+    "tests/test_query_pipeline_chain.py": {
+        "test_streamed_request_on_chained_model_stays_single_candidate",
     },
     "tests/test_summary.py": {"test_the_three_blocks_are_headed"},
     "tests/test_openrouter_client.py": {

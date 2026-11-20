@@ -195,6 +195,15 @@ def test_audit_response_shape():
                 "reasoning_shown": False,
                 "stream_redaction_divergence": False,
                 "completion_id": None,
+                # PRD-022 F8 / D10 (STORY-003): seven additive fields, None by
+                # default.
+                "request_id": None,
+                "attempt": None,
+                "route_model": None,
+                "fallback_reason": None,
+                "skipped_providers": None,
+                "cache_read_tokens": None,
+                "cache_write_tokens": None,
             }
         ],
     }

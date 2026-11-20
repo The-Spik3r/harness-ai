@@ -1583,9 +1583,12 @@ _INSERT_AUDIT_LOG_SQL = """
                 provider, upstream_model, provider_trust,
                 pii_input_relaxed, usage_estimated,
                 streamed_realtime, reasoning_shown,
-                stream_redaction_divergence, completion_id
+                stream_redaction_divergence, completion_id,
+                request_id, attempt, route_model, fallback_reason,
+                skipped_providers, cache_read_tokens, cache_write_tokens
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -1684,6 +1687,13 @@ def _insert_audit_row(conn: _Connection, entry: AuditLog) -> int:
             int(entry.reasoning_shown),
             int(entry.stream_redaction_divergence),
             entry.completion_id,
+            entry.request_id,
+            entry.attempt,
+            entry.route_model,
+            entry.fallback_reason,
+            entry.skipped_providers,
+            entry.cache_read_tokens,
+            entry.cache_write_tokens,
         ),
     )
     if keyed:
@@ -1839,6 +1849,13 @@ def _row_to_audit_log(row: Mapping[str, Any]) -> AuditLog:
         reasoning_shown=bool(row["reasoning_shown"]),
         stream_redaction_divergence=bool(row["stream_redaction_divergence"]),
         completion_id=row["completion_id"],
+        request_id=row["request_id"],
+        attempt=row["attempt"],
+        route_model=row["route_model"],
+        fallback_reason=row["fallback_reason"],
+        skipped_providers=row["skipped_providers"],
+        cache_read_tokens=row["cache_read_tokens"],
+        cache_write_tokens=row["cache_write_tokens"],
     )
 
 
@@ -1855,7 +1872,9 @@ def get_audit_log(audit_id: int) -> Optional[AuditLog]:
 
 
 def _audit_filter(
-    user_id: Optional[str], completion_id: Optional[str]
+    user_id: Optional[str],
+    completion_id: Optional[str],
+    request_id: Optional[str] = None,
 ) -> tuple[str, list[Any]]:
     """The WHERE clause and bound values of the audit readers.
 
@@ -1863,6 +1882,9 @@ def _audit_filter(
     value like `user_id`; the clause text is fixed and no caller text reaches
     the SQL. The two filters combine with AND. With neither, the clause is
     empty and the statements are today's.
+
+    PRD-022 F8 / D10: `request_id` is the same kind of filter, an exact bound
+    match ANDed with the others.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -1872,14 +1894,19 @@ def _audit_filter(
     if completion_id is not None:
         clauses.append("completion_id = ?")
         params.append(completion_id)
+    if request_id is not None:
+        clauses.append("request_id = ?")
+        params.append(request_id)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     return where, params
 
 
 def count_audit_logs(
-    user_id: Optional[str] = None, completion_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    completion_id: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> int:
-    where, params = _audit_filter(user_id, completion_id)
+    where, params = _audit_filter(user_id, completion_id, request_id)
 
     def _op(conn: _Connection) -> int:
         row = conn.execute(
@@ -1894,8 +1921,9 @@ def list_audit_logs(
     limit: int = 100,
     user_id: Optional[str] = None,
     completion_id: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> list[AuditLog]:
-    where, params = _audit_filter(user_id, completion_id)
+    where, params = _audit_filter(user_id, completion_id, request_id)
 
     def _op(conn: _Connection) -> list[AuditLog]:
         rows = conn.execute(
@@ -2069,6 +2097,50 @@ _SUM_OUTPUT_TOKENS = "COALESCE(SUM(output_tokens), 0)"
 # STORY-011 writes such rows.
 _BLOCKED_USAGE_LIMITS_WHERE = "limit_exceeded IS NOT NULL"
 
+# PRD-022 STORY-015 (Section 10, F9): the three `/stats` fallback figures.
+# A fallback answer is a success row whose `attempt` is above 1; a failed
+# attempt is any row that ran an attempt (`attempt` NOT NULL) and failed. A
+# NULL `attempt` (pre-PRD-022 rows, the no-attempt exhaustion row) is in
+# neither. Answers by provider count success rows only: failure, blocked and
+# exhaustion rows carry `provider` too and are not answers. Shared with
+# `_SUMMARY_SQL` so the batched and standalone reads cannot drift apart.
+_FALLBACK_ANSWERS_WHERE = "success = 1 AND attempt > 1"
+_FAILED_ATTEMPTS_WHERE = "attempt IS NOT NULL AND success = 0"
+_ANSWERS_BY_PROVIDER_WHERE = "success = 1 AND provider IS NOT NULL"
+
+
+def _count_fallback_answers() -> int:
+    def _op(conn: _Connection) -> int:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_FALLBACK_ANSWERS_WHERE}"
+        ).fetchone()
+        return row["n"]
+
+    return _unit_of_work("count_fallback_answers", StatementKind.READ, _op)
+
+
+def _count_failed_attempts() -> int:
+    def _op(conn: _Connection) -> int:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM audit_logs WHERE {_FAILED_ATTEMPTS_WHERE}"
+        ).fetchone()
+        return row["n"]
+
+    return _unit_of_work("count_failed_attempts", StatementKind.READ, _op)
+
+
+def _top_answering_providers(limit: int = 5) -> list[dict]:
+    def _op(conn: _Connection) -> list[dict]:
+        rows = conn.execute(
+            "SELECT provider, COUNT(*) AS n FROM audit_logs "
+            f"WHERE {_ANSWERS_BY_PROVIDER_WHERE} "
+            "GROUP BY provider ORDER BY n DESC, provider ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [{"provider": r["provider"], "count": r["n"]} for r in rows]
+
+    return _unit_of_work("top_answering_providers", StatementKind.READ, _op)
+
 
 def sum_input_tokens() -> int:
     def _op(conn: _Connection) -> int:
@@ -2104,13 +2176,18 @@ def count_blocked_usage_limits() -> int:
 # The batched summary read (STORY-010)
 # --------------------------------------------------------------------------
 
-#: The thirteen figures the admin summary is made of, in `_READS`' order.
+#: The sixteen figures the summary is made of; the first thirteen are the
+#: admin console's, in `_READS`' order.
 #:
 #: The names are `chat_ui/chat_ui/admin_state.py`'s `_READS` field names on
 #: purpose, so its `READ_LABEL_*` entries map one-to-one onto them and
 #: `len(_READS) == len(SUMMARY_FIGURES)` survives the batching (PRD-007 Risk 6).
 #: The first ten are STORY-010's; PRD-013 appended the last three, after every
 #: existing figure, so no column and no positional parameter moved.
+#: PRD-022 STORY-015 appended the last three (`fallback_answers`,
+#: `failed_attempts`, `answers_by_provider`): `/stats`-only, the console's
+#: `_READS` stays at thirteen and does not read them. They ride in the one
+#: statement (PRD-013 precedent) rather than costing `/stats` a second round trip.
 SUMMARY_FIGURES = (
     "rows",
     "total_recorded",
@@ -2125,12 +2202,15 @@ SUMMARY_FIGURES = (
     "input_tokens",
     "output_tokens",
     "blocked_usage_limits",
+    "fallback_answers",
+    "failed_attempts",
+    "answers_by_provider",
 )
 
 
 @dataclass(frozen=True)
 class SummarySnapshot:
-    """All thirteen summary figures, with per-figure failure attribution.
+    """All sixteen summary figures, with per-figure failure attribution.
 
     **This type exists because one statement is all-or-nothing and the admin
     console is not.** `_READS` gives each figure its own `READ_LABEL_*` so a
@@ -2218,8 +2298,20 @@ class SummarySnapshot:
     def blocked_usage_limits(self) -> int:
         return self._figure("blocked_usage_limits")
 
+    @property
+    def fallback_answers(self) -> int:
+        return self._figure("fallback_answers")
 
-# One statement, thirteen named columns -- **not** a client batch, because there is
+    @property
+    def failed_attempts(self) -> int:
+        return self._figure("failed_attempts")
+
+    @property
+    def answers_by_provider(self) -> list:
+        return self._figure("answers_by_provider")
+
+
+# One statement, sixteen named columns -- **not** a client batch, because there is
 # no client batch to use. STORY-001 §2.6 pasted the driver's whole surface:
 #
 #   dir(connection) = ['close','commit','cursor','execute','executemany',
@@ -2241,14 +2333,17 @@ class SummarySnapshot:
 # can be read from a scalar subquery beside the rest. Copied, not paraphrased:
 # AC 5 is that every figure agrees with the individual functions figure for figure.
 #
-# **The four parameters bind positionally, in column order**:
-#     (row_limit, ranked_limit, ranked_limit, ranked_limit)
+# **The five parameters bind positionally, in column order**:
+#     (row_limit, ranked_limit, ranked_limit, ranked_limit, ranked_limit)
 # Reordering or inserting a column silently reorders them. Named placeholders
 # were not among STORY-001's six verified behaviors, so this does not use them.
 # PRD-013's three columns (`input_tokens`, `output_tokens`,
 # `blocked_usage_limits`) take no parameter and come after every existing one,
 # so the tuple did not change (PRD-013 Risk 8). A future column with a `?`
 # must also go last, and its value goes at the end of the tuple.
+# PRD-022 STORY-015's `answers_by_provider` is that column: its `LIMIT ?` is the
+# last placeholder (the fifth), after `top_pii_entities`', so the first four
+# did not move. `fallback_answers` and `failed_attempts` take no parameter.
 # PRD-015 STORY-007's `ignored_params` is a key in the row's `json_object`, not
 # a figure: no `?`, so the tuple is unchanged again. It must be there, though:
 # `_row_to_audit_log` reads every key, and a missing one is a KeyError.
@@ -2312,7 +2407,14 @@ SELECT
               'streamed_realtime', streamed_realtime,
               'reasoning_shown', reasoning_shown,
               'stream_redaction_divergence', stream_redaction_divergence,
-              'completion_id', completion_id))
+              'completion_id', completion_id,
+              'request_id', request_id,
+              'attempt', attempt,
+              'route_model', route_model,
+              'fallback_reason', fallback_reason,
+              'skipped_providers', skipped_providers,
+              'cache_read_tokens', cache_read_tokens,
+              'cache_write_tokens', cache_write_tokens))
      FROM (SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?)
   ) AS "rows",
   (SELECT COUNT(*) FROM audit_logs) AS total_recorded,
@@ -2345,7 +2447,17 @@ SELECT
   (SELECT {_SUM_INPUT_TOKENS} FROM audit_logs) AS input_tokens,
   (SELECT {_SUM_OUTPUT_TOKENS} FROM audit_logs) AS output_tokens,
   (SELECT COUNT(*) FROM audit_logs WHERE {_BLOCKED_USAGE_LIMITS_WHERE})
-      AS blocked_usage_limits
+      AS blocked_usage_limits,
+  (SELECT COUNT(*) FROM audit_logs WHERE {_FALLBACK_ANSWERS_WHERE})
+      AS fallback_answers,
+  (SELECT COUNT(*) FROM audit_logs WHERE {_FAILED_ATTEMPTS_WHERE})
+      AS failed_attempts,
+  (SELECT json_group_array(json_object('provider', provider, 'count', n))
+     FROM (SELECT provider, COUNT(*) AS n FROM audit_logs
+            WHERE {_ANSWERS_BY_PROVIDER_WHERE}
+            GROUP BY provider
+            ORDER BY n DESC, provider ASC
+            LIMIT ?)) AS answers_by_provider
 """
 
 
@@ -2359,6 +2471,13 @@ def _decode_ranked(value: Any) -> list[str]:
 
 def _decode_count(value: Any) -> int:
     return int(value)
+
+
+def _decode_provider_counts(value: Any) -> list[dict]:
+    return [
+        {"provider": entry["provider"], "count": int(entry["count"])}
+        for entry in json.loads(value)
+    ]
 
 
 #: One decoder per figure, turning its column into the type the standalone
@@ -2378,13 +2497,16 @@ _SUMMARY_DECODERS = {
     "input_tokens": _decode_count,
     "output_tokens": _decode_count,
     "blocked_usage_limits": _decode_count,
+    "fallback_answers": _decode_count,
+    "failed_attempts": _decode_count,
+    "answers_by_provider": _decode_provider_counts,
 }
 
 
 def _summary_figure_by_figure(
     row_limit: int, ranked_limit: int, cause: Exception
 ) -> SummarySnapshot:
-    """The thirteen standalone reads, each guarded, when the one statement failed.
+    """The sixteen standalone reads, each guarded, when the one statement failed.
 
     A dead statement carries no attribution: every figure fails anonymously and
     the console has nothing to name. That is the blank page Risk 6 describes,
@@ -2413,6 +2535,12 @@ def _summary_figure_by_figure(
         ("input_tokens", sum_input_tokens),
         ("output_tokens", sum_output_tokens),
         ("blocked_usage_limits", count_blocked_usage_limits),
+        ("fallback_answers", _count_fallback_answers),
+        ("failed_attempts", _count_failed_attempts),
+        (
+            "answers_by_provider",
+            lambda: _top_answering_providers(limit=ranked_limit),
+        ),
     )
     figures: dict = {}
     errors: dict = {}
@@ -2430,7 +2558,7 @@ def _summary_figure_by_figure(
 
 
 def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnapshot:
-    """All thirteen admin summary figures, in one round trip.
+    """All sixteen summary figures, in one round trip.
 
     Two callers ran the same fan-out sequentially: `_READS` in
     `chat_ui/chat_ui/admin_state.py` with ten reads, and `GET /stats` with
@@ -2460,7 +2588,7 @@ def summary_snapshot(row_limit: int = 100, ranked_limit: int = 5) -> SummarySnap
     def _op(conn: _Connection) -> _Row:
         return conn.execute(
             _SUMMARY_SQL,
-            (row_limit, ranked_limit, ranked_limit, ranked_limit),
+            (row_limit, ranked_limit, ranked_limit, ranked_limit, ranked_limit),
         ).fetchone()
 
     try:

@@ -4,7 +4,7 @@ default_model: openai/gpt-4o
 providers:
   - name: openrouter                   # [a-z0-9][a-z0-9_-]{0,31}; unique
     label: OpenRouter                  # error-message prefix; default = name
-    type: openai_compatible            # the only accepted type (D2)
+    type: openai_compatible            # openai_compatible | anthropic (PRD-022 D4)
     base_url: https://openrouter.ai/api/v1
     key_env: OPENROUTER_API_KEY        # env var NAME, never the key; absent = keyless
     trust: external                    # external (default) | internal

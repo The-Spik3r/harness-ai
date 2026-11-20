@@ -637,3 +637,48 @@ def test_reasoning_reaches_the_message_only_when_the_pipeline_collected_it():
     message = _dump(result=shown)["choices"][0]["message"]
     assert message["reasoning_content"] == "thinking about it"
     assert "reasoning" not in message
+
+
+# --- PRD-022 STORY-013: answering provider and exhaustion ------------------------
+
+from app.models.schemas import AnsweredBy  # noqa: E402
+from app.services.v1_translate import translate_exhausted  # noqa: E402
+
+
+def test_answered_by_reaches_harness_and_model_is_model_used():
+    result = _success(model_used="other/m")
+    result._answered_by = AnsweredBy("other", "other/m", 2)
+    body = _dump(result=result)
+    assert body["model"] == "other/m"  # PRD-022 D17
+    assert body["harness"]["provider"] == "other" and body["harness"]["attempts"] == 2
+
+
+def test_provider_and_attempts_are_absent_without_provenance():
+    assert not {"provider", "attempts"} & set(_dump()["harness"])
+
+
+@pytest.mark.parametrize("skips", [[("p", "capability")], [("p", "forbidden"), ("q", "byok")]])
+def test_exhaustion_of_permanent_skips_is_not_retryable(skips):
+    error = translate_exhausted(skips, None, 30)
+    assert (error.status_code, error.code, error.retryable) == (502, "upstream_error", False)
+    assert error.retry_after_seconds is None
+    assert not {"p", "q"} & set(error.message.replace(",", " ").split())  # no provider names
+
+
+@pytest.mark.parametrize(
+    "skips,last,retry",
+    [
+        ([("p", "capability"), ("q", "open")], None, 27),
+        ([], None, None),
+        ([("p", "capability")], object(), 5),  # an attempt ran
+    ],
+)
+def test_other_exhaustion_is_upstream_unavailable_with_retry_after(skips, last, retry):
+    error = translate_exhausted(skips, last, retry)
+    assert (error.status_code, error.code, error.retryable) == (502, "upstream_unavailable", True)
+    assert error.retry_after_seconds == retry and error.message == "all providers unavailable"
+
+
+def test_exhaustion_message_holds_only_closed_words():
+    error = translate_exhausted([("secret-prov", "forbidden"), ("x", "capability")], None, None)
+    assert error.message.endswith("capability, forbidden") and "secret-prov" not in error.message

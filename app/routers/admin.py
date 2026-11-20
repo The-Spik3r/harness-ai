@@ -20,6 +20,7 @@ from app.models.schemas import (
     ActionsResponse,
     AuditQueryEntry,
     AuditResponse,
+    ProvidersStatusResponse,
     StatsResponse,
     StorageStatusResponse,
 )
@@ -31,6 +32,8 @@ from app.services.authz import (
     authorize,
 )
 from app.services.identity import Identity
+from app.services import provider_registry
+from app.services.upstream import health
 
 router = APIRouter()
 
@@ -42,6 +45,9 @@ def get_audit(
     # scoping (AND), so under `audit:read:own` another user's id reads as an
     # empty list, not a 403. An empty string is a 422, not "no filter".
     completion_id: Optional[str] = Query(None, min_length=1, max_length=128),
+    # PRD-022 F8 / D10: the same filter on the request id; one request's rows
+    # (every attempt) share it. Exact match, ANDed with the scoping.
+    request_id: Optional[str] = Query(None, min_length=1, max_length=128),
 ) -> AuditResponse:
     try:
         authorize(identity, PERMISSION_AUDIT_READ_ALL)
@@ -55,7 +61,9 @@ def get_audit(
             ) from exc
         scope_user_id = identity.user_id
 
-    total = count_audit_logs(user_id=scope_user_id, completion_id=completion_id)
+    total = count_audit_logs(
+        user_id=scope_user_id, completion_id=completion_id, request_id=request_id
+    )
     queries = [
         AuditQueryEntry(
             audit_id=log.id,
@@ -104,13 +112,23 @@ def get_audit(
             reasoning_shown=log.reasoning_shown,
             stream_redaction_divergence=log.stream_redaction_divergence,
             completion_id=log.completion_id,
+            request_id=log.request_id,
+            attempt=log.attempt,
+            route_model=log.route_model,
+            fallback_reason=log.fallback_reason,
+            skipped_providers=log.skipped_providers,
+            cache_read_tokens=log.cache_read_tokens,
+            cache_write_tokens=log.cache_write_tokens,
             device=log.device,
             pii_detected_input=log.pii_detected_input,
             pii_detected_output=log.pii_detected_output,
             pii_entities=log.pii_entities.split(",") if log.pii_entities else [],
         )
         for log in list_audit_logs(
-            limit=100, user_id=scope_user_id, completion_id=completion_id
+            limit=100,
+            user_id=scope_user_id,
+            completion_id=completion_id,
+            request_id=request_id,
         )
     ]
     return AuditResponse(total=total, queries=queries)
@@ -214,6 +232,31 @@ def get_storage_status() -> StorageStatusResponse:
 
 
 @router.get(
+    "/providers/status",
+    response_model=ProvidersStatusResponse,
+    dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
+)
+def get_providers_status() -> ProvidersStatusResponse:
+    """Breaker and counters of every registry provider (PRD-022 F9, D12).
+
+    In-memory only: no database read, no upstream call, so it answers with the
+    storage breaker open. Names come from the registry (a legacy deployment
+    lists its implicit `openrouter`); a provider removed from it is pruned.
+    Only a failure `kind` is exposed, never message text (T10).
+    """
+    names = [p.name for p in provider_registry.current().providers]
+    status = health.providers_status(names)
+    return ProvidersStatusResponse(
+        instance=status.instance,
+        providers={
+            name: {"breaker": dataclasses.asdict(reading)}
+            for name, reading in status.providers.items()
+        },
+        counters=dataclasses.asdict(status.counters),
+    )
+
+
+@router.get(
     "/stats",
     response_model=StatsResponse,
     dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
@@ -257,9 +300,9 @@ def get_stats() -> StatsResponse:
     # on the event loop, which is worse than the nine reads it replaces.
     snapshot = summary_snapshot(row_limit=0)
     # PRD-016 F11. A second statement, against a different table, rather than
-    # folded into `_SUMMARY_SQL`: `SUMMARY_FIGURES` is a pinned 13-tuple
-    # (tests/test_audit_stats_prd013.py), and widening it would reopen
-    # STORY-010's batched read for a table it never reads. `/stats` is
+    # folded into `_SUMMARY_SQL`: `audit_logs` figures belong in that statement
+    # (PRD-013 and PRD-022 STORY-015 widened `SUMMARY_FIGURES`, now 16), but
+    # `action_decisions` is a table it never reads. `/stats` is
     # therefore two round trips, one per table; the "one `audit_logs` read"
     # claim still holds (tests/test_stats_router.py counts `audit_logs`
     # statements only).
@@ -284,6 +327,10 @@ def get_stats() -> StatsResponse:
         input_tokens=snapshot.input_tokens,
         output_tokens=snapshot.output_tokens,
         blocked_usage_limits=snapshot.blocked_usage_limits,
+        # PRD-022 F9: three more from the same row, still one round trip.
+        fallback_answers=snapshot.fallback_answers,
+        failed_attempts=snapshot.failed_attempts,
+        answers_by_provider=snapshot.answers_by_provider,
         # PRD-016 F11 / Section 10: every key is present, 0 on an empty table.
         actions_denied=action_counts["deny"],
         actions_flagged=action_counts["flag"],

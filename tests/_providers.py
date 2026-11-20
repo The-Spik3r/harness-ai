@@ -6,6 +6,8 @@ also when `load()` raised -- it calls `provider_registry.reset()`, so a test
 never leaves a file-mode registry loaded for the next one. `monkeypatch` undoes
 the settings afterwards; `reset()` reads no setting, so the order is safe.
 
+`chains_file` (PRD-022 STORY-009) loads a chains document on top of it.
+
 Stories 004-014 build their file-mode tests on this module.
 """
 
@@ -16,6 +18,7 @@ import pytest
 
 from app.config import settings
 from app.services import provider_registry
+from app.services.upstream import chain_config
 
 
 def write_registry(tmp_path: Path, text: str) -> str:
@@ -43,6 +46,7 @@ def providers_file(tmp_path, yaml_text: str, *, monkeypatch, env=None):
         provider_registry.load()
         yield provider_registry.current()
     finally:
+        chain_config.reset()  # PRD-022 STORY-009: chains resolve against the registry
         provider_registry.reset()
 
 
@@ -60,4 +64,29 @@ def provider_file(tmp_path, monkeypatch):
         return provider_registry.current()
 
     yield _load
+    chain_config.reset()  # PRD-022 STORY-009
     provider_registry.reset()
+
+
+def write_chains(tmp_path: Path, text: str) -> str:
+    """Write `text` as `tmp_path/chains.yaml` and return its path as a string."""
+    path = Path(tmp_path) / "chains.yaml"
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+@pytest.fixture
+def chains_file(tmp_path, monkeypatch):
+    """Callable fixture (PRD-022 STORY-009): `chains_file(yaml_text) -> ChainSnapshot | None`.
+
+    Writes `chains.yaml`, sets `PROVIDER_CHAINS_FILE`, runs `chain_config.load()` (call it
+    after `provider_file(...)`; a raise propagates) and resets on teardown.
+    """
+
+    def _load(yaml_text: str):
+        monkeypatch.setattr(settings, "PROVIDER_CHAINS_FILE", write_chains(tmp_path, yaml_text))
+        chain_config.load()
+        return chain_config.current()
+
+    yield _load
+    chain_config.reset()

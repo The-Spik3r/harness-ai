@@ -1,0 +1,20 @@
+# examples/chains.yaml — PROVIDER_CHAINS_FILE=examples/chains.yaml (PRD-022 F3)
+# Needs PROVIDERS_FILE=examples/providers.yaml. No hot reload: restart to change it.
+version: 1
+chains:
+  - match:
+      model: ollama/qwen2.5-coder:7b     # the primary; must be catalogued in PROVIDERS_FILE
+      ingress: v1                        # optional: query | chat | v1; omitted = any ingress
+    candidates:
+      - model: ollama/qwen2.5-coder:7b   # entry 1 is always the match model
+      - model: lan/llama-3.1-70b         # internal -> internal: no opt-in needed
+        capability_scoped: true          # it lacks streaming, which the primary has
+      - model: openai/gpt-4o             # internal -> external: sends the prompt to a third party
+        allow_lower_trust: true          # explicit opt-in; logs a WARNING at startup
+        capability_scoped: true          # it lacks streaming here too (registry catalogue)
+
+  - match:
+      model: openai/gpt-4o
+    candidates:
+      - model: openai/gpt-4o
+      - model: anthropic/claude-3.5-sonnet   # external -> external, same capabilities

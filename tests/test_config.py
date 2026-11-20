@@ -1765,3 +1765,107 @@ def test_stream_holdback_accepts_the_range_bounds(value):
 @pytest.mark.parametrize("value", [0, 500])
 def test_stream_coalesce_ms_accepts_the_range_bounds(value):
     assert _settings(DATABASE_URL=_LOCAL_URL, STREAM_COALESCE_MS=value).STREAM_COALESCE_MS == value
+
+
+# --- PRD-022 STORY-009: provider-chain settings (Section 9.3, D5) ---
+#
+# Nothing but chain_config.load() reads these; the chains file is not opened here.
+
+_CHAIN_VARS = (
+    "PROVIDER_CHAINS_FILE",
+    "PROVIDER_CHAIN_MAX_CANDIDATES",
+    "PROVIDER_CHAIN_DEADLINE_SECONDS",
+    "PROVIDER_MIN_ATTEMPT_SECONDS",
+)
+
+
+def test_provider_chain_settings_available_with_documented_defaults(monkeypatch):
+    for var in _CHAIN_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.PROVIDER_CHAINS_FILE == ""
+    assert result.PROVIDER_CHAIN_MAX_CANDIDATES == 3
+    assert result.PROVIDER_CHAIN_DEADLINE_SECONDS is None
+    assert result.PROVIDER_MIN_ATTEMPT_SECONDS == 5.0
+
+
+@pytest.mark.parametrize("value", [0, 6, -1])
+def test_provider_chain_max_candidates_out_of_range_is_a_startup_error(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PROVIDER_CHAIN_MAX_CANDIDATES=value)
+
+    message = str(exc_info.value)
+    assert "PROVIDER_CHAIN_MAX_CANDIDATES" in message and f"got {value}" in message
+    assert "Example" in message
+
+
+@pytest.mark.parametrize("value", [1, 5])
+def test_provider_chain_max_candidates_accepts_the_bounds(value):
+    result = _settings(DATABASE_URL=_LOCAL_URL, PROVIDER_CHAIN_MAX_CANDIDATES=value)
+    assert result.PROVIDER_CHAIN_MAX_CANDIDATES == value
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_provider_chain_deadline_must_be_positive(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PROVIDER_CHAIN_DEADLINE_SECONDS=value)
+
+    message = str(exc_info.value)
+    assert "PROVIDER_CHAIN_DEADLINE_SECONDS" in message and f"got {value}" in message
+    assert "Example" in message
+
+
+def test_provider_chain_deadline_accepts_a_positive_value():
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        PROVIDER_CHAIN_DEADLINE_SECONDS=0.5,
+        PROVIDER_MIN_ATTEMPT_SECONDS=0.1,
+    )
+    assert result.PROVIDER_CHAIN_DEADLINE_SECONDS == 0.5
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_provider_min_attempt_must_be_positive(value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PROVIDER_MIN_ATTEMPT_SECONDS=value)
+
+    message = str(exc_info.value)
+    assert "PROVIDER_MIN_ATTEMPT_SECONDS" in message and f"got {value}" in message
+    assert "Example" in message
+
+
+@pytest.mark.parametrize("deadline", [5, 4])
+def test_provider_min_attempt_not_below_a_set_deadline_is_a_startup_error(deadline):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(
+            DATABASE_URL=_LOCAL_URL,
+            PROVIDER_CHAIN_DEADLINE_SECONDS=deadline,
+            PROVIDER_MIN_ATTEMPT_SECONDS=5,
+        )
+
+    message = str(exc_info.value)
+    assert "PROVIDER_MIN_ATTEMPT_SECONDS" in message
+    assert "PROVIDER_CHAIN_DEADLINE_SECONDS" in message
+
+
+def test_provider_chains_file_without_providers_file_is_a_startup_error(monkeypatch):
+    monkeypatch.delenv("PROVIDERS_FILE", raising=False)
+    secret_path = "/etc/secret-chains-path.yaml"
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, PROVIDER_CHAINS_FILE=secret_path)
+
+    message = str(exc_info.value)
+    assert "PROVIDER_CHAINS_FILE" in message and "PROVIDERS_FILE" in message
+    assert secret_path not in message
+
+
+def test_provider_chains_file_with_providers_file_constructs(tmp_path):
+    path = str(tmp_path / "chains.yaml")  # settings never opens it
+    result = _settings(
+        DATABASE_URL=_LOCAL_URL,
+        PROVIDERS_FILE=str(tmp_path / "providers.yaml"),
+        PROVIDER_CHAINS_FILE=path,
+    )
+    assert result.PROVIDER_CHAINS_FILE == path
