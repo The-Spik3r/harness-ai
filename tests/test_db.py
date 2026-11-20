@@ -1316,7 +1316,7 @@ def test_summary_snapshot_rows_carry_pattern_role_and_action(temp_db):
     _seed_block_flag_and_legacy()
 
     with get_connection() as conn:
-        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5, 5)).fetchone()  # PRD-022 STORY-015: fifth `?`
     entries = json.loads(raw["rows"])
     assert all({"pattern_role", "pattern_action"} <= set(entry) for entry in entries)
     assert [(e["pattern_role"], e["pattern_action"]) for e in entries] == [
@@ -1715,6 +1715,10 @@ def _individually(row_limit: int = 100, ranked_limit: int = 5) -> dict:
         "input_tokens": sum_input_tokens(),
         "output_tokens": sum_output_tokens(),
         "blocked_usage_limits": count_blocked_usage_limits(),
+        # PRD-022 STORY-015: the three `/stats`-only figures.
+        "fallback_answers": database._count_fallback_answers(),
+        "failed_attempts": database._count_failed_attempts(),
+        "answers_by_provider": database._top_answering_providers(limit=ranked_limit),
     }
 
 
@@ -1822,6 +1826,10 @@ def test_summary_snapshot_on_an_empty_database(temp_db):
         "input_tokens": 0,
         "output_tokens": 0,
         "blocked_usage_limits": 0,
+        # PRD-022 STORY-015: the three `/stats`-only figures.
+        "fallback_answers": 0,
+        "failed_attempts": 0,
+        "answers_by_provider": [],
     }
     assert snapshot.figures == _individually()
 
@@ -1913,7 +1921,8 @@ def test_summary_snapshot_issues_one_round_trip(temp_db, monkeypatch):
     statements.clear()
     _individually()
     # PRD-013 STORY-006: ten figures became thirteen.
-    assert len(statements) == 13, statements
+    # PRD-022 STORY-015: thirteen became sixteen.
+    assert len(statements) == 16, statements
 
 
 def test_summary_snapshot_limits_are_parameters(temp_db):
@@ -3215,7 +3224,7 @@ def test_prd013_fields_survive_the_batched_read(temp_db):
     ]
 
     with get_connection() as conn:
-        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5, 5)).fetchone()  # PRD-022 STORY-015: fifth `?`
     entries = {entry["id"]: entry for entry in json.loads(raw["rows"])}
     assert all(set(_PRD013_COLUMNS) <= set(entry) for entry in entries.values())
     # json_object hands the flags back as integers, which is what makes the
@@ -5409,7 +5418,7 @@ def test_prd020_fields_round_trip_on_both_read_shapes(temp_db):
         stored = conn.execute(
             "SELECT pii_input_relaxed, usage_estimated FROM audit_logs ORDER BY id"
         ).fetchall()
-        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5, 5)).fetchone()  # PRD-022 STORY-015: fifth `?`
     assert [(r["pii_input_relaxed"], r["usage_estimated"]) for r in stored] == [
         (0, 1), (1, 0), (0, 0),
     ]
@@ -5573,7 +5582,7 @@ def test_prd021_fields_round_trip_on_both_read_shapes(temp_db):
     names = ", ".join(_PRD021_COLUMNS)
     with get_connection() as conn:
         stored = conn.execute(f"SELECT {names} FROM audit_logs ORDER BY id").fetchall()
-        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5, 5)).fetchone()  # PRD-022 STORY-015: fifth `?`
     assert [tuple(r[n] for n in _PRD021_COLUMNS) for r in stored] == [
         (1, 0, 1, "chatcmpl-harness-rt-aaa"),
         (0, 1, 0, "chatcmpl-harness-rt-bbb"),
@@ -5736,7 +5745,7 @@ def test_prd022_fields_round_trip_on_both_read_shapes_and_filter_by_request_id(t
         _PRD022_DEFAULTS,
     ]
     with get_connection() as conn:
-        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5)).fetchone()
+        raw = conn.execute(database._SUMMARY_SQL, (100, 5, 5, 5, 5)).fetchone()  # PRD-022 STORY-015: fifth `?`
     entries = {entry["id"]: entry for entry in json.loads(raw["rows"])}
     assert all(set(_PRD022_COLUMNS) <= set(entry) for entry in entries.values())
     assert [entries[i]["request_id"] for i in ids] == [

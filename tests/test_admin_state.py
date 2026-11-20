@@ -571,6 +571,10 @@ class _Reads:
             except Exception as exc:  # noqa: BLE001 — attribution is the point
                 errors[field] = exc
                 failed = True
+        # PRD-022 STORY-015: `SUMMARY_FIGURES` is 16 and the snapshot must
+        # partition it; the three `/stats`-only figures are not in `_READS`.
+        for extra in ("fallback_answers", "failed_attempts", "answers_by_provider"):
+            figures[extra] = 0
         return SummarySnapshot(figures=figures, errors=errors)
 
     def _stub(self, field, name, returns):
@@ -872,7 +876,13 @@ def _fixed_snapshot(monkeypatch, figures, errors):
 
     def fake(row_limit, ranked_limit):
         calls.append((row_limit, ranked_limit))
-        return SummarySnapshot(figures=dict(figures), errors=dict(errors))
+        # PRD-022 STORY-015: the snapshot must partition all 16 figures; the
+        # three `/stats`-only ones are filled here, the console never reads them.
+        full = dict(figures)
+        for extra in ("fallback_answers", "failed_attempts", "answers_by_provider"):
+            if extra not in errors:
+                full.setdefault(extra, 0)
+        return SummarySnapshot(figures=full, errors=dict(errors))
 
     monkeypatch.setattr(_admin_state_module, "summary_snapshot", fake)
     return calls
@@ -965,6 +975,27 @@ async def test_the_first_failing_figure_in_read_order_names_the_fault(
 
 
 _NEW_FIGURES = ("input_tokens", "output_tokens", "blocked_usage_limits")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extra", ("fallback_answers", "failed_attempts", "answers_by_provider")
+)
+async def test_an_error_on_a_stats_only_figure_does_not_fail_the_console(
+    configured_token, monkeypatch, extra
+):
+    """PRD-022 STORY-015: the three `/stats`-only figures are not console state,
+    so an error recorded against one does not fault the load, and `load()`
+    commits only `_READS`' figures (no `setattr` of an undefined var)."""
+    state = _state()
+    _authenticate(state, configured_token)
+    _fixed_snapshot(monkeypatch, _snapshot_values(), {extra: ValueError("boom")})
+
+    await _load(state)
+
+    assert state.error == ""
+    assert state.total_recorded == 3180
+    assert not hasattr(state, extra)
 
 
 @pytest.mark.asyncio

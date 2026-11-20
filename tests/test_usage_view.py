@@ -609,7 +609,10 @@ def test_usage_is_not_a_summary_read():
 
     assert not {"usage", "usage_rows"} & fields
     assert READ_LABEL_USAGE not in labels
-    assert len(admin_state_mod._READS) == len(SUMMARY_FIGURES)
+    # PRD-022 STORY-015: the console's `_READS` is the first thirteen figures.
+    # The last three are `/stats`-only and the console does not read them.
+    assert len(admin_state_mod._READS) == len(SUMMARY_FIGURES[:13])
+    assert SUMMARY_FIGURES[13:] == ("fallback_answers", "failed_attempts", "answers_by_provider")
 
 
 def test_the_usage_vars_are_declared_and_the_state_is_computed():

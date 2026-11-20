@@ -1570,8 +1570,13 @@ class AdminState(rx.State):
             async with self:
                 # One commit. Until this block, nothing on screen has moved.
                 self.rows = rows
-                for field, value in results.items():
-                    setattr(self, field, value)
+                # PRD-022 STORY-015: the snapshot carries three `/stats`-only
+                # figures (`SUMMARY_FIGURES[13:]`) that are not console state;
+                # commit only the figures `_READS` names.
+                for field, _label, _read, _kwargs in _READS:
+                    if field == "rows":
+                        continue
+                    setattr(self, field, results[field])
                 self.last_refreshed = format_refreshed_at(now)
                 # Clears a previous fault, so a recovered read stops showing the
                 # panel STORY-017 renders.

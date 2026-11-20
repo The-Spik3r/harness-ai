@@ -127,6 +127,10 @@ def test_valid_token_returns_expected_shape_and_values(temp_db):
         "input_tokens",
         "output_tokens",
         "blocked_usage_limits",
+        # PRD-022 STORY-015: the three fallback figures.
+        "fallback_answers",
+        "failed_attempts",
+        "answers_by_provider",
         # PRD-016 F11 / Section 10: three additive action counts (STORY-016).
         "actions_denied",
         "actions_flagged",
@@ -207,6 +211,10 @@ def test_zero_rows_returns_zeroed_stats_without_error(temp_db):
         "input_tokens": 0,
         "output_tokens": 0,
         "blocked_usage_limits": 0,
+        # PRD-022 STORY-015: the fallback figures, 0 / [] on an empty table.
+        "fallback_answers": 0,
+        "failed_attempts": 0,
+        "answers_by_provider": [],
         # PRD-016 F11 / Section 10: three additive action counts, 0 on an
         # empty table (STORY-016).
         "actions_denied": 0,
@@ -293,6 +301,10 @@ def test_auditor_role_reads_stats_with_unchanged_shape(temp_db):
         "input_tokens",
         "output_tokens",
         "blocked_usage_limits",
+        # PRD-022 STORY-015: the three fallback figures.
+        "fallback_answers",
+        "failed_attempts",
+        "answers_by_provider",
         # PRD-016 F11 / Section 10: three additive action counts (STORY-016).
         "actions_denied",
         "actions_flagged",
@@ -416,6 +428,10 @@ def _snapshot_of(**overrides) -> SummarySnapshot:
         "input_tokens": 2140,
         "output_tokens": 312,
         "blocked_usage_limits": 6,
+        # PRD-022 STORY-015: distinct non-zero values again.
+        "fallback_answers": 3,
+        "failed_attempts": 4,
+        "answers_by_provider": [{"provider": "openrouter", "count": 9}],
     }
     figures.update(overrides)
     assert set(figures) == set(SUMMARY_FIGURES)
@@ -465,6 +481,10 @@ def test_stats_does_not_fetch_the_register_rows(temp_db, monkeypatch):
         "input_tokens": 2140,
         "output_tokens": 312,
         "blocked_usage_limits": 6,
+        # PRD-022 STORY-015: from `_snapshot_of`'s three fallback figures.
+        "fallback_answers": 3,
+        "failed_attempts": 4,
+        "answers_by_provider": [{"provider": "openrouter", "count": 9}],
         # PRD-016 F11 / Section 10: three additive action counts, 0 on an
         # empty table (STORY-016). Not from `_snapshot_of`: they are read by
         # `count_action_decisions()` against the real, empty `temp_db`.
@@ -506,3 +526,66 @@ def test_pii_figures_are_unchanged_by_the_profile_column(temp_db):
     assert body["top_pii_entities"] == snapshot.top_pii_entities == ["EMAIL_ADDRESS", "PERSON"]
     assert count_pii_detected_queries() == 2
     assert top_pii_entities() == ["EMAIL_ADDRESS", "PERSON"]
+
+
+# --------------------------------------------------------------------------
+# PRD-022 STORY-015 (F9): the fallback figures, from the one audit_logs read
+# --------------------------------------------------------------------------
+
+
+def _attempt_row(index: int, *, provider, attempt, success, user_id="a"):
+    return AuditLog(
+        timestamp=f"2026-07-{index + 1:02d}T10:00:00Z",
+        user_id=user_id,
+        prompt_hash=f"fh{index}",
+        provider=provider,
+        attempt=attempt,
+        success=success,
+    )
+
+
+def test_stats_reports_fallback_answers_failed_attempts_and_answers_by_provider(
+    temp_db,
+):
+    rows = [
+        _attempt_row(0, provider="A", attempt=1, success=True),
+        _attempt_row(1, provider="B", attempt=2, success=True),  # a fallback answer
+        _attempt_row(2, provider="B", attempt=1, success=False),  # failed attempt
+        _attempt_row(3, provider="A", attempt=2, success=False),  # failed attempt
+        _attempt_row(4, provider="A", attempt=None, success=True),  # pre-PRD-022
+        _attempt_row(5, provider="B", attempt=None, success=False),  # exhaustion
+    ]
+    for row in rows:
+        insert_audit_log(row)
+
+    body = client.get(
+        "/stats", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    ).json()
+
+    assert body["fallback_answers"] == 1
+    # NULL-attempt rows are in neither count figure.
+    assert body["failed_attempts"] == 2
+    # Success rows only; the failure and exhaustion rows do not count.
+    assert body["answers_by_provider"] == [
+        {"provider": "A", "count": 2},
+        {"provider": "B", "count": 1},
+    ]
+
+
+def test_answers_by_provider_is_truncated_to_the_ranked_limit(temp_db):
+    for index in range(7):
+        for repeat in range(7 - index):
+            insert_audit_log(
+                _attempt_row(
+                    index * 7 + repeat, provider=f"p{index}", attempt=1, success=True
+                )
+            )
+
+    body = client.get(
+        "/stats", headers={"Authorization": f"Bearer {settings.ADMIN_TOKEN}"}
+    ).json()
+
+    assert [e["provider"] for e in body["answers_by_provider"]] == [
+        "p0", "p1", "p2", "p3", "p4",
+    ]
+    assert body["answers_by_provider"][0] == {"provider": "p0", "count": 7}

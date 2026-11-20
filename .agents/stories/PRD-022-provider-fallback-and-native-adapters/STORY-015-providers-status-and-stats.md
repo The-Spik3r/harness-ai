@@ -7,11 +7,11 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Observability, streaming, docs"
-status: todo
+status: done
 labels: [backend, api, observability]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-015-providers-status-and-stats.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-015-providers-status-and-stats.report.md
 commit: null
 depends_on: [STORY-010, STORY-012]
 blocks: [STORY-016, STORY-017]

@@ -437,6 +437,37 @@ class StorageStatusResponse(BaseModel):
     counters: StorageCountersResponse
 
 
+class ProviderStatusResponse(BaseModel):
+    # One entry per registry provider; the breaker is PRD-018's, reused as is
+    # (`since` is always a timestamp: the last transition, or construction).
+    breaker: StorageBreakerResponse
+
+
+class ProviderCountersResponse(BaseModel):
+    # Keys are "<provider>:<kind>" / "<provider>:<reason>"; process-local,
+    # reset on restart (PRD-022 D12).
+    attempts_failed: dict[str, int]
+    fallback_answers: int
+    skipped: dict[str, int]
+    breaker_opens: int
+
+
+class ProvidersStatusResponse(BaseModel):
+    """GET /providers/status (PRD-022 F9, Section 10).
+
+    No message field anywhere: the breaker holds a failure `kind` only (T10).
+    """
+
+    instance: str
+    providers: dict[str, ProviderStatusResponse]
+    counters: ProviderCountersResponse
+
+
+class ProviderAnswerCount(BaseModel):
+    provider: str
+    count: int
+
+
 class StatsResponse(BaseModel):
     total_queries: int
     blocked_duplicates: int
@@ -452,6 +483,11 @@ class StatsResponse(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     blocked_usage_limits: int = 0
+    # PRD-022 F9 / Section 10: answers from a candidate after the first, rows
+    # that ran an attempt and failed, and answers per provider (top N).
+    fallback_answers: int = 0
+    failed_attempts: int = 0
+    answers_by_provider: List[ProviderAnswerCount] = []
     # PRD-016 F11 / Section 10: decision counts over the whole action_decisions
     # table, 0 when empty.
     actions_denied: int = 0
