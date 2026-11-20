@@ -7,10 +7,10 @@ type: spike
 priority: high
 complexity: medium
 phase: "1 - Foundations"
-status: todo
+status: in-progress
 labels: [spike, upstream, anthropic, security]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-001-foundations-spike.plan.md
 report: null
 commit: null
 depends_on: []
