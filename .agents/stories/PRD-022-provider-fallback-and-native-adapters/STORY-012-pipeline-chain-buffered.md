@@ -43,6 +43,7 @@ As an integrating developer, I want a provider outage on a buffered request to c
 - The attempt-row callback uses required keyword arguments `request_id`, `attempt`, `route` (PRD 6.9, `_deny` rule).
 - Streaming (`streamed_step`) stays single-candidate in this story: the realtime path keeps calling `stream_upstream` once (STORY-014 adds the window). Record that limitation in the code comment.
 - Increment STORY-010's process counters (`attempts_failed`, `fallback_answers`, `skipped`) here.
+- Orchestrator decision (STORY-010): call `health.sync({p.name for p in registry.providers})` once per request before running the chain, so breakers of providers removed from the registry are dropped. Counting rules for `health` are in STORY-011's notes.
 
 ## Dependencies
 

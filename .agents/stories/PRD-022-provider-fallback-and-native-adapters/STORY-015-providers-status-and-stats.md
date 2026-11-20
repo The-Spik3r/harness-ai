@@ -37,6 +37,7 @@ As an operator, I want one endpoint that shows each provider's breaker and the f
 
 - `app/routers/admin.py:203` `/storage/status` and `:186-215` `/stats` snapshot; `app/models/schemas.py:364` `StorageBreakerResponse`, `:401` storage status response; `app/services/authz.py:14` `stats:read`.
 - Reuse `StorageBreakerResponse` for the per-provider breaker object if its fields match exactly; otherwise a sibling model with the same field names.
+- Orchestrator decision (STORY-010): consume `health.providers_status(names) -> ProvidersStatus(instance, providers: Mapping[name, BreakerStatus], counters: ProviderCounters(attempts_failed: {'provider:kind': n}, fallback_answers, skipped: {'provider:reason': n}, breaker_opens))`; pass the registry's provider names (health cannot read the registry). Counters are process-local and are not pruned with breakers. Every provider breaker transition logs one WARNING (`transition_log_level`).
 
 ## Dependencies
 
