@@ -38,6 +38,7 @@ As a coding agent on `/v1`, I want to know which provider answered and to get a 
 - `app/routers/v1.py` `_PIPELINE_FAULTS` (`:111`), `_Upstream` wrapper (`:120-151`: one call per attempt; `called` = commit signal; `result` = answering call), fault mapping (`:198-212`); `app/services/v1_translate.py` fault table (`:713-718`) and response builder.
 - How the pipeline tells `/v1` the answering provider/attempts: through the pipeline result or the `_Upstream` wrapper — the plan picks one and states it; `v1_translate.py` must stay import-free of the upstream package `__init__` (PRD-021 rule).
 - `/query` mapping of `ChainExhausted` (502 `all providers unavailable`) is STORY-012's; check it is consistent.
+- Orchestrator decision (STORY-012): `ChainExhausted` already maps to 502 `upstream_unavailable` in `/v1` (`v1.py:300`, it is a retryable `UpstreamError`) and to 502 `all providers unavailable` in `/query`; this story adds `retry-after`, `harness.provider` and the answering `model`. The pipeline exposes the answering route via `chain_outcome.route` (rebound to `route` after `chain.run`); the audit `model_used` stays the requested id on the chained path (D17). A chained request with no attempt and a primary `redaction_limit` skip returns today's `QueryBlockedContextLimitResponse`, not `ChainExhausted`.
 
 ## Dependencies
 

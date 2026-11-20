@@ -43,6 +43,7 @@ As a coding agent on a real-time `/v1` stream, I want a provider failure before 
 - `app/services/query_pipeline.py:1011-1150` streamed branch: `released` (`:1023`) is already the D9 signal; `committed` fires on the first event (`:1066-1068`) — PRD 6.6 says commit does not close the window.
 - Release-of-tool-calls: PRD-021's `tool_release.py` decides when a tool call is released; treat that as closing the window too.
 - Call `stream_upstream` per candidate through the existing injectable parameter (`run_conversation(..., stream_upstream=...)`, `:451`).
+- Orchestrator decision (STORY-012): today `chained = len(req_chain.candidates) > 1 and not streamed_step` in `run_conversation`; the streamed branch stays single-candidate with a comment pointing here. The buffered chain's closures (`prepare` -> `_prepare_input`, `attempt`, `on_attempt_failed` -> `_log_failed_attempt`, the exhaustion/limit handling) are the pattern to reuse; `released` must become live. The routing census (`tests/test_query_pipeline_routing.py`) requires exactly 11 `log_query(` sites (the text counts, comments included) and `test_query_pipeline_pii_relaxation.py` pins `relaxed = route.relaxes_input()` text: reuse the row helpers, add no new site. A loaded chain always passes `timeout=` (the provider's timeout when no deadline is set).
 
 ## Dependencies
 
