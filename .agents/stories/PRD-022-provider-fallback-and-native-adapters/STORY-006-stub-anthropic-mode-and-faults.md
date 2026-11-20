@@ -7,10 +7,10 @@ type: technical
 priority: high
 complexity: medium
 phase: "2 - Anthropic native adapter"
-status: todo
+status: in-progress
 labels: [testing, stub, e2e]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/STORY-006-stub-anthropic-mode-and-faults.plan.md
 report: null
 commit: null
 depends_on: [STORY-001]
