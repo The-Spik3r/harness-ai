@@ -1,0 +1,51 @@
+---
+id: STORY-011
+prd: PRD-023
+slug: northbound-endpoint
+title: "Northbound `POST /mcp`: auth, Origin, JSON-RPC parsing, `initialize` / `ping` / notifications"
+type: feature
+priority: high
+complexity: medium
+phase: "3 - The gateway"
+status: todo
+labels: [mcp, api, security]
+epic_branch: epic/PRD-023-mcp-and-skills
+plan: null
+report: null
+commit: null
+depends_on: [STORY-004, STORY-007]
+blocks: [STORY-012, STORY-015]
+skills: []
+created: 2026-11-22
+updated: 2026-11-22
+---
+
+# STORY-011: Northbound `POST /mcp`: auth, Origin, JSON-RPC parsing, `initialize` / `ping` / notifications
+
+## Description
+
+As an integrating developer, I want a stateless Streamable HTTP MCP endpoint on the harness that takes my ordinary bearer token, so that my agent connects one MCP server named `harness`.
+
+## Acceptance Criteria
+
+- [ ] Given `MCP_ENABLED=false`, when `/mcp` is requested, then it is 404; given it enabled, then `POST /mcp` is mounted and `GET` / `DELETE` return 405
+- [ ] Given M0, when the token is missing/invalid, the break-glass `ADMIN_TOKEN` is used, the role lacks `mcp:connect`, an `Origin` is present and not on `MCP_ALLOWED_ORIGINS`, the body exceeds `MCP_MAX_REQUEST_BYTES`, or the content type is not JSON, then 401 (with `WWW-Authenticate: Bearer realm="harness"` and no `resource_metadata`) / 403 / 403 / 403 / 413 / 415, and no row or upstream request is made
+- [ ] Given M1, when the body is not JSON or has duplicate keys, then `-32700`; a batch array or a non-2.0 object, then `-32600`; an unknown method, then `-32601`
+- [ ] Given `initialize`, when the client's protocol version is supported it is echoed, otherwise the newest supported is answered, with `capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}}`, `serverInfo: {name: "harness", version}`, no `Mcp-Session-Id`, and no `instructions` (O11); `ping` answers `{}`; notifications get 202 with no body
+- [ ] Given `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, when dispatched, then they reach clearly-named handler seams that later stories fill (until then `-32601` or an empty result, documented in the report)
+
+## Technical Notes
+
+- New `app/routers/mcp.py` and `app/models/mcp_schemas.py` (pydantic, northbound only); hand-written, not the SDK server (Section 8, O-SDK).
+- Duplicate keys: use `strict_yaml`'s JSON sibling if it exists, else add one there (T7). `canonical_json` = `json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)`.
+- Mount only when enabled, following the `V1_ENABLED` precedent in `app/main.py`; break-glass refusal as in `app/routers/v1.py`.
+- Protocol versions from STORY-001's findings.
+
+## Dependencies
+
+- **Blocked by**: STORY-004, STORY-007
+- **Blocks**: STORY-012, STORY-015
+
+## PRD Reference
+
+Source: [`PRD-023/PRD.md`](../../PRDs/PRD-023-mcp-and-skills/PRD.md) — Sections 4 (Gateway, northbound), 6.3 (M0–M2), 9.1, 10, F1, D3, D17, D19, T7, T11
