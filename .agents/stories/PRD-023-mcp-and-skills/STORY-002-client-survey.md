@@ -7,11 +7,11 @@ type: spike
 priority: high
 complexity: medium
 phase: "1 - Verify the protocol and the clients"
-status: todo
+status: done
 labels: [spike, mcp, clients]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-002-client-survey.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-002-client-survey.report.md
 commit: null
 depends_on: []
 blocks: [STORY-016, STORY-020]
