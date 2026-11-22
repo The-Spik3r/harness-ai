@@ -63,7 +63,8 @@ It is a translation layer, not a second pipeline: it maps the `messages` array o
 - [ ] **Progress words for `/v1`** through a side channel a client opts into, only once a client is shown to ignore unknown event types safely.
 - [ ] **Streaming on `POST /query`**, as an opt-in SSE variant, if a non-chat client appears.
 - [ ] **Admin-console grant editor** for the permission matrix, covering action and stream permissions together.
-- [ ] **Native-adapter reasoning formats** (PRD-022): Anthropic thinking blocks and Gemini thoughts, normalized into the reasoning stream.
+- [x] **Anthropic thinking blocks in the reasoning stream** (PRD-022): the native adapter maps them to `ReasoningDelta`s, shown under PRD-021's `reasoning:view`.
+- [ ] **Gemini thoughts in the reasoning stream**, together with a native Gemini adapter (deferred by PRD-022 D3).
 
 ### MCP servers and agent skills
 
