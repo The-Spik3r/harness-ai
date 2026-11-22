@@ -7,10 +7,10 @@ type: technical
 priority: high
 complexity: medium
 phase: "1 - Verify the protocol and the clients"
-status: todo
+status: in-progress
 labels: [mcp, dependencies, security]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-003-mcp-sdk-pin.plan.md
 report: null
 commit: null
 depends_on: [STORY-001]
