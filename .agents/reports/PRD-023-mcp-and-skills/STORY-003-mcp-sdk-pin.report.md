@@ -3,7 +3,7 @@ story: STORY-003
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-003-mcp-sdk-pin.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 0abfc6e
 status: COMPLETE
 completed: 2026-11-22
 ---
