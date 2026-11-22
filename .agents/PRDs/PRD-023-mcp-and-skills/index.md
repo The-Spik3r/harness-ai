@@ -6,7 +6,7 @@
 
 ## Progress
 
-3/21 stories done — 14%
+4/21 stories done — 19%
 
 ## Stories
 
@@ -17,7 +17,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-001 | Spike — verify the MCP protocol facts and re-check the PRD's code evidence against main | spike | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-001-mcp-protocol-spike.plan.md) | `7e64933` |
 | STORY-002 | Spike — survey OpenCode and the Cline CLI as remote Streamable HTTP MCP clients | spike | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-002-client-survey.plan.md) | `4bff962` |
 | STORY-003 | Pin the `mcp` SDK and prove its client behaviours offline | technical | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-003-mcp-sdk-pin.plan.md) | `0abfc6e` |
-| STORY-004 | MCP settings and RBAC vocabulary: `mcp:connect` and `skill:<id>` | feature | 🟡 in-progress | small | [plan](../../plans/PRD-023-mcp-and-skills/STORY-004-settings-and-rbac.plan.md) | — |
+| STORY-004 | MCP settings and RBAC vocabulary: `mcp:connect` and `skill:<id>` | feature | ✅ done | small | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-004-settings-and-rbac.plan.md) | `d9beeb7` |
 | STORY-005 | Action policy: `mcp_tools` / `mcp_opaque_tools` sections and the `tool.not_in_skill` rule | feature | ⬜ todo | medium | — | — |
 | STORY-006 | Engine: `evaluate(..., surface=McpSurface)` with visibility inside the fail-closed boundary | feature | ⬜ todo | medium | — | — |
 | STORY-007 | `mcp_config`: servers, skills, aliases, cross-validation, digest, loaded in both lifespans | feature | ⬜ todo | large | — | — |

@@ -3,7 +3,7 @@ story: STORY-004
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-004-settings-and-rbac.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: d9beeb7
 status: COMPLETE
 completed: 2026-11-22
 ---

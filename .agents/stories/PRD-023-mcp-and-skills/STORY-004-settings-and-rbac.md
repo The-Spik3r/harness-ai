@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: small
 phase: "2 - Vocabulary and configuration"
-status: in-progress
+status: done
 labels: [config, rbac]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-004-settings-and-rbac.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-004-settings-and-rbac.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-004-settings-and-rbac.report.md
+commit: d9beeb7
 depends_on: [STORY-001]
 blocks: [STORY-007, STORY-011]
 skills: []
