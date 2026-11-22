@@ -57,3 +57,18 @@ It must print `errors: none`.
 ## What to return (your final message, at most ~30 lines)
 - PLAN subagent: the plan path, a 3–5 line summary, the files to CREATE/UPDATE, one line per AC saying how it is covered, open risks/questions, and confirmation that the story frontmatter (`plan`, `status: in-progress`) and the index were updated.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
+
+## Checkpoint
+- Done and pushed: STORY-001 to STORY-004. Last CI run 45039126441 @ `3e32751`: success. No open carried-over errors.
+- Epic-wide decisions (already in the PRD and in each affected story's Technical Notes):
+  - Northbound: only the handshake revisions `2025-03-26`, `2025-06-18` and `2025-11-25`. A `2026-07-28`-style request gets a plain HTTP `400` with a `-32600` body.
+  - Southbound: `mcp==2.3.0`. Its server class is `MCPServer`. Sampling with no callback is refused with `-32600`. Same-origin 307/308 redirects are followed. A timeout is `MCPError -32001`.
+  - T10: a forwarded call is never replayed. T12: an `input_required` result maps to `upstream_error`.
+  - No Cline hash reverse map: STORY-007 warns for ids longer than 55 characters. Aliases `harness_` and `harness__` are confirmed. `tools/list` is one page, and `/mcp` ignores query params.
+- Critical stories ahead, with design points to supply at 3.1: 005/006 (engine), 007 (config loader), 008 (audit and pre-forward write), 010 (upstream), 011 (northbound auth), 013 (call path), 016 (alias and correlation).
+- Planner escalations: none. Plans corrected at 3.2: 0/4.
+- For Phase 6:
+  - OpenCode installed is 2.3.2, not the 2.0.10 the PRD names; surveyed and accepted.
+  - STORY-004 added default-port dropping to `MCP_ALLOWED_ORIGINS`; accepted.
+  - The PRD's code evidence was stale: `record()` uses `audit_ref`, and `ACTION_DECISIONS_ADDED_COLUMNS` already exists.
+- Context: the CI workflow cancels an in-progress run on a newer push, so read the run of the latest HEAD.
