@@ -35,6 +35,7 @@ As an auditor, I want a tool the model proposed through `/v1` under a gateway al
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-002): the prefixes `harness_` (OpenCode 2.3.2, with `codemode: false`) and `harness__` (Cline) are confirmed. There is no Cline hash reverse map: a hashed name stays `tool.unknown` (a stated limitation, PRD 6.8). STORY-007 warns at startup for ids longer than 55 characters. With `codemode` unset, OpenCode shows only `execute` (still denied).
 - Section 6.8. Alias resolution needs `visible_tools(identity)` and the prefixes from `mcp_config` passed into the engine call; keep `action_policy` free of I/O (the visible set is computed outside).
 - Correlation uses STORY-008's lookup helper; fill STORY-013's M7 seam.
 - Prefixes from STORY-002's survey.

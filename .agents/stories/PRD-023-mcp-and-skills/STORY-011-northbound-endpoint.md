@@ -36,6 +36,7 @@ As an integrating developer, I want a stateless Streamable HTTP MCP endpoint on 
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-002): observed facts (both CLIs send `protocolVersion` `2025-11-25`, no `Origin`, and a static `Authorization` on every request, with no OAuth discovery after a `401`). `/mcp` ignores unknown query parameters: OpenCode appends `?codemode=false` to non-loopback URLs. `/.well-known/oauth-*` stays `404` (nothing is mounted there). `initialize` must declare `capabilities.tools` (OpenCode requires it).
 - Orchestrator decision (STORY-001): serve the handshake revisions `2025-03-26`, `2025-06-18` and `2025-11-25` only (D17, amended). A `2026-07-28`-style request (a modern `_meta` `io.modelcontextprotocol/protocolVersion` and no `initialize`, or `server/discover`) gets a plain HTTP `400` with a `-32600` body, so a dual-era client falls back. Compare header names case-insensitively (`Mcp-Session-Id` / `MCP-Session-Id`). Sources: `tests/corpora/mcp/SOURCES.md` (Protocol).
 - New `app/routers/mcp.py` and `app/models/mcp_schemas.py` (pydantic, northbound only); hand-written, not the SDK server (Section 8, O-SDK).
 - Duplicate keys: use `strict_yaml`'s JSON sibling if it exists, else add one there (T7). `canonical_json` = `json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)`.

@@ -35,6 +35,7 @@ As a platform operator, I want the MCP gateway and skills documented with per-cl
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-002): the client setup docs say: OpenCode needs `codemode: false` on the `harness` server; Cline needs `"type": "streamableHttp"`; name the server `harness` or set `v1_aliases.prefixes` to match; Cline hashes tool ids longer than 55 characters (the alias does not resolve). The surveyed versions are OpenCode 2.3.2 (TS SDK v2 client) and Cline CLI 3.0.74 (TS SDK v1).
 - Last story: sets PRD `status: done`.
 
 ## Dependencies

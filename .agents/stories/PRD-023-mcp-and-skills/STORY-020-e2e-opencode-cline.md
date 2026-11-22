@@ -34,6 +34,7 @@ As an integrating developer, I want real OpenCode and Cline sessions to list the
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-002): OpenCode 2.3.2 config: `mcp.servers.harness` with `type: remote`, `url`, `headers`, `codemode: false`. It uses the `disabled` key, not `enabled`. Drive it only with `run --standalone` against a fake provider (repo E2E rule). For the Cline CLI 3.0.74 (`tests/e2e/.clients/cline`), the entry needs `"type": "streamableHttp"`, or it falls back to SSE. Use the scratchpad drivers' approach from STORY-002's report.
 - Use the client versions and configs STORY-002 recorded; follow PRD-021's E2E pattern (`tests/test_e2e_cline_realtime_script.py`).
 - If a client cannot connect without weakening auth, document it as unsupported (R2) rather than work around it.
 

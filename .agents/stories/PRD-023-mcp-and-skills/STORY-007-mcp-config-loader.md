@@ -36,6 +36,7 @@ As a platform operator, I want `MCP_CONFIG_FILE` loaded and cross-validated at s
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-002): Cline hashes a tool id longer than 55 characters (or one with characters outside `[a-zA-Z0-9_-]`) to `<sanitized[:55]>_<sha1(raw)[:8]>`, so its `/v1` alias does not resolve (the PRD 6.8 limitation stands; there is no reverse map in the MVP). `mcp_config.load()` logs one `WARNING` per skill tool whose `<server>__<tool>` exceeds 55 characters, naming the skill and the tool. It is a warning, not an error. Vectors: `tests/corpora/mcp/SOURCES.md` (Clients).
 - New `app/services/mcp_config.py`, YAML via `strict_yaml.safe_load`; frozen dataclasses for the config model; `MCPConfigError` in the `ActionConfigError` shape.
 - Both lifespans: `app/main.py` and `chat_ui/chat_ui/chat_ui.py` `register_lifespan_task` (PRD-007). Follow how `action_config.load()` is wired there.
 - Credentials: resolve env values at load time and keep them only in memory for `mcp_upstream` (STORY-010); never in `repr`, digest or errors.
