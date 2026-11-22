@@ -646,6 +646,9 @@ def test_neither_preview_survives_the_projection():
         provider = None
         # PRD-021 F7 (STORY-013): and the real-time flag.
         streamed_realtime = False
+        # PRD-022 F8 (STORY-016): and the attempt and the request id.
+        request_id = None
+        attempt = None
         success = True
         model_used = "gpt-4"
         tokens_used = 412
@@ -1475,7 +1478,9 @@ def test_the_provider_column_keeps_the_quality_floor(source):
     global focus rule is not overridden here."""
     # PRD-021 F7 (STORY-013): 71.5rem -> 73.5rem, the verdict track widened
     # 2rem (5.5rem -> 7.5rem) to seat the LIVE tag beside the verdict word.
-    assert '_MIN_WIDTH = "73.5rem"' in source
+    # PRD-022 F8 (STORY-016): 73.5rem -> 77.75rem, the 3.5rem attempt track
+    # plus its 0.75rem gap.
+    assert '_MIN_WIDTH = "77.75rem"' in source
     assert 'overflow_x="auto"' in source
     assert "min_width=_MIN_WIDTH" in source
     assert "focus-visible" in (
