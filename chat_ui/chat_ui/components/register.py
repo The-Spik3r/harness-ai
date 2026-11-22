@@ -108,7 +108,8 @@ from chat_ui.components.admin_shell import refreshed_stamp
 # timestamp, user_id, verdict, model_used, tokens_used, PII, device, audit_id —
 # and a tenth track at the right edge carrying the disclosure control, which is
 # a control rather than a column of values. PRD-020 (STORY-012) adds one more
-# value column, provider, right after model_used: eleven tracks.
+# value column, provider, right after model_used: eleven tracks. PRD-022
+# (STORY-016, F8) adds the attempt, right after provider: twelve tracks.
 #
 # One constant, used by the column head *and* by every row. Two matching
 # template strings would satisfy "the numeric columns align down the full
@@ -121,18 +122,19 @@ from chat_ui.components.admin_shell import refreshed_stamp
 # characters; 7rem held fifteen and clipped it. Past that the cell truncates
 # like any other.
 _GRID = (
-    f"{theme.STAMP_X} 8.5rem 8rem 7.5rem 9rem 7rem 7.5rem 3.5rem minmax(9rem, 1fr) "
+    f"{theme.STAMP_X} 8.5rem 8rem 7.5rem 9rem 7rem 3.5rem 7.5rem 3.5rem minmax(9rem, 1fr) "
     "5.5rem 2.5rem"
 )
 
-# Below this the eleven columns crush rather than wrap. The table scrolls
+# Below this the twelve columns crush rather than wrap. The table scrolls
 # sideways inside its own container instead of the page doing it. Raised from
 # 58rem with the control column: its 2.5rem track plus one 0.75rem column gap;
 # and by 2.5rem more with the wider tokens track (PRD-013 STORY-015); and by
 # 7.75rem for the provider track (7rem plus its 0.75rem gap, PRD-020 STORY-012);
 # and by 2rem for the verdict track, widened 5.5rem -> 7.5rem so the LIVE tag
-# sits beside the verdict word (PRD-021 F7, STORY-013). Still eleven tracks.
-_MIN_WIDTH = "73.5rem"
+# sits beside the verdict word (PRD-021 F7, STORY-013); and by 4.25rem for the
+# attempt track (3.5rem plus its 0.75rem gap, PRD-022 F8, STORY-016): twelve.
+_MIN_WIDTH = "77.75rem"
 
 
 def _head_cell(label: str, align: str = "left", title: str = "") -> rx.Component:
@@ -289,7 +291,7 @@ def _live_tag() -> rx.Component:
 def _verdict_cell(row) -> rx.Component:
     """The verdict tag, and beside it LIVE when the row was real-time.
 
-    One grid child, not two: the row keeps eleven tracks (PRD-021 F7).
+    One grid child, not two: the row keeps its tracks (PRD-021 F7).
     """
     return rx.box(
         _verdict_tag(row),
@@ -507,6 +509,9 @@ def _detail(row) -> rx.Component:
             # PRD-013 (STORY-015): the conversation this row belongs to, then
             # how the request arrived.
             _detail_field(admin_copy.DETAIL_CONVERSATION_LABEL, row.conversation_key),
+            # PRD-022 STORY-016 (F8): the id every attempt row of the request
+            # shares, to paste into the search field.
+            _detail_field(admin_copy.DETAIL_REQUEST_LABEL, row.request_id),
             _detail_field(admin_copy.DETAIL_INGRESS_LABEL, row.ingress),
             _detail_field(admin_copy.DETAIL_MESSAGE_COUNT_LABEL, row.message_count),
             _detail_field(admin_copy.DETAIL_STREAMED_LABEL, row.streamed),
@@ -557,7 +562,7 @@ def _row_line(row) -> rx.Component:
     `min_height` rather than `height`: the time cell is two lines, and a fixed
     row height would clip the absolute timestamp under it.
 
-    Eleven children and no twelfth (PRD-020 added provider; PRD-021's LIVE tag
+    Twelve children (PRD-020 added provider, PRD-022 the attempt; PRD-021's LIVE tag
     rides inside the verdict cell, `_verdict_cell`). `device_full`, `prompt_hash`, `error_message`,
     `pii_entities`, `pii_detected_input`, `pii_detected_output`,
     `suspicious_pattern`, `pattern_role`, `pattern_action`, `profile` and
@@ -577,6 +582,9 @@ def _row_line(row) -> rx.Component:
         _verdict_cell(row),
         _cell(row.model_used),
         _cell(row.provider),
+        # PRD-022 STORY-016 (F8): which try of the request; the absent mark on a
+        # row that never reached the upstream step.
+        _cell(row.attempt, text_align="right"),
         _cell(row.tokens_used, text_align="right"),
         rx.cond(
             row.pii_indicator,
@@ -642,6 +650,11 @@ def _column_head() -> rx.Component:
         _head_cell(admin_copy.COLUMN_VERDICT),
         _head_cell(admin_copy.COLUMN_MODEL),
         _head_cell(admin_copy.COLUMN_PROVIDER),
+        _head_cell(
+            admin_copy.COLUMN_ATTEMPT,
+            align="right",
+            title=admin_copy.COLUMN_ATTEMPT_TITLE,
+        ),
         _head_cell(
             admin_copy.COLUMN_TOKENS,
             align="right",
@@ -811,7 +824,7 @@ def _verdict_filter() -> rx.Component:
 
 def _search_field() -> rx.Component:
     """The free-text filter over `user_id` / `model_used` / `audit_id` /
-    `conversation_key` / `ingress`.
+    `conversation_key` / `ingress` / `request_id`.
 
     This is the register's join back to the chat: the `#127` a user quotes out
     of the success footer (PRD-004 STORY-010) resolves to its row by being typed

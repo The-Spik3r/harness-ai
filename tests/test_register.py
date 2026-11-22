@@ -788,7 +788,8 @@ def test_the_row_gains_no_column(source):
     tracks = "".join(part.strip().lstrip("f").strip('"') for part in grid.splitlines())
     tracks = tracks.replace("minmax(9rem, 1fr)", "minmax")
     # PRD-020 STORY-012 (D13): eleven, not ten -- the provider track.
-    assert len(tracks.split()) == 11, tracks
+    # PRD-022 STORY-016 (F8): twelve -- the attempt track.
+    assert len(tracks.split()) == 12, tracks
 
 
 def test_the_tokens_head_states_the_split_order(probe, source):
@@ -1499,3 +1500,85 @@ def test_the_live_tag_is_compiled_only_behind_the_row_flag(probe, source):
     assert '"LIVE"' not in source
     assert "rx.cond(row.live, _live_tag(), rx.fragment())" in source
     assert "row.streamed_realtime" not in source
+
+
+# --- PRD-022 STORY-016 (F8): the attempt column and the request id -----------
+
+
+class _AttemptLog:
+    """The smallest log `to_audit_row` accepts, with the two PRD-022 fields."""
+
+    id = 7
+    timestamp = "2026-11-20T10:00:00+00:00"
+    user_id = "u"
+    was_duplicate_blocked = False
+    suspicious_pattern = None
+    pattern_role = None
+    pattern_action = None
+    profile = None
+    input_tokens = None
+    output_tokens = None
+    ingress = None
+    message_count = None
+    conversation_key = None
+    streamed = False
+    has_tool_calls = False
+    limit_exceeded = None
+    provider = "alpha"
+    streamed_realtime = False
+    success = True
+    model_used = "a/m"
+    tokens_used = 1
+    pii_detected_input = False
+    pii_detected_output = False
+    pii_entities = None
+    device = None
+    prompt_hash = None
+    error_message = None
+    request_id = None
+    attempt = None
+
+
+def _attempt_row(attempt, request_id, audit_id):
+    log = _AttemptLog()
+    log.id = audit_id
+    log.attempt = attempt
+    log.request_id = request_id
+    return to_audit_row(log)
+
+
+def test_to_audit_row_maps_attempt_and_request_id():
+    row = _attempt_row(2, "req-abc", 1)
+    assert (row.attempt, row.request_id) == ("2", "req-abc")
+
+
+def test_a_row_without_attempt_or_request_id_reads_the_absent_mark():
+    row = _attempt_row(None, None, 1)
+    assert row.attempt == "—" and row.request_id == "—"
+
+
+def test_the_request_id_filter_returns_exactly_that_requests_rows():
+    from chat_ui.chat_ui.admin_state import filter_rows
+
+    rows = [
+        _attempt_row(1, "REQ-one", 1),
+        _attempt_row(2, "REQ-one", 2),
+        _attempt_row(1, "req-two", 3),
+    ]
+    found = filter_rows(rows, [], "req-one")
+    assert [r.audit_id for r in found] == [1, 2]
+    assert filter_rows(rows, [], "no-such-request") == []
+
+
+def test_the_attempt_column_is_rendered_after_the_provider(probe, source):
+    assert not probe["errors"], probe["errors"]
+    assert admin_copy.COLUMN_ATTEMPT in probe["rendered"]
+    assert admin_copy.DETAIL_REQUEST_LABEL in probe["detail"]
+    flat = source.replace("\r\n", "\n")
+    assert "_cell(row.provider),\n        # PRD-022" in flat
+    assert "_cell(row.attempt, text_align=\"right\")," in flat
+    head = flat.split("def _column_head()")[1].split("\ndef ")[0]
+    assert head.index("COLUMN_PROVIDER") < head.index("COLUMN_ATTEMPT") < head.index(
+        "COLUMN_TOKENS"
+    )
+    assert "row.request_id" in source

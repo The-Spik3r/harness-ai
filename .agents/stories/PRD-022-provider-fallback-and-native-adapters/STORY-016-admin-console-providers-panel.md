@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Observability, streaming, docs"
-status: todo
+status: in-progress
 labels: [frontend, chat_ui, admin]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-016-admin-console-providers-panel.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-016-admin-console-providers-panel.report.md
+commit: pending
 depends_on: [STORY-015]
 blocks: [STORY-018]
 skills: [frontend-design]

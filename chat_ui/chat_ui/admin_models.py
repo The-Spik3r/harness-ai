@@ -77,6 +77,11 @@ class AuditRow(pydantic.BaseModel):
     streamed: str = ""
     has_tool_calls: str = ""
     limit_exceeded: str = ""
+    # PRD-022 STORY-016 (F8): the attempt number is a Register column ("2" is a
+    # fallback answer); the request id is disclosure-only and searchable, shared
+    # by every attempt row of one request. The absent mark on rows before it.
+    attempt: str = ""
+    request_id: str = ""
 
 
 class SummaryFigure(pydantic.BaseModel):
@@ -176,3 +181,39 @@ class StorageView(pydantic.BaseModel):
     counters: list[StorageFact] = []
     retries: list[StorageCounterRow] = []
     exhausted: list[StorageCounterRow] = []
+
+
+class ProviderFact(pydantic.BaseModel):
+    """One label and value of a provider's block (PRD-022 STORY-016).
+
+    The `StorageFact` rule, kept separate so the views do not share a model.
+    """
+
+    label: str = ""
+    value: str = ""
+
+
+class ProviderCard(pydantic.BaseModel):
+    """One provider's circuit breaker: its name over its facts."""
+
+    name: str = ""
+    facts: list[ProviderFact] = []
+
+
+class ProviderCounterRow(pydantic.BaseModel):
+    """One `<provider>:<kind or reason>` count of the Providers view's tables."""
+
+    provider: str = ""
+    reason: str = ""
+    count: str = ""
+
+
+class ProvidersView(pydantic.BaseModel):
+    """Everything the Providers view shows, as strings, from one `ProvidersStatus`."""
+
+    verdict: str = ""
+    caption: str = ""
+    cards: list[ProviderCard] = []
+    counters: list[ProviderFact] = []
+    failed: list[ProviderCounterRow] = []
+    skipped: list[ProviderCounterRow] = []

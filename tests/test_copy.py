@@ -404,6 +404,33 @@ def test_admin_copy_constants_exist_and_not_empty():
     assert admin_copy.EMPTY_USAGE_TITLE
     assert admin_copy.EMPTY_USAGE_BODY
     # PRD-018 (STORY-012): the Storage view's copy, read off the module.
+    # PRD-022 (STORY-016): the Providers view and the Register attempt column.
+    assert admin_copy.VIEW_PROVIDERS_LABEL
+    assert admin_copy.READ_LABEL_PROVIDERS
+    assert admin_copy.COLUMN_ATTEMPT
+    assert admin_copy.COLUMN_ATTEMPT_TITLE
+    assert admin_copy.DETAIL_REQUEST_LABEL
+    assert admin_copy.PROVIDERS_CAPTION_TEMPLATE
+    assert admin_copy.PROVIDERS_VERDICT_ALL_CLOSED
+    assert admin_copy.PROVIDERS_VERDICT_NONE
+    assert admin_copy.PROVIDERS_VERDICT_NOT_CLOSED_TEMPLATE
+    assert admin_copy.PROVIDERS_HEADING_COUNTERS
+    assert admin_copy.PROVIDERS_HEADING_FAILED
+    assert admin_copy.PROVIDERS_HEADING_SKIPPED
+    assert admin_copy.PROVIDERS_FAILED_TITLE
+    assert admin_copy.PROVIDERS_SKIPPED_TITLE
+    assert admin_copy.PROVIDERS_KEYED_EMPTY
+    assert admin_copy.PROVIDERS_LABEL_STATE
+    assert admin_copy.PROVIDERS_LABEL_SINCE
+    assert admin_copy.PROVIDERS_LABEL_FAILURES
+    assert admin_copy.PROVIDERS_LABEL_LAST_FAILURE
+    assert admin_copy.PROVIDERS_LABEL_RETRY_AFTER
+    assert admin_copy.PROVIDERS_LABEL_BREAKER_OPENS
+    assert admin_copy.PROVIDERS_LABEL_FALLBACK_ANSWERS
+    assert admin_copy.PROVIDERS_SECONDS_TEMPLATE
+    assert admin_copy.PROVIDERS_COLUMN_PROVIDER
+    assert admin_copy.PROVIDERS_COLUMN_REASON
+    assert admin_copy.PROVIDERS_COLUMN_COUNT
     assert admin_copy.VIEW_STORAGE_LABEL
     assert admin_copy.READ_LABEL_STORAGE
     assert admin_copy.STORAGE_CAPTION_TEMPLATE
@@ -549,6 +576,33 @@ def test_admin_copy_constants_exist_and_not_empty():
         "COLUMN_ALLOWED_BY_TITLE",
         # PRD-018 (STORY-012): the Storage view. A pinned census extended with
         # the new names; no existing name changes.
+        # PRD-022 (STORY-016): the Providers view. A pinned census extended.
+        "VIEW_PROVIDERS_LABEL",
+        "READ_LABEL_PROVIDERS",
+        "COLUMN_ATTEMPT",
+        "COLUMN_ATTEMPT_TITLE",
+        "DETAIL_REQUEST_LABEL",
+        "PROVIDERS_CAPTION_TEMPLATE",
+        "PROVIDERS_VERDICT_ALL_CLOSED",
+        "PROVIDERS_VERDICT_NONE",
+        "PROVIDERS_VERDICT_NOT_CLOSED_TEMPLATE",
+        "PROVIDERS_HEADING_COUNTERS",
+        "PROVIDERS_HEADING_FAILED",
+        "PROVIDERS_HEADING_SKIPPED",
+        "PROVIDERS_FAILED_TITLE",
+        "PROVIDERS_SKIPPED_TITLE",
+        "PROVIDERS_KEYED_EMPTY",
+        "PROVIDERS_LABEL_STATE",
+        "PROVIDERS_LABEL_SINCE",
+        "PROVIDERS_LABEL_FAILURES",
+        "PROVIDERS_LABEL_LAST_FAILURE",
+        "PROVIDERS_LABEL_RETRY_AFTER",
+        "PROVIDERS_LABEL_BREAKER_OPENS",
+        "PROVIDERS_LABEL_FALLBACK_ANSWERS",
+        "PROVIDERS_SECONDS_TEMPLATE",
+        "PROVIDERS_COLUMN_PROVIDER",
+        "PROVIDERS_COLUMN_REASON",
+        "PROVIDERS_COLUMN_COUNT",
         "VIEW_STORAGE_LABEL",
         "READ_LABEL_STORAGE",
         "STORAGE_CAPTION_TEMPLATE",
