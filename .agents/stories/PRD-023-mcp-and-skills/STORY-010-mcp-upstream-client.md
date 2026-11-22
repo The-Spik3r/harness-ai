@@ -36,6 +36,7 @@ As a platform operator, I want the harness to be the MCP client of record for ea
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-001): T10 amended. After an unknown-session `404` the harness re-initializes for the *next* call and never replays a forwarded `tools/call`, so the AC's 'retries that call only in that case' is superseded: no forwarded call is ever retried. An upstream `resultType: "input_required"` is refused as `upstream_error` and never answered (T12, amended).
 - The only module importing `mcp`. Return types the gateway needs without importing `mcp` elsewhere (e.g. plain dicts or a small local dataclass).
 - Event loop: check how the app runs async code (FastAPI handlers vs sync pipeline) and keep SDK task groups contained per call/session; the Reflex mount bypasses app lifespans (PRD-007).
 - Use STORY-003's proved facts for headers, redirects and timeouts.

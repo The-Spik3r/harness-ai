@@ -35,6 +35,7 @@ As an auditor, I want every gateway call stored as one `action_decisions` row wi
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-001): confirmed by the spike. Extend `ACTION_DECISIONS_ADDED_COLUMNS` (`app/db/models.py:480`). The insert paths are `app/db/database.py:3404` and `:3459`. Signature: `record(decisions, identity, audit_ref=None, session_id=None, *, mcp=None)` (PRD D21, amended).
 - Orchestrator: the PRD says 'fourth added-columns mapping', but `ACTION_DECISIONS_ADDED_COLUMNS = {"write_id": "TEXT"}` already exists (`app/db/models.py:480`); extend it. `record()` now takes `audit_ref` (PRD-018), not `audit_id` (`app/services/action_audit.py:214`).
 - Added columns that are NOT NULL must declare a default (`test_added_columns_declaring_not_null_also_declare_a_default`).
 - No caller yet: the gateway (STORY-013) and alias rows (STORY-016) use these. The correlation helper is used in STORY-016.

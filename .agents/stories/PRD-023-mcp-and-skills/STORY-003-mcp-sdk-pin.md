@@ -35,6 +35,7 @@ As a platform operator, I want the `mcp` SDK pinned exactly and its client behav
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-001): the current MCP revision is `2026-07-28` (no handshake). The harness speaks the handshake revisions `2025-03-26` / `2025-06-18` / `2025-11-25` northbound (PRD 6.1, amended). Southbound, evaluate both Python SDK lines (v1.30.0: handshake only; v2.x, e.g. 2.3.0: dual-era per STORY-001) and pin the newest stable one whose client can speak `2025-11-25` to a handshake server and whose dependencies fit the pins. Record whether it can also reach a `2026-07-28`-only server, and how it surfaces an `input_required` result (T12, amended).
 - Depends on STORY-001's protocol findings (revision strings).
 - The test may start the SDK's `FastMCP` server in a subprocess or thread on localhost; that is test infrastructure only. STORY-009 builds the real stub server.
 - Check CI installs from `requirements.txt` (`.github/workflows/`).
