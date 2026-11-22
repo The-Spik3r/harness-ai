@@ -21,7 +21,7 @@ import yaml
 
 from app.config import Settings
 from app.services import provider_registry
-from tests._providers import providers_file
+from tests._providers import chains_file, provider_file, providers_file  # noqa: F401  (fixtures)
 
 ROOT = Path(__file__).resolve().parent.parent
 FEATURES = ROOT / "docs" / "features.md"
@@ -91,9 +91,14 @@ def test_every_recipe_block_loads_through_the_registry(tmp_path, monkeypatch):
 
 def test_example_registry_loads_with_only_the_insecure_http_warning(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.WARNING, logger=provider_registry.logger.name)
-    env = {"OPENROUTER_API_KEY": "dummy-not-a-key", "VLLM_API_KEY": "dummy-not-a-key"}
+    env = {
+        "OPENROUTER_API_KEY": "dummy-not-a-key",
+        "VLLM_API_KEY": "dummy-not-a-key",
+        "ANTHROPIC_API_KEY": "dummy-not-a-key",  # PRD-022 STORY-018: anthropic-direct's key_env
+    }
     with providers_file(tmp_path, _read(EXAMPLE), monkeypatch=monkeypatch, env=env) as reg:
-        assert {p.name for p in reg.providers} == {"openrouter", "ollama", "gpu-box"}
+        # PRD-022 STORY-018: anthropic-direct added to the example
+        assert {p.name for p in reg.providers} == {"openrouter", "ollama", "gpu-box", "anthropic-direct"}
         assert reg.default_model == "openai/gpt-4o"
         assert reg.models_by_id["lan/llama-3.1-70b"].roles == ("admin",)
     warnings = [
@@ -137,3 +142,54 @@ def test_env_example_and_readme_point_at_providers():
         above.append(ln)
     assert len(above) >= 3, "PROVIDERS_FILE= needs a comment block of at least three lines"
     assert "docs/features.md#providers" in _read(README)
+
+
+# --- PRD-022 STORY-018: the fallback and Anthropic section -----------------------------------------
+
+FALLBACK_HEADING = "Provider fallback and Anthropic"
+
+
+def test_fallback_section_yaml_blocks_load_through_the_real_loaders(provider_file, chains_file):  # noqa: F811
+    # PRD-022 STORY-018 (AC2): the registry block loads through provider_registry.load, then the
+    # chains block through chain_config.load against it. The section has exactly those two.
+    blocks = _yaml_blocks(_section(FEATURES, FALLBACK_HEADING))
+    assert len(blocks) == 2, "the section shows one registry block and one chains block"
+    registry_block, chains_block = blocks
+    env = {name: "dummy-not-a-key" for name in _key_envs(registry_block)}
+    registry = provider_file(registry_block, env=env)
+    assert next(p for p in registry.providers if p.name == "anthropic-direct").type == "anthropic"
+    snapshot = chains_file(chains_block)
+    chain = snapshot.chain_for("anthropic/claude-sonnet-4.6", None)
+    assert [c.model_id for c in chain.candidates] == [
+        "anthropic/claude-sonnet-4.6",
+        "anthropic-direct/claude-sonnet-4-6",
+    ]
+
+
+def test_fallback_docs_name_the_settings_surfaces_and_limits():
+    text = _section(FEATURES, FALLBACK_HEADING)
+    for name in (
+        "PROVIDER_CHAINS_FILE",
+        "PROVIDER_CHAIN_MAX_CANDIDATES",
+        "PROVIDER_CHAIN_DEADLINE_SECONDS",
+        "PROVIDER_MIN_ATTEMPT_SECONDS",
+    ):
+        assert name in text, name
+        assert name in Settings.model_fields, name  # also guards a renamed setting
+        assert f"| `{name}` |" in _read(CONFIGURATION), name
+    for needed in (
+        "X-Harness-Provider",
+        "request_id",
+        "/providers/status",
+        "allow_lower_trust",
+        "capability_scoped",
+        "default_max_tokens",
+        "never",  # refusals and deterministic 4xx never fall back (D8)
+        "first release",  # a stream falls back only before it
+        "Known limitations",
+    ):
+        assert needed in text, needed
+    api = _read(ROOT / "docs" / "api.md")
+    assert "### `GET /providers/status`" in api and "fallback_answers" in api
+    assert "upstream_unavailable" in api and "request_id" in api
+    assert "Provider outages" in _read(ROOT / "docs" / "deployment.md")

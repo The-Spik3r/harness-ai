@@ -18,3 +18,9 @@ chains:
     candidates:
       - model: openai/gpt-4o
       - model: anthropic/claude-3.5-sonnet   # external -> external, same capabilities
+
+  - match:
+      model: anthropic/claude-sonnet-4.6     # OpenRouter first, Anthropic direct when it is down
+    candidates:
+      - model: anthropic/claude-sonnet-4.6
+      - model: anthropic-direct/claude-sonnet-4-6   # external -> external: no opt-in needed

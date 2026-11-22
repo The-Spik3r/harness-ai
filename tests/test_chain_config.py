@@ -423,9 +423,19 @@ def test_snapshot_is_immutable(registry):
 def test_example_file_loads(provider_file, chains_file):  # noqa: F811
     root = Path(__file__).resolve().parents[1] / "examples"
     text = (root / "providers.yaml").read_text(encoding="utf-8")
-    registry = provider_file(text, env={"VLLM_API_KEY": "k"})
+    # PRD-022 STORY-018: the example now also has an `anthropic-direct` provider (key_env).
+    registry = provider_file(text, env={"VLLM_API_KEY": "k", "ANTHROPIC_API_KEY": "k"})
     snapshot = chains_file((root / "chains.yaml").read_text(encoding="utf-8"))
     assert snapshot is not None and snapshot.chains
+    # PRD-022 STORY-018 (F3): OpenRouter first, Anthropic direct second, no opt-in needed.
+    chain = snapshot.chain_for("anthropic/claude-sonnet-4.6", None)
+    assert [c.model_id for c in chain.candidates] == [
+        "anthropic/claude-sonnet-4.6",
+        "anthropic-direct/claude-sonnet-4-6",
+    ]
+    assert not any(c.allow_lower_trust for c in chain.candidates)
+    direct = next(p for p in registry.providers if p.name == "anthropic-direct")
+    assert direct.type == "anthropic"
     for chain in snapshot.chains.values():
         assert chain.candidates[0].model_id == chain.model
         assert all(c.model_id in registry.models_by_id for c in chain.candidates)

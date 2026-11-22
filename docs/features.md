@@ -573,13 +573,121 @@ providers:
 
 #### What it does not do
 
-- **No native Anthropic, Gemini or Bedrock adapter, and no fallback between providers.** A `type` other than `openai_compatible` is a startup error; those belong to PRD-022.
+- **No native Gemini or Bedrock adapter.** `type` is `openai_compatible` or `anthropic` (see [Provider fallback and Anthropic](#provider-fallback-and-anthropic)); any other value is a startup error. Fallback between providers is opt-in, with `PROVIDER_CHAINS_FILE`.
 - **No Azure OpenAI URL scheme or extra headers.**
 - **No hot reload.** Restart to change the file.
-- **No health probes** of providers.
+- **No active health probes** of providers: the breaker learns from real requests only.
 - **No per-provider cost or budgets.** Usage limits stay per user.
 - **No bring-your-own key on `/v1` or in the chat UI.**
 - **Upstream streaming is off by default.** The adapter's `stream()` and `collect()` are used only when `STREAMING_ENABLED=true` and the model has `capabilities.streaming: true`; with no `PROVIDERS_FILE` nothing streams, and the harness buffers every answer (see [Real-time delivery](#real-time-delivery)).
+
+### Provider fallback and Anthropic
+
+**What it is.** A model can have an ordered chain of fallback candidates. When the primary provider fails for a reason that a retry elsewhere can cure, the harness tries the next candidate, and the client gets one answer. A provider of `type: anthropic` speaks the Anthropic Messages API natively through the `anthropic` SDK, so Claude no longer has to go through an OpenAI-compatible hop. With `PROVIDER_CHAINS_FILE` empty (the default) none of this exists: every request has its one model and PRD-020/021 behaviour is unchanged, byte for byte.
+
+**Fallback never outranks the data boundary.** A candidate gets a prompt only if it passes the same checks as the primary, on every request: its trust is not lower than the primary's (or the entry says `allow_lower_trust: true`), the caller's role may use it, it has the capabilities the request needs, the caller's own key (`byok`) is allowed on it, and the redaction of its route does not break a limit. A candidate that fails a check is skipped with a reason, never called.
+
+#### An Anthropic provider
+
+```yaml
+version: 1
+default_model: openai/gpt-4o
+providers:
+  - name: openrouter
+    type: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    models:
+      - id: openai/gpt-4o
+        capabilities: {tools: true}
+      - id: anthropic/claude-sonnet-4.6
+        capabilities: {tools: true}
+  - name: anthropic-direct
+    type: anthropic
+    base_url: https://api.anthropic.com    # without /v1: the SDK adds it
+    key_env: ANTHROPIC_API_KEY
+    trust: external
+    models:
+      - id: anthropic-direct/claude-sonnet-4-6
+        upstream: claude-sonnet-4-6
+        default_max_tokens: 4096
+        prompt_cache: auto
+        capabilities: {tools: true, streaming: true, forced_tool_choice: true}
+```
+
+- `default_max_tokens` is **required** for `type: anthropic` (Messages needs `max_tokens`); a request's own `max_tokens` wins.
+- `prompt_cache` is `off` (default) or `auto`: one cache breakpoint at the end of the prompt. Cache reads and writes are counted on the audit row.
+- Two more capabilities exist, both off by default: `forced_tool_choice` (the model honours a forced `tool_choice`) and `sampling_params` (it accepts `temperature` and `top_p`). A request that needs one a model lacks is refused or skipped, not attempted.
+- **A system turn that is not the first message loses its position.** Anthropic takes one top-level `system`: every system turn is hoisted there and joined with a blank line.
+- The key is sent by the SDK; the file names the environment variable, never the key.
+
+#### The chains file
+
+[`examples/chains.yaml`](../examples/chains.yaml) is a working sample. It needs `PROVIDERS_FILE`, is read once at startup and has no hot reload. Each chain names a `match.model` (and optionally an `ingress`: `query`, `chat` or `v1`) and its `candidates`, in order.
+
+```yaml
+version: 1
+chains:
+  - match:
+      model: anthropic/claude-sonnet-4.6
+    candidates:
+      - model: anthropic/claude-sonnet-4.6            # entry 1 is always the match model
+      - model: anthropic-direct/claude-sonnet-4-6     # external -> external: no opt-in
+```
+
+An invalid file is a startup error naming the file, the chain, the entry and the rule. The rules:
+
+- Every id is catalogued in `PROVIDERS_FILE`, none repeats within a chain, and a `(model, ingress)` pair is configured once.
+- Entry 1 is the `match` model, and it cannot set `allow_lower_trust` or `capability_scoped`.
+- A chain has at most `PROVIDER_CHAIN_MAX_CANDIDATES` entries (default 3, primary included).
+- **Trust.** A candidate less trusted than the primary (internal to external) needs `allow_lower_trust: true` on that entry, and logs a WARNING at startup. It sends the prompt to a third party.
+- **Capabilities.** A candidate must have every capability the primary has (`tools`, `streaming`, `reasoning`, `forced_tool_choice`), or the entry sets `capability_scoped: true`. A scoped candidate is used only for requests that do not need what it lacks; otherwise it is skipped with reason `capability`.
+- `PROVIDER_MIN_ATTEMPT_SECONDS` must be below the chain deadline.
+
+**Also checked per request.** RBAC runs for every candidate (a role that may use the primary but not the fallback skips it as `forbidden`), the caller's own key is used only on a `byok: true` provider (otherwise `byok`), and PII redaction runs per candidate by that route's provider (`pii: relaxed` applies to it alone), so a `code`-profile size limit can skip one candidate (`redaction_limit`).
+
+#### What falls back
+
+The decision uses the failure's `kind`, never its text.
+
+| Failure | Falls back |
+|---|---|
+| Timeout, connection error, upstream `5xx` or `429` (`timeout`, `transport`, `status`) | Yes |
+| The provider rejects its own key or account, or has no key set (`misconfigured`: a `401` from any provider, a `403` from an Anthropic one) | Yes, and that provider's breaker opens for 5 minutes at once |
+| A refusal, any other `4xx`, an unreadable reply (`shape`), a request the adapter cannot represent (`incompatible`) | **Never**: another provider would give the same answer or a different data boundary |
+| After the first byte of an answer reached the client | **Never**: a stream falls back only before its first release (see [Real-time delivery](#real-time-delivery)) |
+
+At most `PROVIDER_CHAIN_MAX_CANDIDATES` candidates are tried, within `PROVIDER_CHAIN_DEADLINE_SECONDS` in total (unset: the primary's `timeout_seconds`). A further attempt starts only with `PROVIDER_MIN_ATTEMPT_SECONDS` left.
+
+#### The breaker
+
+Each provider has a circuit breaker, **per process** (so per instance behind the balancer): five consecutive eligible failures open it for 10 s, then one real request is the probe. A `429` keeps it open for the longer of the provider's `Retry-After` and 10 s. These are constants, with no setting. An open breaker skips the provider at once (reason `open`, or `half_open_busy` while the probe is in flight), with no call to it. `GET /providers/status` shows it (see [the API](api.md#get-providersstatus-requires-statsread)).
+
+#### What the client and the operator see
+
+- **Buffered `/v1` answers** carry `harness.provider` and `harness.attempts` in the body and an `X-Harness-Provider` header; `model` is the id that answered. A stream carries only `model` (the header is sent before the answer is known).
+- **`/query`** returns the answering model in `model_used`.
+- **The audit log** has one row per attempt, joined by `request_id`, with `attempt`, `route_model` (the catalogue id of that attempt), `fallback_reason` (the failure that caused this attempt, such as `status_503`), `skipped_providers` (`provider:reason` pairs), and `cache_read_tokens` / `cache_write_tokens`. `GET /audit?request_id=` lists a request's attempts. Rows hold kinds and counts only: never a prompt, an answer or a key.
+- **The admin console** has a Providers page (`/admin/providers`, admin token like Storage) and an `attempt` column in the Register. Its `request_id` search covers the loaded window only.
+- **When nothing can answer**, `/v1` returns `502`: `upstream_unavailable` (retryable, with `Retry-After` when a breaker will heal) or, when every skip was a `capability`, `forbidden` or `byok` one and nothing was attempted, `upstream_error` ("no provider can serve this request: ...", not retryable, `x-should-retry: false`). `/query` returns `502 all providers unavailable`. See [the errors table](api.md#post-v1chatcompletions--errors).
+
+#### What it costs
+
+Off, it costs nothing: step 7 makes the same single call. On, the chain adds a lookup and a breaker read per request. Measured with `scripts/measure_v1_latency.py --runs 200 --pii off`, three alternating runs on the tree before PRD-022 and on this one, no chains configured: the DB-free translation p95 is **0.06 ms** (median of three) against 0.08 ms before, and the end-to-end `POST /query` p95 is 818.8 ms against 830.1 ms. **The 0.5 ms target for the added cost could not be resolved end to end**: on that host every request took about 760 ms (five database round trips) and the p95 moved by up to 22 ms between runs of the same tree, forty times the bound. What the figures show is that no regression is visible above that noise, and that the pure part, translation, did not grow. They say nothing finer than that.
+
+#### Known limitations
+
+Seven behaviours could not be checked offline against the real Anthropic API; each has a safe default:
+
+- `tool_use.id` must match `^[a-zA-Z0-9_-]+$` (the API's rule, not the SDK's). Ids pass through unchanged; a provider `400` is a clear non-fallback `upstream_error`.
+- Whether thinking is accepted without prior thinking history is unchecked: `thinking` is sent only for a `reasoning` route, and a `400` does not fall back.
+- Summarized thinking may be empty on some models: empty reasoning is treated as valid.
+- What OpenRouter's `403` means (key or policy) is unchecked: a `403` from an `openai_compatible` provider never falls back.
+- Whether the OpenAI SDK honours `retry-after` on a `502` is not relied upon; the harness reads the header itself.
+- Gemini's OpenAI compatibility is not verified: use an `openai_compatible` provider with a declared capability set, and an undeclared feature is refused, not attempted.
+- The SDK sends `Authorization: Bearer <key>` where the PRD said `x-api-key`; if the live API rejects it, that is a `401` (`misconfigured`): the request falls back and the provider's breaker opens for 5 minutes.
+
+Not built: a native Gemini or Bedrock adapter, hot reload of either file, active health probes, and cost-aware or latency-aware routing.
 
 ### Action policy rules
 

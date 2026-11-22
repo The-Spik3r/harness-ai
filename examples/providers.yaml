@@ -15,6 +15,8 @@ providers:
         capabilities: {tools: true, max_context_tokens: 128000}
       - id: anthropic/claude-3.5-sonnet
         capabilities: {tools: true}
+      - id: anthropic/claude-sonnet-4.6      # PRD-022: the chain primary in chains.yaml
+        capabilities: {tools: true}
 
   - name: ollama
     type: openai_compatible
@@ -40,3 +42,15 @@ providers:
       - id: lan/llama-3.1-70b
         upstream: meta-llama/Llama-3.1-70B-Instruct
         roles: [admin]                     # overrides the provider's roles
+
+  - name: anthropic-direct             # PRD-022: native Anthropic Messages adapter
+    type: anthropic                    # base_url without /v1: the SDK adds it
+    base_url: https://api.anthropic.com
+    key_env: ANTHROPIC_API_KEY
+    trust: external
+    models:
+      - id: anthropic-direct/claude-sonnet-4-6
+        upstream: claude-sonnet-4-6
+        default_max_tokens: 4096           # required for type: anthropic (Messages needs max_tokens)
+        prompt_cache: auto                 # off (default) | auto: one cache breakpoint at the end
+        capabilities: {tools: true, streaming: true, forced_tool_choice: true}
