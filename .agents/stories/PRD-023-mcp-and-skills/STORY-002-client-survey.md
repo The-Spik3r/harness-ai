@@ -12,7 +12,7 @@ labels: [spike, mcp, clients]
 epic_branch: epic/PRD-023-mcp-and-skills
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-002-client-survey.plan.md
 report: .agents/reports/PRD-023-mcp-and-skills/STORY-002-client-survey.report.md
-commit: null
+commit: 4bff962
 depends_on: []
 blocks: [STORY-016, STORY-020]
 skills: []

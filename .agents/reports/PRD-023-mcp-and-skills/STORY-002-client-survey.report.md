@@ -3,7 +3,7 @@ story: STORY-002
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-002-client-survey.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 4bff962
 status: COMPLETE
 completed: 2026-11-22
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-22
 
 **Plan**: `.agents/plans/PRD-023-mcp-and-skills/completed/STORY-002-client-survey.plan.md`
 **Epic Branch**: `epic/PRD-023-mcp-and-skills`
-**Commit**: `pending`
+**Commit**: `4bff962`
 
 ## Summary
 
