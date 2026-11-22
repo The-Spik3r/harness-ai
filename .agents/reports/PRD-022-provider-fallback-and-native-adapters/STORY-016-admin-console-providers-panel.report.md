@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-016-admin-console-providers-panel.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: e66befa
 status: COMPLETE
 completed: 2026-11-20
 ---
