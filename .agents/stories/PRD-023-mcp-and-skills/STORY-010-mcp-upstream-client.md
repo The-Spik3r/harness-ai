@@ -36,6 +36,13 @@ As a platform operator, I want the harness to be the MCP client of record for ea
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-003, `mcp==2.3.0`): facts proved in `tests/test_prd023_mcp_sdk_facts.py`, so reuse them and do not re-derive them:
+  - Imports: `from mcp import ClientSession` and `from mcp.client.streamable_http import streamable_http_client`, which yields 2 streams. Pass static headers through `http_client=httpx2.AsyncClient(headers=...)`. `httpx2` is transitive (via `anthropic` and `mcp`), may be imported only by `mcp_upstream.py`, and gets no pin of its own.
+  - Per-call timeout: `call_tool(..., read_timeout_seconds=...)` raises `MCPError` code `-32001`, and the SDK sends `notifications/cancelled` itself. Map it to `outcome='timeout'`.
+  - Redirects: cross-origin and same-origin 301/302 are not followed; same-origin 307/308 are (accepted for T8).
+  - Sampling with no callback: the SDK answers `-32600` (accepted for T12). Never register sampling/roots/elicitation callbacks, and never use `mcp.Client`, which auto-answers.
+  - `input_required`: on a handshake session it surfaces as a pydantic `ValidationError`, and on a modern session as a `RuntimeError` (or `InputRequiredResult` with `allow_input_required=True`, which must not be set). Map all of these to `upstream_error`.
+  - Negotiate with `initialize` (the handshake era). A modern-only upstream server is not verified; it is a stated limitation.
 - Orchestrator decision (STORY-001): T10 amended. After an unknown-session `404` the harness re-initializes for the *next* call and never replays a forwarded `tools/call`, so the AC's 'retries that call only in that case' is superseded: no forwarded call is ever retried. An upstream `resultType: "input_required"` is refused as `upstream_error` and never answered (T12, amended).
 - The only module importing `mcp`. Return types the gateway needs without importing `mcp` elsewhere (e.g. plain dicts or a small local dataclass).
 - Event loop: check how the app runs async code (FastAPI handlers vs sync pipeline) and keep SDK task groups contained per call/session; the Reflex mount bypasses app lifespans (PRD-007).

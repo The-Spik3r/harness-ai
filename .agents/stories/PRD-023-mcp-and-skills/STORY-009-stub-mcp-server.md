@@ -35,6 +35,7 @@ As a developer of the gateway, I want a scripted Streamable HTTP MCP server run 
 
 ## Technical Notes
 
+- Orchestrator decision (STORY-003, `mcp==2.3.0`): the server class is `mcp.server.mcpserver.MCPServer`; `FastMCP` was its 1.x name. `tests/test_prd023_mcp_sdk_facts.py` shows a working server under `uvicorn` in a thread, with a deadline loop and `should_exit` plus `join`. Reuse that pattern, but run the stub as a **subprocess**, as the AC says. The `sampling` trigger must send a real server-to-client `sampling/createMessage`. With no client callback, the harness's answer is `-32600` (accepted for T12).
 - Test infrastructure only; may import `mcp.server` (the import-graph rule applies to `app/` only).
 - Look at the existing stub upstream used by PRD-017/021 tests for the subprocess fixture pattern.
 - Support enough pages in `tools/list` to test `nextCursor` pagination (STORY-010), e.g. a configurable page size.
