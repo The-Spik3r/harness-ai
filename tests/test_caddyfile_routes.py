@@ -44,6 +44,9 @@ EXPECTED_MATCHER = (
     # PRD-018 STORY-012 (F8): GET /storage/status; exact token, so a near-miss
     # such as /storage/statusx still reaches the static server.
     "/storage/status",
+    # PRD-022 STORY-015 (F9): GET /providers/status; exact token, so a
+    # near-miss such as /providers/statusx stays static.
+    "/providers/status",
     # PRD-019 STORY-002: GET /ready (readiness probe); exact token, so a
     # near-miss such as /readyx stays static.
     "/ready",

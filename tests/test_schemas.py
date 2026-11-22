@@ -303,6 +303,11 @@ def test_stats_response_shape():
         "actions_denied": 0,
         "actions_flagged": 0,
         "actions_allowed": 0,
+        # PRD-022 F9 (STORY-015): additive /stats-only fallback figures,
+        # defaulted to 0 / [].
+        "fallback_answers": 0,
+        "failed_attempts": 0,
+        "answers_by_provider": [],
     }
 
 
