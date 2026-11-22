@@ -3,7 +3,7 @@ story: STORY-001
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-001-mcp-protocol-spike.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 7e64933
 status: COMPLETE
 completed: 2026-11-22
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-22
 
 **Plan**: `.agents/plans/PRD-023-mcp-and-skills/completed/STORY-001-mcp-protocol-spike.plan.md`
 **Epic Branch**: `epic/PRD-023-mcp-and-skills`
-**Commit**: `pending` (filled by the follow-up chore commit)
+**Commit**: `7e64933`
 
 ## Summary
 

@@ -12,7 +12,7 @@ labels: [spike, mcp, security]
 epic_branch: epic/PRD-023-mcp-and-skills
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-001-mcp-protocol-spike.plan.md
 report: .agents/reports/PRD-023-mcp-and-skills/STORY-001-mcp-protocol-spike.report.md
-commit: pending
+commit: 7e64933
 depends_on: []
 blocks: [STORY-003, STORY-004, STORY-005, STORY-008]
 skills: []
