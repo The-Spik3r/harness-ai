@@ -117,6 +117,48 @@ def _split_comma_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+_MCP_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _normalize_mcp_origin(entry: str) -> str:
+    """One MCP_ALLOWED_ORIGINS entry as `scheme://host[:port]` (PRD-023 Section 9.3).
+
+    Lowercased, no trailing slash, default port dropped. A path, wildcard,
+    missing or non-http(s) scheme, query, fragment or userinfo raises
+    ValueError naming the setting and the entry."""
+    example = "Example: MCP_ALLOWED_ORIGINS=https://app.example.com,http://localhost:3000."
+
+    def refuse(rule: str) -> ValueError:
+        return ValueError(
+            f"MCP_ALLOWED_ORIGINS entry {entry!r} is not a bare origin: {rule}. {example}"
+        )
+
+    if "*" in entry:
+        raise refuse("wildcards are not allowed")
+    try:
+        parts = urlsplit(entry)
+        port = parts.port
+        host = parts.hostname
+    except ValueError as exc:
+        raise refuse("it is not a valid URL or its port is invalid") from exc
+    scheme = parts.scheme.lower()
+    if scheme not in _MCP_DEFAULT_PORTS:
+        raise refuse("the scheme must be http or https")
+    if not host:
+        raise refuse("a host is required")
+    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        raise refuse("credentials are not allowed")
+    if parts.path not in ("", "/"):
+        raise refuse("a path is not allowed")
+    if parts.query or parts.fragment or "?" in entry or "#" in entry:
+        raise refuse("a query or fragment is not allowed")
+    if ":" in host:
+        host = f"[{host}]"
+    if port is not None and port != _MCP_DEFAULT_PORTS[scheme]:
+        return f"{scheme}://{host}:{port}"
+    return f"{scheme}://{host}"
+
+
 def _parse_limit_map(setting: str, value: str) -> dict[str, Optional[int]]:
     """A `role=value` limit map as `{role: limit}`, `None` meaning unlimited (PRD-013).
 
@@ -407,6 +449,20 @@ class Settings(BaseSettings):
     STREAMING_ENABLED: bool = False
     STREAM_HOLDBACK_MAX_CHARACTERS: int = 400
     STREAM_COALESCE_MS: int = 50
+
+    # MCP gateway (PRD-023 Section 9.3). Read per request by callers; settings
+    # never opens the file (mcp_config.load() does, STORY-007, and owns the
+    # "enabled needs a file" check). MCP_ALLOWED_ORIGINS is kept as the raw
+    # comma list and read through mcp_allowed_origins.
+    MCP_ENABLED: bool = False
+    MCP_CONFIG_FILE: str = ""
+    MCP_CALL_TIMEOUT_SECONDS: int = 60
+    MCP_MAX_REQUEST_BYTES: int = 1048576
+    MCP_MAX_RESULT_BYTES: int = 1048576
+    MCP_TOOLS_CACHE_SECONDS: int = 60
+    MCP_UPSTREAM_SESSION_IDLE_SECONDS: int = 300
+    MCP_LINK_WINDOW_SECONDS: int = 300
+    MCP_ALLOWED_ORIGINS: str = ""
 
     # Tool calling on /v1 (PRD-017 Section 4, 9.3). The `/v1` router reads
     # both per request and passes them to the translator (STORY-008); step 7c
@@ -835,6 +891,93 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("MCP_CALL_TIMEOUT_SECONDS")
+    @classmethod
+    def _validate_mcp_call_timeout_seconds(cls, value: int) -> int:
+        """Within [1, 600], or a startup error (PRD-023 Section 9.3)."""
+        if not 1 <= value <= 600:
+            raise ValueError(
+                f"MCP_CALL_TIMEOUT_SECONDS must be between 1 and 600, got {value}. "
+                "It is the seconds the gateway waits for an upstream MCP server "
+                "to answer one tool call. Example: MCP_CALL_TIMEOUT_SECONDS=60."
+            )
+        return value
+
+    @field_validator("MCP_MAX_REQUEST_BYTES")
+    @classmethod
+    def _validate_mcp_max_request_bytes(cls, value: int) -> int:
+        """At least 1024, or a startup error (PRD-023 Section 9.3)."""
+        if value < 1024:
+            raise ValueError(
+                f"MCP_MAX_REQUEST_BYTES must be at least 1024, got {value}. "
+                "It caps the size in bytes of one request body sent to /mcp. "
+                "Example: MCP_MAX_REQUEST_BYTES=1048576."
+            )
+        return value
+
+    @field_validator("MCP_MAX_RESULT_BYTES")
+    @classmethod
+    def _validate_mcp_max_result_bytes(cls, value: int) -> int:
+        """At least 1024, or a startup error (PRD-023 Section 9.3)."""
+        if value < 1024:
+            raise ValueError(
+                f"MCP_MAX_RESULT_BYTES must be at least 1024, got {value}. "
+                "It caps the size in bytes of one upstream tool result the "
+                "gateway returns. Example: MCP_MAX_RESULT_BYTES=1048576."
+            )
+        return value
+
+    @field_validator("MCP_TOOLS_CACHE_SECONDS")
+    @classmethod
+    def _validate_mcp_tools_cache_seconds(cls, value: int) -> int:
+        """Within [0, 86400], or a startup error (PRD-023 Section 9.3)."""
+        if not 0 <= value <= 86400:
+            raise ValueError(
+                f"MCP_TOOLS_CACHE_SECONDS must be between 0 and 86400, got {value}. "
+                "It is the seconds an upstream tool list is cached; 0 disables "
+                "the cache. Example: MCP_TOOLS_CACHE_SECONDS=60."
+            )
+        return value
+
+    @field_validator("MCP_UPSTREAM_SESSION_IDLE_SECONDS")
+    @classmethod
+    def _validate_mcp_upstream_session_idle_seconds(cls, value: int) -> int:
+        """At least 10, or a startup error (PRD-023 Section 9.3)."""
+        if value < 10:
+            raise ValueError(
+                f"MCP_UPSTREAM_SESSION_IDLE_SECONDS must be at least 10, got {value}. "
+                "It is the idle seconds after which an upstream MCP session is "
+                "closed. Example: MCP_UPSTREAM_SESSION_IDLE_SECONDS=300."
+            )
+        return value
+
+    @field_validator("MCP_LINK_WINDOW_SECONDS")
+    @classmethod
+    def _validate_mcp_link_window_seconds(cls, value: int) -> int:
+        """Within [0, 86400], or a startup error (PRD-023 Section 9.3)."""
+        if not 0 <= value <= 86400:
+            raise ValueError(
+                f"MCP_LINK_WINDOW_SECONDS must be between 0 and 86400, got {value}. "
+                "It is the seconds within which a tool call is linked to the "
+                "request that preceded it; 0 disables linking. "
+                "Example: MCP_LINK_WINDOW_SECONDS=300."
+            )
+        return value
+
+    @field_validator("MCP_ALLOWED_ORIGINS")
+    @classmethod
+    def _validate_mcp_allowed_origins(cls, value: str) -> str:
+        """Every entry is a bare origin, or a startup error (PRD-023 Section 9.3).
+
+        Entries are normalized to `scheme://host[:port]`: lowercase, no
+        trailing slash, no path. A default port (`:80` on http, `:443` on
+        https) is dropped, because a browser serializes `Origin` without it
+        and an entry that kept it could never match. Returns the raw string;
+        `mcp_allowed_origins` returns the normalized, de-duplicated tuple."""
+        for entry in _split_comma_list(value):
+            _normalize_mcp_origin(entry)
+        return value
+
     @model_validator(mode="after")
     def _validate_openrouter_api_key_required(self) -> "Settings":
         """OPENROUTER_API_KEY is required without a registry file (PRD-020 Section 9.3, D1).
@@ -965,6 +1108,12 @@ class Settings(BaseSettings):
     @property
     def v1_tool_models_list(self) -> list[str]:
         return _split_comma_list(self.V1_TOOL_MODELS)
+
+    @property
+    def mcp_allowed_origins(self) -> tuple[str, ...]:
+        """MCP_ALLOWED_ORIGINS normalized, duplicates dropped, order kept."""
+        origins = (_normalize_mcp_origin(e) for e in _split_comma_list(self.MCP_ALLOWED_ORIGINS))
+        return tuple(dict.fromkeys(origins))
 
 
 settings = Settings()

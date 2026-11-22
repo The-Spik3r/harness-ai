@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,6 +57,30 @@ STREAM_PERMISSIONS = frozenset(
     }
 )
 
+# MCP gateway permissions (PRD-023 Section 4, O1, D6). `mcp:connect` lets a
+# role use the `/mcp` gateway; the built-in `admin` and `user` hold it, so the
+# gateway works out of the box for the roles that already submit queries.
+# `skill:<id>` is a dynamic family, one permission per skill, never listed in
+# _KNOWN_PERMISSIONS: load() accepts it by pattern, and whether the skill
+# exists is mcp_config.load()'s check (STORY-007). No built-in role holds any
+# `skill:*` (D6). Always read with holds(), never authorize(): authorize()
+# returns at once with RBAC off and would show every skill to every caller.
+PERMISSION_MCP_CONNECT = "mcp:connect"
+
+MCP_PERMISSIONS = frozenset({PERMISSION_MCP_CONNECT})
+
+_SKILL_PERMISSION = re.compile(r"skill:[a-z0-9][a-z0-9-]{0,47}")
+
+
+def is_skill_permission(permission: object) -> bool:
+    """Whether `permission` is a well-formed `skill:<id>` (PRD-023 D6).
+
+    A full match of one pattern (not `^...$`, whose `$` also matches before a
+    trailing newline). Says nothing about whether the skill exists:
+    mcp_config.load() checks that (STORY-007)."""
+    return isinstance(permission, str) and _SKILL_PERMISSION.fullmatch(permission) is not None
+
+
 _KNOWN_PERMISSIONS = {
     PERMISSION_QUERY_SUBMIT,
     PERMISSION_QUERY_BYOK,
@@ -67,6 +92,8 @@ _KNOWN_PERMISSIONS = {
     *ACTION_PERMISSIONS,
     # Known, so RBAC_ROLES_FILE can grant them (PRD-021 D1).
     *STREAM_PERMISSIONS,
+    # Known, so RBAC_ROLES_FILE can grant it (PRD-023 O1).
+    *MCP_PERMISSIONS,
 }
 
 # Role -> permission matrix (PRD-005 Section 7). A policy table, not
@@ -77,6 +104,8 @@ _KNOWN_PERMISSIONS = {
 # administering the harness (PRD-016 D6). Likewise no built-in role holds
 # `stream:realtime` or `reasoning:view`: who may read unfinished model output
 # is a deployment decision, granted only through RBAC_ROLES_FILE (PRD-021 D1).
+# `admin` and `user` hold `mcp:connect`; `auditor` does not, and no built-in
+# role holds any `skill:*` (PRD-023 O1, D6).
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {
         PERMISSION_QUERY_SUBMIT,
@@ -84,6 +113,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         PERMISSION_AUDIT_READ_ALL,
         PERMISSION_AUDIT_READ_OWN,
         PERMISSION_STATS_READ,
+        PERMISSION_MCP_CONNECT,
     },
     "auditor": {
         PERMISSION_AUDIT_READ_ALL,
@@ -93,6 +123,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "user": {
         PERMISSION_QUERY_SUBMIT,
         PERMISSION_AUDIT_READ_OWN,
+        PERMISSION_MCP_CONNECT,
     },
 }
 
@@ -112,7 +143,8 @@ class PermissionDenied(Exception):
 
 class AuthzConfigError(Exception):
     """Raised by load() when RBAC_ROLES_FILE is set but unreadable,
-    malformed, or grants an unrecognized permission. Startup fails rather
+    malformed, grants an unrecognized permission, or grants a malformed
+    `skill:<id>` permission (PRD-023 D6). Startup fails rather
     than silently falling back to the built-in matrix (STORY-007)."""
 
 
@@ -139,7 +171,24 @@ def load() -> None:
     except (json.JSONDecodeError, AttributeError, TypeError) as exc:
         raise AuthzConfigError(f"Failed to parse RBAC_ROLES_FILE '{path_str}': {exc}") from exc
 
-    granted = {permission for permissions in matrix.values() for permission in permissions}
+    # `skill:<id>` is a dynamic family (PRD-023 D6): a malformed one names the
+    # role and the rule; a well-formed one skips the unknown check below.
+    for role in sorted(matrix):
+        for permission in sorted(matrix[role], key=str):
+            if isinstance(permission, str) and permission.startswith("skill:"):
+                if not is_skill_permission(permission):
+                    raise AuthzConfigError(
+                        f"RBAC_ROLES_FILE '{path_str}' role '{role}' grants invalid "
+                        f"permission '{permission}': a skill permission must match "
+                        "skill:[a-z0-9][a-z0-9-]{0,47} (PRD-023 D6)"
+                    )
+
+    granted = {
+        permission
+        for permissions in matrix.values()
+        for permission in permissions
+        if not is_skill_permission(permission)
+    }
     unknown = sorted(granted - _KNOWN_PERMISSIONS)
     if unknown:
         raise AuthzConfigError(
@@ -204,6 +253,7 @@ def holds(identity: Identity, permission: str) -> bool:
     nothing. Returns a bool rather than raising because the caller
     (action_policy.evaluate(), STORY-014) chooses between a rule's grant and
     its default; a missing grant is not an error. authorize() is unchanged.
+    Also the reader for `skill:<id>` visibility (PRD-023 D6).
     """
     return permission in ROLE_PERMISSIONS.get(identity.role, ())
 
