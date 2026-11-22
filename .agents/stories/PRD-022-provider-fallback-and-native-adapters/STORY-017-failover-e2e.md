@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Observability, streaming, docs"
-status: todo
+status: done
 labels: [testing, e2e]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-017-failover-e2e.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-017-failover-e2e.report.md
+commit: c6a39a6
 depends_on: [STORY-008, STORY-013, STORY-014, STORY-015]
 blocks: [STORY-018]
 skills: []

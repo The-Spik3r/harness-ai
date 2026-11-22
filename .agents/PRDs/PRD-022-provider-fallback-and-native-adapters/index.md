@@ -6,7 +6,7 @@
 
 ## Progress
 
-16/18 stories done — 89%
+17/18 stories done — 94%
 
 ## Stories
 
@@ -30,7 +30,7 @@ All stories commit on the epic branch `epic/PRD-022-provider-fallback-and-native
 | STORY-014 | Real-time streamed requests through the chain — fall back before release, never after | feature | ✅ done | large | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-014-streaming-fallback-window.plan.md) | `257443` |
 | STORY-015 | GET /providers/status and the /stats fallback figures | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-015-providers-status-and-stats.plan.md) | `688304a` |
 | STORY-016 | Admin console — Providers panel and attempt column on the Register | feature | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-016-admin-console-providers-panel.plan.md) | `e66befa` |
-| STORY-017 | E2E — OpenRouter killed, Anthropic answers a tools request, breaker opens, status reports it | technical | ⬜ todo | medium | — | — |
+| STORY-017 | E2E — OpenRouter killed, Anthropic answers a tools request, breaker opens, status reports it | technical | ✅ done | medium | [plan](../../plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-017-failover-e2e.plan.md) | `c6a39a6` |
 | STORY-018 | Docs, example chains/providers files, latency check, PRD done | technical | ⬜ todo | small | — | — |
 
 ## Status Icons
