@@ -10,6 +10,8 @@ These are the scripts for `scripts/stub_openrouter.py`. The stub is a scripted s
 
 `cline_realtime.json` (PRD-021 STORY-015) scripts Cline's real-time scenarios, every reply carrying a `stream` shape (6 to 8 characters per delta, 60 ms apart). The scenario is picked from the system prompt's working directory, as in `cline.json`: `e2e021-015-cline-text` gets text plus a `submit_and_exit`, `e2e021-015-cline-reason` the same with a `stream.reasoning` carrying `@SENTINEL@` (rendered by `tests/e2e/_cline_realtime.py`), and `e2e021-015-cline-drop` a `run_commands` of `sqlite3 app.db "DROP TABLE users"` that the harness denies; the follow-up (last assistant turn holds the harness note) gets a `submit_and_exit`. Every path ends in `submit_and_exit`, which `opaque_tools` allows and the harness releases whole.
 
+`failover_openrouter.json` and `failover_anthropic.json` (PRD-022 STORY-017) are the two stubs of `tests/e2e/test_failover.py`. The first has only a `default` that fails every request with 503 (OpenRouter down, Chat mode). The second (Messages mode, Anthropic) answers a `bash` tool call running `npm test` with explicit `usage`, unless the prompt contains `total outage`, when it fails 503 too.
+
 `aider.json` answers Aider's edit request with a SEARCH/REPLACE block in the `diff` edit format, and Aider's separate commit-message request (its user turn always contains `# Diffs:`) with a fixed sentence. The commit-message rule comes first, because that request also quotes the edit request.
 
 `continue.json` answers Continue's chat prompt with a fixed sentence, and its slow prompt with another after a 20 s delay, so the harness sends SSE keep-alives before the answer. Continue's CLI makes one request per prompt, so there is no second rule.

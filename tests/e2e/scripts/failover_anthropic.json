@@ -1,0 +1,11 @@
+{
+  "default": {
+    "tool_calls": [
+      {"id": "toolu_failover_bash", "name": "bash", "arguments": "{\"command\":\"npm test\"}"}
+    ],
+    "usage": {"prompt_tokens": 21, "completion_tokens": 9}
+  },
+  "rules": [
+    {"contains": "total outage", "fail_status": 503}
+  ]
+}
