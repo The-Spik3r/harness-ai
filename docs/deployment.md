@@ -128,6 +128,18 @@ The image is built with `PORT`, and the in-image routing listens on it. Over pla
 
 **Security.** `docker compose config` prints the values from `.env`, including `TURSO_AUTH_TOKEN` and `ADMIN_TOKEN`: do not paste its output into a ticket or a chat.
 
+### Provider outages
+
+With [fallback chains](features.md#provider-fallback-and-anthropic) configured, an upstream provider outage degrades a request instead of failing it: the next candidate of the chain answers. This is the provider-side counterpart of the database section below; the two do not share state.
+
+- **The breaker is per provider and per process.** Five consecutive eligible failures open it for 10 s (300 s when the provider rejects its own key). With several instances behind the balancer, each learns on its own and each reports its own `GET /providers/status`. There is no setting for the thresholds.
+- **Watch it with `GET /providers/status`** (`stats:read`, so the `ADMIN_TOKEN` works). It reads memory only, with no database read and no upstream call, so it answers during a database outage too. Caddy proxies it to the API (`Caddyfile`, `@backend_routes`). The admin console shows the same at `/admin/providers`.
+- **When every candidate is down**, clients get a retryable `502` with `Retry-After` (see [the errors table](api.md#post-v1chatcompletions--errors)), not a `5xx` after the full timeout of each provider: a breaker that is open is skipped without a call. `PROVIDER_CHAIN_DEADLINE_SECONDS` bounds the time across attempts.
+- **The chains file is read at startup.** Restart (or do a [rolling restart](#multiple-instances)) to change it. An invalid file stops the API and the chat UI.
+- **A stream that has started is not retried.** Fallback happens only before the first byte reaches the client.
+
+Deploy checklist: set `PROVIDERS_FILE` and `PROVIDER_CHAINS_FILE`; export each provider's `key_env` (for Anthropic, `ANTHROPIC_API_KEY`) to every instance; start the API and read the startup log for the `allow_lower_trust` WARNINGs; then `curl /providers/status` and check every provider is `closed`.
+
 ### What a database outage does
 
 With the local file gone, every `POST /query` makes network round trips it never used to. With [usage limits](features.md#usage-limits) on, the default, there are five statements per request — the identity read, the usage gate, the duplicate check, the usage charge and the audit write — about 16 ms of it (p50, same-host dev server) for the two usage statements; with `USAGE_LIMITS_ENABLED=false` there are three. This section says what the harness does when one of them fails (PRD-018). The short version: a blip is ridden out with a retry, a sustained outage is refused fast with a `503` and a `Retry-After`, and the one write that can be postponed, the audit row, goes to a local journal and is drained when the database is back. **No gate ever answers from a cache, the journal or a guess.**

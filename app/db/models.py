@@ -45,7 +45,14 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     streamed_realtime INTEGER NOT NULL DEFAULT 0,
     reasoning_shown INTEGER NOT NULL DEFAULT 0,
     stream_redaction_divergence INTEGER NOT NULL DEFAULT 0,
-    completion_id TEXT
+    completion_id TEXT,
+    request_id TEXT,
+    attempt INTEGER,
+    route_model TEXT,
+    fallback_reason TEXT,
+    skipped_providers TEXT,
+    cache_read_tokens INTEGER,
+    cache_write_tokens INTEGER
 )
 """
 
@@ -176,6 +183,21 @@ AUDIT_LOGS_ADDED_COLUMNS = {
     "reasoning_shown": "INTEGER NOT NULL DEFAULT 0",
     "stream_redaction_divergence": "INTEGER NOT NULL DEFAULT 0",
     "completion_id": "TEXT",
+    # PRD-022 STORY-003 (F8, D10). The request's own id and its attempt trail.
+    # All nullable with no default and no backfill: NULL is the truth of every
+    # row written before PRD-022. `request_id` is one uuid4 per call, shared by
+    # every row the call writes. `attempt` and `route_model` are set on rows
+    # written at or after step 7 (attempt 1, the requested catalogue id).
+    # `fallback_reason` (a closed `kind`) and `skipped_providers` (a
+    # comma-joined provider list) are written by the chain (later stories).
+    # `cache_read_tokens` / `cache_write_tokens` are counts, never text.
+    "request_id": "TEXT",
+    "attempt": "INTEGER",
+    "route_model": "TEXT",
+    "fallback_reason": "TEXT",
+    "skipped_providers": "TEXT",
+    "cache_read_tokens": "INTEGER",
+    "cache_write_tokens": "INTEGER",
 }
 
 # The duplicate lookup's access path exactly (PRD-009 Section 6.3): equality on
@@ -567,6 +589,15 @@ class AuditLog:
     reasoning_shown: bool = False
     stream_redaction_divergence: bool = False
     completion_id: Optional[str] = None
+    # PRD-022 STORY-003 (F8, D10). Declared after completion_id to mirror the
+    # table; every default is the truth of a row written before PRD-022.
+    request_id: Optional[str] = None
+    attempt: Optional[int] = None
+    route_model: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    skipped_providers: Optional[str] = None
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
     id: Optional[int] = None
 
 

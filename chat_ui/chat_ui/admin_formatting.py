@@ -30,6 +30,7 @@ from app.db.models import ActionDecisionRow, AuditLog, UsageDay
 
 if TYPE_CHECKING:  # annotation only: the console imports read functions by name
     from app.db.database import StorageStatus
+    from app.services.upstream.health import ProvidersStatus
 
 # By name, never the module: `usage_limits` also holds the counter writers
 # (`admit`, `charge`), and the console must not be able to reach them
@@ -40,6 +41,18 @@ from app.services.usage_limits import limits_for
 from .admin_copy import (
     DETAIL_FLAG_NO_LABEL,
     DETAIL_FLAG_YES_LABEL,
+    PROVIDERS_CAPTION_TEMPLATE,
+    PROVIDERS_LABEL_BREAKER_OPENS,
+    PROVIDERS_LABEL_FAILURES,
+    PROVIDERS_LABEL_FALLBACK_ANSWERS,
+    PROVIDERS_LABEL_LAST_FAILURE,
+    PROVIDERS_LABEL_RETRY_AFTER,
+    PROVIDERS_LABEL_SINCE,
+    PROVIDERS_LABEL_STATE,
+    PROVIDERS_SECONDS_TEMPLATE,
+    PROVIDERS_VERDICT_ALL_CLOSED,
+    PROVIDERS_VERDICT_NONE,
+    PROVIDERS_VERDICT_NOT_CLOSED_TEMPLATE,
     STORAGE_CAPTION_TEMPLATE,
     STORAGE_HELD_BACK_TEMPLATE,
     STORAGE_LABEL_ADOPTED,
@@ -69,6 +82,10 @@ from .admin_copy import (
 from .admin_models import (
     ActionRow,
     AuditRow,
+    ProviderCard,
+    ProviderCounterRow,
+    ProviderFact,
+    ProvidersView,
     StorageCounterRow,
     StorageFact,
     StorageView,
@@ -346,6 +363,9 @@ def to_audit_row(log: AuditLog, now: Optional[datetime] = None) -> AuditRow:
         streamed=_flag(log.streamed),
         has_tool_calls=_flag(log.has_tool_calls),
         limit_exceeded=_text(log.limit_exceeded),
+        # PRD-022 STORY-016 (F8): NULL on every row written before step 7.
+        attempt=_text(log.attempt),
+        request_id=_text(log.request_id),
     )
 
 
@@ -569,4 +589,91 @@ def to_storage_view(status: "StorageStatus") -> StorageView:
         ],
         retries=_keyed_rows(counters.retries),
         exhausted=_keyed_rows(counters.exhausted),
+    )
+
+
+# --- The Providers view (PRD-022 STORY-016) ---------------------------------
+
+
+def _provider_rows(counts) -> list[ProviderCounterRow]:
+    """`"<provider>:<kind or reason>"` counts as rows, in key order (stable
+    between Refreshes). A provider name holds no colon (the chain config
+    validates it), so the first one splits the key."""
+    rows = []
+    for key in sorted(counts):
+        provider, _, reason = key.partition(":")
+        rows.append(
+            ProviderCounterRow(
+                provider=provider, reason=reason, count=format_count(counts[key])
+            )
+        )
+    return rows
+
+
+def to_providers_view(status: "ProvidersStatus") -> ProvidersView:
+    """One `providers_status()` reading as the Providers view's strings.
+
+    The verdict comes first and names the providers that are not closed, in
+    registry order; a nil `retry_after_seconds` and a nil last failure read as
+    the absent mark. Only a failure kind and a skip reason reach the view
+    (PRD-022 T10): the reading carries nothing else.
+    """
+    open_names = [
+        name for name, reading in status.providers.items() if reading.state != "closed"
+    ]
+    if not status.providers:
+        verdict = PROVIDERS_VERDICT_NONE
+    elif open_names:
+        verdict = PROVIDERS_VERDICT_NOT_CLOSED_TEMPLATE.format(
+            names=", ".join(open_names)
+        )
+    else:
+        verdict = PROVIDERS_VERDICT_ALL_CLOSED
+
+    cards = []
+    for name, reading in status.providers.items():
+        retry_after = reading.retry_after_seconds
+        cards.append(
+            ProviderCard(
+                name=name,
+                facts=[
+                    ProviderFact(label=PROVIDERS_LABEL_STATE, value=reading.state),
+                    ProviderFact(label=PROVIDERS_LABEL_SINCE, value=reading.since),
+                    ProviderFact(
+                        label=PROVIDERS_LABEL_FAILURES,
+                        value=format_count(reading.consecutive_failures),
+                    ),
+                    ProviderFact(
+                        label=PROVIDERS_LABEL_LAST_FAILURE,
+                        value=_text(reading.last_failure_class),
+                    ),
+                    ProviderFact(
+                        label=PROVIDERS_LABEL_RETRY_AFTER,
+                        value=(
+                            VALUE_ABSENT
+                            if retry_after is None
+                            else PROVIDERS_SECONDS_TEMPLATE.format(seconds=retry_after)
+                        ),
+                    ),
+                ],
+            )
+        )
+
+    counters = status.counters
+    return ProvidersView(
+        verdict=verdict,
+        caption=PROVIDERS_CAPTION_TEMPLATE.format(instance=status.instance),
+        cards=cards,
+        counters=[
+            ProviderFact(
+                label=PROVIDERS_LABEL_BREAKER_OPENS,
+                value=format_count(counters.breaker_opens),
+            ),
+            ProviderFact(
+                label=PROVIDERS_LABEL_FALLBACK_ANSWERS,
+                value=format_count(counters.fallback_answers),
+            ),
+        ],
+        failed=_provider_rows(counters.attempts_failed),
+        skipped=_provider_rows(counters.skipped),
     )

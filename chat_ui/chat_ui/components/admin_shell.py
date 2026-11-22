@@ -71,6 +71,9 @@ ROUTE_ACTIONS = "/admin/actions"
 # it describes this process's storage health, not a figure over the audit data.
 # Not a backend path (`GET /storage/status` is the router's), so it is static.
 ROUTE_STORAGE = "/admin/storage"
+# PRD-022 STORY-016 (F9): the Providers view (breakers and fallback counters). Not
+# a backend path (`GET /providers/status` is the router's), so it is static.
+ROUTE_PROVIDERS = "/admin/providers"
 
 # Which of the two views a page is. Passed down from the page rather than read
 # off the router: the masthead's correctness would otherwise depend on a string
@@ -81,6 +84,7 @@ VIEW_SUMMARY = "summary"
 VIEW_USAGE = "usage"
 VIEW_ACTIONS = "actions"
 VIEW_STORAGE = "storage"
+VIEW_PROVIDERS = "providers"
 
 
 def admin_gate() -> rx.Component:
@@ -519,6 +523,18 @@ def admin_masthead(active: str) -> rx.Component:
                         VIEW_STORAGE,
                         admin_copy.VIEW_STORAGE_LABEL,
                         ROUTE_STORAGE,
+                        active,
+                    ),
+                    padding_left="0.75rem",
+                    margin_left="0.75rem",
+                    border_left=f"1px solid {theme.RULE}",
+                ),
+                # PRD-022 STORY-016: the sixth peer, separated the same way.
+                rx.box(
+                    _view_link(
+                        VIEW_PROVIDERS,
+                        admin_copy.VIEW_PROVIDERS_LABEL,
+                        ROUTE_PROVIDERS,
                         active,
                     ),
                     padding_left="0.75rem",

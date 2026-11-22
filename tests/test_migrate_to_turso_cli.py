@@ -176,6 +176,8 @@ def test_dest_columns_match_the_ddl():
         "pii_input_relaxed", "usage_estimated",
         "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
         "completion_id",
+        "request_id", "attempt", "route_model", "fallback_reason",
+        "skipped_providers", "cache_read_tokens", "cache_write_tokens",
         # session_id: PRD-008 STORY-002; dedup_key: PRD-009 STORY-002;
         # pattern_role, pattern_action: PRD-011 STORY-009 (D6);
         # profile: PRD-012 STORY-011 (D9)
@@ -184,6 +186,7 @@ def test_dest_columns_match_the_ddl():
         # write_id: PRD-018 STORY-004 (D4)
         # provider ... usage_estimated: PRD-020 STORY-006 (D13, F5)
         # streamed_realtime ... completion_id: PRD-021 STORY-009 (F7, D14, D17)
+        # request_id ... cache_write_tokens: PRD-022 STORY-003 (F8, D10)
     ]
     assert migrate._ddl_columns(CREATE_USERS_TABLE) == [
         "user_id", "role", "token_hash", "active", "created_at",

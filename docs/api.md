@@ -195,11 +195,20 @@ curl http://localhost:8000/audit \
       "streamed_realtime": false,
       "reasoning_shown": false,
       "stream_redaction_divergence": false,
-      "completion_id": null
+      "completion_id": null,
+      "request_id": "a6868670-f5e1-417c-bdac-564b15030ffe",
+      "attempt": 2,
+      "route_model": "anthropic-direct/claude-sonnet-4-6",
+      "fallback_reason": "status_503",
+      "skipped_providers": null,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0
     }
   ]
 }
 ```
+
+**One row per attempt (PRD-022).** With [provider fallback](features.md#provider-fallback-and-anthropic) a request that tried two providers writes two rows that share a `request_id`. `attempt` is 1, 2, ...; `route_model` is the catalogue id of that attempt; `fallback_reason` is the failure that caused this attempt (`status_503`); `skipped_providers` lists the candidates skipped without a call as `provider:reason` pairs (`openrouter:open`); `cache_read_tokens` and `cache_write_tokens` are the Anthropic prompt-cache counts. All are `null` on rows written before this release. `?request_id=` returns the attempts of one request, scoped like every other filter. They are kinds and counts only, never prompt, answer or key text.
 
 `pii_entities` is the union of types masked in either direction. The audit trail deliberately stores the **raw, unmasked** prompt and response previews in the database — an auditor investigating an incident needs the actual value, not `<EMAIL_ADDRESS>` — but this endpoint exposes neither the raw previews nor the masked text, only the flags above.
 
@@ -321,6 +330,52 @@ curl http://localhost:8000/stats \
 
 A missing or invalid credential on any endpoint returns `401`. An authenticated identity that lacks the endpoint's required permission (e.g. a `user` role calling `GET /stats`) returns `403` with `{"detail": "Permission denied: stats:read"}`.
 
+**Provider figures (PRD-022).** `fallback_answers` counts answers that came from a candidate after the first attempt, `failed_attempts` counts failed attempt rows, and `answers_by_provider` lists `{provider, count}` per answering provider. They are `0` / `[]` with no chains configured.
+
+### `GET /providers/status` (requires `stats:read`)
+
+```bash
+curl http://localhost:8000/providers/status   -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+```json
+{
+  "instance": "harness-7c9d:1",
+  "providers": {
+    "openrouter": {
+      "breaker": {
+        "state": "open",
+        "since": "2026-11-22T04:52:11Z",
+        "consecutive_failures": 5,
+        "last_failure_class": "status",
+        "retry_after_seconds": 5
+      }
+    },
+    "anthropic-direct": {
+      "breaker": {
+        "state": "closed",
+        "since": "2026-11-22T04:51:40Z",
+        "consecutive_failures": 0,
+        "last_failure_class": null,
+        "retry_after_seconds": null
+      }
+    }
+  },
+  "counters": {
+    "attempts_failed": {"openrouter:status": 5},
+    "fallback_answers": 5,
+    "skipped": {"openrouter:open": 2},
+    "breaker_opens": 1
+  }
+}
+```
+
+The breaker of every provider in the registry (a deployment with no `PROVIDERS_FILE` lists its implicit `openrouter`), answered from memory with **no database read and no upstream call**, so it responds while the storage breaker is open. The Docker Caddyfile routes it to the API. The admin console shows it at `/admin/providers`.
+
+- `instance` is `<hostname>:<pid>`. The breaker is per process, so behind a balancer each instance reports its own. `since` is always a timestamp (the breaker's creation until its first transition, never `null`), `state` is `closed`, `open` or `half_open`, and `retry_after_seconds` is set while it is open.
+- `last_failure_class` is the failure `kind` (`status`, `timeout`, `transport`, `misconfigured`), never message text.
+- `counters` are per process and reset on restart. `attempts_failed` is keyed `"<provider>:<kind>"` and `skipped` `"<provider>:<reason>"`, where the reason is `open`, `half_open_busy`, `forbidden`, `capability`, `byok`, `redaction_limit` or `deadline`.
+
 ### `GET /storage/status` (requires `stats:read`)
 
 ```bash
@@ -398,7 +453,15 @@ Requires a bearer token with `query:submit`. Headers: `Authorization: Bearer <ha
 }
 ```
 
-`200`, with an `X-Harness-Audit-Id: 1842` header. When the audit row was journaled because the database could not take it, `harness.audit_id` is `null`, the header is `X-Harness-Audit-Ref: <write_id>` instead, and `id` is `chatcmpl-harness-ref-<write_id>`; `harness.audit_ref` is present either way. `id` is derived from the audit row's id. `model` is the requested name. `finish_reason` is the upstream's (`stop`, `length`, `content_filter`), or `stop` when it sent none. When the provider reported no prompt/completion split, both are `0` and `total_tokens` is still the reported total; the audit row keeps `null` for the split. `harness` is an extension object that clients which do not know it ignore. `content` is the response as the `code` profile leaves it: not masked, unless `PII_CODE_REDACT_OUTPUT=true`. A flagged request (an injection phrase in an `assistant` or `tool` turn) is answered like this and writes its flag on the row.
+`200`, with an `X-Harness-Audit-Id: 1842` header. With [fallback chains](features.md#provider-fallback-and-anthropic) configured, a **buffered** answer also carries `"provider"` and `"attempts"` inside `harness` and an `X-Harness-Provider` header, and `model` is the id that answered:
+
+```json
+"model": "anthropic-direct/claude-sonnet-4-6",
+"harness": {"audit_id": 2, "audit_ref": "d0ecfe4ade974294b4c5845db3c0bdf8", "pii_redacted": false,
+            "pii_entities_masked": [], "provider": "anthropic-direct", "attempts": 2}
+```
+
+`attempts` counts the providers actually called (2 here: OpenRouter failed, Anthropic answered; it is 1 when OpenRouter's breaker was open and it was skipped). A stream carries neither field nor header, only `model`. With no chains the extra keys and the header are absent. When the audit row was journaled because the database could not take it, `harness.audit_id` is `null`, the header is `X-Harness-Audit-Ref: <write_id>` instead, and `id` is `chatcmpl-harness-ref-<write_id>`; `harness.audit_ref` is present either way. `id` is derived from the audit row's id. `model` is the requested name. `finish_reason` is the upstream's (`stop`, `length`, `content_filter`), or `stop` when it sent none. When the provider reported no prompt/completion split, both are `0` and `total_tokens` is still the reported total; the audit row keeps `null` for the split. `harness` is an extension object that clients which do not know it ignore. `content` is the response as the `code` profile leaves it: not masked, unless `PII_CODE_REDACT_OUTPUT=true`. A flagged request (an injection phrase in an `assistant` or `tool` turn) is answered like this and writes its flag on the row.
 
 **With `V1_TOOLS_ENABLED=true`** the request may also carry `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns. A response whose model proposed tool calls carries the released calls in `message.tool_calls`, `finish_reason: "tool_calls"` when at least one was released, a note in `content` for each denied call, and `harness.actions` with one decision per evaluated call. A text-only response is the body above, byte for byte. The full shape, with a denied `DROP TABLE` as the example, is in [Tool calling](features.md#tool-calling).
 
@@ -489,12 +552,15 @@ Every error has the OpenAI shape plus a `harness` object holding the pipeline re
 | Token lacks `query:submit` | `403` | `permission_error` | `permission_denied` | no |
 | Upstream timeout, connection error, `5xx` or `429` | `502` | `api_error` | `upstream_unavailable` | **yes** |
 | Upstream `4xx`, malformed response, no content, or no OpenRouter key | `502` | `api_error` | `upstream_error` | no |
+| Fallback chain exhausted: every candidate failed or was skipped (breaker open, deadline, ...). `Retry-After` is set when a breaker will heal | `502` | `api_error` | `upstream_unavailable` | **yes** |
+| Fallback chain, nothing attempted and every skip a capability, role or BYOK one: `no provider can serve this request: byok, capability` (the sorted reasons) | `502` | `api_error` | `upstream_error` | no |
 | The database is unavailable: the identity read, the duplicate check or the usage gate failed, the audit journal is full or has no headroom, or the audit row was neither written nor journaled | `503` | `api_error` | `storage_unavailable` | **yes**, with `Retry-After` |
 | A storage failure that is not an outage (a refused statement) in the duplicate check or usage gate, or the action decisions could not be recorded | `500` | `api_error` | `internal_error` | **yes** |
 | PII redaction failed | `500` | `api_error` | `redaction_failed` | no |
 
 - **Not retried** means a status the OpenAI SDKs never retry (`400`, `401`, `403`) or, for a `5xx`, the `x-should-retry: false` header, which they read before their status rule. Every non-retryable error carries the header, so the rule is one rule. There is never a `429`.
 - `message` is the reason plus its details (`: <pattern>`, `first seen <timestamp>`, `messages 140 > 100`). For an upstream fault it is the harness's own description of the HTTP failure, never the provider's response body.
+- An exhausted fallback chain says `all providers unavailable` and never names a provider or quotes a provider's reply. Its `Retry-After` (whole seconds) is the time to the earliest breaker that will heal, and the `x-should-retry` header is absent so the SDKs retry; the "no provider can serve" form carries `x-should-retry: false`. `POST /query` answers `502` `all providers unavailable`. See [Provider fallback and Anthropic](features.md#provider-fallback-and-anthropic).
 - A `storage_unavailable` `503` carries `Retry-After` in whole seconds (at least 1) and no `x-should-retry` header, so the SDKs retry it. Like every `/v1` error it has `"harness": null`; the driver's text is never in `message`. A failure after a stream has started is one SSE `error` event, with no `Retry-After` because the headers are already sent. See [What a database outage does](deployment.md#what-a-database-outage-does).
 - `param` names the offending field on a `400` from the request's shape, for example `"messages[2].role"`, `"temperature"` or `"tools[2].function.name"`.
 - Each pipeline verdict writes the same audit row it writes on `POST /query`, with `ingress='v1'`. A shape refusal (`invalid_*`, `unsupported_parameter`, `tools_not_supported`) runs no pipeline step and writes no row. A retried upstream fault writes one `success=false` row per attempt; such rows are never a prior query for the duplicate check, so the retry is not held as a duplicate.

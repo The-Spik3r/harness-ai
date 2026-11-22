@@ -25,7 +25,7 @@ import pytest
 from app.config import settings
 from app.models.messages import Message
 from app.services import openrouter_client, provider_registry, upstream
-from app.services.upstream import UpstreamError, UpstreamResult, call_upstream
+from app.services.upstream import UpstreamError, UpstreamRequest, UpstreamResult, call_upstream
 from app.services.upstream import params as upstream_params
 from scripts.stub_openrouter import make_server, parse_script
 from tests._providers import provider_file  # noqa: F401  (fixture)
@@ -127,7 +127,9 @@ def test_shim_is_aliases_only():
 
 def test_call_upstream_keeps_call_openrouters_signature():
     sig = inspect.signature(call_upstream)
-    assert list(sig.parameters) == ["messages", "model", "api_key", "params", "client", "tools"]
+    # PRD-022 STORY-011 (F5): `timeout` joins as a keyword-only parameter; the positional ones are unchanged.
+    assert list(sig.parameters) == ["messages", "model", "api_key", "params", "client", "tools", "timeout"]
+    assert sig.parameters["timeout"].kind is inspect.Parameter.KEYWORD_ONLY and sig.parameters["timeout"].default is None
     assert sig.parameters["model"].default == "gpt-4"
     assert sig.parameters["tools"].kind is inspect.Parameter.KEYWORD_ONLY
 
@@ -361,3 +363,76 @@ def test_stream_total_deadline_bounds_whole_stream(stubs):
     assert excinfo.value.retryable is True and excinfo.value.upstream_status is None
     assert "exceeded" in str(excinfo.value)
     assert time.monotonic() - started < 4  # well under the ~5 s the stream would take
+
+
+# --- PRD-022 STORY-011: the per-attempt timeout keyword -----------------------------------
+
+
+def test_timeout_keyword_reaches_the_client_and_unset_keeps_the_provider_timeout(provider_file, monkeypatch):
+    provider_file(_yaml(1))
+    seen = []
+
+    class _Spy:
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs["timeout"])
+
+        def post(self, url, headers=None, json=None):
+            return _response()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(httpx, "Client", _Spy)
+    call_upstream(_MSG, model="local/m", timeout=1.25)
+    call_upstream(_MSG, model="local/m")
+    assert seen == [1.25, provider_registry.resolve("local/m").provider.timeout_seconds]
+
+
+def test_an_injected_client_gets_the_timeout_per_call_only_when_set(provider_file):
+    provider_file(_yaml(1))
+
+    class _Client(_FakeClient):
+        def post(self, url, headers=None, json=None, **kwargs):
+            self.requests.append({"kwargs": kwargs})
+            return self._response
+
+    client = _Client(_response())
+    call_upstream(_MSG, model="local/m", client=client, timeout=2.0)
+    call_upstream(_MSG, model="local/m", client=client)
+    assert [r["kwargs"] for r in client.requests] == [{"timeout": 2.0}, {}]
+
+
+def test_a_stub_without_the_timeout_keyword_is_untouched(provider_file):
+    # The suite's stubs are (messages, model, api_key): the seam adds the keyword
+    # to the request only; nothing here forces it on a caller.
+    provider_file(_yaml(1))
+    client = _FakeClient(_response())
+    assert call_upstream(_MSG, model="local/m", client=client).response == "ok"
+    assert UpstreamRequest(_MSG, "m").timeout_seconds is None
+
+
+def test_stream_timeout_bounds_the_whole_stream(stubs):
+    import dataclasses
+    import time
+
+    from app.services.upstream import OpenAICompatibleAdapter
+
+    port, _ = stubs({"rules": [], "default": {"content": "x" * 100, "stream": {"chunk_chars": 1, "delay_ms": 50}}})
+    provider = dataclasses.replace(
+        provider_registry.current().providers[0],
+        base_url=f"http://127.0.0.1:{port}/v1",
+        timeout_seconds=30.0,
+    )
+    client = httpx.Client(timeout=10, follow_redirects=False)
+    started = time.monotonic()
+    try:
+        with pytest.raises(UpstreamError) as excinfo:
+            list(
+                OpenAICompatibleAdapter(provider, client).stream(
+                    UpstreamRequest(_MSG, "up-model", timeout_seconds=0.4), _KEY_A
+                )
+            )
+    finally:
+        client.close()
+    assert excinfo.value.retryable is True and "exceeded 0.4s" in str(excinfo.value)
+    assert time.monotonic() - started < 4

@@ -292,6 +292,10 @@ def test_stats_and_summary_snapshot_report_the_same_figures_on_the_fixed_seed(
         "actions_denied",
         "actions_flagged",
         "actions_allowed",
+        # PRD-022 F9 (STORY-015): three additive /stats-only fallback figures.
+        "fallback_answers",
+        "failed_attempts",
+        "answers_by_provider",
     }
 
     # The batched rows are the same AuditLog objects the standalone read returns
@@ -583,6 +587,10 @@ def test_audit_and_stats_expose_the_multi_turn_row_with_no_new_field(temp_db):
         "actions_denied",
         "actions_flagged",
         "actions_allowed",
+        # PRD-022 F9 (STORY-015): three additive /stats-only fallback figures.
+        "fallback_answers",
+        "failed_attempts",
+        "answers_by_provider",
     }
     # One of the two sends carried new PII; the other only carried it in
     # history (D7).

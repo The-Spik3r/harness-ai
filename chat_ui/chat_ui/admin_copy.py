@@ -66,6 +66,8 @@ VIEW_SUMMARY_LABEL = "Summary"
 VIEW_USAGE_LABEL = "Usage"
 # PRD-018 STORY-012: the fifth peer.
 VIEW_STORAGE_LABEL = "Storage"
+# PRD-022 STORY-016 (F9): the sixth peer.
+VIEW_PROVIDERS_LABEL = "Providers"
 
 SIGN_OUT_LABEL = "Sign out"
 
@@ -96,6 +98,11 @@ COLUMN_VERDICT = "Verdict"
 COLUMN_MODEL = "Model"
 # PRD-020 D13: the provider that served the row (empty for rows before it).
 COLUMN_PROVIDER = "Provider"
+# PRD-022 STORY-016 (F8): which try of the request this row is. 1 is the first
+# upstream call; a fallback answer is 2 or more. The absent mark on rows that
+# never reached the upstream step.
+COLUMN_ATTEMPT = "Try"
+COLUMN_ATTEMPT_TITLE = "Which upstream attempt of the request this row records"
 # PRD-021 F7: the tag on a row that was delivered in real time, and its
 # hover/assistive text so it is not only a caps word.
 LIVE_LABEL = "LIVE"
@@ -205,6 +212,8 @@ READ_LABEL_USAGE_LIMITS = "the usage-limit blocks"
 READ_LABEL_USAGE = "the usage for today"
 # PRD-018 STORY-012: the Storage view's read, its own fault like the usage read.
 READ_LABEL_STORAGE = "the storage status"
+# PRD-022 STORY-016: the Providers view's read, its own fault like the storage one.
+READ_LABEL_PROVIDERS = "the providers status"
 
 # --- The three empty states ----------------------------------------------
 # PRD-006 Section 4 names three register states — no rows recorded, rows recorded
@@ -356,6 +365,8 @@ FILTER_SEARCH_LABEL = "Find"
 # matches the ingress (`v1`, `chat`, `query`), which the placeholder leaves out:
 # naming both clipped inside a field narrow enough to sit beside its label at
 # phone width.
+# PRD-022 STORY-016: the field also matches the request id, left out of the
+# placeholder for the same clipping reason as the ingress.
 FILTER_SEARCH_PLACEHOLDER = "user, model, id or conversation"
 CLEAR_FILTERS_LABEL = "Clear filters"
 
@@ -432,6 +443,8 @@ DETAIL_PII_OUTPUT_LABEL = "PII in response"
 # None of them says "refused": GATE_REFUSED_MESSAGE stays the only one.
 DETAIL_LIMIT_LABEL = "Usage limit"
 DETAIL_CONVERSATION_LABEL = "Conversation"
+# PRD-022 STORY-016 (F8): the id shared by every attempt row of one request.
+DETAIL_REQUEST_LABEL = "Request"
 DETAIL_INGRESS_LABEL = "Ingress"
 DETAIL_MESSAGE_COUNT_LABEL = "Messages"
 DETAIL_STREAMED_LABEL = "Streamed"
@@ -559,3 +572,35 @@ STORAGE_NO = "no"
 STORAGE_COLUMN_OPERATION = "Operation"
 STORAGE_COLUMN_FAILURE_CLASS = "Class"
 STORAGE_COLUMN_COUNT = "Count"
+
+# --- Providers (PRD-022 STORY-016, F9) -----------------------------------
+# The Providers view: one circuit breaker per upstream provider and the fallback
+# counters of the process serving this console. Plain words, the Storage view's
+# restraint. Only a failure kind or a skip reason is ever shown, never message
+# text (PRD-022 T10).
+PROVIDERS_CAPTION_TEMPLATE = (
+    "This process: {instance}. Counters reset when it restarts."
+)
+PROVIDERS_VERDICT_ALL_CLOSED = "All providers are closed."
+PROVIDERS_VERDICT_NONE = "No providers are configured."
+PROVIDERS_VERDICT_NOT_CLOSED_TEMPLATE = "Not closed: {names}."
+
+PROVIDERS_HEADING_COUNTERS = "Counters"
+PROVIDERS_HEADING_FAILED = "Failed attempts"
+PROVIDERS_HEADING_SKIPPED = "Skipped"
+PROVIDERS_FAILED_TITLE = "Upstream attempts that failed, by provider and failure kind"
+PROVIDERS_SKIPPED_TITLE = "Candidates passed over, by provider and reason"
+PROVIDERS_KEYED_EMPTY = "None"
+
+PROVIDERS_LABEL_STATE = "Breaker state"
+PROVIDERS_LABEL_SINCE = "Since"
+PROVIDERS_LABEL_FAILURES = "Consecutive failures"
+PROVIDERS_LABEL_LAST_FAILURE = "Last failure"
+PROVIDERS_LABEL_RETRY_AFTER = "Retry after"
+PROVIDERS_LABEL_BREAKER_OPENS = "Times a circuit opened"
+PROVIDERS_LABEL_FALLBACK_ANSWERS = "Answers from a fallback"
+PROVIDERS_SECONDS_TEMPLATE = "{seconds} s"
+
+PROVIDERS_COLUMN_PROVIDER = "Provider"
+PROVIDERS_COLUMN_REASON = "Kind or reason"
+PROVIDERS_COLUMN_COUNT = "Count"

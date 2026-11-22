@@ -127,6 +127,9 @@ FIELDS_ADDED_SINCE: frozenset[str] = frozenset({
     # PRD-021 STORY-009 (F7, D14, D17): the four delivery columns.
     "streamed_realtime", "reasoning_shown", "stream_redaction_divergence",
     "completion_id",
+    # PRD-022 STORY-003 (F8, D10): request id, attempt trail, cache counts.
+    "request_id", "attempt", "route_model", "fallback_reason",
+    "skipped_providers", "cache_read_tokens", "cache_write_tokens",
 })
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

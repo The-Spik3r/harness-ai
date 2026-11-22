@@ -14,3 +14,4 @@ libsql==0.1.11
 python-frontmatter
 PyYAML
 sqlglot==30.27.0
+anthropic==2.11.0

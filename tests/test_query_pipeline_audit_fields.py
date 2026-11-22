@@ -633,3 +633,18 @@ def test_every_pipeline_log_query_call_passes_ignored_params():
     assert [(path, "ignored_params" in keywords) for path, _, keywords, _ in elsewhere] == [
         ("app/routers/query.py", False)
     ]
+
+
+def test_every_pipeline_log_query_call_passes_request_id():
+    """PRD-022 STORY-003 AC 2 (F8, D10). The eleven pipeline sites (ten arms and
+    `_deny`) pass `request_id=`, so every row of a call carries its id. The
+    router's foreign-session refusal, the twelfth site, writes NULL by default."""
+    sites = _scan().log_query
+    pipeline = [site for site in sites if site[0] == "app/services/query_pipeline.py"]
+
+    assert len(pipeline) == 11, [f"{path}:{lineno}" for path, _, _, lineno in pipeline]
+    missing = [
+        f"{path}:{lineno}" for path, _, keywords, lineno in pipeline
+        if "request_id" not in keywords
+    ]
+    assert missing == [], f"pipeline log_query calls without request_id=: {missing}"

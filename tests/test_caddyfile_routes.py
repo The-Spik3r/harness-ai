@@ -44,6 +44,9 @@ EXPECTED_MATCHER = (
     # PRD-018 STORY-012 (F8): GET /storage/status; exact token, so a near-miss
     # such as /storage/statusx still reaches the static server.
     "/storage/status",
+    # PRD-022 STORY-015 (F9): GET /providers/status; exact token, so a
+    # near-miss such as /providers/statusx stays static.
+    "/providers/status",
     # PRD-019 STORY-002: GET /ready (readiness probe); exact token, so a
     # near-miss such as /readyx stays static.
     "/ready",
@@ -62,7 +65,9 @@ FASTAPI_DOC_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc
 # the console under `/admin/`, the Reports section) and near-misses of `/v1/*`.
 STATIC_PATHS = ("/", "/admin/audit", "/admin/usage",
     # PRD-018 STORY-012: the Storage view is a Reflex page, not a harness route.
-    "/admin/storage", "/reports", "/v1", "/v1x", "/v10/models",
+    "/admin/storage",
+    # PRD-022 STORY-016: the Providers view, a Reflex page likewise.
+    "/admin/providers", "/reports", "/v1", "/v1x", "/v10/models",
     # PRD-019 STORY-002: /ready is an exact token; near-misses stay static.
     "/readyx", "/ready/", "/readiness")
 

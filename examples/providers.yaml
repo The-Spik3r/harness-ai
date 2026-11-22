@@ -4,7 +4,7 @@ default_model: openai/gpt-4o
 providers:
   - name: openrouter                   # [a-z0-9][a-z0-9_-]{0,31}; unique
     label: OpenRouter                  # error-message prefix; default = name
-    type: openai_compatible            # the only accepted type (D2)
+    type: openai_compatible            # openai_compatible | anthropic (PRD-022 D4)
     base_url: https://openrouter.ai/api/v1
     key_env: OPENROUTER_API_KEY        # env var NAME, never the key; absent = keyless
     trust: external                    # external (default) | internal
@@ -14,6 +14,8 @@ providers:
       - id: openai/gpt-4o
         capabilities: {tools: true, max_context_tokens: 128000}
       - id: anthropic/claude-3.5-sonnet
+        capabilities: {tools: true}
+      - id: anthropic/claude-sonnet-4.6      # PRD-022: the chain primary in chains.yaml
         capabilities: {tools: true}
 
   - name: ollama
@@ -40,3 +42,15 @@ providers:
       - id: lan/llama-3.1-70b
         upstream: meta-llama/Llama-3.1-70B-Instruct
         roles: [admin]                     # overrides the provider's roles
+
+  - name: anthropic-direct             # PRD-022: native Anthropic Messages adapter
+    type: anthropic                    # base_url without /v1: the SDK adds it
+    base_url: https://api.anthropic.com
+    key_env: ANTHROPIC_API_KEY
+    trust: external
+    models:
+      - id: anthropic-direct/claude-sonnet-4-6
+        upstream: claude-sonnet-4-6
+        default_max_tokens: 4096           # required for type: anthropic (Messages needs max_tokens)
+        prompt_cache: auto                 # off (default) | auto: one cache breakpoint at the end
+        capabilities: {tools: true, streaming: true, forced_tool_choice: true}

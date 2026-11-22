@@ -12,6 +12,7 @@ error` with `total_tokens: null`, where `complete()` returns the raw None and
 this raises "'total_tokens'".
 """
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, Iterable, Optional
 
 from app.services.upstream.reply import _USAGE_MODES, result_from_reply
@@ -49,6 +50,8 @@ def collect(
     calls: dict[int, dict[str, Any]] = {}
     finish_reason: Optional[str] = None
     usage: Optional[dict[str, int]] = None
+    cache_read: Optional[int] = None
+    cache_write: Optional[int] = None
     for event in events:
         if isinstance(event, TextDelta):
             texts.append(event.text)
@@ -74,6 +77,9 @@ def collect(
                 )
                 if value is not None
             }
+            # PRD-022 D11: the cache pair is not usage (it must not feed the D8 rules);
+            # it rides on the result beside it, from the same (last) report.
+            cache_read, cache_write = event.cache_read_tokens, event.cache_write_tokens
         else:
             raise TypeError(f"unknown stream event type: {type(event).__name__}")
 
@@ -90,4 +96,5 @@ def collect(
     data: dict[str, Any] = {"choices": [{"message": message, "finish_reason": finish_reason}]}
     if usage is not None:
         data["usage"] = usage
-    return result_from_reply(provider, request, data, usage_missing=usage_missing)
+    result = result_from_reply(provider, request, data, usage_missing=usage_missing)
+    return dataclasses.replace(result, cache_read_tokens=cache_read, cache_write_tokens=cache_write)

@@ -139,9 +139,15 @@ def test_success_returns_chat_completion(temp_db, upstream):
             "audit_ref": row.write_id,
             "pii_redacted": False,
             "pii_entities_masked": [],
+            # PRD-022 F10 / D17 (STORY-013): every success names who answered;
+            # no chains file, so the primary's provider after one call.
+            "provider": "openrouter",
+            "attempts": 1,
         },
     }
     assert response.headers["X-Harness-Audit-Id"] == str(row.id)
+    # PRD-022 F10 (STORY-013): JSON successes carry the answering provider.
+    assert response.headers["X-Harness-Provider"] == "openrouter"
     assert response.headers["content-type"] == "application/json"
     assert [call["model"] for call in upstream.calls] == [_MODEL]
 

@@ -24,6 +24,12 @@ is not imported.
 The Storage view's read (PRD-018 STORY-012) is `storage_status`, imported the
 same way: it reads the breaker, the journal and the counters from memory, with
 no driver call, and no journal, drainer or counters module is reachable here.
+The Providers view (PRD-022 STORY-016, F9) reads `health.providers_status()`,
+the same in-memory reading `GET /providers/status` serves, with the names from
+`provider_registry.current()`; no database read and no upstream call. Providers
+is gated exactly like Storage: the admin-token gate and the `authenticated`
+early return in `load()`. There is no per-permission switch in the console, so
+no role check is added for it.
 
 The gate is **not an oracle**. Every failure — an empty token, a wrong-length
 token, a wrong token of the right length — sets the same message and leaves
@@ -40,6 +46,8 @@ from datetime import datetime, timezone
 import reflex as rx
 
 from app.config import settings
+from app.services import provider_registry
+from app.services.upstream import health
 from app.db.database import (
     # PRD-016 STORY-019: the Actions view's two reads, the same functions
     # `GET /audit/actions` and `/stats` use. `insert_action_decisions` stays out.
@@ -121,6 +129,7 @@ from .admin_copy import (
     READ_LABEL_TOP_USERS,
     READ_LABEL_TOTAL,
     READ_LABEL_UNIQUE_USERS,
+    READ_LABEL_PROVIDERS,
     READ_LABEL_STORAGE,
     READ_LABEL_USAGE,
     READ_LABEL_USAGE_LIMITS,
@@ -144,12 +153,16 @@ from .admin_formatting import (
     format_share,
     to_action_rows,
     to_audit_row,
+    to_providers_view,
     to_storage_view,
     to_usage_rows,
 )
 from .admin_models import (
     ActionRow,
     AuditRow,
+    ProviderCard,
+    ProviderCounterRow,
+    ProviderFact,
     StorageCounterRow,
     StorageFact,
     SummaryFigure,
@@ -240,6 +253,11 @@ USAGE_STATES = (
 STORAGE_STATE_FAULT = "read_failed"
 STORAGE_STATE_READY = "ready"
 STORAGE_STATES = (STORAGE_STATE_FAULT, STORAGE_STATE_READY)
+
+# The Providers view's two render states (PRD-022 STORY-016), the Storage rule.
+PROVIDERS_STATE_FAULT = "read_failed"
+PROVIDERS_STATE_READY = "ready"
+PROVIDERS_STATES = (PROVIDERS_STATE_FAULT, PROVIDERS_STATE_READY)
 
 # The Actions view's window (PRD-016 STORY-019): the newest this many decisions of
 # the chosen kind. Equal to `app.routers.admin.ACTIONS_LIMIT_MAX`, the ceiling
@@ -504,6 +522,11 @@ def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
     success footer (PRD-004 STORY-010) — so the coercion happens here, in
     Python, not in a component against a Var.
 
+    Since PRD-022 (STORY-016) it also matches `request_id`, so pasting the id
+    from a row's disclosure shows every attempt row of that request. Like the
+    others this is client-side over the loaded window (`REGISTER_ROW_LIMIT` rows);
+    a request older than the window is not found, and no database read is made.
+
     Since PRD-013 (Section 6.10) it also matches `conversation_key` and
     `ingress`, so pasting a key copied from one row's disclosure shows every
     loaded row of that conversation, and `v1` shows the agent traffic. Still a
@@ -524,6 +547,8 @@ def _matches(row: AuditRow, verdicts: list[str], needle: str) -> bool:
             # PRD-013 (STORY-015)
             row.conversation_key.casefold(),
             row.ingress.casefold(),
+            # PRD-022 (STORY-016)
+            row.request_id.casefold(),
         )
     )
 
@@ -645,6 +670,19 @@ class AdminState(rx.State):
     storage_retries: list[StorageCounterRow] = []
     storage_exhausted: list[StorageCounterRow] = []
     storage_error: str = ""
+
+    # --- Providers (PRD-022 STORY-016) -------------------------------------
+    # One breaker per upstream provider and the fallback counters of this
+    # process, from `health.providers_status()` (in memory), failing under its own
+    # label: `providers_error`, never `error` or `storage_error`. Strings and
+    # lists only, all falsy by default, so `sign_out()`'s `reset()` clears them.
+    providers_verdict: str = ""
+    providers_caption: str = ""
+    providers_cards: list[ProviderCard] = []
+    providers_counters: list[ProviderFact] = []
+    providers_failed: list[ProviderCounterRow] = []
+    providers_skipped: list[ProviderCounterRow] = []
+    providers_error: str = ""
 
     # --- Actions (PRD-016 STORY-019) ---------------------------------------
     # What agents tried to do and what the policy decided, read by their own
@@ -1129,6 +1167,16 @@ class AdminState(rx.State):
         return STORAGE_STATE_READY
 
     @rx.var
+    def providers_state(self) -> str:
+        """Which of the two states the Providers view is showing: fault or ready.
+
+        Reads `providers_error`, never `error`.
+        """
+        if self.providers_error:
+            return PROVIDERS_STATE_FAULT
+        return PROVIDERS_STATE_READY
+
+    @rx.var
     def actions_state(self) -> str:
         """Which of the three states the Actions view is showing.
 
@@ -1452,6 +1500,7 @@ class AdminState(rx.State):
             self.error = ""
             self.usage_error = ""
             self.storage_error = ""
+            self.providers_error = ""
             self.actions_error = ""
             actions_key = self.actions_filter
 
@@ -1482,6 +1531,30 @@ class AdminState(rx.State):
                     self.storage_retries = storage.retries
                     self.storage_exhausted = storage.exhausted
                     self.storage_error = ""
+
+            # The Providers view (PRD-022 STORY-016), the Storage read's sibling:
+            # in memory, so called directly, and ahead of the summary for the same
+            # reason. The names are the registry's, as `GET /providers/status`.
+            try:
+                providers = to_providers_view(
+                    health.providers_status(
+                        [p.name for p in provider_registry.current().providers]
+                    )
+                )
+            except Exception as exc:
+                async with self:
+                    self.providers_error = LOAD_FAILED_MESSAGE.format(
+                        read=READ_LABEL_PROVIDERS, detail=exc
+                    )
+            else:
+                async with self:
+                    self.providers_verdict = providers.verdict
+                    self.providers_caption = providers.caption
+                    self.providers_cards = providers.cards
+                    self.providers_counters = providers.counters
+                    self.providers_failed = providers.failed
+                    self.providers_skipped = providers.skipped
+                    self.providers_error = ""
 
             # Today's usage, first and on its own (see the docstring). The
             # formatting is inside the `try` too: `to_usage_rows` resolves
@@ -1570,8 +1643,13 @@ class AdminState(rx.State):
             async with self:
                 # One commit. Until this block, nothing on screen has moved.
                 self.rows = rows
-                for field, value in results.items():
-                    setattr(self, field, value)
+                # PRD-022 STORY-015: the snapshot carries three `/stats`-only
+                # figures (`SUMMARY_FIGURES[13:]`) that are not console state;
+                # commit only the figures `_READS` names.
+                for field, _label, _read, _kwargs in _READS:
+                    if field == "rows":
+                        continue
+                    setattr(self, field, results[field])
                 self.last_refreshed = format_refreshed_at(now)
                 # Clears a previous fault, so a recovered read stops showing the
                 # panel STORY-017 renders.

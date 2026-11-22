@@ -1,10 +1,23 @@
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, PrivateAttr, field_validator
 
 if TYPE_CHECKING:
     from app.services.tool_release import ToolOutcome
+
+
+@dataclass(frozen=True)
+class AnsweredBy:
+    """Who answered a request (PRD-022 D17, F10): provider name, the answering
+    catalogue id and the number of upstream calls made. Carried privately on
+    `QuerySuccessResponse`; `/v1` surfaces it, `/query` does not.
+    """
+
+    provider: str
+    model: str
+    attempts: int
 
 
 class QueryRequest(BaseModel):
@@ -122,6 +135,16 @@ class QuerySuccessResponse(BaseModel):
     @property
     def upstream_result(self) -> Any:
         return self._upstream_result
+
+    # PRD-022 D17 / F10 / STORY-013: the answering provider, catalogue id and call
+    # count, set on every real success. Private like `_tool_outcome`: never
+    # serialized, so `/query`'s body and OpenAPI do not move. `None` on a result
+    # built without the pipeline (a stub).
+    _answered_by: Optional[AnsweredBy] = PrivateAttr(default=None)
+
+    @property
+    def answered_by(self) -> Optional[AnsweredBy]:
+        return self._answered_by
 
 
 class QueryBlockedDuplicateResponse(BaseModel):
@@ -305,6 +328,14 @@ class AuditQueryEntry(BaseModel):
     reasoning_shown: bool = False
     stream_redaction_divergence: bool = False
     completion_id: Optional[str] = None
+    # PRD-022 F8 / D10: ids, counts and labels only, never prompt text.
+    request_id: Optional[str] = None
+    attempt: Optional[int] = None
+    route_model: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    skipped_providers: Optional[str] = None
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
 
 
 class AuditResponse(BaseModel):
@@ -406,6 +437,37 @@ class StorageStatusResponse(BaseModel):
     counters: StorageCountersResponse
 
 
+class ProviderStatusResponse(BaseModel):
+    # One entry per registry provider; the breaker is PRD-018's, reused as is
+    # (`since` is always a timestamp: the last transition, or construction).
+    breaker: StorageBreakerResponse
+
+
+class ProviderCountersResponse(BaseModel):
+    # Keys are "<provider>:<kind>" / "<provider>:<reason>"; process-local,
+    # reset on restart (PRD-022 D12).
+    attempts_failed: dict[str, int]
+    fallback_answers: int
+    skipped: dict[str, int]
+    breaker_opens: int
+
+
+class ProvidersStatusResponse(BaseModel):
+    """GET /providers/status (PRD-022 F9, Section 10).
+
+    No message field anywhere: the breaker holds a failure `kind` only (T10).
+    """
+
+    instance: str
+    providers: dict[str, ProviderStatusResponse]
+    counters: ProviderCountersResponse
+
+
+class ProviderAnswerCount(BaseModel):
+    provider: str
+    count: int
+
+
 class StatsResponse(BaseModel):
     total_queries: int
     blocked_duplicates: int
@@ -421,6 +483,11 @@ class StatsResponse(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     blocked_usage_limits: int = 0
+    # PRD-022 F9 / Section 10: answers from a candidate after the first, rows
+    # that ran an attempt and failed, and answers per provider (top N).
+    fallback_answers: int = 0
+    failed_attempts: int = 0
+    answers_by_provider: List[ProviderAnswerCount] = []
     # PRD-016 F11 / Section 10: decision counts over the whole action_decisions
     # table, 0 when empty.
     actions_denied: int = 0

@@ -21,22 +21,26 @@ from app.services import (
     pipeline_executor,
     provider_registry,
 )
+from app.services.upstream import chain_config
 
 from chat_ui import theme
 from chat_ui.components.actions import actions
 from chat_ui.components.admin_shell import (
     ROUTE_ACTIONS,
+    ROUTE_PROVIDERS,
     ROUTE_REGISTER,
     ROUTE_STORAGE,
     ROUTE_SUMMARY,
     ROUTE_USAGE,
     VIEW_ACTIONS,
+    VIEW_PROVIDERS,
     VIEW_REGISTER,
     VIEW_STORAGE,
     VIEW_SUMMARY,
     VIEW_USAGE,
     admin_page,
 )
+from chat_ui.components.providers import providers
 from chat_ui.components.register import register
 from chat_ui.components.reports import reports_detail_page, reports_feed_page
 from chat_ui.components.shell import header, login_gate, shell_body
@@ -124,6 +128,11 @@ def admin_storage_page() -> rx.Component:
     return admin_page(storage(), VIEW_STORAGE)
 
 
+# PRD-022 STORY-016: the sixth view, the provider breakers and fallback counters.
+def admin_providers_page() -> rx.Component:
+    return admin_page(providers(), VIEW_PROVIDERS)
+
+
 # Radix resolves its own colour tokens from the theme's appearance, and this
 # line used to read `appearance="light"`. The reason it did is worth keeping,
 # because it is the same reason it now reads "inherit": on a machine set to dark
@@ -201,6 +210,13 @@ app.add_page(
     route=ROUTE_STORAGE,
     context={"sitemap": None},
 )
+# PRD-022 STORY-016: a Reflex page like the others, so it falls through the
+# Caddyfile's static matcher (`GET /providers/status` is the backend route).
+app.add_page(
+    admin_providers_page,
+    route=ROUTE_PROVIDERS,
+    context={"sitemap": None},
+)
 # /admin is a landing route, not a third view: it renders the same shell (so an
 # unauthenticated visitor gets the gate rather than a blank frame while the
 # redirect is in flight) and redirects to the register on load. replace=True keeps
@@ -272,6 +288,11 @@ app.register_lifespan_task(action_config.load)
 # action_config.load because the key_env warning reads the loaded action
 # policy's secrets.env globs; Reflex runs tasks in registration order.
 app.register_lifespan_task(provider_registry.load)
+# Same bypass (PRD-022 STORY-009): without this the chat UI would serve single-candidate
+# chains while the API serves PROVIDER_CHAINS_FILE's, and a broken file would stop uvicorn
+# but not the deployment serving traffic. After provider_registry.load because chains
+# resolve against its catalogue; Reflex runs tasks in registration order.
+app.register_lifespan_task(chain_config.load)
 # Same bypass again (STORY-016): app.main's fail-fast bootstrap guard would
 # otherwise never run for this ingress, so RBAC_ENABLED=true with zero
 # seeded users would boot the chat UI straight into a silent 401 wall

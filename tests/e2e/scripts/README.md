@@ -10,6 +10,8 @@ These are the scripts for `scripts/stub_openrouter.py`. The stub is a scripted s
 
 `cline_realtime.json` (PRD-021 STORY-015) scripts Cline's real-time scenarios, every reply carrying a `stream` shape (6 to 8 characters per delta, 60 ms apart). The scenario is picked from the system prompt's working directory, as in `cline.json`: `e2e021-015-cline-text` gets text plus a `submit_and_exit`, `e2e021-015-cline-reason` the same with a `stream.reasoning` carrying `@SENTINEL@` (rendered by `tests/e2e/_cline_realtime.py`), and `e2e021-015-cline-drop` a `run_commands` of `sqlite3 app.db "DROP TABLE users"` that the harness denies; the follow-up (last assistant turn holds the harness note) gets a `submit_and_exit`. Every path ends in `submit_and_exit`, which `opaque_tools` allows and the harness releases whole.
 
+`failover_openrouter.json` and `failover_anthropic.json` (PRD-022 STORY-017) are the two stubs of `tests/e2e/test_failover.py`. The first has only a `default` that fails every request with 503 (OpenRouter down, Chat mode). The second (Messages mode, Anthropic) answers a `bash` tool call running `npm test` with explicit `usage`, unless the prompt contains `total outage`, when it fails 503 too.
+
 `aider.json` answers Aider's edit request with a SEARCH/REPLACE block in the `diff` edit format, and Aider's separate commit-message request (its user turn always contains `# Diffs:`) with a fixed sentence. The commit-message rule comes first, because that request also quotes the edit request.
 
 `continue.json` answers Continue's chat prompt with a fixed sentence, and its slow prompt with another after a 20 s delay, so the harness sends SSE keep-alives before the answer. Continue's CLI makes one request per prompt, so there is no second rule.
@@ -57,6 +59,10 @@ OPENROUTER_BASE_URL=http://127.0.0.1:9100/v1 uvicorn app.main:app --port 8765
 | `usage` | rule, default | `prompt_tokens` / `completion_tokens` default to 1 each. `total_tokens` defaults to their sum |
 | `delay_seconds` | rule, default | Sleeps before replying. Defaults to 0 |
 | `fail_status` | rule, default | Replies with this status (400 to 599) and an error body instead of a body. It cannot be combined with `content`, `finish_reason`, `usage` or `tool_calls` |
+| `stop_reason` | rule, default | PRD-022: one of `end_turn`, `max_tokens`, `stop_sequence`, `tool_use`, `pause_turn`, `refusal`, `model_context_window_exceeded`. Sent verbatim on `/messages`, mapped to a Chat `finish_reason` on Chat. Not combinable with `finish_reason` (which `/messages` maps forward: `stop` to `end_turn`, `length` to `max_tokens`, `tool_calls` to `tool_use`, `content_filter` to `refusal`) |
+| `retry_after` | rule, default | PRD-022: an integer from 1, only with `fail_status`; sent as the `Retry-After` header on either endpoint |
+| `fault` | rule, default | PRD-022: `timeout` (read the request, send nothing, hold the connection until the stub closes) or `malformed` (status 200 with a truncated body, or one truncated SSE frame when streaming). Replaces the body like `fail_status`; cannot be combined with it or with body keys |
+| `usage.cache_creation_input_tokens` / `usage.cache_read_input_tokens` | rule, default | PRD-022: cache counts for `/messages` bodies (ignored on Chat). `prompt_tokens` is then Anthropic's `input_tokens`, which excludes them |
 | `role` | rule only | `system`, `user`, `assistant` or `tool`: which message `contains` / `regex` test (the last one of that role). The rule does not match when the request has none |
 | `last_role` | rule only | Same vocabulary. The rule matches only when the conversation's last message has this role |
 | `after_call` | rule only | The rule matches only when the last assistant turn called a tool of this name. Independent of ids, arguments and tool-result text, which clients rewrite |
@@ -65,7 +71,9 @@ OPENROUTER_BASE_URL=http://127.0.0.1:9100/v1 uvicorn app.main:app --port 8765
 
 The first matching rule wins. If no rule matches, `default` answers. If `default` is missing, a built-in default answers `stub_openrouter: no rule matched`. A malformed script is rejected at startup, with exit code 2 and the offending field named.
 
-Each request logs one ASCII line on stderr with the model, the message count, the parameter keys, the rule that answered, and the counts `tools=<n>` (tools offered) and `calls=<n>` (calls answered). It never logs message content, tool names, arguments or headers. The stub never streams: `call_openrouter` does not send `stream` upstream.
+The stub also serves `POST <anything>/messages` (PRD-022 STORY-006) from the same script: an Anthropic Messages JSON body, or SSE when the request sends `"stream": true`. Auth is `Authorization: Bearer <key>` or `x-api-key`. `stream.reasoning` becomes a `thinking` block; a tool call's `arguments` must parse to a JSON object there. `times` counts are shared across both endpoints (one script), and `server.endpoint_hits()` returns `{"chat": n, "messages": n}` for in-process tests.
+
+Each request logs one ASCII line on stderr with the model, the message count, the parameter keys, the rule that answered, and the counts `tools=<n>` (tools offered) and `calls=<n>` (calls answered). It never logs message content, tool names, arguments or headers. On Chat it streams only when the request sends `stream`.
 
 ## Scripting an agent loop
 

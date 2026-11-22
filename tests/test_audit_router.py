@@ -116,6 +116,14 @@ def test_valid_token_returns_expected_shape(temp_db):
             "reasoning_shown",
             "stream_redaction_divergence",
             "completion_id",
+            # PRD-022 F8 / D10 (STORY-003): seven additive, nullable fields.
+            "request_id",
+            "attempt",
+            "route_model",
+            "fallback_reason",
+            "skipped_providers",
+            "cache_read_tokens",
+            "cache_write_tokens",
         }
 
     newest, oldest = body["queries"]
@@ -242,7 +250,10 @@ def test_response_never_includes_ip_or_raw_text(temp_db):
     assert response.status_code == 200
     body = response.json()
     for entry in body["queries"]:
-        assert not any("ip" in key.lower() for key in entry.keys())
+        # PRD-022 D10 (STORY-003): `skipped_providers` contains the letters
+        # "ip" by accident; the guard is for an IP-address field, so it matches
+        # the word, not the substring.
+        assert not any("ip" in key.lower().split("_") for key in entry.keys())
         assert "prompt" not in entry or entry.get("prompt_hash") == "hash1"
         assert "response" not in entry
         assert "prompt_preview" not in entry
@@ -572,3 +583,85 @@ def test_an_empty_completion_id_is_a_422_not_no_filter(temp_db):
     response = client.get("/audit?completion_id=", headers=_ADMIN)
 
     assert response.status_code == 422
+
+
+# --- PRD-022 F8 / D10 (STORY-003): trail fields and ?request_id= ---------------
+
+
+def _seed_request(user_id, request_id, ts, **extra):
+    insert_audit_log(
+        AuditLog(
+            timestamp=ts,
+            user_id=user_id,
+            prompt_hash=f"h-{request_id}-{ts}",
+            request_id=request_id,
+            **extra,
+        )
+    )
+
+
+def test_audit_entry_carries_the_prd022_trail_fields(temp_db):
+    """PRD-022 F8 / D10: the seven columns pass through verbatim; a row no
+    PRD-022 caller wrote reads all null."""
+    _seed_request(
+        "u", "req-aaa", "2026-07-01T10:00:00Z", attempt=1, route_model="gpt-4",
+        fallback_reason="unavailable", skipped_providers="a,b",
+        cache_read_tokens=10, cache_write_tokens=5,
+    )
+    _seed_request("u", None, "2026-07-01T09:00:00Z")
+
+    body = client.get("/audit", headers=_ADMIN).json()
+
+    fields = (
+        "request_id", "attempt", "route_model", "fallback_reason",
+        "skipped_providers", "cache_read_tokens", "cache_write_tokens",
+    )
+    live, plain = body["queries"]
+    assert tuple(live[f] for f in fields) == ("req-aaa", 1, "gpt-4", "unavailable", "a,b", 10, 5)
+    assert tuple(plain[f] for f in fields) == (None,) * 7
+
+
+def test_request_id_filter_is_an_exact_match(temp_db):
+    _seed_request("u", "req-aaa", "2026-07-01T10:00:00Z")
+    _seed_request("u", "req-aaa", "2026-07-01T10:30:00Z", attempt=2)
+    _seed_request("u", "req-aaab", "2026-07-01T11:00:00Z")
+    _seed_request("u", None, "2026-07-01T12:00:00Z")
+
+    exact = client.get("/audit?request_id=req-aaa", headers=_ADMIN).json()
+    prefix = client.get("/audit?request_id=req", headers=_ADMIN).json()
+    unfiltered = client.get("/audit", headers=_ADMIN).json()
+
+    assert exact["total"] == 2
+    assert [q["request_id"] for q in exact["queries"]] == ["req-aaa", "req-aaa"]
+    assert prefix == {"total": 0, "queries": []}
+    assert unfiltered["total"] == 4
+
+
+def test_request_id_filter_composes_with_own_scope(temp_db):
+    insert_user(User(user_id="ana", role="user", token_hash=hash_token("ana-token")))
+    _seed_request("ana", "req-ana", "2026-07-01T10:00:00Z")
+    _seed_request("bob", "req-bob", "2026-07-01T11:00:00Z")
+    own = {"Authorization": "Bearer ana-token"}
+
+    mine = client.get("/audit?request_id=req-ana", headers=own)
+    theirs = client.get("/audit?request_id=req-bob", headers=own)
+    as_admin = client.get("/audit?request_id=req-bob", headers=_ADMIN)
+
+    assert mine.json()["total"] == 1
+    # Another user's id under audit:read:own is empty, not a 403.
+    assert theirs.status_code == 200
+    assert theirs.json() == {"total": 0, "queries": []}
+    assert as_admin.json()["total"] == 1
+
+
+def test_request_id_filter_is_a_bound_value_not_sql(temp_db):
+    _seed_request("u", "req-aaa", "2026-07-01T10:00:00Z")
+
+    response = client.get("/audit", params={"request_id": "x' OR '1'='1"}, headers=_ADMIN)
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "queries": []}
+
+
+def test_an_empty_request_id_is_a_422_not_no_filter(temp_db):
+    assert client.get("/audit?request_id=", headers=_ADMIN).status_code == 422

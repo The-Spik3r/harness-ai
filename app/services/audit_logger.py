@@ -121,6 +121,15 @@ def log_query(
     reasoning_shown: bool,
     stream_redaction_divergence: bool = False,
     completion_id: Optional[str] = None,
+    # PRD-022 F8 / D10: verbatim passthrough, all None on a row that does not
+    # set them (a pre-step-7 row has no attempt and no route_model).
+    request_id: Optional[str] = None,
+    attempt: Optional[int] = None,
+    route_model: Optional[str] = None,
+    fallback_reason: Optional[str] = None,
+    skipped_providers: Optional[str] = None,
+    cache_read_tokens: Optional[int] = None,
+    cache_write_tokens: Optional[int] = None,
     # PRD-018 D13. Step 8 of a request with tool decisions only: a journaled
     # row carries its decisions in the SAME journal entry, so the callable gets
     # the row's write_id and returns the decision rows keyed `<write_id>:<i>`.
@@ -172,6 +181,13 @@ def log_query(
         reasoning_shown=reasoning_shown,
         stream_redaction_divergence=stream_redaction_divergence,
         completion_id=completion_id,
+        request_id=request_id,
+        attempt=attempt,
+        route_model=route_model,
+        fallback_reason=fallback_reason,
+        skipped_providers=skipped_providers,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
         # PRD-018 D4 (Section 6.4): minted once per call, beside the one
         # timestamp stamp and before the first attempt, so every retry (and,
         # from STORY-008, the journal entry and the drain) carries the same

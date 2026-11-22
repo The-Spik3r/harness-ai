@@ -53,6 +53,9 @@ AUDIT_ROW_FIELDS = {
     "streamed",
     "has_tool_calls",
     "limit_exceeded",
+    # PRD-022 (STORY-016, F8): the attempt column and the disclosure request id.
+    "attempt",
+    "request_id",
 }
 
 # PRD-013 (STORY-015): the six disclosure fields, each a pre-formatted string.
