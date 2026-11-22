@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-022
 plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-018-docs-examples-latency.plan.md
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-commit: pending
+commit: cf9349a
 status: COMPLETE
 completed: 2026-11-20
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-20
 
 **Plan**: `.agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-018-docs-examples-latency.plan.md`
 **Epic Branch**: `epic/PRD-022-provider-fallback-and-native-adapters`
-**Commit**: `pending`
+**Commit**: `cf9349a`
 
 ## Summary
 

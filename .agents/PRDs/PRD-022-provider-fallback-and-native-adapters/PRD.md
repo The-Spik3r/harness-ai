@@ -2,11 +2,11 @@
 id: PRD-022
 slug: provider-fallback-and-native-adapters
 title: Provider Resilience — Native Adapters, Fallback Chains and a Provider Circuit Breaker
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-20
 ---
 
 > **Builds on [PRD-020 provider-registry](../PRD-020-provider-registry/PRD.md)** (draft). This PRD uses PRD-020's provider and catalogue model, its trust levels (`internal` / `external`, D5/D7), its capability fields (D6), its adapter protocol and `call_upstream` seam (D11, D12), its `UpstreamError`, and its audit columns (D13). It satisfies the four fallback rules in PRD-020 Section 6.8 (see Section 6.4 here). The registry fields and capabilities this PRD adds are labelled **PRD-022 addition** wherever they appear. It also builds on **[PRD-018 db-resilience](../PRD-018-db-resilience/PRD.md)** (draft). PRD-018 defines the breaker's state machine (D6, Section 6.5), its error carrying `retry_after_seconds` (D7), and its status reporting (D16). PRD-018's breaker is written as one storage singleton. Section 6.10 states exactly what this PRD reuses, what it generalizes, and the one edit it proposes to PRD-018 (O10).

@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Observability, streaming, docs"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-022-provider-fallback-and-native-adapters
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-022-provider-fallback-and-native-adapters/completed/STORY-018-docs-examples-latency.plan.md
+report: .agents/reports/PRD-022-provider-fallback-and-native-adapters/STORY-018-docs-examples-latency.report.md
+commit: cf9349a
 depends_on: [STORY-016, STORY-017]
 blocks: []
 skills: []
