@@ -135,7 +135,12 @@ def _seed():
         _row(tool_call_id="v1", surface="v1", mcp_server="github", skills=None,
              arguments_canonical_hash="c" * 64),
     ])
-    (v1_id,) = insert_action_decisions([_row(tool_call_id="v1b", surface="v1")])
+    # A plain `/v1` row (no alias): `_row`'s gateway defaults are cleared, so its
+    # entry shows the PRD-023 columns empty (PRD 6.9).
+    (v1_id,) = insert_action_decisions([
+        _row(tool_call_id="v1b", surface="v1", mcp_server=None, skills=None,
+             arguments_canonical_hash=None),
+    ])
     insert_action_decisions([
         _row(tool_call_id="linked", linked_decision_id=v1_id, outcome="ok"),
     ])

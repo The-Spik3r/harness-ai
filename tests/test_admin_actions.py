@@ -254,9 +254,11 @@ def test_default_limit_is_100(temp_db, monkeypatch):
 
     assert _entries(client.get("/audit/actions", headers=_ADMIN_HEADERS)) == []
     # PRD-017 STORY-013 (Section 10): the router now always passes audit_id;
-    # None is no filter.
+    # None is no filter. PRD-023 D21 (STORY-017): the router also always passes
+    # the four gateway filters; None is no filter for each.
     assert calls == [
-        {"limit": 100, "user_id": None, "decision": None, "audit_id": None}
+        {"limit": 100, "user_id": None, "decision": None, "audit_id": None,
+         "surface": None, "mcp_server": None, "outcome": None, "linked": None}
     ]
 
 
