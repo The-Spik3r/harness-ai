@@ -19,7 +19,7 @@ whose bodies STORY-012 (`tools/list`), STORY-013 (`tools/call`) and STORY-015
 Handler table (each is `async def(identity, params, request_id) -> dict` and may
 raise `JsonRpcError`; `params` is always a dict, `{}` when absent):
 
-    tools/list     -> {"tools": []}                  (STORY-012 replaces)
+    tools/list     -> the visible catalogue          (STORY-012, `mcp_gateway`)
     tools/call     -> JsonRpcError(-32601)           (STORY-013 replaces)
     prompts/list   -> {"prompts": []}                (STORY-015 replaces)
     prompts/get    -> JsonRpcError(-32601)           (STORY-015 replaces)
@@ -28,6 +28,7 @@ JSON-RPC errors are HTTP 200, except the modern-era refusal (400). The router
 is mounted only when `MCP_ENABLED` is true (`app/main.py`), so off means 404.
 """
 
+import hashlib
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -38,7 +39,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.config import _normalize_mcp_origin, settings
 from app.middleware.auth import require_identity
 from app.models import mcp_schemas as schemas
-from app.services import strict_json
+from app.services import mcp_config, mcp_gateway, strict_json
 from app.services.authz import PERMISSION_MCP_CONNECT, PermissionDenied, authorize
 from app.services.identity import Identity
 
@@ -166,8 +167,22 @@ def _initialize_result(params: Dict[str, Any], app_version: str) -> Dict[str, An
 
 
 async def handle_tools_list(identity: Identity, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:
-    """Placeholder: STORY-012 returns the visible, prefixed catalogue."""
-    return {"tools": []}
+    """The visible, prefixed, inspected catalogue (PRD-023 F5, D6, D7, D12, T4).
+
+    One page, no cursor (`params` is ignored). Writes no row (O4): one INFO line
+    carries the user, the servers, the count, the config digest and a hash per
+    description, never description text."""
+    catalogue = await mcp_gateway.visible_catalogue(identity)
+    hashes = ",".join(
+        f"{t['name']}=sha256:{hashlib.sha256(t['description'].encode('utf-8')).hexdigest()}"
+        for t in catalogue.tools
+    )
+    logger.info(
+        "mcp tools/list: user=%s servers=%s tools=%d digest=%s hashes=%s",
+        identity.user_id, ",".join(sorted(catalogue.callable)), len(catalogue.tools),
+        mcp_config.mcp_config_digest(), hashes,
+    )
+    return {"tools": list(catalogue.tools)}
 
 
 async def handle_tools_call(identity: Identity, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:

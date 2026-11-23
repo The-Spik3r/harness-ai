@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - The gateway"
-status: todo
+status: in-progress
 labels: [mcp, security, rbac]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-012-tools-list-visibility.plan.md
 report: null
 commit: null
 depends_on: [STORY-006, STORY-010, STORY-011]
@@ -36,6 +36,7 @@ As a security admin, I want `tools/list` to show only the tools of the skills a 
 ## Technical Notes
 
 - Orchestrator decision (STORY-002): northbound `tools/list` returns every visible tool in **one page with no `nextCursor`**, because OpenCode reads only the first page. OpenCode drops a tool whose `inputSchema.type` is not `"object"`. Pass the schema through unchanged and do not repair it, but log `INFO` when a visible tool's schema is not an object. Cline 4.x reads `annotations`, so pass them through. The GitHub server's `x-mcp-header`, `icons` (`data:` URIs) and `outputSchema` pass through unchanged.
+- Orchestrator decision (STORY-012 plan): icons and _meta are dropped (STORY-002 safe default); this supersedes "icons pass through" above.
 - Visibility: `held = {s : holds(identity, 'skill:'+s.id)}`, `wanted = ⋃ s.tools` (Section 6.5). Upstream lists fetched concurrently with the per-server timeout.
 - New `app/services/mcp_gateway.py` starts here; `pattern_detector.inspect` with the injection list (PRD-011).
 - Withheld tools must also be excluded from the visible set used by `tools/call` (STORY-013): calling `poisoned` gets `-32602`.
