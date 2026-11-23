@@ -19,8 +19,14 @@ What a test can script:
 
 The side channel (plain HTTP outside `/mcp`, never gated) lets a test read what
 the stub saw: `GET /__stub/stats` and `POST /__stub/reset`. It records call
-counts per tool, the last `Authorization` header and the *names* of the last
-request's headers. It never records or logs a tool's arguments or results.
+counts per tool, the last `Authorization` header, the *names* of the last
+request's headers, how many sessions were initialized and how many requests
+were answered with the expired-session 404. It never records or logs a tool's
+arguments or results.
+
+`POST /__stub/expire-sessions` (PRD-023 STORY-010) makes the next `/mcp` POST
+that carries an `mcp-session-id` answer a bare `404`, once, as a server does
+when it forgets a session. The request never reaches the MCP layer.
 
 Usage:
 
@@ -83,6 +89,9 @@ class Stats:
     unauthorized: int = 0
     sampling_requested: int = 0
     sampling_last_kind: Optional[str] = None
+    initializes: int = 0
+    session_404: int = 0
+    expire_next: bool = False
 
     def reset(self) -> None:
         self.calls = {}
@@ -91,6 +100,9 @@ class Stats:
         self.unauthorized = 0
         self.sampling_requested = 0
         self.sampling_last_kind = None
+        self.initializes = 0
+        self.session_404 = 0
+        self.expire_next = False
 
     def as_json(self) -> dict:
         return {
@@ -100,6 +112,8 @@ class Stats:
             "header_names": list(self.header_names),
             "unauthorized": self.unauthorized,
             "sampling": {"requested": self.sampling_requested, "last_kind": self.sampling_last_kind},
+            "initializes": self.initializes,
+            "session_404": self.session_404,
         }
 
 
@@ -235,6 +249,15 @@ class _Gate:
                 response = Response(status_code=401, headers={"WWW-Authenticate": "Bearer"})
                 await response(scope, receive, send)
                 return
+            if scope["method"] == "POST":
+                if "mcp-session-id" not in seen:
+                    # A POST without a session id opens one (the `initialize` request).
+                    self.stats.initializes += 1
+                elif self.stats.expire_next:
+                    self.stats.expire_next = False
+                    self.stats.session_404 += 1
+                    await Response(status_code=404)(scope, receive, send)
+                    return
         await self.app(scope, receive, send)
 
     def _authorized(self, seen: dict) -> bool:
@@ -252,6 +275,9 @@ class _Gate:
             response = JSONResponse(self.stats.as_json())
         elif path == "/__stub/reset" and scope["method"] == "POST":
             self.stats.reset()
+            response = JSONResponse({"ok": True})
+        elif path == "/__stub/expire-sessions" and scope["method"] == "POST":
+            self.stats.expire_next = True
             response = JSONResponse({"ok": True})
         else:
             response = Response(status_code=404)

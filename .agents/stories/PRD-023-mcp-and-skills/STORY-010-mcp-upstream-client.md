@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - The gateway"
-status: todo
+status: done
 labels: [mcp, upstream, security]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-010-mcp-upstream-client.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-010-mcp-upstream-client.report.md
+commit: pending
 depends_on: [STORY-003, STORY-007, STORY-009]
 blocks: [STORY-012]
 skills: []

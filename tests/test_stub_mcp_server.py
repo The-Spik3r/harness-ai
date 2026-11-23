@@ -155,6 +155,29 @@ def test_calls_are_counted_per_tool_and_reset(mcp_stub):
     assert mcp_stub.stats()["calls"] == {}
 
 
+def test_initializes_counter_and_expire_sessions_switch(mcp_stub):
+    """PRD-023 STORY-010: `initializes` counts sessions; `expire-sessions` 404s one request, once."""
+
+    async def body(session):
+        await session.call_tool("query", {"sql": "SELECT 1"})
+        mcp_stub.expire_sessions()
+        try:
+            await session.call_tool("query", {"sql": "SELECT 2"})
+        except Exception as exc:  # noqa: BLE001 - the SDK maps the 404 to MCPError -32600
+            return exc
+        raise AssertionError("expired session did not fail")
+
+    error = _run(_with_session(mcp_stub.url, body))
+
+    stats = mcp_stub.stats()
+    assert stats["initializes"] == 1
+    assert stats["session_404"] == 1
+    assert mcp_stub.calls("query") == 1  # the 404 never reached the tool
+    assert getattr(error, "code", None) == -32600
+    mcp_stub.reset()
+    assert (mcp_stub.stats()["initializes"], mcp_stub.stats()["session_404"]) == (0, 0)
+
+
 def test_side_channel_records_authorization_and_header_names_never_arguments(mcp_stub):
     async def body(session):
         return await session.call_tool("query", {"sql": "SELECT secret_marker"})

@@ -6,7 +6,7 @@
 
 ## Progress
 
-9/21 stories done — 43%
+10/21 stories done — 48%
 
 ## Stories
 
@@ -23,7 +23,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-007 | `mcp_config`: servers, skills, aliases, cross-validation, digest, loaded in both lifespans | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-007-mcp-config-loader.plan.md) | `8fb312b` |
 | STORY-008 | Audit: MCP columns on `action_decisions`, `record(..., mcp=)`, `record_outcome`, correlation lookup | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-008-audit-columns-and-outcome.plan.md) | `f0e2f54` |
 | STORY-009 | Test infrastructure: the scripted stub MCP server and its pytest fixture | technical | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-009-stub-mcp-server.plan.md) | `823a8bf` |
-| STORY-010 | `mcp_upstream`: southbound sessions, harness-held credentials, timeouts, refusals, cached `tools/list` | feature | ⬜ todo | large | — | — |
+| STORY-010 | `mcp_upstream`: southbound sessions, harness-held credentials, timeouts, refusals, cached `tools/list` | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-010-mcp-upstream-client.plan.md) | `pending` |
 | STORY-011 | Northbound `POST /mcp`: auth, Origin, JSON-RPC parsing, `initialize` / `ping` / notifications | feature | ⬜ todo | medium | — | — |
 | STORY-012 | `tools/list`: visibility by held skills and catalogue injection inspection | feature | ⬜ todo | medium | — | — |
 | STORY-013 | `tools/call`: usage, visibility, evaluation, record before forward, forward, outcome | feature | ⬜ todo | large | — | — |

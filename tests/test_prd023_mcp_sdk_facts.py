@@ -302,9 +302,13 @@ def test_pin_is_exact_and_installed():
 
 
 def test_app_never_imports_mcp():
-    """PRD-023 T17: until STORY-010 the SDK is imported by nothing under app/."""
+    """PRD-023 T17: the SDK is imported by nothing under app/ except the upstream client."""
     offenders = []
     for path in (_REPO_ROOT / "app").rglob("*.py"):
+        # PRD-023 T17 / STORY-010: `app/services/mcp_upstream.py` is the one sanctioned importer
+        # (tests/test_mcp_upstream_import_graph.py guards the rest of the boundary).
+        if path.relative_to(_REPO_ROOT).as_posix() == "app/services/mcp_upstream.py":
+            continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []
             if isinstance(node, ast.Import):

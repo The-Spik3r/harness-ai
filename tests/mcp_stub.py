@@ -70,6 +70,10 @@ class StubHandle:
     def reset(self) -> None:
         httpx.post(f"{self.base}/__stub/reset", timeout=10, trust_env=False).raise_for_status()
 
+    def expire_sessions(self) -> None:
+        """The next `/mcp` POST carrying a session id is answered 404, once (STORY-010)."""
+        httpx.post(f"{self.base}/__stub/expire-sessions", timeout=10, trust_env=False).raise_for_status()
+
     def calls(self, tool: str) -> int:
         return self.stats()["calls"].get(tool, 0)
 
