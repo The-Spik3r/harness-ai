@@ -3,7 +3,7 @@ story: STORY-009
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-009-stub-mcp-server.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 823a8bf
 status: COMPLETE
 completed: 2026-11-22
 ---

@@ -12,7 +12,7 @@ labels: [tests, mcp]
 epic_branch: epic/PRD-023-mcp-and-skills
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-009-stub-mcp-server.plan.md
 report: .agents/reports/PRD-023-mcp-and-skills/STORY-009-stub-mcp-server.report.md
-commit: null
+commit: 823a8bf
 depends_on: [STORY-003]
 blocks: [STORY-010]
 skills: []
