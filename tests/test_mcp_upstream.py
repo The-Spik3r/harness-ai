@@ -499,6 +499,10 @@ def test_aclose_all_leaves_no_owner_task(mcp_stub_factory, monkeypatch):
     _cfg(monkeypatch, ("gh", stub, McpAuth(type="none"), 30))
 
     async def body():
+        # PRD-023 STORY-010 (fix after CI 45202980149): on Python 3.11 `wait_for`
+        # runs this body in a child task, so `_go`'s `main` is a live parent here.
+        # Only tasks created after this point count.
+        before = asyncio.all_tasks()
         await mcp_upstream.call_tool("gh", "u1", "query", {"sql": "1"})
         await mcp_upstream.call_tool("gh", "u2", "query", {"sql": "2"})
         assert len(mcp_upstream._state.owners) == 2
@@ -508,7 +512,7 @@ def test_aclose_all_leaves_no_owner_task(mcp_stub_factory, monkeypatch):
         # may still be finishing their teardown when aclose_all returns; on a
         # slow runner a snapshot caught one mid-exit. Give them a bounded grace,
         # then require that nothing is left pending.
-        others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        others = [t for t in asyncio.all_tasks() - before if t is not asyncio.current_task()]
         if others:
             await asyncio.wait(others, timeout=5)
         return [t for t in others if not t.done()]
