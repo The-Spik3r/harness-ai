@@ -3,7 +3,7 @@ story: STORY-012
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-012-tools-list-visibility.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 553becd
 status: COMPLETE
 completed: 2026-11-22
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-22
 
 **Plan**: `.agents/plans/PRD-023-mcp-and-skills/completed/STORY-012-tools-list-visibility.plan.md`
 **Epic Branch**: `epic/PRD-023-mcp-and-skills`
-**Commit**: `pending`
+**Commit**: `553becd`
 
 ## Summary
 

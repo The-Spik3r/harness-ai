@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - The gateway"
-status: in-progress
+status: done
 labels: [mcp, security, rbac]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-012-tools-list-visibility.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-012-tools-list-visibility.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-012-tools-list-visibility.report.md
+commit: 553becd
 depends_on: [STORY-006, STORY-010, STORY-011]
 blocks: [STORY-013]
 skills: []

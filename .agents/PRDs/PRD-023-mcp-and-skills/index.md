@@ -6,7 +6,7 @@
 
 ## Progress
 
-11/21 stories done — 52%
+12/21 stories done — 57%
 
 ## Stories
 
@@ -25,7 +25,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-009 | Test infrastructure: the scripted stub MCP server and its pytest fixture | technical | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-009-stub-mcp-server.plan.md) | `823a8bf` |
 | STORY-010 | `mcp_upstream`: southbound sessions, harness-held credentials, timeouts, refusals, cached `tools/list` | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-010-mcp-upstream-client.plan.md) | `5bead9d` |
 | STORY-011 | Northbound `POST /mcp`: auth, Origin, JSON-RPC parsing, `initialize` / `ping` / notifications | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-011-northbound-endpoint.plan.md) | `121ef12` |
-| STORY-012 | `tools/list`: visibility by held skills and catalogue injection inspection | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-023-mcp-and-skills/STORY-012-tools-list-visibility.plan.md) | — |
+| STORY-012 | `tools/list`: visibility by held skills and catalogue injection inspection | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-012-tools-list-visibility.plan.md) | `553becd` |
 | STORY-013 | `tools/call`: usage, visibility, evaluation, record before forward, forward, outcome | feature | ⬜ todo | large | — | — |
 | STORY-014 | Results: size cap, pattern inspection under the `tool` cell, uninspected counts | feature | ⬜ todo | medium | — | — |
 | STORY-015 | `prompts/list` and `prompts/get` from held skills | feature | ⬜ todo | small | — | — |
