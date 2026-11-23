@@ -3,7 +3,7 @@ story: STORY-010
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-010-mcp-upstream-client.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 5bead9d
 status: COMPLETE
 completed: 2026-11-22
 ---
