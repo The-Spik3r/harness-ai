@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 CREATE_AUDIT_LOGS_TABLE = """
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -465,19 +465,52 @@ CREATE TABLE IF NOT EXISTS action_decisions (
     granted_by TEXT,                  -- the action permission, when one lifted the rule
     classifications TEXT NOT NULL,    -- JSON array: [{rule, kind, detail}], every one
     policy_digest TEXT NOT NULL,
-    write_id TEXT                     -- "<batch hex>:<index>"; NULL for an unkeyed direct call
+    write_id TEXT,                    -- "<batch hex>:<index>"; NULL for an unkeyed direct call
+    -- PRD-023 STORY-008 (D21, Section 6.9): the gateway columns, in mapping order.
+    surface TEXT NOT NULL DEFAULT 'v1',
+    mcp_server TEXT,
+    skills TEXT,
+    arguments_canonical_hash TEXT,
+    linked_decision_id INTEGER,
+    outcome TEXT,
+    duration_ms INTEGER,
+    result_bytes INTEGER,
+    result_hash TEXT,
+    result_flags TEXT,
+    mcp_config_digest TEXT
 )
 """
 
 # The fourth added-columns mapping (after audit_logs, users and chat_messages):
-# PRD-018 STORY-004 gives action_decisions its first added column.
+# PRD-018 STORY-004 gives action_decisions its first added column; PRD-023
+# STORY-008 adds the eleven gateway columns (Section 6.9), all nullable or
+# defaulted, so existing /v1 rows read surface='v1' and the rest NULL.
 # The same convergence AUDIT_LOGS_ADDED_COLUMNS describes, run for a table that
 # shipped without the column. Also declared in CREATE_ACTION_DECISIONS_TABLE
 # above, for the reason the audit mapping gives. Nullable with no default and no
 # backfill: every row written before PRD-018 reads NULL. Additive only; a NOT
 # NULL entry would need a non-NULL DEFAULT, since SQLite rejects ADD COLUMN NOT
 # NULL without one.
-ACTION_DECISIONS_ADDED_COLUMNS = {"write_id": "TEXT"}
+ACTION_DECISIONS_ADDED_COLUMNS = {
+    "write_id": "TEXT",
+    "surface": "TEXT NOT NULL DEFAULT 'v1'",  # v1 | mcp
+    "mcp_server": "TEXT",                     # gateway server id; v1 alias rows too
+    "skills": "TEXT",                         # JSON ["name@version"]; mcp rows
+    "arguments_canonical_hash": "TEXT",       # sha256 of canonical_json(arguments)
+    "linked_decision_id": "INTEGER",          # the v1 alias row this call was correlated to
+    "outcome": "TEXT",                        # NULL (not forwarded) | MCP_OUTCOME_VALUES
+    "duration_ms": "INTEGER",
+    "result_bytes": "INTEGER",
+    "result_hash": "TEXT",
+    "result_flags": "TEXT",                   # JSON array of flag names; no matched text
+    "mcp_config_digest": "TEXT",
+}
+
+# PRD-023 STORY-008 (D21): the correlation lookup's index (Section 6.9).
+CREATE_ACTION_DECISIONS_LINK_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_action_decisions_link "
+    "ON action_decisions(user_id, arguments_canonical_hash)"
+)
 
 # STORY-016's per-user read (`audit:read:own`) filters on user_id; its
 # ORDER BY id reads the rowid SQLite appends to every secondary index.
@@ -504,6 +537,19 @@ CREATE_ACTION_DECISIONS_WRITE_ID_INDEX = (
 # app.services.action_classifiers.DECISIONS because app/db imports nothing from
 # app/services. tests/test_action_audit.py pins the two equal.
 ACTION_DECISION_VALUES: tuple[str, ...] = ("allow", "flag", "deny")
+
+# PRD-023 D21: the closed outcome vocabulary of a forwarded gateway call
+# (NULL = never forwarded). Same pairing as Phase/_PHASES: the Literal is for
+# type checkers, the tuple for runtime membership; tests/test_mcp_audit.py pins
+# them equal.
+McpOutcome = Literal[
+    "ok", "tool_error", "upstream_error", "timeout",
+    "result_too_large", "result_blocked",
+]
+MCP_OUTCOME_VALUES: tuple[str, ...] = (
+    "ok", "tool_error", "upstream_error", "timeout",
+    "result_too_large", "result_blocked",
+)
 
 
 @dataclass
@@ -735,4 +781,17 @@ class ActionDecisionRow:
     classifications: str
     policy_digest: str
     write_id: Optional[str] = None
+    # PRD-023 STORY-008 (D21): the gateway columns, defaulted so every existing
+    # construction keeps working; `id` stays last.
+    surface: str = "v1"
+    mcp_server: Optional[str] = None
+    skills: Optional[str] = None
+    arguments_canonical_hash: Optional[str] = None
+    linked_decision_id: Optional[int] = None
+    outcome: Optional[str] = None
+    duration_ms: Optional[int] = None
+    result_bytes: Optional[int] = None
+    result_hash: Optional[str] = None
+    result_flags: Optional[str] = None
+    mcp_config_digest: Optional[str] = None
     id: Optional[int] = None

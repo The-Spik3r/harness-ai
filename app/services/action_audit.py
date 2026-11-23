@@ -30,6 +30,17 @@ What each column holds, for decision `d` and identity `i`:
   so it lands exactly once (PRD-018 D4, STORY-010). NULL only for a row built
   without one.
 
+A gateway row (PRD-023 D21, STORY-008; `record(..., mcp=McpRecord(...))`) adds:
+
+- `surface='mcp'`, `mcp_server`, `mcp_config_digest`, `arguments_canonical_hash`,
+  `linked_decision_id`: from the `McpRecord`.
+- `skills`: a compact JSON array of `"name@version"` strings.
+- `tool_call_id`: `"mcp:" + str(jsonrpc_id)`; `session_id` is NULL; `audit_id` is
+  the `McpRecord`'s (NULL unless correlated to a `/v1` request).
+- `outcome`, `duration_ms`, `result_bytes`, `result_hash`, `result_flags`: NULL
+  at the pre-forward write; `record_outcome` fills them after the call. Results
+  are never stored, only a hash, a size and flag names (T14).
+
 Redaction (STORY-012/015 orchestrator decisions). An `http` target is the whole
 URL, and a query string can carry a token. So the stored target of an `http`
 operation keeps its keys and replaces every query and fragment value with
@@ -50,16 +61,19 @@ with a failure is PRD-017 D8's decision, made in the pipeline: it turns it into
 `ActionAuditError` and fails closed.
 """
 
+import dataclasses
+import hashlib
 import json
 import re
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
 
 from app.db import audit_journal
-from app.db.database import insert_action_decisions
+from app.db.database import insert_action_decisions, update_action_outcome
 from app.db.errors import StorageUnavailableError
-from app.db.models import ActionDecisionRow
+from app.db.models import MCP_OUTCOME_VALUES, ActionDecisionRow
 
 # Section 6.12: the action audit reuses audit_logger's preview convention -- one
 # 500, not a copy that can drift. Underscore names by convention only.
@@ -211,11 +225,50 @@ def decision_rows(
     ]
 
 
+def canonical_json(obj: Any) -> str:
+    """The canonical JSON text of `obj` (PRD-023 Section 6.3): sorted keys, no
+    whitespace, non-ASCII kept. What `arguments_canonical_hash` is taken over, so
+    the same arguments hash the same however the caller ordered the keys."""
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def arguments_canonical_hash(arguments: Any) -> str:
+    """sha256 hex of `canonical_json(arguments)` as UTF-8 (PRD-023 D21)."""
+    return hashlib.sha256(canonical_json(arguments).encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class McpRecord:
+    """The gateway-only facts of one `record(..., mcp=)` row (PRD-023 D21).
+
+    `surface` is `"mcp"` and nothing else for now; anything else raises
+    `ValueError`. `audit_id` is the correlated `/v1` request's audit row, or
+    None. `jsonrpc_id` becomes `tool_call_id` as `"mcp:<id>"`.
+    """
+
+    surface: str
+    mcp_server: str
+    skills: tuple[str, ...]
+    arguments_canonical_hash: str
+    linked_decision_id: Optional[int]
+    mcp_config_digest: str
+    jsonrpc_id: Union[str, int]
+    audit_id: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.surface != "mcp":
+            raise ValueError(
+                f"McpRecord.surface must be 'mcp', got {self.surface!r} (PRD-023 D21)"
+            )
+
+
 def record(
     decisions: Sequence["ActionDecision"],
     identity: "Identity",
     audit_ref: Optional[AuditRef] = None,
     session_id: Optional[str] = None,
+    *,
+    mcp: Optional[McpRecord] = None,
 ) -> list[int]:
     """Store one row per decision; return the new ids, in input order (Section 10).
 
@@ -240,7 +293,39 @@ def record(
     A journaled ref (`audit_id is None`) is a caller bug: its decisions already
     went into the row's journal entry (D13), so the pipeline does not call
     `record` and this raises `ValueError` (orchestrator ruling R3).
+
+    **`mcp=` (PRD-023 D9, T9, D21): the gateway's pre-forward write.** Exactly
+    one decision, and no `audit_ref` or `session_id` (`ValueError` otherwise).
+    The row is keyed with a fresh `write_id`, carries the `McpRecord`'s fields,
+    and is written with no try/except and no journal: any `StorageError`
+    propagates, so the caller forwards nothing unless this returned.
     """
+    if mcp is not None:
+        if audit_ref is not None or session_id is not None:
+            raise ValueError(
+                "record(mcp=...) takes no audit_ref or session_id: a gateway row "
+                "is written before the forward and never journaled (PRD-023 T9)"
+            )
+        if len(decisions) != 1:
+            raise ValueError(
+                f"record(mcp=...) takes exactly one decision, got {len(decisions)}"
+            )
+        base = decision_rows(decisions, identity, _new_write_id(), mcp.audit_id, None)
+        rows = [
+            dataclasses.replace(
+                row,
+                tool_call_id=f"mcp:{mcp.jsonrpc_id}",
+                session_id=None,
+                surface=mcp.surface,
+                mcp_server=mcp.mcp_server,
+                skills=json.dumps(list(mcp.skills), separators=(",", ":")),
+                arguments_canonical_hash=mcp.arguments_canonical_hash,
+                linked_decision_id=mcp.linked_decision_id,
+                mcp_config_digest=mcp.mcp_config_digest,
+            )
+            for row in base
+        ]
+        return insert_action_decisions(rows)
     if audit_ref is not None and audit_ref.audit_id is None:
         raise ValueError(
             "record() was given a journaled AuditRef (audit_id None): its "
@@ -271,3 +356,48 @@ def record(
             len(rows),
         )
         return []
+
+
+def record_outcome(
+    row_id: int,
+    outcome: str,
+    duration_ms: Optional[int],
+    result_bytes: Optional[int],
+    result_hash: Optional[str],
+    result_flags: Sequence[str],
+    *,
+    user_id: str,
+) -> None:
+    """Fill a gateway row's outcome columns after the call (PRD-023 D21, T14).
+
+    Best effort: never raises into the response path. An `outcome` outside
+    `MCP_OUTCOME_VALUES` is logged at ERROR and not written; a failed UPDATE is
+    logged at ERROR with the exception class only (its message could carry
+    anything). `result_flags` is flag names only, stored as a JSON array; there
+    is no parameter for result content. `user_id` is keyword-only because after
+    a failed UPDATE nothing can be read back to name the user.
+    """
+    if outcome not in MCP_OUTCOME_VALUES:
+        logger.error(
+            "mcp outcome not recorded, unknown outcome: user_id=%s row_id=%s outcome=%r",
+            user_id,
+            row_id,
+            outcome,
+        )
+        return
+    try:
+        update_action_outcome(
+            row_id,
+            outcome,
+            duration_ms,
+            result_bytes,
+            result_hash,
+            json.dumps(list(result_flags), separators=(",", ":")),
+        )
+    except Exception as exc:
+        logger.error(
+            "mcp outcome not recorded: user_id=%s row_id=%s: %s",
+            user_id,
+            row_id,
+            type(exc).__name__,
+        )

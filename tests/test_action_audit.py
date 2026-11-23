@@ -93,6 +93,19 @@ _COLUMNS = [
     ("classifications", 1),
     ("policy_digest", 1),
     ("write_id", 0),  # PRD-018 STORY-004 (D4): "<batch>:<index>", nullable
+    # PRD-023 STORY-008 (D21, Section 6.9): the eleven gateway columns;
+    # `surface` is NOT NULL DEFAULT 'v1', the rest nullable.
+    ("surface", 1),
+    ("mcp_server", 0),
+    ("skills", 0),
+    ("arguments_canonical_hash", 0),
+    ("linked_decision_id", 0),
+    ("outcome", 0),
+    ("duration_ms", 0),
+    ("result_bytes", 0),
+    ("result_hash", 0),
+    ("result_flags", 0),
+    ("mcp_config_digest", 0),
 ]
 
 # `make release` is `shell.unlisted`; flag it, so the batch has all three outcomes.
@@ -243,6 +256,9 @@ def test_init_db_adds_action_decisions_to_a_pre_prd_database_and_alters_nothing(
         # already there and nothing is ALTERed -- only its index is created.
         ("index", "idx_action_decisions_write_id"),
         ("index", "idx_audit_logs_write_id"),
+        # PRD-023 STORY-008 (D21): the gateway correlation index is new; the
+        # eleven columns come with the CREATE, so no ALTER on a fresh table.
+        ("index", "idx_action_decisions_link"),
     }
     assert {key: after[key] for key in before} == before  # byte-identical
     assert get_user("dana").role == "user"
@@ -259,8 +275,9 @@ def test_init_db_creates_action_decisions_inside_the_one_bootstrap_session(
     assert len(holding) == 1
     assert any("CREATE TABLE IF NOT EXISTS audit_logs" in sql for sql in holding[0])
     # PRD-018 STORY-004 (D4): table + PRAGMA table_info (the added-columns pass)
-    # + 3 indexes (user_ts, audit, write_id).
-    assert sum("action_decisions" in sql for sql in holding[0]) == 5
+    # + 3 indexes (user_ts, audit, write_id). PRD-023 STORY-008: + the link
+    # index, so 6.
+    assert sum("action_decisions" in sql for sql in holding[0]) == 6
 
 
 def test_the_db_decision_vocabulary_mirrors_the_classifiers():

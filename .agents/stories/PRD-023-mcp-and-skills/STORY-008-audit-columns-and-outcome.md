@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Vocabulary and configuration"
-status: todo
+status: in-progress
 labels: [audit, db, security]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-008-audit-columns-and-outcome.plan.md
 report: null
 commit: null
 depends_on: [STORY-001]
