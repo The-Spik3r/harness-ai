@@ -6,7 +6,7 @@
 
 ## Progress
 
-7/21 stories done — 33%
+8/21 stories done — 38%
 
 ## Stories
 
@@ -21,7 +21,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-005 | Action policy: `mcp_tools` / `mcp_opaque_tools` sections and the `tool.not_in_skill` rule | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-005-policy-mcp-sections-and-rule.plan.md) | `5ea6493` |
 | STORY-006 | Engine: `evaluate(..., surface=McpSurface)` with visibility inside the fail-closed boundary | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-006-evaluate-mcp-surface.plan.md) | `ad6a286` |
 | STORY-007 | `mcp_config`: servers, skills, aliases, cross-validation, digest, loaded in both lifespans | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-007-mcp-config-loader.plan.md) | `8fb312b` |
-| STORY-008 | Audit: MCP columns on `action_decisions`, `record(..., mcp=)`, `record_outcome`, correlation lookup | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-023-mcp-and-skills/STORY-008-audit-columns-and-outcome.plan.md) | — |
+| STORY-008 | Audit: MCP columns on `action_decisions`, `record(..., mcp=)`, `record_outcome`, correlation lookup | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-008-audit-columns-and-outcome.plan.md) | `f0e2f54` |
 | STORY-009 | Test infrastructure: the scripted stub MCP server and its pytest fixture | technical | ⬜ todo | medium | — | — |
 | STORY-010 | `mcp_upstream`: southbound sessions, harness-held credentials, timeouts, refusals, cached `tools/list` | feature | ⬜ todo | large | — | — |
 | STORY-011 | Northbound `POST /mcp`: auth, Origin, JSON-RPC parsing, `initialize` / `ping` / notifications | feature | ⬜ todo | medium | — | — |
