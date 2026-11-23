@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Vocabulary and configuration"
-status: in-progress
+status: done
 labels: [action-policy, security]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-006-evaluate-mcp-surface.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-006-evaluate-mcp-surface.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-006-evaluate-mcp-surface.report.md
+commit: ad6a286
 depends_on: [STORY-005]
 blocks: [STORY-012, STORY-013]
 skills: []
