@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - The gateway"
-status: todo
+status: done
 labels: [mcp, api, security]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-011-northbound-endpoint.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-011-northbound-endpoint.report.md
+commit: pending
 depends_on: [STORY-004, STORY-007]
 blocks: [STORY-012, STORY-015]
 skills: []
@@ -28,11 +28,11 @@ As an integrating developer, I want a stateless Streamable HTTP MCP endpoint on 
 
 ## Acceptance Criteria
 
-- [ ] Given `MCP_ENABLED=false`, when `/mcp` is requested, then it is 404; given it enabled, then `POST /mcp` is mounted and `GET` / `DELETE` return 405
-- [ ] Given M0, when the token is missing/invalid, the break-glass `ADMIN_TOKEN` is used, the role lacks `mcp:connect`, an `Origin` is present and not on `MCP_ALLOWED_ORIGINS`, the body exceeds `MCP_MAX_REQUEST_BYTES`, or the content type is not JSON, then 401 (with `WWW-Authenticate: Bearer realm="harness"` and no `resource_metadata`) / 403 / 403 / 403 / 413 / 415, and no row or upstream request is made
-- [ ] Given M1, when the body is not JSON or has duplicate keys, then `-32700`; a batch array or a non-2.0 object, then `-32600`; an unknown method, then `-32601`
-- [ ] Given `initialize`, when the client's protocol version is supported it is echoed, otherwise the newest supported is answered, with `capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}}`, `serverInfo: {name: "harness", version}`, no `Mcp-Session-Id`, and no `instructions` (O11); `ping` answers `{}`; notifications get 202 with no body
-- [ ] Given `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, when dispatched, then they reach clearly-named handler seams that later stories fill (until then `-32601` or an empty result, documented in the report)
+- [x] Given `MCP_ENABLED=false`, when `/mcp` is requested, then it is 404; given it enabled, then `POST /mcp` is mounted and `GET` / `DELETE` return 405
+- [x] Given M0, when the token is missing/invalid, the break-glass `ADMIN_TOKEN` is used, the role lacks `mcp:connect`, an `Origin` is present and not on `MCP_ALLOWED_ORIGINS`, the body exceeds `MCP_MAX_REQUEST_BYTES`, or the content type is not JSON, then 401 (with `WWW-Authenticate: Bearer realm="harness"` and no `resource_metadata`) / 403 / 403 / 403 / 413 / 415, and no row or upstream request is made
+- [x] Given M1, when the body is not JSON or has duplicate keys, then `-32700`; a batch array or a non-2.0 object, then `-32600`; an unknown method, then `-32601`
+- [x] Given `initialize`, when the client's protocol version is supported it is echoed, otherwise the newest supported is answered, with `capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}}`, `serverInfo: {name: "harness", version}`, no `Mcp-Session-Id`, and no `instructions` (O11); `ping` answers `{}`; notifications get 202 with no body
+- [x] Given `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, when dispatched, then they reach clearly-named handler seams that later stories fill (until then `-32601` or an empty result, documented in the report)
 
 ## Technical Notes
 

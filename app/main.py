@@ -8,6 +8,7 @@ from app.config import settings
 from app.db import database, journal_drainer
 from app.db.database import init_db
 from app.routers import admin as admin_router
+from app.routers import mcp as mcp_router
 from app.routers import query as query_router
 from app.routers import v1 as v1_router
 from app.services import action_config, authz, mcp_config, pattern_config, pii_policy, pii_redactor, pipeline_executor, provider_registry
@@ -51,6 +52,11 @@ app.include_router(admin_router.router)
 if settings.V1_ENABLED:
     app.include_router(v1_router.router)
     v1_router.install_error_handlers(app)
+
+# PRD-023 F1, D20: off means /mcp is not mounted and is 404, with nothing under
+# /.well-known either. Read once, at import, like every other route decision.
+if settings.MCP_ENABLED:
+    app.include_router(mcp_router.router)
 
 
 @app.get("/health")

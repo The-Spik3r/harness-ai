@@ -51,6 +51,9 @@ EXPECTED_MATCHER = (
     # near-miss such as /readyx stays static.
     "/ready",
     "/v1/*",
+    # PRD-023 STORY-011 (F1): POST /mcp; exact token, so a near-miss such as
+    # /mcpx stays static. Nothing for /.well-known (no OAuth discovery, D3).
+    "/mcp",
 )
 
 # Reserved by Reflex >=0.8, restated as in tests/test_route_reservations.py.
@@ -69,7 +72,9 @@ STATIC_PATHS = ("/", "/admin/audit", "/admin/usage",
     # PRD-022 STORY-016: the Providers view, a Reflex page likewise.
     "/admin/providers", "/reports", "/v1", "/v1x", "/v10/models",
     # PRD-019 STORY-002: /ready is an exact token; near-misses stay static.
-    "/readyx", "/ready/", "/readiness")
+    "/readyx", "/ready/", "/readiness",
+    # PRD-023 STORY-011: /mcp is an exact token; near-misses stay static.
+    "/mcpx", "/mcp/")
 
 # Sample values for path parameters, so `/v1/models/{model_id:path}` is checked
 # with a slash in the id, as a real model id has.
@@ -141,6 +146,17 @@ def test_every_harness_route_is_proxied_by_caddy():
     assert {"/v1/chat/completions", "/v1/models", "/v1/models/{model_id:path}"} <= set(paths)
     unmatched = [path for path in paths if not _matched(_concrete(path), tokens)]
     assert not unmatched, f"routes Caddy would send to the static file server: {unmatched}"
+
+
+def test_the_mcp_router_paths_are_proxied_by_caddy():
+    """`app.routes` lacks `/mcp` while MCP_ENABLED is off (the default), so the
+    census above cannot see it; this reads the router itself (PRD-023 STORY-011)."""
+    from app.routers import mcp as mcp_router
+
+    tokens = _matcher_tokens()
+    paths = sorted(route.path for route in mcp_router.router.routes)
+    assert paths == ["/mcp"]
+    assert all(_matched(_concrete(path), tokens) for path in paths)
 
 
 def test_reflex_reserved_routes_are_proxied_by_caddy():
