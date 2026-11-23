@@ -59,16 +59,10 @@ It must print `errors: none`.
 - IMPLEMENT subagent: the commit SHA(s), the files changed, the exact targeted test counts, each AC with pass/fail and the test that proves it, deviations, and anything left undone. If something failed or you stopped early, say so plainly. Do not report success you did not verify.
 
 ## Checkpoint
-- Done and pushed: STORY-001 to STORY-004. Last CI run 45039126441 @ `3e32751`: success. No open carried-over errors.
-- Epic-wide decisions (already in the PRD and in each affected story's Technical Notes):
-  - Northbound: only the handshake revisions `2025-03-26`, `2025-06-18` and `2025-11-25`. A `2026-07-28`-style request gets a plain HTTP `400` with a `-32600` body.
-  - Southbound: `mcp==2.3.0`. Its server class is `MCPServer`. Sampling with no callback is refused with `-32600`. Same-origin 307/308 redirects are followed. A timeout is `MCPError -32001`.
-  - T10: a forwarded call is never replayed. T12: an `input_required` result maps to `upstream_error`.
-  - No Cline hash reverse map: STORY-007 warns for ids longer than 55 characters. Aliases `harness_` and `harness__` are confirmed. `tools/list` is one page, and `/mcp` ignores query params.
-- Critical stories ahead, with design points to supply at 3.1: 005/006 (engine), 007 (config loader), 008 (audit and pre-forward write), 010 (upstream), 011 (northbound auth), 013 (call path), 016 (alias and correlation).
-- Planner escalations: none. Plans corrected at 3.2: 0/4.
-- For Phase 6:
-  - OpenCode installed is 2.3.2, not the 2.0.10 the PRD names; surveyed and accepted.
-  - STORY-004 added default-port dropping to `MCP_ALLOWED_ORIGINS`; accepted.
-  - The PRD's code evidence was stale: `record()` uses `audit_ref`, and `ACTION_DECISIONS_ADDED_COLUMNS` already exists.
-- Context: the CI workflow cancels an in-progress run on a newer push, so read the run of the latest HEAD.
+- Done and pushed: STORY-001 to STORY-009. Last green CI: 45189769468 @ `eafa77f` (through STORY-007). Run 45192215445 @ `a2542ef` (STORY-008) was in progress at checkpoint; the push of STORY-009 may cancel it, so read the run of the latest HEAD first: it is the first CI pass over STORY-008/009 DB tests. No open carried-over errors.
+- Docker Desktop is down on the dev machine: DB tests (`-m db`) and lifespan/startup-guard tests cannot run locally; CI covers them. Use `-m "not db"` locally.
+- Epic-wide decisions (in the PRD/stories' Technical Notes): northbound handshakes `2025-03-26`/`2025-06-18`/`2025-11-25` only; `mcp==2.3.0` (`MCPServer`, timeout = `MCPError -32001`, sampling w/o callback = `-32600`); no replay of a forwarded call (T10); `input_required` → `upstream_error` (T12); absent `v1_aliases` = no aliases; alias rows keep the raw `/v1` tool name and correlation passes exact prefixed candidates (STORY-016 note); `ActionPolicy.mcp_tools[server][tool]`; `evaluate(..., surface=McpSurface(server, visible))` with bare tool names; `mcp_config.visible_tools(identity)` ignores `mcp:connect` (endpoint gates it); `record(..., mcp=McpRecord)` is fail-closed and returns row ids; `record_outcome(..., *, user_id)` best effort; stub fixtures `mcp_stub` / `mcp_stub_factory` (`tests/mcp_stub.py`, side channel `/__stub/stats`, `--require-bearer/--require-header`, `--page-size`).
+- Critical stories ahead, design points at 3.1: 010 (upstream client: credentials via `mcp_config.upstream_auth_headers`, pagination, timeouts, no replay), 011 (northbound auth, Origin, protocol versions), 013 (call path: record before forward, outcome after), 016 (alias resolution + correlation claim race).
+- Planner escalations: none. Plans corrected at 3.2: 2/9 (007 aliases default, 008 correlation tool match).
+- For Phase 6: OpenCode 2.3.2 surveyed (not 2.0.10); STORY-004 default-port dropping in `MCP_ALLOWED_ORIGINS`; PRD code evidence stale (`audit_ref`, existing `ACTION_DECISIONS_ADDED_COLUMNS`); every policy digest changes once (new rule `tool.not_in_skill`); STORY-007 added 3 validation rules (URL userinfo, non-string version, duplicate alias prefixes); STORY-005 left `docs/features.md`/`roadmap.md` "25 rules / ten" for STORY-021.
+- CI cancels an in-progress run on a newer push: read the run of the latest HEAD.
