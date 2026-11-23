@@ -52,6 +52,16 @@ itself (`policy=None` defaults to the loaded policy, grants go through
 `holds()`), so the test asserts what is true rather than a subprocess "no
 settings loaded" check.
 
+The MCP gateway (PRD-023 D4, D7, Section 6.4): `evaluate(..., surface=McpSurface)`
+decides a `tools/call` through this same engine. With a surface, visibility is
+checked first, inside the boundary: a name outside `surface.visible` is one
+`tool.not_in_skill` classification (deny, not grantable) and `map_tool_call` is
+never called. A visible name is mapped through the server's own
+`mcp_tools` / `mcp_opaque_tools` tables, never the `/v1` ones. Decide, fold, the
+reason template and the fail-closed boundary are unchanged. `surface` is the
+caller's (computed from the caller's skills), so this module still reads no
+settings and does no I/O.
+
 Not this module's work: what PRD-017 does with `flag` and `deny` (D4: since
 STORY-010, `query_pipeline` step 7c calls `evaluate_all`, and `tool_release`
 releases `allow`/`flag` and turns a `deny` into a note), and recording
@@ -63,7 +73,7 @@ Section 6.2's eight fields so that `record()` keeps its Section 10 signature.
 import logging
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Final, Mapping, Optional, Sequence
 
 from app.services import action_adapters, action_config, authz
 from app.services.action_classifiers import DECISIONS, Classification, Decision, Operation, RuleId
@@ -167,8 +177,49 @@ _NAME_DETAIL_CAP = 64
 _FAILED_DETAIL = "classification failed"
 
 
+@dataclass(frozen=True)
+class McpSurface:
+    """Where a call comes from when it is an MCP `tools/call` (PRD-023 D4, D7, Section 6.4).
+
+    The caller computes `visible` (the bare upstream tool names the caller's
+    skills expose on `server`); the engine only checks membership.
+    """
+
+    #: The upstream server id; selects `mcp_tools[server]` / `mcp_opaque_tools[server]`.
+    server: str
+    #: Bare upstream tool names the caller may see. Anything else is `tool.not_in_skill`.
+    visible: frozenset[str]
+
+
+#: The `/v1` surface (step 7c): `evaluate(..., surface=V1)` is `evaluate(...)`.
+V1: Final = None
+
+#: A server with no table: every tool of it is `tool.unknown`.
+_EMPTY: Mapping = MappingProxyType({})
+
+
 class _EngineError(Exception):
     """Internal: an engine invariant broke. Raised below, caught only at the `evaluate` boundary."""
+
+
+def _is_visible(surface: Optional[McpSurface], name: str) -> bool:
+    """Whether `name` may be mapped at all: always on `/v1`, membership in `visible` on the gateway.
+
+    Called through the module so a test's monkeypatch reaches it, as `_classify` is.
+    """
+    return surface is V1 or name in surface.visible
+
+
+def _select_tables(
+    policy: action_config.ActionPolicy, surface: Optional[McpSurface]
+) -> tuple[Mapping, Mapping]:
+    """`(tools, opaque_tools)` for the surface; the gateway never falls back to the `/v1` tables (D4)."""
+    if surface is V1:
+        return policy.tools, policy.opaque_tools
+    return (
+        policy.mcp_tools.get(surface.server, _EMPTY),
+        policy.mcp_opaque_tools.get(surface.server, _EMPTY),
+    )
 
 
 def _classify(op: Operation, policy: action_config.ActionPolicy, dialect: Optional[str]) -> tuple[Classification, ...]:
@@ -264,10 +315,15 @@ def evaluate(
     call: action_adapters.ToolCall,
     identity: "Identity",
     policy: Optional[action_config.ActionPolicy] = None,
+    *,
+    surface: Optional[McpSurface] = V1,
 ) -> ActionDecision:
     """Decide one tool call for one identity (PRD-016 Sections 4, 10). Never raises for model input.
 
     `policy=None` is the policy in force (`action_config.get_policy()`).
+    `surface` is `V1` (None) for the `/v1` path, or an `McpSurface` for the
+    gateway (PRD-023 D4, D7); its visibility check and table selection are
+    inside the boundary below.
     The policy, its digest, the SQL dialect and the argument cap are resolved
     before the fail-closed boundary: they are configuration, not model input,
     and a failure there is a deployment bug that should surface. Everything
@@ -288,9 +344,19 @@ def evaluate(
 
     operations: tuple[Operation, ...] = ()
     try:
-        result = action_adapters.map_tool_call(call, policy.tools, policy.opaque_tools, cap)
         opaque = None
-        if isinstance(result, action_adapters.Operations):
+        if not _is_visible(surface, tool_name):
+            # PRD-023 D7: checked before any mapping, so a hidden tool's mapping is never consulted.
+            hidden = True
+            result = None
+            classifications = (Classification("tool.not_in_skill", None, tool_name[:_NAME_DETAIL_CAP]),)
+        else:
+            hidden = False
+            tools, opaque_tools = _select_tables(policy, surface)
+            result = action_adapters.map_tool_call(call, tools, opaque_tools, cap)
+        if hidden:
+            pass
+        elif isinstance(result, action_adapters.Operations):
             operations = result.operations
             classifications = tuple(c for op in operations for c in _classify(op, policy, dialect))
         elif isinstance(result, action_adapters.Opaque):
