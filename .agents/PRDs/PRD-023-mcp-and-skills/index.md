@@ -6,7 +6,7 @@
 
 ## Progress
 
-16/21 stories done — 76%
+17/21 stories done — 81%
 
 ## Stories
 
@@ -30,7 +30,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-014 | Results: size cap, pattern inspection under the `tool` cell, uninspected counts | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-014-result-inspection-and-caps.plan.md) | `786c4a2` |
 | STORY-015 | `prompts/list` and `prompts/get` from held skills | feature | ✅ done | small | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-015-prompts-from-skills.plan.md) | `2c26c89` |
 | STORY-016 | `/v1` alias resolution at step 7c and gateway correlation at M7 | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-016-v1-alias-and-correlation.plan.md) | `08742dc` |
-| STORY-017 | Admin API: `GET /audit/actions` MCP filters and fields, `GET /skills` | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-023-mcp-and-skills/STORY-017-admin-api.plan.md) | — |
+| STORY-017 | Admin API: `GET /audit/actions` MCP filters and fields, `GET /skills` | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-017-admin-api.plan.md) | `ea1234e` |
 | STORY-018 | Admin console: Actions view MCP filter and columns, Skills panel | feature | ⬜ todo | medium | — | — |
 | STORY-019 | `tests/corpora/mcp/` decision corpus and the gateway latency measurement | technical | ⬜ todo | medium | — | — |
 | STORY-020 | E2E (opt-in): OpenCode and the Cline CLI through `/mcp` against the stub | technical | ⬜ todo | medium | — | — |

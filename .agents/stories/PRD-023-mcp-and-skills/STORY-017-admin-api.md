@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: in-progress
+status: done
 labels: [api, admin, audit]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-017-admin-api.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-017-admin-api.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-017-admin-api.report.md
+commit: ea1234e
 depends_on: [STORY-008, STORY-007]
 blocks: [STORY-018]
 skills: []
