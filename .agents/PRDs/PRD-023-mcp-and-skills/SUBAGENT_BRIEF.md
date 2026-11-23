@@ -53,6 +53,8 @@ It must print `errors: none`.
 - **Async teardown assertions** (lesson from CI 45199692297): after `mcp_upstream.aclose_all()`, SDK/httpx helper tasks may still be finishing on a slow runner. A test that asserts no task is left must first `await asyncio.wait(others, timeout=5)` and then assert none is pending, never snapshot `asyncio.all_tasks()` immediately.
 - Tests that start stubs or servers use free ports picked at runtime, deadline loops instead of bare `sleep`, and stop every child on teardown. They must work on Windows (local) and Linux (CI). Timing assertions get generous margins on CI. Cache/idle/window tests use an injected clock, never real sleeps.
 - **Targeted runs on this machine**: foreground, small sequential batches; prefer `-k` over whole DB-heavy guard files (`tests/test_db.py` alone takes ~12 min). A run killed for memory (exit 137, no output) is environmental: report it, do not loop.
+- **Python versions differ**: CI runs Python 3.11, the local venv 3.12. On 3.11 `asyncio.wait_for` wraps the coroutine in a child task, so a test counting `asyncio.all_tasks()` must diff against a snapshot taken at its start. Do not rely on 3.12-only stdlib behaviour.
+- **Never dodge a guard test**: if a source-scanning guard (e.g. "never reads the clock") blocks your design, change the design (inject the value from the caller), not the spelling.
 - Chat UI: Reflex APIs are checked against the pinned version (installed package source), not from memory (`chat_ui/AGENTS.md`). Every user-facing string goes in `chat_ui/chat_ui/copy.py` / `admin_copy`, in English.
 
 ## What to return (your final message, at most ~30 lines)
