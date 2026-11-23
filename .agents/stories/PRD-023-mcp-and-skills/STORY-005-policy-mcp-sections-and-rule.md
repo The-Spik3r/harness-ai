@@ -7,11 +7,11 @@ type: feature
 priority: high
 complexity: medium
 phase: "2 - Vocabulary and configuration"
-status: todo
+status: done
 labels: [action-policy, config, security]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-005-policy-mcp-sections-and-rule.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-005-policy-mcp-sections-and-rule.report.md
 commit: null
 depends_on: [STORY-001]
 blocks: [STORY-006, STORY-007]

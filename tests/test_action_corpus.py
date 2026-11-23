@@ -447,7 +447,9 @@ def test_every_rule_id_is_reported_by_some_file(record_property):
     record_property("decision_counts", dict(sorted(decisions.items())))
 
     # The declared rule is checked against the engine below, so this is engine coverage.
-    missing = set(RULE_IDS) - set(reported)
+    # PRD-023 D7: `tool.not_in_skill` is only produced by the gateway path
+    # (STORY-006 / the MCP corpus), not by an action-corpus file.
+    missing = set(RULE_IDS) - set(reported) - {"tool.not_in_skill"}
     assert not missing, f"no file reports {sorted(missing)}"
 
 

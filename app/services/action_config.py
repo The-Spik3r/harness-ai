@@ -43,7 +43,7 @@ import hashlib
 import ipaddress
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
@@ -186,6 +186,13 @@ class ActionPolicy:
 
     `protected_paths` is built-in only in PRD-016: Sections 6.6 and 9.3 give
     it no file section (STORY-006 plan, decision 4).
+
+    `mcp_tools` and `mcp_opaque_tools` (PRD-023 D4) hold one `tools` /
+    `opaque_tools` table per MCP server id, both `MappingProxyType`s at the
+    outer and the inner level. A tool name under a server is independent of
+    the same name in `tools`: the evaluator will look a gateway call up in the
+    server's table first (STORY-006); nothing here reads `MCP_ENABLED` or the
+    MCP config file.
     """
 
     rules: Mapping[RuleId, Rule]
@@ -196,6 +203,15 @@ class ActionPolicy:
     workspace_roots: tuple[str, ...]
     protected_paths: Globs
     secrets: Secrets
+    # PRD-023 D4: the per-server MCP tables, {server_id: {tool_name: ...}}. Same
+    # value types as `tools` / `opaque_tools`, one inner mapping per server;
+    # empty in the built-in policy and absent from the digest while empty.
+    mcp_tools: Mapping[str, Mapping[str, ToolMapping]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    mcp_opaque_tools: Mapping[str, Mapping[str, Decision]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 # --- Globs -----------------------------------------------------------------
@@ -272,7 +288,8 @@ def _compile_name_glob(glob: str) -> re.Pattern:
 # --- The built-in policy ---------------------------------------------------
 
 #: PRD-016 Section 6.3, in `RULE_IDS` order: (default, grant). Nine granted,
-#: ten non-grantable, six with nothing to lift.
+#: eleven non-grantable (ten in PRD-016 plus `tool.not_in_skill`, PRD-023 D7),
+#: six with nothing to lift.
 _BUILT_IN_RULES: Mapping[str, tuple[Optional[str], Optional[str]]] = MappingProxyType(
     {
         "sql.read": ("allow", None),
@@ -301,6 +318,8 @@ _BUILT_IN_RULES: Mapping[str, tuple[Optional[str], Optional[str]]] = MappingProx
         # "(per entry)": the opaque_tools entry decides (see `Rule`).
         "tool.opaque": (None, None),
         "tool.malformed": ("deny", None),
+        # PRD-023 D7: a gateway call to a tool outside the caller's skills.
+        "tool.not_in_skill": ("deny", None),
     }
 )
 
@@ -379,6 +398,14 @@ _SPEC_KEYS = frozenset(
     }
 )
 
+#: PRD-023 D4: the two per-server sections. Optional in a spec so every spec
+#: built before PRD-023 stays valid; an absent key reads as empty.
+_OPTIONAL_SPEC_KEYS = frozenset({"mcp_tools", "mcp_opaque_tools"})
+
+#: PRD-023 Section 6.4: the server id a section key must match. Same shape as
+#: the MCP config's server ids (STORY-007), so the two files agree.
+_MCP_SERVER_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+
 
 def _validate_rules(source: str, rules: Any) -> Mapping[RuleId, Rule]:
     if not isinstance(rules, Mapping):
@@ -454,20 +481,24 @@ def _validate_rules(source: str, rules: Any) -> Mapping[RuleId, Rule]:
     return MappingProxyType(built)
 
 
-def _validate_tools(source: str, tools: Any) -> Mapping[str, ToolMapping]:
+def _validate_tools(
+    source: str, tools: Any, *, node: str = "tools"
+) -> Mapping[str, ToolMapping]:
+    # `node` is the YAML node path in every message: "tools" for the global
+    # table, "mcp_tools.<server>" for a server's (PRD-023 D4).
     if not isinstance(tools, Mapping):
-        raise _fail(source, "tools", f"must be a mapping, got {type(tools).__name__}")
+        raise _fail(source, node, f"must be a mapping, got {type(tools).__name__}")
     if not tools:
         # T7: an empty `tools:` would turn every call into tool.unknown -- safe,
         # but a policy nobody meant to write.
-        raise _fail(source, "tools", "must not be empty (PRD-016 T7)")
+        raise _fail(source, node, "must not be empty (PRD-016 T7)")
     for name, mapping in tools.items():
         if not isinstance(name, str) or not name:
-            raise _fail(source, "tools", f"{name!r}", "a tool name must be a non-empty string")
+            raise _fail(source, node, f"{name!r}", "a tool name must be a non-empty string")
         if not isinstance(mapping, ToolMapping):
             raise _fail(
                 source,
-                "tools",
+                node,
                 f"{name!r}",
                 f"must be a ToolMapping, got {type(mapping).__name__}",
             )
@@ -480,32 +511,85 @@ def _validate_tools(source: str, tools: Any) -> Mapping[str, ToolMapping]:
 
 
 def _validate_opaque_tools(
-    source: str, opaque_tools: Any, tools: Mapping[str, ToolMapping]
+    source: str,
+    opaque_tools: Any,
+    tools: Mapping[str, ToolMapping],
+    *,
+    node: str = "opaque_tools",
+    tools_node: str = "tools",
 ) -> Mapping[str, Decision]:
     if not isinstance(opaque_tools, Mapping):
-        raise _fail(
-            source, "opaque_tools", f"must be a mapping, got {type(opaque_tools).__name__}"
-        )
+        raise _fail(source, node, f"must be a mapping, got {type(opaque_tools).__name__}")
     for name, decision in opaque_tools.items():
         if not isinstance(name, str) or not name:
-            raise _fail(
-                source, "opaque_tools", f"{name!r}", "a tool name must be a non-empty string"
-            )
+            raise _fail(source, node, f"{name!r}", "a tool name must be a non-empty string")
         if decision not in DECISIONS:
             raise _fail(
                 source,
-                "opaque_tools",
+                node,
                 f"{name!r}",
                 f"decision {decision!r} is not a decision (allowed: {_allowed(DECISIONS)})",
             )
         if name in tools:
             raise _fail(
                 source,
-                "opaque_tools",
+                node,
                 f"{name!r}",
-                "also mapped under tools; a tool is either mapped or opaque, not both",
+                f"also mapped under {tools_node}; a tool is either mapped or opaque, not both",
             )
     return MappingProxyType(dict(opaque_tools))
+
+
+def _check_mcp_section(source: str, section: str, raw: Any) -> None:
+    """The shape every MCP section shares: a mapping of valid server ids to
+    non-empty mappings (PRD-023 D4; the empty check is PRD-016 T7's). An empty
+    section is valid and means no servers."""
+    if not isinstance(raw, Mapping):
+        raise _fail(source, section, f"must be a mapping, got {type(raw).__name__}")
+    for server, body in raw.items():
+        if not isinstance(server, str) or not _MCP_SERVER_ID.fullmatch(server):
+            raise _fail(
+                source,
+                section,
+                f"{server!r}",
+                "a server id must match [a-z0-9][a-z0-9-]{0,31}",
+            )
+        if isinstance(body, Mapping) and not body:
+            raise _fail(source, f"{section}.{server}", "must not be empty (PRD-016 T7)")
+
+
+def _validate_mcp_tools(source: str, raw: Any) -> Mapping[str, Mapping[str, ToolMapping]]:
+    """`mcp_tools`: each server's table through `_validate_tools`, node
+    `mcp_tools.<server>`. The tables are copied, so the caller's dicts cannot
+    edit the policy afterwards."""
+    _check_mcp_section(source, "mcp_tools", raw)
+    return MappingProxyType(
+        {
+            server: _validate_tools(source, body, node=f"mcp_tools.{server}")
+            for server, body in raw.items()
+        }
+    )
+
+
+def _validate_mcp_opaque_tools(
+    source: str, raw: Any, mcp_tools: Mapping[str, Mapping[str, ToolMapping]]
+) -> Mapping[str, Mapping[str, Decision]]:
+    """`mcp_opaque_tools`: each server's table through `_validate_opaque_tools`,
+    checked for overlap against the same server's `mcp_tools` only. A server
+    may have opaque tools and no mapped ones."""
+    _check_mcp_section(source, "mcp_opaque_tools", raw)
+    return MappingProxyType(
+        {
+            server: _validate_opaque_tools(
+                source,
+                body,
+                mcp_tools.get(server, {}),
+                node=f"mcp_opaque_tools.{server}",
+                tools_node=f"mcp_tools.{server}",
+            )
+            for server, body in raw.items()
+        }
+    )
 
 
 def _validate_strings(source: str, node: str, values: Any) -> tuple[str, ...]:
@@ -656,6 +740,10 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
       neither default nor grant;
     - tools: a non-empty mapping (T7) of non-empty names to `ToolMapping`s;
     - opaque_tools: non-empty names to a `DECISIONS` member, none also in tools;
+    - mcp_tools / mcp_opaque_tools (optional, PRD-023 D4): a mapping of server
+      ids (`[a-z0-9][a-z0-9-]{0,31}`) to non-empty tables, each validated as
+      `tools` / `opaque_tools` with node `mcp_tools.<server>`; no tool in both
+      tables of one server. The same name in `tools` is not an error;
     - shell.allow: strings, none empty, none with a shell operator;
     - network.allow: strings, each an IP literal, an exact host or a `*.`
       wildcard over at least two labels;
@@ -671,8 +759,8 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
     `load()` runs before either (STORY-008).
     """
     keys = set(spec)
-    if keys != _SPEC_KEYS:
-        unknown = sorted(keys - _SPEC_KEYS)
+    if not (_SPEC_KEYS <= keys <= _SPEC_KEYS | _OPTIONAL_SPEC_KEYS):
+        unknown = sorted(keys - _SPEC_KEYS - _OPTIONAL_SPEC_KEYS)
         missing = sorted(_SPEC_KEYS - keys)
         raise _fail(
             source,
@@ -683,6 +771,10 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
     rules = _validate_rules(source, spec["rules"])
     tools = _validate_tools(source, spec["tools"])
     opaque_tools = _validate_opaque_tools(source, spec["opaque_tools"], tools)
+    mcp_tools = _validate_mcp_tools(source, spec.get("mcp_tools", {}))
+    mcp_opaque_tools = _validate_mcp_opaque_tools(
+        source, spec.get("mcp_opaque_tools", {}), mcp_tools
+    )
     shell_allow = _validate_strings(source, "shell.allow", spec["shell_allow"])
     for entry in shell_allow:
         _check_shell_entry(source, entry)
@@ -709,6 +801,8 @@ def _validate(source: str, spec: Mapping[str, Any]) -> ActionPolicy:
         workspace_roots=workspace_roots,
         protected_paths=protected_paths,
         secrets=Secrets(env=secret_env, files=secret_files),
+        mcp_tools=mcp_tools,
+        mcp_opaque_tools=mcp_opaque_tools,
     )
 
 
@@ -727,6 +821,8 @@ BUILT_IN_POLICY = _validate(
         "rules": _BUILT_IN_RULES,
         "tools": BUILT_IN_TOOLS,
         "opaque_tools": {},
+        "mcp_tools": {},
+        "mcp_opaque_tools": {},
         "shell_allow": (),
         "network_allow": (),
         "workspace_roots": (),
@@ -782,8 +878,12 @@ def get_max_argument_characters() -> int:
 def _canonical(policy: ActionPolicy) -> dict:
     """The policy's source values as JSON-ready data. Never the compiled
     regexes. List order is kept, because declared order is part of the policy;
-    mapping key order is not (the digest sorts keys)."""
-    return {
+    mapping key order is not (the digest sorts keys).
+
+    The two MCP tables (PRD-023 D4) are keys only when non-empty, so a policy
+    that configures no MCP server canonicalises exactly as it did before them.
+    (The `tool.not_in_skill` rule, PRD-023 D7, changed every digest once.)"""
+    out = {
         "rules": {
             rule_id: {"default": rule.default, "grant": rule.grant}
             for rule_id, rule in policy.rules.items()
@@ -799,6 +899,16 @@ def _canonical(policy: ActionPolicy) -> dict:
             "files": list(policy.secrets.files.patterns),
         },
     }
+    if policy.mcp_tools:
+        out["mcp_tools"] = {
+            server: {name: asdict(mapping) for name, mapping in table.items()}
+            for server, table in policy.mcp_tools.items()
+        }
+    if policy.mcp_opaque_tools:
+        out["mcp_opaque_tools"] = {
+            server: dict(table) for server, table in policy.mcp_opaque_tools.items()
+        }
+    return out
 
 
 def policy_digest(policy: Optional[ActionPolicy] = None) -> str:
@@ -831,7 +941,17 @@ def policy_digest(policy: Optional[ActionPolicy] = None) -> str:
 
 #: The top-level sections, all optional. `protected_paths` is deliberately
 #: absent: it is built-in only (STORY-006 plan, decision 4).
-_FILE_SECTIONS = ("workspace", "network", "shell", "rules", "tools", "opaque_tools", "secrets")
+_FILE_SECTIONS = (
+    "workspace",
+    "network",
+    "shell",
+    "rules",
+    "tools",
+    "opaque_tools",
+    "mcp_tools",
+    "mcp_opaque_tools",
+    "secrets",
+)
 
 #: A present section states every key it owns (STORY-007 plan, decision 4).
 _SECTION_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -920,21 +1040,23 @@ def _parse_rules(source: str, raw: Any) -> dict:
     return merged
 
 
-def _parse_tools(source: str, raw: Any) -> dict[str, ToolMapping]:
+def _parse_tools(source: str, raw: Any, *, node: str = "tools") -> dict[str, ToolMapping]:
     """Build each `tools:` entry through `ToolMapping(...)`.
 
     `ToolMappingError` names the field and the vocabulary; this wraps it with
     the file and the `tools: '<name>'` node (the `PatternCompileError` seam).
-    `tools: {}` passes through, so `_validate` refuses it as T7.
+    `tools: {}` passes through, so `_validate` refuses it as T7. `node` is the
+    section's path: "tools", or "mcp_tools.<server>" for one MCP server's table
+    (PRD-023 D4).
     """
-    _mapping(source, "tools", raw)
+    _mapping(source, node, raw)
     built = {}
     for name, body in raw.items():
         if not isinstance(name, str) or not name:
-            raise _fail(source, "tools", f"{name!r}", "a tool name must be a non-empty string")
-        node = f"tools: {name!r}"
-        _mapping(source, node, body)
-        _check_keys(source, node, body, _TOOL_KEYS, _TOOL_REQUIRED)
+            raise _fail(source, node, f"{name!r}", "a tool name must be a non-empty string")
+        entry = f"{node}: {name!r}"
+        _mapping(source, entry, body)
+        _check_keys(source, entry, body, _TOOL_KEYS, _TOOL_REQUIRED)
         fields = dict(body)
         for key in ("extra_targets", "optional_targets"):
             if key not in fields:
@@ -947,14 +1069,35 @@ def _parse_tools(source: str, raw: Any) -> dict[str, ToolMapping]:
             if isinstance(extra, str) or not isinstance(extra, list):
                 raise _fail(
                     source,
-                    node,
+                    entry,
                     f"{key} must be a list of target expressions, got {extra!r}",
                 )
             fields[key] = tuple(extra)
         try:
             built[name] = ToolMapping(**fields)
         except ToolMappingError as exc:
-            raise _fail(source, node, str(exc)) from exc
+            raise _fail(source, entry, str(exc)) from exc
+    return built
+
+
+def _parse_mcp_tools(source: str, raw: Any) -> dict[str, dict[str, ToolMapping]]:
+    """Build each `mcp_tools:` server's table through `_parse_tools` (PRD-023 D4).
+
+    The server id is checked here as well as in `_validate`, so a bad id fails
+    before its body is read. A server body of `{}` passes through and
+    `_validate` refuses it as T7.
+    """
+    _mapping(source, "mcp_tools", raw)
+    built = {}
+    for server, body in raw.items():
+        if not isinstance(server, str) or not _MCP_SERVER_ID.fullmatch(server):
+            raise _fail(
+                source,
+                "mcp_tools",
+                f"{server!r}",
+                "a server id must match [a-z0-9][a-z0-9-]{0,31}",
+            )
+        built[server] = _parse_tools(source, body, node=f"mcp_tools.{server}")
     return built
 
 
@@ -975,7 +1118,7 @@ def _parse_document(source: str, document: Any) -> dict:
     and is refused, not read as "use the built-in policy": a file named by a
     setting and left empty is a mistake, not an intent); its keys are
     `_FILE_SECTIONS`; each present section has the right type and exactly its
-    keys; `rules:` merges per id; `tools:` builds its `ToolMapping`s.
+    keys; `rules:` merges per id; `tools:` and `mcp_tools:` build their `ToolMapping`s.
 
     Two replacement rules (PRD-016 Section 6.6, D12): a present section
     replaces the built-in one wholesale, so an entry deleted from the file is
@@ -999,11 +1142,17 @@ def _parse_document(source: str, document: Any) -> dict:
     secrets = _parse_section(source, document, "secrets")
     rules = _parse_rules(source, document["rules"]) if "rules" in document else _BUILT_IN_RULES
     tools = _parse_tools(source, document["tools"]) if "tools" in document else BUILT_IN_TOOLS
+    mcp_tools = _parse_mcp_tools(source, document["mcp_tools"]) if "mcp_tools" in document else {}
 
     return {
         "rules": rules,
         "tools": tools,
         "opaque_tools": document["opaque_tools"] if "opaque_tools" in document else {},
+        # PRD-023 D4: absent means no MCP tables, like any other absent section.
+        "mcp_tools": mcp_tools,
+        "mcp_opaque_tools": (
+            document["mcp_opaque_tools"] if "mcp_opaque_tools" in document else {}
+        ),
         "shell_allow": shell["allow"] if shell is not None else (),
         "network_allow": network["allow"] if network is not None else (),
         "workspace_roots": workspace["roots"] if workspace is not None else (),

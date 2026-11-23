@@ -53,6 +53,8 @@ _PRD_6_3_RULE_IDS = (
     "tool.unknown",
     "tool.opaque",
     "tool.malformed",
+    # PRD-023 D7: appended after PRD-016's 25; not in PRD-016's table.
+    "tool.not_in_skill",
 )
 
 _PRD_T5_NON_GRANTABLE = (
@@ -66,6 +68,8 @@ _PRD_T5_NON_GRANTABLE = (
     "net.unparsed",
     "tool.unknown",
     "tool.malformed",
+    # PRD-023 D7: the eleventh non-grantable rule; not in PRD-016's T5 list.
+    "tool.not_in_skill",
 )
 
 # PRD-016 D5: the rules for what a classifier cannot read.
@@ -74,8 +78,9 @@ _D5_UNCLASSIFIABLE = {"shell.unclassifiable", "sql.unparsed", "net.unparsed", "t
 
 def test_rule_id_is_exactly_the_25_ids_of_prd_section_6_3():
     assert get_args(RuleId) == _PRD_6_3_RULE_IDS
-    assert len(get_args(RuleId)) == 25
-    assert len(set(get_args(RuleId))) == 25
+    # PRD-023 D7: 25 -> 26 (`tool.not_in_skill`); the test name keeps PRD-016's "25".
+    assert len(get_args(RuleId)) == 26
+    assert len(set(get_args(RuleId))) == 26
     assert RULE_IDS == get_args(RuleId)
 
 
@@ -86,7 +91,7 @@ def test_every_rule_id_is_class_dot_name():
         assert name, rule
         counts[prefix] = counts.get(prefix, 0) + 1
 
-    assert counts == {"sql": 6, "shell": 8, "fs": 4, "net": 3, "secret": 1, "tool": 3}
+    assert counts == {"sql": 6, "shell": 8, "fs": 4, "net": 3, "secret": 1, "tool": 4}  # PRD-023 D7: tool 3 -> 4
 
 
 def test_operation_kind_is_the_five_of_section_6_2():
@@ -102,7 +107,7 @@ def test_decision_is_allow_flag_deny():
 def test_non_grantable_rules_are_exactly_the_ten_of_t5():
     assert isinstance(NON_GRANTABLE_RULES, frozenset)
     assert NON_GRANTABLE_RULES == frozenset(_PRD_T5_NON_GRANTABLE)
-    assert len(NON_GRANTABLE_RULES) == 10
+    assert len(NON_GRANTABLE_RULES) == 11  # PRD-023 D7: 10 -> 11
     assert NON_GRANTABLE_RULES <= set(RULE_IDS)
     assert _D5_UNCLASSIFIABLE <= NON_GRANTABLE_RULES
 

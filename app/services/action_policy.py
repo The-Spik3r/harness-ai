@@ -154,6 +154,7 @@ _SUBJECTS: Mapping[str, str] = MappingProxyType(
         "tool.unknown": "an unknown tool",
         "tool.opaque": "an opaque tool",
         "tool.malformed": "a tool call that cannot be read",
+        "tool.not_in_skill": "a tool outside the caller's skills",
     }
 )
 

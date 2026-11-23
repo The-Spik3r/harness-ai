@@ -494,7 +494,10 @@ def test_every_reason_is_the_fixed_template_plus_the_calls_fragment(monkeypatch)
                 for sentinel in _SENTINELS:
                     assert sentinel not in d.reason, (tool, arguments, d.reason)
 
-    assert produced == set(RULE_IDS)
+    # PRD-023 D7: `tool.not_in_skill` is produced only by a gateway call outside the
+    # caller's skills (STORY-006), which no sweep entry here is; its subject is pinned
+    # by test_the_reason_templates_cover_the_closed_vocabularies.
+    assert produced == set(RULE_IDS) - {"tool.not_in_skill"}
 
 
 def test_the_digest_is_the_policy_in_force():
