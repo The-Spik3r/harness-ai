@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - The gateway"
-status: in-progress
+status: done
 labels: [mcp, security, patterns]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-014-result-inspection-and-caps.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-014-result-inspection-and-caps.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-014-result-inspection-and-caps.report.md
+commit: 786c4a2
 depends_on: [STORY-013]
 blocks: [STORY-019]
 skills: []
