@@ -3,7 +3,7 @@ story: STORY-016
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-016-v1-alias-and-correlation.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 08742dc
 status: COMPLETE
 completed: 2026-11-23
 ---

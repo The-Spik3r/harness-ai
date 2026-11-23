@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "4 - Bridge, evidence and clients"
-status: in-progress
+status: done
 labels: [v1, mcp, action-policy, audit]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-016-v1-alias-and-correlation.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-016-v1-alias-and-correlation.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-016-v1-alias-and-correlation.report.md
+commit: 08742dc
 depends_on: [STORY-002, STORY-013]
 blocks: [STORY-019]
 skills: []
