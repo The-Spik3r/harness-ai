@@ -39,6 +39,8 @@ As a security admin, I want a gateway call decided by the unchanged PRD-016 engi
 - Section 6.4 sketch: `McpSurface(server, visible)` frozen dataclass, `V1: Final = None`; `map_tool_call` already takes the tables as parameters (`app/services/action_adapters.py`), so the adapter layer does not change.
 - `action_policy` stays pure: no I/O, no settings reads.
 - Alias resolution for `/v1` (Section 6.8) is STORY-016, not here.
+- Orchestrator decision (STORY-005 implement): two PRD-016 census tests temporarily exclude `tool.not_in_skill` because nothing produced it yet: `tests/test_action_policy.py::test_every_reason_is_the_fixed_template_plus_the_calls_fragment` and `tests/test_action_corpus.py::test_every_rule_id_is_reported_by_some_file`. This story adds a gateway (`McpSurface`) case that produces the rule and drops both exclusions (keep a PRD-023 D7 comment).
+- Orchestrator decision (STORY-005): `ActionPolicy.mcp_tools` / `mcp_opaque_tools` are `Mapping[server, Mapping[tool, …]]` (`MappingProxyType` at both levels, empty by default); select with `policy.mcp_tools.get(surface.server, EMPTY)`.
 
 ## Dependencies
 
