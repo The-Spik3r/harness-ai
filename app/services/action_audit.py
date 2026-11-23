@@ -247,7 +247,8 @@ class McpRecord:
     """
 
     surface: str
-    mcp_server: str
+    #: None when the called name has no configured-server prefix (PRD-023 STORY-013).
+    mcp_server: Optional[str]
     skills: tuple[str, ...]
     arguments_canonical_hash: str
     linked_decision_id: Optional[int]

@@ -2,7 +2,7 @@
 
 A hand-written, stateless Streamable HTTP endpoint. It does not use the SDK's
 server classes (T17: only `app/services/mcp_upstream.py` imports `mcp`), and
-this module never calls `mcp_upstream`. Every request is one JSON-RPC object in,
+this module never calls `mcp_upstream` (the gateway service does). Every request is one JSON-RPC object in,
 one plain `application/json` response out: no SSE, no `Mcp-Session-Id` (an
 inbound one is ignored), and no state between requests, so `tools/call` with no
 prior `initialize` reaches its handler.
@@ -20,7 +20,8 @@ Handler table (each is `async def(identity, params, request_id) -> dict` and may
 raise `JsonRpcError`; `params` is always a dict, `{}` when absent):
 
     tools/list     -> the visible catalogue          (STORY-012, `mcp_gateway`)
-    tools/call     -> JsonRpcError(-32601)           (STORY-013 replaces)
+    tools/call     -> decision row, then forward     (STORY-013, `mcp_gateway.call`;
+                      a usage refusal is HTTP 429 via `HttpRefusal`)
     prompts/list   -> {"prompts": []}                (STORY-015 replaces)
     prompts/get    -> JsonRpcError(-32601)           (STORY-015 replaces)
 
@@ -69,6 +70,18 @@ class JsonRpcError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class HttpRefusal(Exception):
+    """A handler's refusal that is an HTTP status, not an HTTP 200 JSON-RPC error
+    (the `tools/call` usage-limit 429). The body is still a JSON-RPC error."""
+
+    def __init__(self, status: int, code: int, message: str, headers: Dict[str, str]):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+        self.headers = headers
 
 
 def _mcp_identity(
@@ -139,11 +152,14 @@ def _rpc_result(request_id: Any, result: Dict[str, Any]) -> JSONResponse:
     return JSONResponse(body.model_dump(mode="json"))
 
 
-def _rpc_error(request_id: Any, code: int, message: str, status: int = 200) -> JSONResponse:
+def _rpc_error(
+    request_id: Any, code: int, message: str, status: int = 200,
+    headers: Optional[Dict[str, str]] = None,
+) -> JSONResponse:
     body = schemas.JsonRpcErrorResponse(
         id=request_id, error=schemas.JsonRpcErrorBody(code=code, message=message)
     )
-    return JSONResponse(body.model_dump(mode="json"), status_code=status)
+    return JSONResponse(body.model_dump(mode="json"), status_code=status, headers=headers)
 
 
 def _valid_id(value: Any) -> bool:
@@ -186,8 +202,19 @@ async def handle_tools_list(identity: Identity, params: Dict[str, Any], request_
 
 
 async def handle_tools_call(identity: Identity, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:
-    """Placeholder: STORY-013 owns the call path (decision row, then forward)."""
-    raise JsonRpcError(schemas.METHOD_NOT_FOUND, "Method not found: tools/call")
+    """The call path (PRD-023 Section 6.3, M3-M9): a thin adapter over `mcp_gateway.call`.
+
+    The gateway raises its own exceptions (it cannot import this module); they
+    become a JSON-RPC error here, or the 429 for a usage refusal (M4)."""
+    try:
+        return await mcp_gateway.call(identity, params, request_id)
+    except mcp_gateway.GatewayRpcError as exc:
+        raise JsonRpcError(exc.code, exc.message) from exc
+    except mcp_gateway.UsageRefused as exc:
+        raise HttpRefusal(
+            429, schemas.USAGE_LIMITED, "Usage limit reached",
+            {"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
 
 
 async def handle_prompts_list(identity: Identity, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:
@@ -283,6 +310,8 @@ async def mcp_endpoint(request: Request, identity: Identity = Depends(_mcp_ident
         result = await _HANDLERS[method](identity, params, request_id)
     except JsonRpcError as exc:
         return _rpc_error(request_id, exc.code, exc.message)
+    except HttpRefusal as exc:
+        return _rpc_error(request_id, exc.code, exc.message, status=exc.status, headers=exc.headers)
     except Exception:
         # Nothing from the request goes into the message or the log line.
         logger.exception("mcp handler failed: method=%s", method)

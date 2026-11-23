@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "3 - The gateway"
-status: todo
+status: done
 labels: [mcp, security, audit]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-013-tools-call-path.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-013-tools-call-path.report.md
+commit: pending
 depends_on: [STORY-006, STORY-008, STORY-012]
 blocks: [STORY-014, STORY-016]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # STORY-013: `tools/call`: usage, visibility, evaluation, record before forward, forward, outcome

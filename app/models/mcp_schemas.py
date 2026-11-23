@@ -22,6 +22,9 @@ INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
+# Implementation-defined server error (JSON-RPC reserves -32000..-32099): the
+# body of the `tools/call` usage-limit 429 (PRD-023 Section 6.3, M4).
+USAGE_LIMITED = -32000
 
 RequestId = Union[str, int, None]
 

@@ -413,7 +413,9 @@ def test_responses_are_plain_json(client):
 def test_seam_placeholders(client):
     assert _post(client, _rpc("tools/list")).json()["result"] == {"tools": []}
     assert _post(client, _rpc("prompts/list")).json()["result"] == {"prompts": []}
-    assert _err(_post(client, _rpc("tools/call", {"name": "x"}))) == (1, -32601)
+    # PRD-023 STORY-013: tools/call is no longer a -32601 placeholder. A call with no
+    # `name` is an M3 -32602 (no usage check, no row, no upstream), so this test needs no database.
+    assert _err(_post(client, _rpc("tools/call", {}))) == (1, -32602)
     assert _err(_post(client, _rpc("prompts/get", {"name": "x"}))) == (1, -32601)
 
 
