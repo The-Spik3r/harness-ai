@@ -3596,6 +3596,10 @@ def list_action_decisions(
     user_id: Optional[str] = None,
     decision: Optional[str] = None,
     audit_id: Optional[int] = None,
+    surface: Optional[str] = None,
+    mcp_server: Optional[str] = None,
+    outcome: Optional[str] = None,
+    linked: Optional[bool] = None,
 ) -> list[ActionDecisionRow]:
     """The most recent action decisions, newest first (PRD-016 F10).
 
@@ -3611,6 +3615,13 @@ def list_action_decisions(
     row. `audit_id` (PRD-017 Section 10) is one request's decisions, by its
     `audit_logs.id`; `idx_action_decisions_audit` serves it, and the router
     rejects a non-integer, zero or negative value with 422.
+
+    PRD-023 D21 / STORY-017 add `surface`, `mcp_server` and `outcome` (each an
+    equality, unknown value = no row) and `linked`, all ANDed with the rest:
+    `linked=True` is rows carrying a `linked_decision_id`; `linked=False` is
+    gateway rows with none (PRD 6.8: an unlinked gateway call is a first-class
+    filter), so `/v1` rows are excluded from it by design. `None` means no
+    filter, tested with `is`, never by truthiness.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -3623,6 +3634,19 @@ def list_action_decisions(
     if audit_id is not None:
         clauses.append("audit_id = ?")
         params.append(audit_id)
+    if surface is not None:
+        clauses.append("surface = ?")
+        params.append(surface)
+    if mcp_server is not None:
+        clauses.append("mcp_server = ?")
+        params.append(mcp_server)
+    if outcome is not None:
+        clauses.append("outcome = ?")
+        params.append(outcome)
+    if linked is True:
+        clauses.append("linked_decision_id IS NOT NULL")
+    elif linked is False:
+        clauses.append("(surface = 'mcp' AND linked_decision_id IS NULL)")
     where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     params.append(limit)
 

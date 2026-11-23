@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: todo
+status: in-progress
 labels: [api, admin, audit]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-017-admin-api.plan.md
 report: null
 commit: null
 depends_on: [STORY-008, STORY-007]
 blocks: [STORY-018]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # STORY-017: Admin API: `GET /audit/actions` MCP filters and fields, `GET /skills`

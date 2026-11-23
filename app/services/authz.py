@@ -258,6 +258,16 @@ def holds(identity: Identity, permission: str) -> bool:
     return permission in ROLE_PERMISSIONS.get(identity.role, ())
 
 
+def roles_holding(permission: str) -> tuple[str, ...]:
+    """Sorted roles whose loaded matrix holds `permission` (PRD-023 D6, D21).
+
+    The reader behind `GET /skills`'s `roles`. Like holds(), no RBAC_ENABLED
+    bypass: it reports what the matrix says. Reads the module global at call
+    time because load() rebinds it.
+    """
+    return tuple(sorted(r for r, perms in ROLE_PERMISSIONS.items() if permission in perms))
+
+
 def sees_every_model(identity: Identity) -> bool:
     """True when the identity is not model-restricted: RBAC off, or a role in
     MODEL_ALLOWLIST_WILDCARD_ROLES (PRD-020 O1). One rule for authorize_route

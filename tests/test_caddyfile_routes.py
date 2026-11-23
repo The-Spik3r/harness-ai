@@ -54,6 +54,9 @@ EXPECTED_MATCHER = (
     # PRD-023 STORY-011 (F1): POST /mcp; exact token, so a near-miss such as
     # /mcpx stays static. Nothing for /.well-known (no OAuth discovery, D3).
     "/mcp",
+    # PRD-023 STORY-017 (F11): GET /skills; exact token, so a near-miss such as
+    # /skillsx stays static.
+    "/skills",
 )
 
 # Reserved by Reflex >=0.8, restated as in tests/test_route_reservations.py.
@@ -74,7 +77,9 @@ STATIC_PATHS = ("/", "/admin/audit", "/admin/usage",
     # PRD-019 STORY-002: /ready is an exact token; near-misses stay static.
     "/readyx", "/ready/", "/readiness",
     # PRD-023 STORY-011: /mcp is an exact token; near-misses stay static.
-    "/mcpx", "/mcp/")
+    "/mcpx", "/mcp/",
+    # PRD-023 STORY-017: /skills is an exact token; near-misses stay static.
+    "/skillsx")
 
 # Sample values for path parameters, so `/v1/models/{model_id:path}` is checked
 # with a slash in the id, as a real model id has.
