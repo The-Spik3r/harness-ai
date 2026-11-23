@@ -219,6 +219,16 @@ def test_record_outcome_passes_flag_names_as_a_json_array(monkeypatch):
     assert calls == [(3, "result_blocked", 10, 20, "rh", '["injection","secret"]')]
 
 
+def test_record_outcome_stores_dict_flags_as_json_with_sorted_keys(monkeypatch):
+    # PRD-023 STORY-014 (T14): flags may be small dicts naming a list and a pattern index.
+    calls = []
+    monkeypatch.setattr(action_audit, "update_action_outcome", lambda *a: calls.append(a))
+    record_outcome(
+        4, "ok", 1, 2, "h", [{"pattern_id": 0, "list": "injection"}, {"uninspected": 2}], user_id="u"
+    )
+    assert calls == [(4, "ok", 1, 2, "h", '[{"list":"injection","pattern_id":0},{"uninspected":2}]')]
+
+
 def test_find_linkable_v1_decision_signature():
     sig = inspect.signature(find_linkable_v1_decision)
     assert list(sig.parameters) == [

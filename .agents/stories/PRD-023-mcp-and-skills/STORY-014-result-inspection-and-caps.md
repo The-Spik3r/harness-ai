@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: medium
 phase: "3 - The gateway"
-status: todo
+status: in-progress
 labels: [mcp, security, patterns]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-014-result-inspection-and-caps.plan.md
 report: null
 commit: null
 depends_on: [STORY-013]
 blocks: [STORY-019]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # STORY-014: Results: size cap, pattern inspection under the `tool` cell, uninspected counts

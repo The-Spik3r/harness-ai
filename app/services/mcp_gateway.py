@@ -32,7 +32,13 @@ never journals), M8 the deny note or `mcp_upstream.call_tool`, M9
 `record_outcome`, best effort. A call that is not callable (hidden, unlisted,
 withheld, unconfigured, nonexistent) is one recorded -32602 with one text (T6).
 Nothing is forwarded twice (T10). Results are not stored: size, hash and flags
-only. Texts sent to the agent name the tool and the call id, never a URL, a
+only. M9 screens a result that came back from upstream (STORY-014, T14, T15): over
+the server's `max_result_bytes` it is not returned and not inspected
+(`result_too_large`); otherwise it is inspected as one `tool` message under the
+`code` profile and withheld on a `block` hit (`result_blocked`), else returned
+unmodified. Size and hash describe the upstream result; flags are
+`{"list", "pattern_id"}` dicts and `{"uninspected": n}`, never text. Timeout and
+upstream_error texts are made here and not screened. Texts sent to the agent name the tool and the call id, never a URL, a
 header or an env name (T16).
 
 This module imports no `mcp` package (T17); only `app/services/mcp_upstream.py`
@@ -52,6 +58,7 @@ from app.config import settings
 from app.services import (
     action_audit,
     action_policy,
+    duplicate_checker,
     mcp_config,
     mcp_upstream,
     pattern_config,
@@ -79,6 +86,13 @@ USAGE_UNCHECKED_MESSAGE = "usage could not be checked"
 #: Harness-made `isError` texts (PRD-023 Section 10). The call may have run.
 TIMEOUT_TEXT = "[harness] {name} ({id}) timed out after {n}s; the call may have run"
 UPSTREAM_ERROR_TEXT = "[harness] {name} ({id}) failed on server {server}; the call may have run"
+#: The call ran and upstream answered; the harness did not return the result (STORY-014).
+RESULT_TOO_LARGE_TEXT = (
+    "[harness] the result of {name} ({id}) exceeded {n} bytes and was not returned; the call ran"
+)
+RESULT_BLOCKED_TEXT = (
+    "[harness] the result of {name} ({id}) was withheld by the content policy; the call ran"
+)
 
 _NAME_CAP = 256
 
@@ -253,11 +267,116 @@ class UsageRefused(Exception):
         self.limit = limit
 
 
-def result_digest(result: Mapping[str, Any]) -> tuple[int, str]:
-    """`(byte length, sha256 hex)` of `result`'s canonical JSON: what the row keeps
-    instead of the result (T14). STORY-014 digests what it finally returns."""
-    encoded = action_audit.canonical_json(result).encode("utf-8")
-    return len(encoded), hashlib.sha256(encoded).hexdigest()
+def result_digest(canonical: str) -> tuple[int, str]:
+    """`(byte length, sha256 hex)` of an upstream result's canonical JSON: what the
+    row keeps instead of the result (T14). STORY-014: the text is serialized once
+    by `_screen_result` and describes what upstream returned, even when the
+    harness withholds it (`hash_prompt` is sha256 hex over UTF-8)."""
+    return len(canonical.encode("utf-8")), duplicate_checker.hash_prompt(canonical)
+
+
+def _inspect_result(content: Any, structured: Any) -> tuple[list[dict], int, bool]:
+    """`(hits, uninspected, blocked)` for one upstream result (PRD-023 Section 6.7, T14, T15).
+
+    One `tool` message under the `code` profile: every `text` block, the `text` of
+    a `resource` block, then the canonical `structuredContent`, joined with
+    newlines. `hits` are `{"list", "pattern_id"}` dicts, `pattern_id` being the
+    zero-based index of the pattern within its list: the pattern source would
+    equal the matched text for a phrase list (T14). `uninspected` counts every
+    block that was not read (image, audio, resource_link, unknown, blob-only) plus
+    one when the scan ceiling cut the text. Never indexes a block: odd shapes count.
+    """
+    texts: list[str] = []
+    uninspected = 0
+    for block in content if isinstance(content, list) else ():
+        kind = block.get("type") if isinstance(block, dict) else None
+        if kind == "text" and isinstance(block.get("text"), str):
+            texts.append(block["text"])
+        elif kind == "resource":
+            resource = block.get("resource")
+            text = resource.get("text") if isinstance(resource, dict) else None
+            if isinstance(text, str):
+                texts.append(text)
+            else:
+                uninspected += 1
+        else:
+            uninspected += 1
+    if not isinstance(content, list) and content is not None:
+        uninspected += 1
+    if structured is not None:
+        texts.append(action_audit.canonical_json(structured))
+    profile = pattern_config.get_profile("code")
+    found = pattern_detector.inspect(
+        [SimpleNamespace(role=_INSPECTED_ROLE, content="\n".join(texts))],
+        profile,
+        max_scan_characters=settings.PATTERN_MAX_SCAN_CHARACTERS,
+    )
+    if found.truncated:
+        uninspected += 1  # the tail went unscanned: fail toward counting it
+    hits: list[dict] = []
+    all_hits = list(found.flags) + ([found.block] if found.block is not None else [])
+    for hit in all_hits:
+        pattern_id = -1
+        for plist in profile.lists:
+            if plist.name == hit.list_name and hit.pattern in plist.patterns:
+                pattern_id = plist.patterns.index(hit.pattern)
+                break
+        entry = {"list": hit.list_name, "pattern_id": pattern_id}
+        if entry not in hits:
+            hits.append(entry)
+    hits.sort(key=lambda h: (h["list"], h["pattern_id"]))
+    return hits, uninspected, found.block is not None
+
+
+def _screen_result(
+    server: str, name: str, call_id: str, upstream: dict, failed: bool
+) -> tuple[dict, str, Optional[int], Optional[str], list]:
+    """M9 screening of a result that came back from upstream (STORY-014).
+
+    `(result, recorded outcome, size, hash, flags)`. Size and hash always describe
+    the upstream result. Over the server's `max_result_bytes`: not returned and not
+    inspected (T15). A hit in a list whose `tool` cell is `block`: withheld (T3).
+    Otherwise `upstream` is returned unmodified. A fault in screening fails closed
+    (`result_blocked`) with the exception class only (T16).
+    """
+    size: Optional[int] = None
+    digest: Optional[str] = None
+    try:
+        size, digest = result_digest(action_audit.canonical_json(upstream))
+        cap = mcp_config.get_config().servers[server].max_result_bytes
+        if size > cap:
+            return (
+                _harness_error(
+                    RESULT_TOO_LARGE_TEXT.format(
+                        name=name[:NOTE_FIELD_CAP], id=call_id[:NOTE_FIELD_CAP], n=cap
+                    )
+                ),
+                "result_too_large", size, digest, [],
+            )
+        hits, uninspected, blocked = _inspect_result(
+            upstream.get("content"), upstream.get("structuredContent")
+        )
+    except Exception as exc:
+        logger.error(
+            "mcp result screening failed: server=%s (%s); withheld", server, type(exc).__name__
+        )
+        return (
+            _harness_error(
+                RESULT_BLOCKED_TEXT.format(name=name[:NOTE_FIELD_CAP], id=call_id[:NOTE_FIELD_CAP])
+            ),
+            "result_blocked", size, digest, [],
+        )
+    flags: list = list(hits)
+    if uninspected:
+        flags.append({"uninspected": uninspected})
+    if blocked:
+        return (
+            _harness_error(
+                RESULT_BLOCKED_TEXT.format(name=name[:NOTE_FIELD_CAP], id=call_id[:NOTE_FIELD_CAP])
+            ),
+            "result_blocked", size, digest, flags,
+        )
+    return upstream, ("tool_error" if failed else "ok"), size, digest, flags
 
 
 def _correlate(
@@ -317,14 +436,19 @@ async def _admit(identity: Identity) -> None:
 
 
 async def _write_outcome(
-    identity: Identity, row_id: int, outcome: str, duration_ms: int, result: Mapping[str, Any]
+    identity: Identity,
+    row_id: int,
+    outcome: str,
+    duration_ms: int,
+    size: Optional[int],
+    digest: Optional[str],
+    flags: Any,
 ) -> None:
     """M9: best effort. Never raises into the response path."""
     try:
-        size, digest = result_digest(result)
         await pipeline_executor.run_in_pipeline(
             action_audit.record_outcome,
-            row_id, outcome, duration_ms, size, digest, (),
+            row_id, outcome, duration_ms, size, digest, tuple(flags),
             user_id=identity.user_id,
         )
     except Exception as exc:
@@ -401,6 +525,9 @@ async def call(identity: Identity, params: Mapping[str, Any], request_id: Any) -
         outcome = mcp_upstream.CallOutcome("upstream_error", detail=type(exc).__name__)
     duration_ms = int((time.monotonic() - started) * 1000)
 
+    size: Optional[int] = None
+    digest: Optional[str] = None
+    flags: list = []
     if outcome.outcome == "timeout":
         recorded = "timeout"
         seconds = mcp_config.get_config().servers[server].timeout_seconds
@@ -416,12 +543,14 @@ async def call(identity: Identity, params: Mapping[str, Any], request_id: Any) -
         )
     else:
         failed = outcome.outcome == "error" or outcome.is_error
-        recorded = "tool_error" if failed else "ok"
-        result = _tool_result(outcome.content, failed, outcome.structured)
+        upstream = _tool_result(outcome.content, failed, outcome.structured)
+        result, recorded, size, digest, flags = _screen_result(
+            server, name, call_id, upstream, failed
+        )
     # `detail` is credential-safe by contract (mcp_upstream); it goes to the log, never the response.
     logger.info(
         "mcp tools/call: user=%s server=%s tool=%s outcome=%s duration_ms=%d detail=%s",
         identity.user_id, server, tool, recorded, duration_ms, outcome.detail,
     )
-    await _write_outcome(identity, row_id, recorded, duration_ms, result)
+    await _write_outcome(identity, row_id, recorded, duration_ms, size, digest, flags)
     return result

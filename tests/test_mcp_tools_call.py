@@ -488,7 +488,10 @@ def test_the_outcome_row_keeps_size_and_hash_not_the_result(mcp_stub, monkeypatc
     row_id, outcome, duration_ms, size, digest, flags, user_id = spy.outcomes[-1]
     assert (row_id, outcome, flags, user_id) == (42, "ok", (), "u-dba")
     assert duration_ms >= 0
-    assert (size, digest) == mcp_gateway.result_digest(response.json()["result"])
+    # PRD-023 STORY-014: `result_digest` takes the canonical text (one serialization).
+    assert (size, digest) == mcp_gateway.result_digest(
+        action_audit.canonical_json(response.json()["result"])
+    )
     assert size == len(action_audit.canonical_json(response.json()["result"]).encode("utf-8"))
 
 
@@ -587,8 +590,9 @@ def test_ddl_deny_and_allow_write_rows_before_the_forward_db(mcp_stub, monkeypat
     allowed = _rows()[-1]
     assert (allowed["decision"], allowed["outcome"]) == ("allow", "ok")
     assert allowed["duration_ms"] is not None and allowed["result_flags"] == "[]"
+    # PRD-023 STORY-014: `result_digest` takes the canonical text.
     assert (allowed["result_bytes"], allowed["result_hash"]) == mcp_gateway.result_digest(
-        response.json()["result"]
+        action_audit.canonical_json(response.json()["result"])
     )
     assert allowed["mcp_config_digest"] == mcp_config.mcp_config_digest()
 

@@ -502,7 +502,7 @@ ACTION_DECISIONS_ADDED_COLUMNS = {
     "duration_ms": "INTEGER",
     "result_bytes": "INTEGER",
     "result_hash": "TEXT",
-    "result_flags": "TEXT",                   # JSON array of flag names; no matched text
+    "result_flags": "TEXT",                   # JSON array: flag names or {"list","pattern_id"} / {"uninspected"} dicts (STORY-014); no matched text
     "mcp_config_digest": "TEXT",
 }
 

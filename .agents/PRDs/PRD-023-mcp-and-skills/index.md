@@ -27,7 +27,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-011 | Northbound `POST /mcp`: auth, Origin, JSON-RPC parsing, `initialize` / `ping` / notifications | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-011-northbound-endpoint.plan.md) | `121ef12` |
 | STORY-012 | `tools/list`: visibility by held skills and catalogue injection inspection | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-012-tools-list-visibility.plan.md) | `553becd` |
 | STORY-013 | `tools/call`: usage, visibility, evaluation, record before forward, forward, outcome | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-013-tools-call-path.plan.md) | `bfe7c9b` |
-| STORY-014 | Results: size cap, pattern inspection under the `tool` cell, uninspected counts | feature | ⬜ todo | medium | — | — |
+| STORY-014 | Results: size cap, pattern inspection under the `tool` cell, uninspected counts | feature | 🟡 in-progress | medium | [plan](../../plans/PRD-023-mcp-and-skills/STORY-014-result-inspection-and-caps.plan.md) | — |
 | STORY-015 | `prompts/list` and `prompts/get` from held skills | feature | ⬜ todo | small | — | — |
 | STORY-016 | `/v1` alias resolution at step 7c and gateway correlation at M7 | feature | ⬜ todo | large | — | — |
 | STORY-017 | Admin API: `GET /audit/actions` MCP filters and fields, `GET /skills` | feature | ⬜ todo | medium | — | — |

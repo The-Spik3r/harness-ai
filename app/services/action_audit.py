@@ -68,7 +68,7 @@ import re
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 
 from app.db import audit_journal
 from app.db.database import insert_action_decisions, update_action_outcome
@@ -365,7 +365,7 @@ def record_outcome(
     duration_ms: Optional[int],
     result_bytes: Optional[int],
     result_hash: Optional[str],
-    result_flags: Sequence[str],
+    result_flags: Sequence[Union[str, Mapping[str, Union[str, int]]]],
     *,
     user_id: str,
 ) -> None:
@@ -374,8 +374,9 @@ def record_outcome(
     Best effort: never raises into the response path. An `outcome` outside
     `MCP_OUTCOME_VALUES` is logged at ERROR and not written; a failed UPDATE is
     logged at ERROR with the exception class only (its message could carry
-    anything). `result_flags` is flag names only, stored as a JSON array; there
-    is no parameter for result content. `user_id` is keyword-only because after
+    anything). `result_flags` is flag names or small JSON dicts (STORY-014:
+    `{"list", "pattern_id"}`, `{"uninspected": n}`), never content, stored as a
+    JSON array with sorted keys; there is no parameter for result content. `user_id` is keyword-only because after
     a failed UPDATE nothing can be read back to name the user.
     """
     if outcome not in MCP_OUTCOME_VALUES:
@@ -393,7 +394,7 @@ def record_outcome(
             duration_ms,
             result_bytes,
             result_hash,
-            json.dumps(list(result_flags), separators=(",", ":")),
+            json.dumps(list(result_flags), separators=(",", ":"), sort_keys=True),
         )
     except Exception as exc:
         logger.error(
