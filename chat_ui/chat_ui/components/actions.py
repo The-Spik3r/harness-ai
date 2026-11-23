@@ -47,6 +47,7 @@ Nothing here reaches the chat: this module imports `admin_copy`, `theme`,
 
 import reflex as rx
 
+from app.config import settings
 from chat_ui import admin_copy, theme
 from chat_ui.admin_state import (
     ACTIONS_FILTER_ALL,
@@ -64,6 +65,7 @@ from chat_ui.admin_formatting import (
     DECISION_FLAG,
     VALUE_ABSENT,
 )
+from chat_ui.components.actions_mcp import surface_strip
 from chat_ui.components.admin_shell import fault_panel, refreshed_stamp
 
 # The nine columns, in the story's order: Time, User, Role, Tool, Operation,
@@ -84,6 +86,18 @@ _GRID = (
 # crush, so the table scrolls sideways inside its own container instead and the
 # page does not.
 _MIN_WIDTH = "73rem"
+
+# PRD-023 STORY-018 (D20): with MCP on the grid gains four tracks after Allowed
+# by: Server, Skills, Outcome, Linked. With MCP off `_GRID` and `_MIN_WIDTH` above
+# are used unchanged, so the console is byte-identical to today.
+_GRID_MCP = (
+    f"{_GRID} minmax(6rem, 9rem) minmax(7rem, 12rem) 7rem 5rem"
+)
+
+# The nine tracks above at their minimum (67rem) plus the four new ones (6 + 7 +
+# 7 + 5 = 25rem) is 92rem, plus twelve 0.75rem column gaps (13 columns, 9rem):
+# 101rem. As above, below this the table scrolls inside its own container.
+_MIN_WIDTH_MCP = "101rem"
 
 # Each filter as (key, word on screen, ink). The key is the state's, the word is
 # `admin_copy`'s, the separation `register.py:_VERDICT_CHIPS` keeps. The inks are
@@ -184,8 +198,26 @@ def _column_head() -> rx.Component:
         _head_cell(
             admin_copy.COLUMN_ALLOWED_BY, title=admin_copy.COLUMN_ALLOWED_BY_TITLE
         ),
+        *(
+            [
+                _head_cell(
+                    admin_copy.COLUMN_SERVER, title=admin_copy.COLUMN_SERVER_TITLE
+                ),
+                _head_cell(
+                    admin_copy.COLUMN_SKILLS, title=admin_copy.COLUMN_SKILLS_TITLE
+                ),
+                _head_cell(
+                    admin_copy.COLUMN_OUTCOME, title=admin_copy.COLUMN_OUTCOME_TITLE
+                ),
+                _head_cell(
+                    admin_copy.COLUMN_LINKED, title=admin_copy.COLUMN_LINKED_TITLE
+                ),
+            ]
+            if settings.MCP_ENABLED
+            else []
+        ),
         display="grid",
-        grid_template_columns=_GRID,
+        grid_template_columns=_GRID_MCP if settings.MCP_ENABLED else _GRID,
         align_items="center",
         column_gap="0.75rem",
         height="2rem",
@@ -199,9 +231,41 @@ def _column_head() -> rx.Component:
     )
 
 
+def _linked_cell(row) -> rx.Component:
+    """The Linked cell (PRD-023 STORY-018): `#<id>` as a link to the `/v1` row's
+    anchor when the gateway call claimed one, else the word "unlinked" or the
+    absent mark. The anchor only resolves while that row is in the 500-row
+    window, which the title says."""
+    return rx.cond(
+        row.linked_id != "",
+        rx.box(
+            rx.el.a(
+                row.linked,
+                href="#action-" + row.linked_id,
+                style={"color": theme.INK, "textDecoration": "underline"},
+            ),
+            font_family=theme.FONT_DATA,
+            font_size=theme.TEXT_DATA,
+            overflow="hidden",
+            text_overflow="ellipsis",
+            white_space="nowrap",
+            custom_attrs={
+                "role": "cell",
+                "title": admin_copy.ACTIONS_LINKED_LINK_TITLE,
+            },
+        ),
+        _cell(row.linked),
+    )
+
+
 def _row(row) -> rx.Component:
     """One decision. No hover tint and no click: the row offers no action, and a
-    hover state would promise one."""
+    hover state would promise one. (With MCP on, the Linked cell is the one link
+    and the row carries the anchor it targets.)"""
+    mcp = settings.MCP_ENABLED
+    attrs = {"role": "row"}
+    if mcp:
+        attrs["id"] = "action-" + row.row_id
     return rx.box(
         _cell(row.timestamp_relative, title=row.timestamp_absolute),
         _cell(row.user_id, title=row.user_id),
@@ -212,14 +276,24 @@ def _row(row) -> rx.Component:
         _cell(row.rule, title=row.reason),
         _decision_cell(row),
         _cell(row.allowed_by, title=row.allowed_by),
+        *(
+            [
+                _cell(row.mcp_server, title=row.mcp_server),
+                _cell(row.skills, title=row.skills),
+                _cell(row.outcome),
+                _linked_cell(row),
+            ]
+            if mcp
+            else []
+        ),
         display="grid",
-        grid_template_columns=_GRID,
+        grid_template_columns=_GRID_MCP if mcp else _GRID,
         align_items="center",
         column_gap="0.75rem",
         min_height=theme.ROW_H,
         padding_right="1.5rem",
         border_bottom=f"1px solid {theme.RULE_SOFT}",
-        custom_attrs={"role": "row"},
+        custom_attrs=attrs,
     )
 
 
@@ -230,7 +304,7 @@ def _table() -> rx.Component:
         _column_head(),
         rx.foreach(AdminState.action_rows, _row),
         width="100%",
-        min_width=_MIN_WIDTH,
+        min_width=_MIN_WIDTH_MCP if settings.MCP_ENABLED else _MIN_WIDTH,
         custom_attrs={
             "role": "table",
             "aria-label": admin_copy.VIEW_ACTIONS_LABEL,
@@ -384,6 +458,7 @@ def actions() -> rx.Component:
         fault_panel(AdminState.actions_error),
         _caption(),
         _filter_strip(),
+        *([surface_strip()] if settings.MCP_ENABLED else []),
         rx.box(
             _actions_body(),
             class_name="hx-scroll",

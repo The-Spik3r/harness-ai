@@ -149,6 +149,17 @@ class ActionRow(pydantic.BaseModel):
     decision: str = ""
     # The permission that lifted the rule (`granted_by`), or the absent mark.
     allowed_by: str = ""
+    # PRD-023 STORY-018 (D21): the gateway columns, shown only with MCP on. Every
+    # one a string defaulting to "" (the field rule above). `row_id` is the DOM
+    # anchor's id; `linked_id` is the `/v1` decision id the gateway call claimed
+    # ("" when none), `linked` the cell's text: `#<id>`, "unlinked" or the absent
+    # mark.
+    row_id: str = ""
+    mcp_server: str = ""
+    skills: str = ""
+    outcome: str = ""
+    linked: str = ""
+    linked_id: str = ""
 
 
 class StorageFact(pydantic.BaseModel):
@@ -217,3 +228,26 @@ class ProvidersView(pydantic.BaseModel):
     counters: list[ProviderFact] = []
     failed: list[ProviderCounterRow] = []
     skipped: list[ProviderCounterRow] = []
+
+
+class SkillRow(pydantic.BaseModel):
+    """One configured skill of the Skills view (PRD-023 STORY-018, D21).
+
+    The `ProviderFact` rule: every value is a string, the component reads and
+    computes nothing. `tools` and `requires` are comma-joined, `roles` is the
+    roles holding `skill:<id>` or the absent mark.
+    """
+
+    id: str = ""
+    version: str = ""
+    description: str = ""
+    tools: str = ""
+    requires: str = ""
+    roles: str = ""
+
+
+class SkillsView(pydantic.BaseModel):
+    """Everything the Skills view shows, from `mcp_config` and `authz`."""
+
+    caption: str = ""
+    skills: list[SkillRow] = []

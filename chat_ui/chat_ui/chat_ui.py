@@ -30,12 +30,14 @@ from chat_ui.components.admin_shell import (
     ROUTE_ACTIONS,
     ROUTE_PROVIDERS,
     ROUTE_REGISTER,
+    ROUTE_SKILLS,
     ROUTE_STORAGE,
     ROUTE_SUMMARY,
     ROUTE_USAGE,
     VIEW_ACTIONS,
     VIEW_PROVIDERS,
     VIEW_REGISTER,
+    VIEW_SKILLS,
     VIEW_STORAGE,
     VIEW_SUMMARY,
     VIEW_USAGE,
@@ -43,6 +45,7 @@ from chat_ui.components.admin_shell import (
 )
 from chat_ui.components.providers import providers
 from chat_ui.components.register import register
+from chat_ui.components.skills import skills
 from chat_ui.components.reports import reports_detail_page, reports_feed_page
 from chat_ui.components.shell import header, login_gate, shell_body
 from chat_ui.components.storage import storage
@@ -134,6 +137,12 @@ def admin_providers_page() -> rx.Component:
     return admin_page(providers(), VIEW_PROVIDERS)
 
 
+# PRD-023 STORY-018: the seventh view, the configured skills. Registered below
+# only with MCP_ENABLED.
+def admin_skills_page() -> rx.Component:
+    return admin_page(skills(), VIEW_SKILLS)
+
+
 # Radix resolves its own colour tokens from the theme's appearance, and this
 # line used to read `appearance="light"`. The reason it did is worth keeping,
 # because it is the same reason it now reads "inherit": on a machine set to dark
@@ -218,6 +227,15 @@ app.add_page(
     route=ROUTE_PROVIDERS,
     context={"sitemap": None},
 )
+# PRD-023 STORY-018 (D20): with MCP off the page does not exist and the console
+# has the six views it had. Pages register at import, so this reads the setting
+# once, like the gateway's own mount.
+if settings.MCP_ENABLED:
+    app.add_page(
+        admin_skills_page,
+        route=ROUTE_SKILLS,
+        context={"sitemap": None},
+    )
 # /admin is a landing route, not a third view: it renders the same shell (so an
 # unauthenticated visitor gets the gate rather than a blank frame while the
 # redirect is in flight) and redirects to the register on load. replace=True keeps
