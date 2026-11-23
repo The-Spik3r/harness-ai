@@ -7,12 +7,12 @@ type: feature
 priority: medium
 complexity: small
 phase: "3 - The gateway"
-status: in-progress
+status: done
 labels: [mcp, skills]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-015-prompts-from-skills.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-015-prompts-from-skills.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-015-prompts-from-skills.report.md
+commit: 2c26c89
 depends_on: [STORY-011, STORY-007]
 blocks: [STORY-019]
 skills: []

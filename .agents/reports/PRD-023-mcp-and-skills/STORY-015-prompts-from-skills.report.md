@@ -3,7 +3,7 @@ story: STORY-015
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-015-prompts-from-skills.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 2c26c89
 status: COMPLETE
 completed: 2026-11-23
 ---
