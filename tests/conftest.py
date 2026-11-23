@@ -103,6 +103,7 @@ from app.services.circuit_breaker import CircuitBreaker  # noqa: E402
 from app.services import pattern_config  # noqa: E402
 from app.services import pii_policy  # noqa: E402
 from app.services.upstream import health as provider_health  # noqa: E402
+from tests.mcp_stub import mcp_stub, mcp_stub_factory  # noqa: E402, F401  -- PRD-023 STORY-009: fixtures for every later MCP story
 
 
 #: The marker on latency-budget assertions (PRD-012 STORY-013).

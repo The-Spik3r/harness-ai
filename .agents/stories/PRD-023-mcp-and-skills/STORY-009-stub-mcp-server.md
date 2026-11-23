@@ -7,11 +7,11 @@ type: technical
 priority: high
 complexity: medium
 phase: "3 - The gateway"
-status: todo
+status: done
 labels: [tests, mcp]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-009-stub-mcp-server.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-009-stub-mcp-server.report.md
 commit: null
 depends_on: [STORY-003]
 blocks: [STORY-010]
