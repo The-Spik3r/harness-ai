@@ -3,7 +3,7 @@ story: STORY-018
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-018-admin-console.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: f404745
 status: COMPLETE
 completed: 2026-11-23
 ---

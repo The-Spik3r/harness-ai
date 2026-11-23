@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: todo
+status: done
 labels: [ui, admin]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-018-admin-console.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-018-admin-console.report.md
+commit: f404745
 depends_on: [STORY-017]
 blocks: []
 skills: [frontend-design]
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # STORY-018: Admin console: Actions view MCP filter and columns, Skills panel
