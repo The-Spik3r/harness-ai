@@ -349,3 +349,81 @@ def test_the_gateway_never_imports_the_sdk():
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module or "")
     assert not [n for n in imported if n == "mcp" or n.startswith("mcp.")]
+
+
+# --- STORY-015: prompts/list and prompts/get from held skills ------------------------------
+
+
+def _prompt_skills(monkeypatch):
+    monkeypatch.setattr(
+        authz, "ROLE_PERMISSIONS",
+        {"dev": {"skill:open-pull-request", "skill:run-migration", "mcp:connect"},
+         "mid": {"skill:run-migration", "mcp:connect"}, "user": {"mcp:connect"}},
+    )
+    _cfg(monkeypatch, [], [
+        Skill("open-pull-request", "1.0.0", "Open a PR", "PR steps.", (), ()),
+        Skill("run-migration", "1.0.0", "Run a migration", "Migration steps.", (), ()),
+    ])
+
+
+def test_prompts_list_only_held_skills(monkeypatch):
+    _prompt_skills(monkeypatch)
+    assert mcp_gateway.list_prompts(_DEV) == [
+        {"name": "skill-open-pull-request", "description": "Open a PR"},
+        {"name": "skill-run-migration", "description": "Run a migration"},
+    ]
+    assert mcp_gateway.list_prompts(Identity(user_id="m", role="mid")) == [
+        {"name": "skill-run-migration", "description": "Run a migration"},
+    ]
+    assert mcp_gateway.list_prompts(_USER) == []
+
+
+def test_prompts_get_returns_instructions_as_user_message(monkeypatch):
+    _prompt_skills(monkeypatch)
+    assert mcp_gateway.get_prompt(_DEV, {"name": "skill-run-migration"}) == {
+        "description": "Run a migration",
+        "messages": [{"role": "user", "content": {"type": "text", "text": "Migration steps."}}],
+    }
+
+
+def test_prompts_get_unknown_and_not_held_share_one_message(monkeypatch):
+    _prompt_skills(monkeypatch)
+    mid = Identity(user_id="m", role="mid")
+    seen = set()
+    for who, name in ((mid, "skill-open-pull-request"), (mid, "skill-nope"), (_DEV, "run-migration")):
+        with pytest.raises(mcp_gateway.GatewayRpcError) as exc:
+            mcp_gateway.get_prompt(who, {"name": name})
+        seen.add((exc.value.code, exc.value.message))
+    # PRD-023 D19: the bare id (without the `skill-` prefix) does not resolve either.
+    assert seen == {(-32602, mcp_gateway.UNKNOWN_PROMPT_MESSAGE)}
+
+
+@pytest.mark.parametrize("params", [{}, {"name": ""}, {"name": 5}, {"name": None}])
+def test_prompts_get_bad_name_is_invalid_params(monkeypatch, params):
+    _prompt_skills(monkeypatch)
+    with pytest.raises(mcp_gateway.GatewayRpcError) as exc:
+        mcp_gateway.get_prompt(_DEV, params)
+    assert (exc.value.code, exc.value.message) == (-32602, mcp_gateway.INVALID_NAME_MESSAGE)
+
+
+def test_prompts_get_ignores_arguments(monkeypatch):
+    _prompt_skills(monkeypatch)
+    plain = mcp_gateway.get_prompt(_DEV, {"name": "skill-run-migration"})
+    for junk in ({"a": 1}, "garbage", [1], None):
+        assert mcp_gateway.get_prompt(_DEV, {"name": "skill-run-migration", "arguments": junk}) == plain
+
+
+def test_prompts_touch_no_audit_usage_or_upstream(monkeypatch):
+    _prompt_skills(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("prompts/* must not write a row, admit usage or reach upstream")
+
+    for owner, attr in (
+        (action_audit, "record"), (action_audit, "record_outcome"),
+        (mcp_gateway.usage_limits, "admit"),
+        (mcp_upstream, "list_tools"), (mcp_upstream, "call_tool"),
+    ):
+        monkeypatch.setattr(owner, attr, boom)
+    mcp_gateway.list_prompts(_DEV)
+    mcp_gateway.get_prompt(_DEV, {"name": "skill-open-pull-request"})

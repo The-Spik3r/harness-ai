@@ -7,17 +7,17 @@ type: feature
 priority: medium
 complexity: small
 phase: "3 - The gateway"
-status: todo
+status: in-progress
 labels: [mcp, skills]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-015-prompts-from-skills.plan.md
 report: null
 commit: null
 depends_on: [STORY-011, STORY-007]
 blocks: [STORY-019]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # STORY-015: `prompts/list` and `prompts/get` from held skills

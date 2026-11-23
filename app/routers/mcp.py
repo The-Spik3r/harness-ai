@@ -22,8 +22,9 @@ raise `JsonRpcError`; `params` is always a dict, `{}` when absent):
     tools/list     -> the visible catalogue          (STORY-012, `mcp_gateway`)
     tools/call     -> decision row, then forward     (STORY-013, `mcp_gateway.call`;
                       a usage refusal is HTTP 429 via `HttpRefusal`)
-    prompts/list   -> {"prompts": []}                (STORY-015 replaces)
-    prompts/get    -> JsonRpcError(-32601)           (STORY-015 replaces)
+    prompts/list   -> held skills as `skill-<id>`    (STORY-015, `mcp_gateway.list_prompts`)
+    prompts/get    -> one skill's instructions       (STORY-015, `mcp_gateway.get_prompt`;
+                      unknown or not held: -32602)
 
 JSON-RPC errors are HTTP 200, except the modern-era refusal (400). The router
 is mounted only when `MCP_ENABLED` is true (`app/main.py`), so off means 404.
@@ -218,13 +219,25 @@ async def handle_tools_call(identity: Identity, params: Dict[str, Any], request_
 
 
 async def handle_prompts_list(identity: Identity, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:
-    """Placeholder: STORY-015 returns the skill prompts."""
-    return {"prompts": []}
+    """The held skills as prompts (PRD-023 F8, D19). One page, `params` ignored.
+
+    No row, no upstream. One INFO line with the user and the count, never text."""
+    prompts = mcp_gateway.list_prompts(identity)
+    logger.info("mcp prompts/list: user=%s prompts=%d", identity.user_id, len(prompts))
+    return {"prompts": prompts}
 
 
 async def handle_prompts_get(identity: Identity, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:
-    """Placeholder: STORY-015 renders one skill prompt."""
-    raise JsonRpcError(schemas.METHOD_NOT_FOUND, "Method not found: prompts/get")
+    """One held skill's instructions as a `user` message (PRD-023 F8, D19).
+
+    Unknown and not-held are the same -32602. The INFO line names the prompt only
+    after it resolved, and never carries the instruction text."""
+    try:
+        result = mcp_gateway.get_prompt(identity, params)
+    except mcp_gateway.GatewayRpcError as exc:
+        raise JsonRpcError(exc.code, exc.message) from exc
+    logger.info("mcp prompts/get: user=%s prompt=skill-%s", identity.user_id, params["name"][len("skill-"):])
+    return result
 
 
 Handler = Callable[[Identity, Dict[str, Any], Any], Awaitable[Dict[str, Any]]]

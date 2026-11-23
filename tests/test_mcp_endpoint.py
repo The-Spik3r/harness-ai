@@ -22,8 +22,9 @@ import app.main as main_module
 from app.config import settings
 from app.db import database
 from app.routers import mcp as mcp_router
-from app.services import action_audit
+from app.services import action_audit, authz, mcp_config
 from app.services.identity import Identity
+from app.services.mcp_config import McpConfig, Skill
 
 USER_TOKEN = "user-token"
 AUDITOR_TOKEN = "auditor-token"
@@ -412,11 +413,35 @@ def test_responses_are_plain_json(client):
 
 def test_seam_placeholders(client):
     assert _post(client, _rpc("tools/list")).json()["result"] == {"tools": []}
+    # PRD-023 STORY-015: served from held skills; an empty config holds none.
     assert _post(client, _rpc("prompts/list")).json()["result"] == {"prompts": []}
     # PRD-023 STORY-013: tools/call is no longer a -32601 placeholder. A call with no
     # `name` is an M3 -32602 (no usage check, no row, no upstream), so this test needs no database.
     assert _err(_post(client, _rpc("tools/call", {}))) == (1, -32602)
-    assert _err(_post(client, _rpc("prompts/get", {"name": "x"}))) == (1, -32601)
+    # PRD-023 STORY-015, D19: unknown prompt is -32602, no longer the -32601 placeholder.
+    assert _err(_post(client, _rpc("prompts/get", {"name": "x"}))) == (1, -32602)
+
+
+def test_prompts_wire_shape_and_one_unknown_message(client, monkeypatch):
+    """PRD-023 STORY-015 E2E: list then get over HTTP; unknown and not-held are identical."""
+    monkeypatch.setattr(authz, "ROLE_PERMISSIONS", {"user": {"mcp:connect", "skill:held"}})
+    monkeypatch.setattr(
+        mcp_config, "_config",
+        McpConfig(servers={}, skills=(
+            Skill("held", "1.0.0", "A held one", "Step one.", (), ()),
+            Skill("other", "1.0.0", "Not held", "Secret.", (), ()),
+        )),
+    )
+    listed = _post(client, _rpc("prompts/list")).json()["result"]
+    assert listed == {"prompts": [{"name": "skill-held", "description": "A held one"}]}
+    got = _post(client, _rpc("prompts/get", {"name": "skill-held"})).json()["result"]
+    assert got == {
+        "description": "A held one",
+        "messages": [{"role": "user", "content": {"type": "text", "text": "Step one."}}],
+    }
+    unknown = _post(client, _rpc("prompts/get", {"name": "skill-nope"})).json()["error"]
+    not_held = _post(client, _rpc("prompts/get", {"name": "skill-other"})).json()["error"]
+    assert unknown == not_held == {"code": -32602, "message": "Unknown prompt"}
 
 
 def test_seams_are_reached_without_initialize_with_params_and_identity(client, monkeypatch):

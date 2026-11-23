@@ -80,6 +80,9 @@ _INTERNAL_ERROR = -32603
 #: nonexistent and unconfigured are indistinguishable to the agent.
 UNKNOWN_TOOL_MESSAGE = "Unknown tool"
 INVALID_NAME_MESSAGE = "Invalid params: name must be a non-empty string"
+#: One text for a prompt that is unknown or not held (PRD-023 D19): the two cases
+#: share one code path and one message, and the name is never echoed.
+UNKNOWN_PROMPT_MESSAGE = "Unknown prompt"
 INVALID_ARGUMENTS_MESSAGE = "Invalid params: arguments must be an object"
 RECORD_FAILED_MESSAGE = "decision could not be recorded"
 USAGE_UNCHECKED_MESSAGE = "usage could not be checked"
@@ -404,6 +407,41 @@ def _held_skill_labels(identity: Identity, prefixed: str) -> tuple[str, ...]:
     return tuple(
         f"{s.id}@{s.version}" for s in mcp_config.held_skills(identity) if prefixed in s.tools
     )
+
+
+# --- prompts/* (PRD-023 F8, D19) ---------------------------------------------------------
+
+
+def _held_prompts(identity: Identity) -> dict:
+    """Prompt name -> held skill, in config order. A skill the role does not hold is
+    absent, so "unknown" and "not held" cannot be told apart by a caller."""
+    return {f"skill-{s.id}": s for s in mcp_config.held_skills(identity)}
+
+
+def list_prompts(identity: Identity) -> list[dict]:
+    """`prompts/list`: one prompt `skill-<id>` per held skill (PRD-023 D19).
+
+    Pure config read: no database, no upstream, no usage admit, no audit row
+    (D13: admit is per `tools/call`). Upstream prompts are not proxied (D19)."""
+    return [{"name": name, "description": s.description} for name, s in _held_prompts(identity).items()]
+
+
+def get_prompt(identity: Identity, params: Mapping[str, Any]) -> dict:
+    """`prompts/get`: the skill's instructions as one `user` text message (PRD-023 D19).
+
+    `arguments` is ignored: the prompts declare none. A name that is unknown or
+    not held raises -32602 with `UNKNOWN_PROMPT_MESSAGE` (same text, same path).
+    No row, no upstream call, no admit."""
+    name = params.get("name")
+    if not isinstance(name, str) or not name:
+        raise GatewayRpcError(_INVALID_PARAMS, INVALID_NAME_MESSAGE)
+    skill = _held_prompts(identity).get(name)
+    if skill is None:
+        raise GatewayRpcError(_INVALID_PARAMS, UNKNOWN_PROMPT_MESSAGE)
+    return {
+        "description": skill.description,
+        "messages": [{"role": "user", "content": {"type": "text", "text": skill.instructions}}],
+    }
 
 
 def _parse_params(params: Mapping[str, Any]) -> tuple[str, dict, str]:
