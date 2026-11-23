@@ -12,7 +12,7 @@ labels: [action-policy, config, security]
 epic_branch: epic/PRD-023-mcp-and-skills
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-005-policy-mcp-sections-and-rule.plan.md
 report: .agents/reports/PRD-023-mcp-and-skills/STORY-005-policy-mcp-sections-and-rule.report.md
-commit: null
+commit: 5ea6493
 depends_on: [STORY-001]
 blocks: [STORY-006, STORY-007]
 skills: []
