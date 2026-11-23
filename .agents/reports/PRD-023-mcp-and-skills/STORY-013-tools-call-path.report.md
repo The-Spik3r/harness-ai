@@ -3,7 +3,7 @@ story: STORY-013
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-013-tools-call-path.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: bfe7c9b
 status: COMPLETE
 completed: 2026-11-23
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-23
 
 **Plan**: `.agents/plans/PRD-023-mcp-and-skills/completed/STORY-013-tools-call-path.plan.md`
 **Epic Branch**: `epic/PRD-023-mcp-and-skills`
-**Commit**: pending
+**Commit**: bfe7c9b
 
 ## Summary
 

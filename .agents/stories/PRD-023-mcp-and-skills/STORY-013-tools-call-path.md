@@ -12,7 +12,7 @@ labels: [mcp, security, audit]
 epic_branch: epic/PRD-023-mcp-and-skills
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-013-tools-call-path.plan.md
 report: .agents/reports/PRD-023-mcp-and-skills/STORY-013-tools-call-path.report.md
-commit: pending
+commit: bfe7c9b
 depends_on: [STORY-006, STORY-008, STORY-012]
 blocks: [STORY-014, STORY-016]
 skills: []
