@@ -409,4 +409,8 @@ def test_hash_prompt_call_sites_are_exactly_the_three_audited_ones():
         # site receives raw text only: the tool call's full arguments string as the
         # agent sent it, never the redacted preview.
         "app/services/action_audit.py": 1,
+        # PRD-023 T14 (STORY-014): result_hash of a forwarded gateway call. The site
+        # receives raw text only: the canonical JSON of the upstream result as it
+        # came back, before any screening; the row keeps the hash, never the text.
+        "app/services/mcp_gateway.py": 1,
     }

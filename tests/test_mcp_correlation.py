@@ -53,8 +53,8 @@ def _v1_row(args=_SELECT, *, identity=USER, age=10, audit_id=None, name=_RAW, wr
     return dataclasses.replace(row, timestamp=_ts(age))
 
 
-def _insert_v1(**kw):
-    (row_id,) = insert_action_decisions([_v1_row(**kw)])
+def _insert_v1(*args, **kw):
+    (row_id,) = insert_action_decisions([_v1_row(*args, **kw)])
     return row_id
 
 
@@ -77,6 +77,13 @@ def _by_id():
     return {r.id: r for r in list_action_decisions()}
 
 
+def _gateway_row(*args, **kw):
+    """Insert a gateway row, then read it back. In this order: `_gateway_row()`
+    evaluates `_by_id()` first and reads the table before the insert."""
+    row_id = _gateway(*args, **kw)
+    return _by_id()[row_id]
+
+
 def test_a_matching_alias_row_is_linked_with_its_audit_id(temp_db):
     v1 = _insert_v1(audit_id=None)
     gw = _gateway()
@@ -97,30 +104,30 @@ def test_the_alias_rows_audit_id_is_copied(temp_db):
 
 def test_outside_the_window_nothing_links(temp_db):
     _insert_v1(age=_WINDOW + 1)
-    row = _by_id()[_gateway()]
+    row = _gateway_row()
     assert (row.linked_decision_id, row.audit_id) == (None, None)
 
 
 def test_the_window_is_inclusive_and_zero_still_runs(temp_db):
     v1 = _insert_v1(age=_WINDOW)
-    assert _by_id()[_gateway()].linked_decision_id == v1
+    assert _gateway_row().linked_decision_id == v1
     _insert_v1(age=0, write_id="v1b")
-    assert _by_id()[_gateway(window=0, args=_SELECT)].linked_decision_id is not None
+    assert _gateway_row(window=0, args=_SELECT).linked_decision_id is not None
 
 
 def test_different_arguments_do_not_link(temp_db):
     _insert_v1({"sql": "SELECT 2"})
-    assert _by_id()[_gateway()].linked_decision_id is None
+    assert _gateway_row().linked_decision_id is None
 
 
 def test_a_denied_alias_row_is_never_linked(temp_db):
     _insert_v1({"sql": "DROP TABLE t"})
-    assert _by_id()[_gateway({"sql": "DROP TABLE t"})].linked_decision_id is None
+    assert _gateway_row({"sql": "DROP TABLE t"}).linked_decision_id is None
 
 
 def test_another_users_alias_row_is_never_linked(temp_db):
     _insert_v1(identity=OTHER)
-    assert _by_id()[_gateway()].linked_decision_id is None
+    assert _gateway_row().linked_decision_id is None
 
 
 def test_an_already_linked_alias_row_is_not_reused(temp_db):

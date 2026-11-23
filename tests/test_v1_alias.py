@@ -38,6 +38,9 @@ from tests.test_query_pipeline_streaming import (  # noqa: F401  (`setup` is a f
     _stream,
     setup,
 )
+# `setup` requests `provider_file`, a fixture of tests/_providers.py: it must be
+# in this module's namespace too, or pytest cannot resolve it (PRD-023 STORY-016).
+from tests._providers import provider_file  # noqa: F401  (fixture)
 
 USER = Identity("u", "user")
 _SERVER = "postgres-staging"
