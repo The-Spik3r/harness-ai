@@ -3,7 +3,7 @@ story: STORY-007
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-007-mcp-config-loader.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 8fb312b
 status: COMPLETE
 completed: 2026-11-22
 ---

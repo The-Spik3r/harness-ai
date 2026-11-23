@@ -7,12 +7,12 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Vocabulary and configuration"
-status: in-progress
+status: done
 labels: [mcp, config, security, rbac]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-007-mcp-config-loader.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-007-mcp-config-loader.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-007-mcp-config-loader.report.md
+commit: 8fb312b
 depends_on: [STORY-004, STORY-005]
 blocks: [STORY-010, STORY-011, STORY-015, STORY-017]
 skills: []

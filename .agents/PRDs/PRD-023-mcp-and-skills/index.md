@@ -6,7 +6,7 @@
 
 ## Progress
 
-6/21 stories done — 29%
+7/21 stories done — 33%
 
 ## Stories
 
@@ -20,7 +20,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-004 | MCP settings and RBAC vocabulary: `mcp:connect` and `skill:<id>` | feature | ✅ done | small | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-004-settings-and-rbac.plan.md) | `d9beeb7` |
 | STORY-005 | Action policy: `mcp_tools` / `mcp_opaque_tools` sections and the `tool.not_in_skill` rule | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-005-policy-mcp-sections-and-rule.plan.md) | `5ea6493` |
 | STORY-006 | Engine: `evaluate(..., surface=McpSurface)` with visibility inside the fail-closed boundary | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-006-evaluate-mcp-surface.plan.md) | `ad6a286` |
-| STORY-007 | `mcp_config`: servers, skills, aliases, cross-validation, digest, loaded in both lifespans | feature | 🟡 in-progress | large | [plan](../../plans/PRD-023-mcp-and-skills/STORY-007-mcp-config-loader.plan.md) | — |
+| STORY-007 | `mcp_config`: servers, skills, aliases, cross-validation, digest, loaded in both lifespans | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-007-mcp-config-loader.plan.md) | `8fb312b` |
 | STORY-008 | Audit: MCP columns on `action_decisions`, `record(..., mcp=)`, `record_outcome`, correlation lookup | feature | ⬜ todo | medium | — | — |
 | STORY-009 | Test infrastructure: the scripted stub MCP server and its pytest fixture | technical | ⬜ todo | medium | — | — |
 | STORY-010 | `mcp_upstream`: southbound sessions, harness-held credentials, timeouts, refusals, cached `tools/list` | feature | ⬜ todo | large | — | — |
