@@ -504,7 +504,14 @@ def test_aclose_all_leaves_no_owner_task(mcp_stub_factory, monkeypatch):
         assert len(mcp_upstream._state.owners) == 2
         await mcp_upstream.aclose_all()
         await mcp_upstream.aclose_all()  # idempotent
-        return [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        # PRD-023 STORY-010 (fix after CI 45199692297): SDK/httpx helper tasks
+        # may still be finishing their teardown when aclose_all returns; on a
+        # slow runner a snapshot caught one mid-exit. Give them a bounded grace,
+        # then require that nothing is left pending.
+        others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if others:
+            await asyncio.wait(others, timeout=5)
+        return [t for t in others if not t.done()]
 
     assert _go(body) == []
 
