@@ -40,6 +40,7 @@ As an auditor, I want a tool the model proposed through `/v1` under a gateway al
 - Correlation uses STORY-008's lookup helper; fill STORY-013's M7 seam.
 - Prefixes from STORY-002's survey.
 
+- Orchestrator decision (STORY-008 plan): alias rows keep the raw `/v1` `tool_name` the model emitted (e.g. `harness__github__push_files`), with `mcp_server` set. Correlation calls `database.find_linkable_v1_decision(user_id, server, tool_names, hash, window_seconds)` passing the exact candidates `prefix + server + "__" + tool` for each configured prefix. That helper is read-only: closing the claim race (two gateway calls matching one `/v1` row) is this story's job. `McpRecord` carries an optional `audit_id` for the correlated row's audit id (PRD M7 predates PRD-018).
 ## Dependencies
 
 - **Blocked by**: STORY-002, STORY-013
