@@ -12,7 +12,7 @@ labels: [mcp, api, security]
 epic_branch: epic/PRD-023-mcp-and-skills
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-011-northbound-endpoint.plan.md
 report: .agents/reports/PRD-023-mcp-and-skills/STORY-011-northbound-endpoint.report.md
-commit: pending
+commit: 121ef12
 depends_on: [STORY-004, STORY-007]
 blocks: [STORY-012, STORY-015]
 skills: []

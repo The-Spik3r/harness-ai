@@ -3,7 +3,7 @@ story: STORY-011
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-011-northbound-endpoint.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: 121ef12
 status: COMPLETE
 completed: 2026-11-22
 ---
@@ -12,7 +12,7 @@ completed: 2026-11-22
 
 **Plan**: `.agents/plans/PRD-023-mcp-and-skills/completed/STORY-011-northbound-endpoint.plan.md`
 **Epic Branch**: `epic/PRD-023-mcp-and-skills`
-**Commit**: `pending`
+**Commit**: `121ef12`
 
 ## Summary
 
