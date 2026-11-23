@@ -125,6 +125,21 @@ except Exception as exc:
     result["action_raised"] = type(exc).__name__
     result["action_message"] = str(exc)
 
+# PRD-023 STORY-007. After authz.load and action_config.load (it
+# cross-validates against both), before the bootstrap guard's database read.
+mcp_load = chat_ui_module.mcp_config.load
+result["mcp_load_registered"] = mcp_load in tasks
+result["mcp_load_order_ok"] = (
+    mcp_load in tasks
+    and tasks.index(chat_ui_module.authz.load) < tasks.index(chat_ui_module.action_config.load)
+    < tasks.index(mcp_load) < tasks.index(chat_ui_module.authz.check_bootstrap)
+)
+try:
+    mcp_load()
+    result["mcp_raised"] = None
+except Exception as exc:
+    result["mcp_raised"] = type(exc).__name__
+
 # PRD-018 STORY-009 (D11, D17). After the bootstrap guard, before the
 # executor's task (Reflex tears down in reverse, so the executor stops first);
 # and nothing opened at import.
@@ -339,6 +354,29 @@ def test_action_config_load_fails_chat_ui_startup_when_a_file_is_set(_empty_rbac
     assert result["action_load_registered"] is True
     assert result["action_raised"] == "ActionConfigError"
     assert path in result["action_message"]
+
+
+# --------------------------------------------------------------------------
+# PRD-023 STORY-007 -- mcp_config.load() as a chat UI lifespan task.
+# --------------------------------------------------------------------------
+
+
+def test_mcp_config_load_registered_after_action_config_load_as_chat_ui_lifespan_task(
+    _empty_rbac_env,
+):
+    """AC 5, Reflex path: registered on the mount app.main's lifespan never
+    reaches, after authz.load and action_config.load, before check_bootstrap."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["mcp_load_registered"] is True
+    assert result["mcp_load_order_ok"] is True
+
+
+def test_mcp_config_load_is_a_noop_when_mcp_is_disabled(_empty_rbac_env):
+    """Off means PRD-017 (D20): MCP_ENABLED defaults to false, nothing raised."""
+    result = _run_probe(_empty_rbac_env)
+    assert not result["errors"], result["errors"]
+    assert result["mcp_raised"] is None
 
 
 # --------------------------------------------------------------------------

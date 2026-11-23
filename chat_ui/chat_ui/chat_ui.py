@@ -15,6 +15,7 @@ from app.main import app as fastapi_app
 from app.services import (
     action_config,
     authz,
+    mcp_config,
     pattern_config,
     pii_policy,
     pii_redactor,
@@ -282,6 +283,12 @@ app.register_lifespan_task(pii_policy.load)
 # After authz.load (PRD-016 Section 6.11); placed after pii_policy.load so
 # pattern_config and pii_policy keep their adjacency to authz.load.
 app.register_lifespan_task(action_config.load)
+# Same bypass (PRD-023 STORY-007): without this the chat UI process would hold
+# no MCP config while the API holds MCP_CONFIG_FILE's, and a broken file would
+# stop uvicorn but not the deployment serving traffic. After action_config.load
+# because it cross-validates against the loaded action policy; Reflex runs
+# tasks in registration order.
+app.register_lifespan_task(mcp_config.load)
 # Same bypass (PRD-020 STORY-003): without this the chat UI would serve the
 # legacy registry while the API serves PROVIDERS_FILE's, and a broken file
 # would stop uvicorn but not the deployment serving traffic. After

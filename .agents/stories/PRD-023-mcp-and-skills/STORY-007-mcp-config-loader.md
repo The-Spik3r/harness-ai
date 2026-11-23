@@ -7,10 +7,10 @@ type: feature
 priority: high
 complexity: large
 phase: "2 - Vocabulary and configuration"
-status: todo
+status: in-progress
 labels: [mcp, config, security, rbac]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-007-mcp-config-loader.plan.md
 report: null
 commit: null
 depends_on: [STORY-004, STORY-005]

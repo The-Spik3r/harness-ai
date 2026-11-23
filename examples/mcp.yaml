@@ -1,0 +1,52 @@
+# examples/mcp.yaml
+#
+# A working MCP gateway config (PRD-023 Section 6.6). Use it with
+#   MCP_ENABLED=true
+#   MCP_CONFIG_FILE=examples/mcp.yaml
+#   ACTION_POLICY_FILE=examples/mcp_action_policy.yaml
+# and edit a copy. An invalid file stops startup with the file, the node and
+# the rule that failed; it never falls back. A key written twice anywhere in
+# the file is an error too.
+#
+# Environment variables this file reads (each must be set and non-empty):
+#   MCP_GITHUB_TOKEN    - bearer token for the `github` server
+#   MCP_PG_STAGING_KEY  - value of the X-Api-Key header for `postgres-staging`
+# Their values are never stored, logged or hashed; only the names are in the digest.
+#
+# `allow_insecure: true` permits plain http for a private network and is
+# recorded in the config digest. Every skill tool needs an entry under
+# mcp_tools or mcp_opaque_tools in ACTION_POLICY_FILE (see
+# examples/mcp_action_policy.yaml), and a role that holds `skill:<id>` in
+# RBAC_ROLES_FILE must also hold that skill's `requires`.
+servers:
+  github:
+    url: https://mcp-github.internal.example/mcp      # https required unless allow_insecure: true
+    auth: { type: bearer, token_env: MCP_GITHUB_TOKEN }
+    timeout_seconds: 60
+  postgres-staging:
+    url: http://pg-mcp.internal:8080/mcp
+    allow_insecure: true                               # private network; recorded in the digest
+    auth: { type: header, name: X-Api-Key, value_env: MCP_PG_STAGING_KEY }
+
+skills:
+  open-pull-request:
+    version: 1.2.0
+    description: Create a branch, push files and open a pull request.
+    instructions: |
+      Work on a new branch named agent/<short-topic>. Push all changed files in one
+      push_files call, then open a pull request against main with a summary of the change.
+      Never push to main directly.
+    tools: [github__create_branch, github__push_files, github__create_pull_request]
+    requires: []
+  run-migration:
+    version: 0.3.0
+    description: Apply schema migrations to the staging database.
+    instructions: |
+      Inspect the current schema with SELECT queries first. Apply one statement per call.
+    tools: [postgres-staging__query]
+    requires: [action:sql:ddl]
+
+# Absent means no /v1 aliases. Declared here: OpenCode "<prefix><server>__<tool>"
+# (harness_) and Cline 4.x (harness__).
+v1_aliases:
+  prefixes: ["harness_", "harness__"]
