@@ -678,6 +678,9 @@ _EXPECTED_KINDS = {
     # PRD-023 STORY-008 (D21): the gateway outcome UPDATE and the correlation read.
     "update_action_outcome": K.IDEMPOTENT,
     "find_linkable_v1_decision": K.READ,
+    # PRD-023 STORY-016 (D15, M7): the gateway insert that claims its `/v1` row in one
+    # statement; keyed, so a replay meets ON CONFLICT(write_id).
+    "insert_mcp_decision_linked": K.IDEMPOTENT,
 }
 # PRD-018 D4 (STORY-004): the only two units whose kind is an expression, not a
 # constant. The expression is pinned verbatim, so neither can drift to a constant
@@ -727,7 +730,8 @@ def test_the_table_covers_the_modules_public_functions():
     # PRD-018 STORY-009: 41 -> 42 with drain_journal_entry.
     # PRD-023 STORY-008: 42 -> 44 with update_action_outcome and
     # find_linkable_v1_decision.
-    assert len(_EXPECTED_KINDS) == 44
+    # PRD-023 STORY-016: 44 -> 45 with insert_mcp_decision_linked.
+    assert len(_EXPECTED_KINDS) == 45
     assert public == set(_EXPECTED_KINDS) | _EXEMPT
 
 

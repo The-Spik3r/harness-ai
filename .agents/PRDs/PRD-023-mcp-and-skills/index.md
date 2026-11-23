@@ -29,7 +29,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-013 | `tools/call`: usage, visibility, evaluation, record before forward, forward, outcome | feature | ✅ done | large | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-013-tools-call-path.plan.md) | `bfe7c9b` |
 | STORY-014 | Results: size cap, pattern inspection under the `tool` cell, uninspected counts | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-014-result-inspection-and-caps.plan.md) | `786c4a2` |
 | STORY-015 | `prompts/list` and `prompts/get` from held skills | feature | ✅ done | small | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-015-prompts-from-skills.plan.md) | `2c26c89` |
-| STORY-016 | `/v1` alias resolution at step 7c and gateway correlation at M7 | feature | ⬜ todo | large | — | — |
+| STORY-016 | `/v1` alias resolution at step 7c and gateway correlation at M7 | feature | 🟡 in-progress | large | [plan](../../plans/PRD-023-mcp-and-skills/STORY-016-v1-alias-and-correlation.plan.md) | — |
 | STORY-017 | Admin API: `GET /audit/actions` MCP filters and fields, `GET /skills` | feature | ⬜ todo | medium | — | — |
 | STORY-018 | Admin console: Actions view MCP filter and columns, Skills panel | feature | ⬜ todo | medium | — | — |
 | STORY-019 | `tests/corpora/mcp/` decision corpus and the gateway latency measurement | technical | ⬜ todo | medium | — | — |

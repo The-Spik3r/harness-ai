@@ -21,7 +21,14 @@ from app.models.schemas import (
 # PRD-017 STORY-010 DD-5: called through their modules (`action_policy.
 # evaluate_all(...)`), so a test's monkeypatch of the source module reaches the
 # pipeline, the rule `action_policy._classify` documents.
-from app.services import action_adapters, action_audit, action_config, action_policy, tool_release
+from app.services import (
+    action_adapters,
+    action_audit,
+    action_config,
+    action_policy,
+    mcp_config,
+    tool_release,
+)
 from app.services.audit_logger import log_query
 from app.services.authz import (
     PERMISSION_QUERY_BYOK,
@@ -146,6 +153,20 @@ def _validate_conversation(messages: Sequence[Message]) -> None:
     if violation is not None:
         index, rule = violation
         raise InvalidConversationError(f"messages[{index}]: {rule}")
+
+
+def _alias_input(identity: Identity) -> Optional[action_policy.AliasInput]:
+    """PRD-023 D15, F9: the `/v1` alias mapping for step 7c, or None.
+
+    None unless `MCP_ENABLED` and `MCP_V1_ALIAS_PREFIXES` is non-empty, in which
+    case `mcp_config` is not consulted at all (D20). Config only: no database read.
+    """
+    if not settings.MCP_ENABLED:
+        return None
+    prefixes = mcp_config.get_config().v1_prefixes
+    if not prefixes:
+        return None
+    return action_policy.AliasInput(prefixes, mcp_config.visible_tools(identity))
 
 
 def _context_limit_exceeded(
@@ -1640,7 +1661,15 @@ def run_conversation(
             action_adapters.ToolCall(c.id, c.name, c.arguments)
             for c in openrouter_result.tool_calls
         )
-        decisions = action_policy.evaluate_all(calls, identity)
+        # PRD-023 D15, F9: with MCP on and `MCP_V1_ALIAS_PREFIXES` set, a raw
+        # alias name is decided under the MCP mapping. Config only: no database
+        # read, and with MCP off `mcp_config` is not consulted at all (D20). The
+        # buffered and the PRD-021 real-time paths both decide here.
+        aliases = _alias_input(identity)
+        if aliases is None:
+            decisions = action_policy.evaluate_all(calls, identity)
+        else:
+            decisions = action_policy.evaluate_all(calls, identity, aliases=aliases)
         outcome = tool_release.ToolOutcome(
             release=tool_release.apply_decisions(openrouter_result.tool_calls, decisions),
             decisions=decisions,

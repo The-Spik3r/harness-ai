@@ -71,7 +71,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 
 from app.db import audit_journal
-from app.db.database import insert_action_decisions, update_action_outcome
+from app.db.database import (
+    insert_action_decisions,
+    insert_mcp_decision_linked,
+    update_action_outcome,
+)
 from app.db.errors import StorageUnavailableError
 from app.db.models import MCP_OUTCOME_VALUES, ActionDecisionRow
 
@@ -175,6 +179,22 @@ def _classifications_json(d: "ActionDecision") -> str:
     )
 
 
+def _alias_hash(d: "ActionDecision") -> Optional[str]:
+    """PRD-023 D21: the canonical arguments hash of a `/v1` alias decision, so the
+    gateway's later call hashes the same. NULL unless the raw arguments are a JSON
+    object (an array, scalar or unparseable text was denied `tool.malformed`)."""
+    try:
+        parsed = json.loads(d.arguments)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    try:
+        return arguments_canonical_hash(parsed)
+    except (ValueError, TypeError, RecursionError):
+        return None
+
+
 def _row_of(
     d: "ActionDecision",
     identity: "Identity",
@@ -202,6 +222,11 @@ def _row_of(
         classifications=_classifications_json(d),
         policy_digest=d.policy_digest,
         write_id=write_id,
+        **(
+            {"mcp_server": d.mcp_server, "arguments_canonical_hash": _alias_hash(d)}
+            if d.mcp_server is not None
+            else {}
+        ),
     )
 
 
@@ -255,6 +280,14 @@ class McpRecord:
     mcp_config_digest: str
     jsonrpc_id: Union[str, int]
     audit_id: Optional[int] = None
+    #: PRD-023 M7: the exact `/v1` names (alias prefix included) the call may
+    #: continue; empty means no claim is attempted. The claim itself is
+    #: `database.insert_mcp_decision_linked`, which fills `linked_decision_id`
+    #: and `audit_id` in the same statement as the insert.
+    link_candidates: tuple[str, ...] = ()
+    link_window_seconds: int = 0
+    #: Injected by tests; None reads the clock in the database layer.
+    link_now: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         if self.surface != "mcp":
@@ -326,6 +359,12 @@ def record(
             )
             for row in base
         ]
+        if mcp.link_candidates and mcp.mcp_server is not None:
+            return [
+                insert_mcp_decision_linked(
+                    rows[0], mcp.link_candidates, mcp.link_window_seconds, now=mcp.link_now
+                )
+            ]
         return insert_action_decisions(rows)
     if audit_ref is not None and audit_ref.audit_id is None:
         raise ValueError(

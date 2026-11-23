@@ -7,17 +7,17 @@ type: feature
 priority: high
 complexity: large
 phase: "4 - Bridge, evidence and clients"
-status: todo
+status: in-progress
 labels: [v1, mcp, action-policy, audit]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-016-v1-alias-and-correlation.plan.md
 report: null
 commit: null
 depends_on: [STORY-002, STORY-013]
 blocks: [STORY-019]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # STORY-016: `/v1` alias resolution at step 7c and gateway correlation at M7

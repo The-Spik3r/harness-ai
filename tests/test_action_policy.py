@@ -566,6 +566,8 @@ def test_action_decision_shape():
         "operations",
         "operation",
         "arguments",
+        # PRD-023 STORY-016, D15: the server a `/v1` alias call resolved to (None otherwise).
+        "mcp_server",
     ]
     d = evaluate(_call("query", {"sql": "SELECT 1"}), USER)
     with pytest.raises(dataclasses.FrozenInstanceError):

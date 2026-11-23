@@ -3663,6 +3663,124 @@ def update_action_outcome(
     _unit_of_work("update_action_outcome", StatementKind.IDEMPOTENT, _op)
 
 
+#: The link rule of PRD-023 M7, shared by the read (`find_linkable_v1_decision`)
+#: and the claim (`insert_mcp_decision_linked`) so the two cannot drift. Rows
+#: are aliased `v`; `{placeholders}` is the candidate-name list. Parameters, in
+#: order: user_id, server, names..., arguments_canonical_hash, since.
+_LINKABLE_V1_CONDITION = """v.user_id = ? AND v.surface = 'v1' AND v.mcp_server = ?
+              AND v.tool_name IN ({placeholders})
+              AND v.arguments_canonical_hash = ?
+              AND v.decision IN ('allow', 'flag')
+              AND v.timestamp >= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM action_decisions l
+                  WHERE l.linked_decision_id = v.id
+              )"""
+
+
+def _link_since(window_seconds: int, now: Optional[datetime]) -> str:
+    """The oldest `timestamp` a `/v1` row may carry and still be linked, as TEXT."""
+    current = now if now is not None else datetime.now(timezone.utc)
+    return (current - timedelta(seconds=window_seconds)).strftime(_TIMESTAMP_FORMAT)
+
+
+def insert_mcp_decision_linked(
+    row: ActionDecisionRow,
+    candidate_names: Sequence[str],
+    window_seconds: int,
+    *,
+    now: Optional[datetime] = None,
+) -> int:
+    """Insert one gateway row, claiming the `/v1` alias row it continues (PRD-023 M7, D21).
+
+    One statement, so the lookup and the claim are atomic: `INSERT ... SELECT`
+    reads the newest row meeting `_LINKABLE_V1_CONDITION` (the caller's, for
+    `row.mcp_server`, a name in `candidate_names`, `row.arguments_canonical_hash`,
+    within `window_seconds`, not already some row's `linked_decision_id`) and
+    writes `linked_decision_id = its id` and `audit_id = its audit_id` on the
+    new row. The new row commits only if the claim holds: write transactions
+    are serialised, so a second call sees the first's row as claimed and one
+    alias row is linked at most once. The `LEFT JOIN` keeps the insert when
+    nothing matches (both fields stay as `row` carries them); `WHERE true`
+    ends the select before `ON CONFLICT` (SQLite's parsing ambiguity). A
+    replay of a landed `write_id` meets the conflict and reads its original
+    id back (`_keyed_row_id`). `row.write_id` is required; the unit is
+    `IDEMPOTENT`. No candidate names (an unconfigured server) is a plain
+    keyed insert: no claim is attempted.
+    """
+    if row.write_id is None:
+        raise ValueError("insert_mcp_decision_linked requires a keyed row (write_id)")
+    names = list(candidate_names)
+    if not names or row.mcp_server is None or row.arguments_canonical_hash is None:
+        return insert_action_decisions([row])[0]
+    since = _link_since(window_seconds, now)
+    placeholders = ", ".join("?" for _ in names)
+
+    def _op(conn: _Connection) -> int:
+        cursor = conn.execute(
+            f"""
+            INSERT INTO action_decisions (
+                timestamp, audit_id, session_id, user_id, role,
+                tool_call_id, tool_name, operation_kind, target_preview,
+                arguments_hash, arguments_preview, decision, rule, reason,
+                granted_by, classifications, policy_digest, write_id,
+                surface, mcp_server, skills, arguments_canonical_hash,
+                linked_decision_id, outcome, duration_ms, result_bytes,
+                result_hash, result_flags, mcp_config_digest
+            )
+            SELECT ?, COALESCE(c.audit_id, ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?, ?, ?, ?, c.id, ?, ?, ?, ?, ?, ?
+            FROM (SELECT 1) one
+            LEFT JOIN (
+                SELECT v.id, v.audit_id FROM action_decisions v
+                WHERE {_LINKABLE_V1_CONDITION.format(placeholders=placeholders)}
+                ORDER BY v.id DESC
+                LIMIT 1
+            ) c ON 1
+            WHERE true
+            """
+            + _ON_WRITE_ID_CONFLICT,
+            (
+                row.timestamp,
+                row.audit_id,
+                row.session_id,
+                row.user_id,
+                row.role,
+                row.tool_call_id,
+                row.tool_name,
+                row.operation_kind,
+                row.target_preview,
+                row.arguments_hash,
+                row.arguments_preview,
+                row.decision,
+                row.rule,
+                row.reason,
+                row.granted_by,
+                row.classifications,
+                row.policy_digest,
+                row.write_id,
+                row.surface,
+                row.mcp_server,
+                row.skills,
+                row.arguments_canonical_hash,
+                row.outcome,
+                row.duration_ms,
+                row.result_bytes,
+                row.result_hash,
+                row.result_flags,
+                row.mcp_config_digest,
+                row.user_id,
+                row.mcp_server,
+                *names,
+                row.arguments_canonical_hash,
+                since,
+            ),
+        )
+        return _keyed_row_id(conn, "action_decisions", cursor, row.write_id)
+
+    return _unit_of_work("insert_mcp_decision_linked", StatementKind.IDEMPOTENT, _op)
+
+
 def find_linkable_v1_decision(
     user_id: str,
     server: str,
@@ -3689,24 +3807,15 @@ def find_linkable_v1_decision(
     names = list(tool_names)
     if not names:
         return None
-    current = now if now is not None else datetime.now(timezone.utc)
-    since = (current - timedelta(seconds=window_seconds)).strftime(_TIMESTAMP_FORMAT)
+    since = _link_since(window_seconds, now)
     placeholders = ", ".join("?" for _ in names)
 
     def _op(conn: _Connection) -> Optional[ActionDecisionRow]:
         row = conn.execute(
             f"""
-            SELECT * FROM action_decisions
-            WHERE user_id = ? AND surface = 'v1' AND mcp_server = ?
-              AND tool_name IN ({placeholders})
-              AND arguments_canonical_hash = ?
-              AND decision IN ('allow', 'flag')
-              AND timestamp >= ?
-              AND NOT EXISTS (
-                  SELECT 1 FROM action_decisions l
-                  WHERE l.linked_decision_id = action_decisions.id
-              )
-            ORDER BY id DESC
+            SELECT * FROM action_decisions v
+            WHERE {_LINKABLE_V1_CONDITION.format(placeholders=placeholders)}
+            ORDER BY v.id DESC
             LIMIT 1
             """,
             (user_id, server, *names, arguments_canonical_hash, since),

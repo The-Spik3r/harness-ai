@@ -382,14 +382,17 @@ def _screen_result(
     return upstream, ("tool_error" if failed else "ok"), size, digest, flags
 
 
-def _correlate(
-    identity: Identity, server: Optional[str], tool: Optional[str], arguments_hash: str
-) -> tuple[Optional[int], Optional[int]]:
-    """`(audit_id, linked_decision_id)` of the `/v1` call this one continues.
+def _link_clock() -> datetime:
+    """The correlation window's clock; tests monkeypatch it (PRD-023 M7)."""
+    return datetime.now(timezone.utc)
 
-    STORY-016 replaces the body (alias resolution and the correlation claim);
-    until then no call is correlated."""
-    return None, None
+
+def _link_candidates(server: Optional[str], tool: Optional[str], decision: Any) -> tuple[str, ...]:
+    """The raw `/v1` names this call may continue (PRD-023 M7, D15): one per configured
+    alias prefix. Empty (no claim) for an unconfigured server or a denied call."""
+    if server is None or tool is None or decision.decision not in ("allow", "flag"):
+        return ()
+    return tuple(f"{p}{server}__{tool}" for p in mcp_config.get_config().v1_prefixes)
 
 
 def _tool_result(content: list, is_error: bool, structured: Optional[dict] = None) -> dict:
@@ -516,16 +519,19 @@ async def call(identity: Identity, params: Mapping[str, Any], request_id: Any) -
     decision = action_policy.evaluate(engine_call, identity, surface=surface)
 
     arguments_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    audit_id, linked = _correlate(identity, server, tool, arguments_hash)
     record = action_audit.McpRecord(
         surface="mcp",
         mcp_server=server,
         skills=_held_skill_labels(identity, name) if server is not None else (),
         arguments_canonical_hash=arguments_hash,
-        linked_decision_id=linked,
+        # M7: the claim rides the pre-forward insert (one statement, no extra round trip).
+        linked_decision_id=None,
         mcp_config_digest=mcp_config.mcp_config_digest(),
         jsonrpc_id=request_id,
-        audit_id=audit_id,
+        audit_id=None,
+        link_candidates=_link_candidates(server, tool, decision),
+        link_window_seconds=settings.MCP_LINK_WINDOW_SECONDS,
+        link_now=_link_clock(),
     )
     try:
         row_ids = await pipeline_executor.run_in_pipeline(
