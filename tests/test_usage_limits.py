@@ -429,9 +429,11 @@ def test_retry_after_is_at_least_one_second_even_when_the_reset_has_passed():
     assert retry_after_seconds(_refusal_at("2026-11-23T11:00:00Z"), now) == 1
 
 
-def test_retry_after_without_a_clock_reads_the_wall_clock():
-    far = _refusal_at("2999-01-01T00:00:00Z")
-    assert retry_after_seconds(far) > 3600
+def test_retry_after_takes_the_clock_from_the_caller():
+    """PRD-023 STORY-013: `now` is required, so usage_limits never reads the clock."""
+    import inspect as _inspect
+
+    assert _inspect.signature(retry_after_seconds).parameters["now"].default is _inspect.Parameter.empty
 
 
 # --- real storage ---------------------------------------------------------

@@ -22,7 +22,6 @@ Failure rules, deliberately opposite (PRD Section 9.2):
 
 import logging
 import math
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
@@ -138,18 +137,16 @@ def _next_utc_midnight(day: str) -> str:
     return (start + timedelta(days=1)).strftime(_TIMESTAMP_FORMAT)
 
 
-def retry_after_seconds(refusal: UsageRefusal, now: Optional[datetime] = None) -> int:
+def retry_after_seconds(refusal: UsageRefusal, now: datetime) -> int:
     """Whole seconds until `refusal.resets_at`, at least 1 (PRD-023 Section 6.3, M4).
 
     The value of the `Retry-After` header on the gateway's 429. Rounded up, so a
     client that waits exactly this long is past the reset; never 0, the same
-    floor the circuit breaker's header has. Pure: `now` is injectable.
+    floor the circuit breaker's header has. Pure: the caller passes `now`, so
+    this module never reads the instance clock (Section 6.7's guard).
     """
     reset = datetime.strptime(refusal.resets_at, _TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
-    # `admit`'s `resets_at` never reads the clock (tests/test_usage_limits.py guards
-    # the source for the datetime wall-clock calls); only this header helper does, via `time.time()`.
-    current = now if now is not None else datetime.fromtimestamp(time.time(), tz=timezone.utc)
-    return max(1, math.ceil((reset - current).total_seconds()))
+    return max(1, math.ceil((reset - now).total_seconds()))
 
 
 def admit(identity: Identity, charges_budget: bool) -> Admission:

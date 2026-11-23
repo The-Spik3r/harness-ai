@@ -43,6 +43,7 @@ import asyncio
 import hashlib
 import logging
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from types import MappingProxyType, SimpleNamespace
 from typing import Any, Mapping, Optional
@@ -311,7 +312,8 @@ async def _admit(identity: Identity) -> None:
         raise GatewayRpcError(_INTERNAL_ERROR, USAGE_UNCHECKED_MESSAGE)
     if not admission.admitted:
         refusal = admission.refusal
-        raise UsageRefused(usage_limits.retry_after_seconds(refusal), refusal.limit)
+        now = datetime.now(timezone.utc)
+        raise UsageRefused(usage_limits.retry_after_seconds(refusal, now), refusal.limit)
 
 
 async def _write_outcome(
