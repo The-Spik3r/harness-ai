@@ -7,12 +7,12 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: in-progress
+status: done
 labels: [tests, e2e, clients]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-020-e2e-opencode-cline.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-020-e2e-opencode-cline.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-020-e2e-opencode-cline.report.md
+commit: d2ffa6c
 depends_on: [STORY-019, STORY-002]
 blocks: [STORY-021]
 skills: []
@@ -28,9 +28,9 @@ As an integrating developer, I want real OpenCode and Cline sessions to list the
 
 ## Acceptance Criteria
 
-- [ ] Given `--run-e2e` and the installed OpenCode (config `type: remote`, static `Authorization`, `codemode: false`), when driven against the harness and stub, then it lists its skill's tools and completes one allowed and one denied call, with matching rows
-- [ ] Given `--run-e2e` and the installed Cline CLI, when driven the same way, then the same holds
-- [ ] Given no `--run-e2e`, when the suite runs, then these tests are skipped (CI unaffected)
+- [x] Given `--run-e2e` and the installed OpenCode (config `type: remote`, static `Authorization`, `codemode: false`), when driven against the harness and stub, then it lists its skill's tools and completes one allowed and one denied call, with matching rows
+- [x] Given `--run-e2e` and the installed Cline CLI, when driven the same way, then the same holds
+- [x] Given no `--run-e2e`, when the suite runs, then these tests are skipped (CI unaffected)
 
 ## Technical Notes
 

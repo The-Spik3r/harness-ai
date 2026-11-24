@@ -3,14 +3,14 @@ story: STORY-020
 prd: PRD-023
 plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-020-e2e-opencode-cline.plan.md
 epic_branch: epic/PRD-023-mcp-and-skills
-commit: pending
+commit: d2ffa6c
 status: COMPLETE
 completed: 2026-11-24
 ---
 
 # Implementation Report - STORY-020: E2E OpenCode and Cline through `/mcp`
 
-**Commit**: `pending`
+**Commit**: `d2ffa6c`
 
 ## Summary
 
