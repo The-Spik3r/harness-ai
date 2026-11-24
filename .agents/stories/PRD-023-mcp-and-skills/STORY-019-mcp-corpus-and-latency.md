@@ -7,12 +7,12 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: in-progress
+status: done
 labels: [tests, mcp, corpus]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: .agents/plans/PRD-023-mcp-and-skills/STORY-019-mcp-corpus-and-latency.plan.md
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-019-mcp-corpus-and-latency.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-019-mcp-corpus-and-latency.report.md
+commit: 3903631
 depends_on: [STORY-014, STORY-015, STORY-016]
 blocks: [STORY-020]
 skills: []
