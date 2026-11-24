@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: todo
+status: in-progress
 labels: [tests, e2e, clients]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-020-e2e-opencode-cline.plan.md
 report: null
 commit: null
 depends_on: [STORY-019, STORY-002]
 blocks: [STORY-021]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-24
 ---
 
 # STORY-020: E2E (opt-in): OpenCode and the Cline CLI through `/mcp` against the stub

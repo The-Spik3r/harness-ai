@@ -1,0 +1,42 @@
+{
+  "default": {
+    "content": "E2E-MCP-NOT-ADVERTISED: opencode_mcp.json matched no rule (the MCP tool was not offered)."
+  },
+  "rules": [
+    {
+      "role": "tool",
+      "last_role": "tool",
+      "after_call": "harness_stub__query",
+      "regex": "",
+      "content": "E2E-MCP-DONE"
+    },
+    {
+      "regex": "E2E-MCP-DROP",
+      "last_role": "user",
+      "advertises": "harness_stub__query",
+      "tool_calls": [
+        {
+          "id": "call_mcp_drop",
+          "name": "harness_stub__query",
+          "arguments": "@ARGS_DENY@"
+        }
+      ]
+    },
+    {
+      "regex": "E2E-MCP-ALLOW",
+      "last_role": "user",
+      "advertises": "harness_stub__query",
+      "tool_calls": [
+        {
+          "id": "call_mcp_allow",
+          "name": "harness_stub__query",
+          "arguments": "@ARGS_ALLOW@"
+        }
+      ]
+    },
+    {
+      "regex": "",
+      "content": "E2E-MCP-TITLE"
+    }
+  ]
+}
