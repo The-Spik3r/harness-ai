@@ -70,6 +70,15 @@ Every environment variable Harness AI reads, with its default and what it change
 | `ACTION_POLICY_FILE` | No | — (empty) | Path to a YAML action policy; [`examples/action_policy.yaml`](../examples/action_policy.yaml) is a working sample. Empty uses the built-in policy and reads no file. A section the file states replaces the built-in one wholesale (`rules:` merges per rule id), and an invalid file, including a relative workspace root, is a **startup error** in both the API and the chat UI. Decides every `/v1` tool call when `V1_TOOLS_ENABLED=true`. See [Action policy rules](features.md#action-policy-rules). |
 | `ACTION_MAX_ARGUMENT_CHARACTERS` | No | `100000` | Most characters in one tool call's `arguments` string; a longer one is denied as `tool.malformed` and never parsed. Must be at least `1`: `0` is a startup error, not "no ceiling". |
 | `ACTION_SQL_DIALECT` | No | — (empty) | sqlglot dialect for the statements of SQL tools. Empty uses sqlglot's generic dialect; a name sqlglot does not know is a **startup error**. SQL embedded in a shell command (`psql`, `mysql`, `sqlite3`) always uses that client's own dialect, and this setting is not part of the policy digest. |
+| `MCP_ENABLED` | No | `false` | Mount the [MCP gateway](features.md#mcp-gateway-and-skills): `POST /mcp`, `GET /skills` with data. Off, `/mcp` is a `404` and no MCP file is read. `true` needs `MCP_CONFIG_FILE`, or startup fails. |
+| `MCP_CONFIG_FILE` | No | — (empty) | Path to the servers and skills YAML; [`examples/mcp.yaml`](../examples/mcp.yaml) is a working sample (use it with [`examples/mcp_action_policy.yaml`](../examples/mcp_action_policy.yaml)). Upstream credentials are named there as environment variables, never written in the file. An invalid file is a **startup error** naming the file, the node and the rule. No hot reload. |
+| `MCP_CALL_TIMEOUT_SECONDS` | No | `60` | Seconds the gateway waits for an upstream server to answer one tool call. 1 to 600; anything else is a **startup error**. A timed-out call is never retried. |
+| `MCP_MAX_REQUEST_BYTES` | No | `1048576` | Largest `/mcp` request body, in bytes. At least 1024. |
+| `MCP_MAX_RESULT_BYTES` | No | `1048576` | Largest upstream tool result the gateway returns, in bytes. At least 1024. A larger result is not returned (`result_too_large`). |
+| `MCP_TOOLS_CACHE_SECONDS` | No | `60` | Seconds an upstream tool list is cached. 0 to 86400; `0` disables the cache. |
+| `MCP_UPSTREAM_SESSION_IDLE_SECONDS` | No | `300` | Idle seconds after which an upstream MCP session is closed. At least 10. |
+| `MCP_LINK_WINDOW_SECONDS` | No | `300` | Seconds within which a gateway call is linked to the `/v1` decision that preceded it (correlation, not proof). 0 to 86400; `0` disables linking. |
+| `MCP_ALLOWED_ORIGINS` | No | — (empty) | Comma list of browser origins allowed to call `/mcp`, each `scheme://host[:port]` with no path or wildcard. Empty refuses every request that carries an `Origin` header; CLI agents send none. A bad entry is a **startup error**. |
 
 Every setting in this table is read once at startup (`app/config.py`); changing any of them requires a restart.
 

@@ -120,7 +120,8 @@ class Rule:
 
     `grant` names one of `authz.ACTION_PERMISSIONS`. A role holding it gets
     `allow` for this rule instead of `default`. A rule with no grant cannot be
-    lifted by any role: the ten `NON_GRANTABLE_RULES` never take one (T5), and
+    lifted by any role: the eleven `NON_GRANTABLE_RULES` never take one (T5; the eleventh,
+    `tool.not_in_skill`, is PRD-023 D7), and
     the allow-by-default rules have nothing to lift.
 
     `default` is `None` on `tool.opaque` and only there. Section 6.3 gives it
