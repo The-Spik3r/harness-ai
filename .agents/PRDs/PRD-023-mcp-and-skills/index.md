@@ -2,11 +2,11 @@
 
 **PRD**: [PRD.md](./PRD.md)
 **Epic Branch**: `epic/PRD-023-mcp-and-skills` (base: `main`)
-**Status**: active
+**Status**: done
 
 ## Progress
 
-20/21 stories done — 95%
+21/21 stories done — 100%
 
 ## Stories
 
@@ -34,7 +34,7 @@ All stories commit on the epic branch `epic/PRD-023-mcp-and-skills`. No per-stor
 | STORY-018 | Admin console: Actions view MCP filter and columns, Skills panel | feature | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-018-admin-console.plan.md) | `f404745` |
 | STORY-019 | `tests/corpora/mcp/` decision corpus and the gateway latency measurement | technical | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-019-mcp-corpus-and-latency.plan.md) | `3903631` |
 | STORY-020 | E2E (opt-in): OpenCode and the Cline CLI through `/mcp` against the stub | technical | ✅ done | medium | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-020-e2e-opencode-cline.plan.md) | `d2ffa6c` |
-| STORY-021 | Docs: README, features (MCP gateway and skills), roadmap, `.env.example`, examples | technical | ⬜ todo | small | — | — |
+| STORY-021 | Docs: README, features (MCP gateway and skills), roadmap, `.env.example`, examples | technical | ✅ done | small | [plan](../../plans/PRD-023-mcp-and-skills/completed/STORY-021-docs-and-roadmap.plan.md) | `5c7f8d6` |
 
 ## Status Icons
 - ⬜ todo

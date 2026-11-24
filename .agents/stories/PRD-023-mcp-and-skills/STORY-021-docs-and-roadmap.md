@@ -7,17 +7,17 @@ type: technical
 priority: medium
 complexity: small
 phase: "4 - Bridge, evidence and clients"
-status: todo
+status: done
 labels: [docs]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
-report: null
-commit: null
+plan: .agents/plans/PRD-023-mcp-and-skills/completed/STORY-021-docs-and-roadmap.plan.md
+report: .agents/reports/PRD-023-mcp-and-skills/STORY-021-docs-and-roadmap.report.md
+commit: 5c7f8d6
 depends_on: [STORY-020]
 blocks: []
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-24
 ---
 
 # STORY-021: Docs: README, features (MCP gateway and skills), roadmap, `.env.example`, examples

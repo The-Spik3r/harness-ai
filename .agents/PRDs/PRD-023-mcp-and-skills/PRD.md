@@ -2,11 +2,11 @@
 id: PRD-023
 slug: mcp-and-skills
 title: MCP Servers and Agent Skills Behind the Harness — Every tools/call Decided and Audited
-status: draft
+status: done
 base_branch: main
 epic_branch: epic/PRD-023-mcp-and-skills
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-24
 ---
 
 > **Scope note.** This is the roadmap's *MCP servers and agent skills* item ([docs/roadmap.md:55-63](../../../docs/roadmap.md)). It changes one principle that PRD-016 and PRD-017 state on every page: "the harness never executes a tool" ([docs/roadmap.md:79](../../../docs/roadmap.md), [docs/features.md:483](../../../docs/features.md)). After this PRD the harness still **runs no tool code**, but for MCP tools it **causes execution**: it forwards an allowed `tools/call` to an MCP server it is configured to front. D2 and Section 9.2 give the reasoning. Everything about `/v1` that PRD-017 shipped stays as it is unless Section 6.8 says otherwise.
