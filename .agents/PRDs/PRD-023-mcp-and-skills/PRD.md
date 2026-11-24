@@ -473,9 +473,9 @@ The stub server, `tests/corpora/mcp/` (at least 30 calls: every outcome, every v
 | `MCP_CALL_TIMEOUT_SECONDS` | `60` | `1–600` | Default per-call timeout, overridable per server |
 | `MCP_MAX_REQUEST_BYTES` | `1048576` | `≥ 1024` | Northbound body cap |
 | `MCP_MAX_RESULT_BYTES` | `1048576` | `≥ 1024` | Result cap, overridable per server |
-| `MCP_TOOLS_CACHE_SECONDS` | `300` | `0–86400` (`0` = no cache) | Upstream `tools/list` cache |
+| `MCP_TOOLS_CACHE_SECONDS` | `60` (amended after STORY-021: STORY-004 shipped 60, not 300) | `0–86400` (`0` = no cache) | Upstream `tools/list` cache |
 | `MCP_UPSTREAM_SESSION_IDLE_SECONDS` | `300` | `≥ 10` | Southbound session reap |
-| `MCP_LINK_WINDOW_SECONDS` | `600` | `0–86400` (`0` = no correlation) | `/v1` proposal → gateway call correlation |
+| `MCP_LINK_WINDOW_SECONDS` | `300` (amended after STORY-021: STORY-004 shipped 300, not 600) | `0–86400` (`0` = no correlation) | `/v1` proposal → gateway call correlation |
 | `MCP_ALLOWED_ORIGINS` | `""` | comma list of origins | Browser origins allowed on `/mcp` |
 
 `MCP_CONFIG_FILE` validation (each an `MCPConfigError` naming the file and the node): an unknown top-level or nested key · a server id outside `[a-z0-9][a-z0-9-]{0,31}` · a `url` that is not absolute `http(s)`, or `http` without `allow_insecure: true` · an `auth.type` outside `bearer | header | none` · a `token_env` / `value_env` that is unset or empty in the environment · a header `name` that is `Authorization` under `type: header`, or a hop-by-hop or `Mcp-*` header · `timeout_seconds` / `max_result_bytes` out of range · a skill id outside its pattern · an empty `tools` list · a skill tool not of the form `<configured server>__<tool>` · a skill tool with no `mcp_tools` / `mcp_opaque_tools` entry · a `requires` entry outside `ACTION_PERMISSIONS` · a role granted `skill:<id>` for an undefined skill · a role holding a skill without its `requires` (O2) · an empty `v1_aliases.prefixes` entry, or one containing characters outside `[A-Za-z0-9_-]` · duplicate YAML keys.
