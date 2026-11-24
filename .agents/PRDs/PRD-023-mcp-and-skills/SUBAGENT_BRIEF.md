@@ -5,7 +5,7 @@ You are one subagent in an orchestrated run. An orchestrator verifies your outpu
 ## Repository and branch
 - Repo: `G:/coding/harness-ai`. Branch: `epic/PRD-023-mcp-and-skills`. It is checked out. **Never** switch or create branches, push, merge, rebase, amend or force anything.
 - PRD: `.agents/PRDs/PRD-023-mcp-and-skills/PRD.md`. Stories: `.agents/stories/PRD-023-mcp-and-skills/`. Board: `.agents/PRDs/PRD-023-mcp-and-skills/index.md`.
-- Today's date for every `created` / `updated` / `completed` field: **2026-11-23**.
+- Today's date for every `created` / `updated` / `completed` field: **2026-11-24**.
 
 ## Commands you follow
 - PLAN subagent: follow `.agents/commands/plan.md` phase by phase, skipping nothing (including SCAN SKILLS and UPDATE STORY FILE + index). PLAN ONLY: no application code, tests or docs, and no commits. If you cannot spawn Explore agents, explore with Grep/Glob/Read yourself. The plan must cite real `file:line` references that you opened.
