@@ -578,6 +578,14 @@ async def call(identity: Identity, params: Mapping[str, Any], request_id: Any) -
         result = _harness_error(
             TIMEOUT_TEXT.format(name=name[:NOTE_FIELD_CAP], id=call_id[:NOTE_FIELD_CAP], n=seconds)
         )
+    elif outcome.outcome == "too_large":
+        # Over the transport cap, so over `max_result_bytes` (mcp_upstream.sse_event_limit): the call
+        # ran and its result never arrived whole. Size and hash stay NULL: nothing was measured (T15).
+        recorded = "result_too_large"
+        cap = mcp_config.get_config().servers[server].max_result_bytes
+        result = _harness_error(
+            RESULT_TOO_LARGE_TEXT.format(name=name[:NOTE_FIELD_CAP], id=call_id[:NOTE_FIELD_CAP], n=cap)
+        )
     elif outcome.outcome == "upstream_error":
         recorded = "upstream_error"
         result = _harness_error(

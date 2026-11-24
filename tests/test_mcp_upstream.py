@@ -535,3 +535,50 @@ def test_end_to_end_list_then_call_against_a_bearer_stub(mcp_stub_factory, monke
     assert "query" in {t.name for t in tools}
     assert outcome.outcome == "ok" and json.dumps(outcome.content).count("rows: 1") == 1
     assert stub.calls("query") == 1
+
+
+# --- Large results and the SDK's SSE event cap (PRD-023 T15; STORY-021 manual run) -----
+
+
+def _cfg_capped(monkeypatch, stub, max_result_bytes):
+    server = McpServer("gh", stub.url, True, McpAuth(type="none"), 30, max_result_bytes)
+    monkeypatch.setattr(mcp_config, "_config", McpConfig(servers={"gh": server}))
+
+
+def test_sse_event_limit_follows_max_result_bytes():
+    from mcp.client.streamable_http import DEFAULT_MAX_SSE_EVENT_SIZE
+
+    # Never below the SDK default; room for the result twice over, JSON-escaped.
+    assert mcp_upstream.sse_event_limit(1024) == DEFAULT_MAX_SSE_EVENT_SIZE
+    assert mcp_upstream.sse_event_limit(1_048_576) == 8 * 1_048_576 + 64 * 1024
+
+
+def test_a_result_under_the_cap_but_over_the_sdk_default_event_arrives(mcp_stub_factory, monkeypatch):
+    # PRD-023 STORY-021 manual run: `huge` of 600 KB (sent as content + structuredContent, ~1.2 MB
+    # on the wire) under the 1 MiB default cap came back `upstream_error` "may have run", because
+    # the SDK's own 1 MiB SSE event limit was hit first.
+    stub = mcp_stub_factory()
+    _cfg_capped(monkeypatch, stub, 1_048_576)
+
+    outcome = _go(lambda: mcp_upstream.call_tool("gh", "u1", "huge", {"size": 600_000}))
+
+    assert outcome.outcome == "ok"
+    assert len(outcome.content[0]["text"]) == 600_000
+
+
+def test_an_event_over_the_transport_cap_is_too_large_and_keeps_the_session(mcp_stub_factory, monkeypatch):
+    # Cap 2048 -> event limit is the SDK default (1 MiB); ~1.2 MB on the wire exceeds it. The call
+    # ran, so it is `too_large` (recorded `result_too_large`), never `upstream_error`.
+    stub = mcp_stub_factory()
+    _cfg_capped(monkeypatch, stub, 2048)
+
+    async def body():
+        big = await mcp_upstream.call_tool("gh", "u1", "huge", {"size": 600_000})
+        follow_up = await mcp_upstream.call_tool("gh", "u1", "query", {"sql": "1"})
+        return big, follow_up
+
+    big, follow_up = _go(body)
+
+    assert big.outcome == "too_large" and "the call ran" in big.detail
+    assert stub.calls("huge") == 1  # never replayed
+    assert follow_up.outcome == "ok" and stub.stats()["initializes"] == 1  # the session survived

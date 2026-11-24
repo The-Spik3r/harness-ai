@@ -59,7 +59,7 @@ from typing import Any, Literal, Optional
 
 import httpx2
 from mcp import ClientSession, MCPError
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import DEFAULT_MAX_SSE_EVENT_SIZE, streamable_http_client
 from mcp.types import PaginatedRequestParams
 from pydantic import ValidationError
 
@@ -80,7 +80,20 @@ _HTTP_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
 #: Module attribute so tests drive idle and cache expiry with an injected clock.
 _now = time.monotonic
 
-Outcome = Literal["ok", "error", "timeout", "upstream_error"]
+# The SDK caps one SSE event at 1 MiB and fails the request beyond it ("SSE stream
+# failed: Server-sent event exceeded the N byte limit", `MCPError` -32000). One event
+# carries the whole JSON-RPC response: the result can appear twice (`content` and
+# `structuredContent`) and JSON escaping grows non-ASCII text up to 6x. So the event
+# cap follows the server's `max_result_bytes` with room for both, and the gateway's
+# own size check (M9) decides `result_too_large`. An event over even this cap is a
+# result over `max_result_bytes`: `too_large`, never `upstream_error` (PRD-023 T15,
+# found in the STORY-021 manual run: a 600 KB result under the 1 MiB default cap
+# came back as "may have run").
+_SSE_EVENT_FACTOR = 8
+_SSE_EVENT_SLACK_BYTES = 64 * 1024
+_SSE_OVERSIZED_MARKERS = ("SSE stream failed", "exceeded")
+
+Outcome = Literal["ok", "error", "timeout", "upstream_error", "too_large"]
 
 
 # --- Public data -------------------------------------------------------------
@@ -210,12 +223,30 @@ def _is_timeout(exc: BaseException) -> bool:
 
 
 def _keeps_session(exc: BaseException) -> bool:
-    """A failure that leaves the session usable: a timeout, `input_required`/shape errors, hostile paging."""
+    """A failure that leaves the session usable: a timeout, `input_required`/shape errors, hostile paging,
+    an oversized result (the SDK abandons that one stream only)."""
     return all(
         isinstance(leaf, (_Hostile, ValidationError, RuntimeError))
         or (isinstance(leaf, MCPError) and leaf.error.code == _TIMEOUT_CODE)
+        or _is_oversized_leaf(leaf)
         for leaf in _leaves(exc)
     )
+
+
+def sse_event_limit(max_result_bytes: int) -> int:
+    """The SDK's per-event cap for a server: never below the SDK default, and room for a result of
+    `max_result_bytes` twice over and JSON-escaped (see `_SSE_EVENT_FACTOR`)."""
+    return max(DEFAULT_MAX_SSE_EVENT_SIZE, _SSE_EVENT_FACTOR * max_result_bytes + _SSE_EVENT_SLACK_BYTES)
+
+
+def _is_oversized_leaf(leaf: BaseException) -> bool:
+    # The SDK turns httpx's SSEError into this MCPError text; the class is not kept (mcp==2.3.0,
+    # pinned by tests/test_mcp_upstream.py). The message is matched here and never logged (T16).
+    return isinstance(leaf, MCPError) and all(m in str(leaf.error.message) for m in _SSE_OVERSIZED_MARKERS)
+
+
+def _is_oversized(exc: BaseException) -> bool:
+    return any(_is_oversized_leaf(leaf) for leaf in _leaves(exc))
 
 
 def _tool_from_sdk(tool: Any) -> UpstreamTool:
@@ -291,7 +322,12 @@ async def _handle(sess: _Session, session: ClientSession, req: _Req) -> None:
             if not keep:
                 _begin_close(sess, f"session failed ({_describe(exc)})")
             if req.kind == "call":
-                if timed_out:
+                if _is_oversized(exc):
+                    outcome = CallOutcome(
+                        "too_large",
+                        detail=f"{req.name} on {sess.server_id}: result over the transport cap; the call ran",
+                    )
+                elif timed_out:
                     outcome = CallOutcome(
                         "timeout",
                         detail=f"{req.name} on {sess.server_id} timed out; it may have run",
@@ -362,7 +398,9 @@ async def _owner(state: _State, sess: _Session, server: mcp_config.McpServer) ->
     try:
         headers = mcp_config.upstream_auth_headers(server.id)
         async with httpx2.AsyncClient(headers=headers, follow_redirects=False, timeout=_HTTP_TIMEOUT) as http:
-            async with streamable_http_client(server.url, http_client=http) as (read, write):
+            async with streamable_http_client(
+                server.url, http_client=http, max_sse_event_size=sse_event_limit(server.max_result_bytes)
+            ) as (read, write):
                 # No sampling/roots/elicitation/logging/message callbacks (T12, D16).
                 async with ClientSession(read, write, read_timeout_seconds=server.timeout_seconds) as session:
                     await session.initialize()

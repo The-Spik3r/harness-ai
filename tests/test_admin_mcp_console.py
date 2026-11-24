@@ -150,8 +150,11 @@ def test_unlinked_toggle_reads_linked_false(monkeypatch):
     assert state.actions_filter == "all"
     assert reads.asked == [{"limit": 500, "decision": None, "linked": False}]
     assert "unlinked gateway calls" in state.actions_scope
+    # PRD-023 STORY-018 (STORY-021 manual run): no surface chip is marked beside the pressed toggle.
+    assert state.actions_surface_selected not in ("", "mcp", "v1")
     _event(state, "toggle_actions_unlinked")
     assert state.actions_unlinked is False
+    assert state.actions_surface_selected == ""  # back to "All surfaces"
 
 
 def test_unknown_surface_changes_nothing(monkeypatch):

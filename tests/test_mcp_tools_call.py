@@ -473,6 +473,21 @@ def test_upstream_error_text_hides_detail(mcp_stub, monkeypatch, client, spy):
     assert sentinel not in repr(spy.outcomes) and sentinel not in repr(spy.records)
 
 
+def test_a_result_over_the_transport_cap_is_result_too_large(mcp_stub, monkeypatch, client, spy):
+    # PRD-023 T15 (STORY-021 manual run): mcp_upstream reports `too_large` when the result exceeded the
+    # SDK's SSE event cap, which sits above `max_result_bytes`. The call ran; nothing was measured.
+    _configure(monkeypatch, mcp_stub.url)
+    spy.fake_call_tool = CallOutcome("too_large", detail="huge on stub: result over the transport cap; the call ran")
+    response = _post(client, "dev", "stub__slow", {"seconds": 1}, id_=5)
+    cap = mcp_config.get_config().servers["stub"].max_result_bytes
+    assert response.json()["result"] == {
+        "content": [{"type": "text", "text": f"[harness] the result of stub__slow (5) exceeded {cap} bytes and was not returned; the call ran"}],
+        "isError": True,
+    }
+    row_id, outcome, _ms, size, digest, flags, _user = spy.outcomes[-1]
+    assert (outcome, size, digest, flags) == ("result_too_large", None, None, ())
+
+
 def test_an_upstream_is_error_result_is_a_tool_error_returned_as_is(mcp_stub, monkeypatch, client, spy):
     _configure(monkeypatch, mcp_stub.url)
     content = [{"type": "text", "text": "the tool said no"}]

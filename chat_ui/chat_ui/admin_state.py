@@ -1245,7 +1245,15 @@ class AdminState(rx.State):
 
     @rx.var
     def actions_surface_selected(self) -> str:
-        """The surface chip in force; anything unknown reads as all surfaces."""
+        """The surface chip in force; anything unknown reads as all surfaces.
+
+        "unlinked" (no chip's key) while "Unlinked gateway calls" is on: that toggle is the filter in
+        force (gateway calls only), so no surface chip is marked beside it
+        (PRD-023 STORY-018; found in the STORY-021 manual run, where "All
+        surfaces" stayed underlined next to the pressed toggle).
+        """
+        if self.actions_unlinked:
+            return "unlinked"
         if self.actions_surface in ACTIONS_SURFACES:
             return self.actions_surface
         return ACTIONS_SURFACE_ALL
