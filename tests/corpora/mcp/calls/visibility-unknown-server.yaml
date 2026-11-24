@@ -1,0 +1,10 @@
+# A prefix that is not a configured server is the same unknown tool.
+tool_call:
+  name: other__query
+  arguments: '{"sql":"SELECT 1"}'
+server: null
+category: visibility
+expect: {user: deny, dev: deny}
+outcome: {user: null, dev: null}
+rule: tool.not_in_skill
+note: 'One -32602 for every name that is not callable (T6); the row has mcp_server NULL.'

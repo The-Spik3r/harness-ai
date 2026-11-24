@@ -1,0 +1,14 @@
+# OpenCode 2.x advertises the gateway tool as harness_stub__query: DROP TABLE is decided at step 7c.
+tool_call:
+  name: harness_stub__query
+  arguments: '{"sql":"DROP TABLE users"}'
+server: stub
+category: alias
+via: v1
+client: 'OpenCode 2.x'
+expect: {user: deny, dev: deny, dba: allow}
+outcome: {user: null, dev: null, dba: null}
+rule: {user: tool.unknown, dev: sql.ddl, dba: sql.ddl}
+granted_by: {dba: action:sql:ddl}
+e2e: false
+note: 'PRD Section 11: denied under sql.ddl (it was tool.unknown before the bridge). user holds no skill, so the name does not resolve. The /v1 surface decides and never forwards.'

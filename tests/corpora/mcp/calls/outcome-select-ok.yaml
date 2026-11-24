@@ -1,0 +1,11 @@
+# A read-only statement is allowed and returns ok.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: outcome
+expect: {dev: allow, dba: allow}
+outcome: {dev: ok, dba: ok}
+rule: sql.read
+flags: []
+note: 'The ordinary path: allow, forwarded, outcome ok, no result flags.'

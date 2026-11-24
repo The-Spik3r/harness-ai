@@ -1,0 +1,10 @@
+# A name with no server prefix is the same unknown tool.
+tool_call:
+  name: plain
+  arguments: '{}'
+server: null
+category: visibility
+expect: {dev: deny}
+outcome: {dev: null}
+rule: tool.not_in_skill
+note: 'No __ in the name: not callable, row mcp_server NULL.'

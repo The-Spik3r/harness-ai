@@ -7,17 +7,17 @@ type: technical
 priority: high
 complexity: medium
 phase: "4 - Bridge, evidence and clients"
-status: todo
+status: in-progress
 labels: [tests, mcp, corpus]
 epic_branch: epic/PRD-023-mcp-and-skills
-plan: null
+plan: .agents/plans/PRD-023-mcp-and-skills/STORY-019-mcp-corpus-and-latency.plan.md
 report: null
 commit: null
 depends_on: [STORY-014, STORY-015, STORY-016]
 blocks: [STORY-020]
 skills: []
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-24
 ---
 
 # STORY-019: `tests/corpora/mcp/` decision corpus and the gateway latency measurement

@@ -1,0 +1,11 @@
+# Brief criterion: push_files to .github/workflows is denied.
+tool_call:
+  name: stub__push_files
+  arguments: '{"branch":"b","files":[{"path":".github/workflows/ci.yml","content":"x"}],"message":"m"}'
+server: stub
+category: brief
+client: MCP
+expect: {dev: deny, dba: deny}
+outcome: {dev: null, dba: null}
+rule: fs.write_protected
+note: 'PRD Section 11: a workflow path is fs.write_protected; no role holds a grant for it, stub counter 0.'

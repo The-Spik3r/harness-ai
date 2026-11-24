@@ -1,0 +1,13 @@
+# An alias to a tool the caller cannot see does not resolve.
+tool_call:
+  name: harness_stub__create_branch
+  arguments: '{"branch":"b"}'
+server: null
+category: alias
+via: v1
+client: 'OpenCode 2.x'
+expect: {dev: deny, dba: deny}
+outcome: {dev: null, dba: null}
+rule: tool.unknown
+e2e: false
+note: 'create_branch is in no skill: the name stays tool.unknown, as today.'

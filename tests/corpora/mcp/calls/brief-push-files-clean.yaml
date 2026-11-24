@@ -1,0 +1,12 @@
+# Brief criterion: push_files without a protected path is allowed and forwarded.
+tool_call:
+  name: stub__push_files
+  arguments: '{"branch":"b","files":[{"path":"src/app.py","content":"x"}],"message":"m"}'
+server: stub
+category: brief
+client: MCP
+expect: {dev: allow, dba: allow}
+outcome: {dev: ok, dba: ok}
+rule: fs.write_in_workspace
+flags: []
+note: 'PRD Section 11: without the workflow path the same tool is allowed and forwarded.'

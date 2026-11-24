@@ -1,0 +1,11 @@
+# With RBAC off no skill is held: tools/list is empty and every call is unknown.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: visibility
+expect: {dev: deny, dba: deny}
+outcome: {dev: null, dba: null}
+rule: tool.not_in_skill
+rbac: disabled
+note: 'PRD Section 11: with RBAC_ENABLED=false and the built-in matrix the catalogue is [].'

@@ -1,0 +1,10 @@
+# A role with no skill sees no tool: clean push_files is not callable.
+tool_call:
+  name: stub__push_files
+  arguments: '{"branch":"b","files":[{"path":"src/a.py","content":"x"}],"message":"m"}'
+server: stub
+category: visibility
+expect: {user: deny}
+outcome: {user: null}
+rule: tool.not_in_skill
+note: 'tools/list is empty for user; the same call as dev is allowed (brief-push-files-clean).'

@@ -1,0 +1,12 @@
+# With no /v1 row the call is unlinked and carries no audit_id.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: correlation
+expect: {dev: allow}
+outcome: {dev: ok}
+rule: sql.read
+linked: false
+e2e: false
+note: 'A gateway call no model response proposed: linked_decision_id and audit_id are NULL.'

@@ -482,3 +482,52 @@ only: no server was run and no GitHub call was made.
 [gh-snap-branch]: https://github.com/github/github-mcp-server/blob/67d4dc489700ec955ad255d098396dd86c729523/pkg/github/__toolsnaps__/create_branch.snap
 [gh-snap-push]: https://github.com/github/github-mcp-server/blob/67d4dc489700ec955ad255d098396dd86c729523/pkg/github/__toolsnaps__/push_files.snap
 [gh-snap-pr]: https://github.com/github/github-mcp-server/blob/67d4dc489700ec955ad255d098396dd86c729523/pkg/github/__toolsnaps__/create_pull_request.snap
+
+## Decision corpus format
+
+PRD-023 STORY-019. `tests/corpora/mcp/calls/*.yaml` is the gateway's decision
+corpus: one gateway call per file, in the shape of `tests/corpora/actions/synthetic/`
+(PRD-016) plus `server:`. The loader is `tests/mcp_corpus.py` (`load_case`,
+`load_corpus`); a malformed file raises `CorpusError("<file>: <node>: <problem>")`
+at collection. `tests/test_mcp_corpus.py` runs every file against the real `/mcp`
+router and the stub (`scripts/stub_mcp_server.py`); STORY-020 replays the files
+that are not marked `e2e: false` with the real clients. A file name starts with
+its category.
+
+Required keys:
+
+| Key | Meaning |
+|---|---|
+| `tool_call` | `{name, arguments}`, both strings. `arguments` is the text of a JSON object. `name` is the northbound name (`stub__query`) or, for `via: v1`, the raw `/v1` name (`harness_stub__query`). |
+| `server` | `stub`, or `null` when the name resolves to no configured server (`plain`, `other__query`, an unresolved alias). It is the row's `mcp_server`. |
+| `category` | `brief` (the four MVP-goal calls and the hidden tool), `outcome`, `visibility`, `alias`, `correlation`. |
+| `expect` | `{role: allow\|deny\|flag}` for the roles `user` (holds `mcp:connect` only), `dev` (also the skill `open-pull-request`) and `dba` (dev plus `action:sql:ddl`). The matrix exists only in `tests/mcp_corpus.py::configure`. |
+| `outcome` | `{role: null\|ok\|tool_error\|upstream_error\|timeout\|result_too_large\|result_blocked}`, the same roles as `expect`. `null` is "never forwarded", and the only value a deny can have. |
+| `rule` | A rule id, or a role-to-rule map (`tool.not_in_skill` for a role that does not hold the skill, `tool.unknown` for an unresolved alias). |
+| `note` | The reason, citing PRD Section 11 where it is a criterion. |
+
+Optional keys:
+
+| Key | Meaning |
+|---|---|
+| `via` | `mcp` (default: a `tools/call`) or `v1` (decided at step 7c by `evaluate_all(aliases=)`, never forwarded, `outcome` all `null`). |
+| `client` | The PRD-016 client vocabulary; a hint for STORY-020. |
+| `granted_by` | `{role: permission}`; the role's expected decision must be `allow`. |
+| `flags` | The expected `result_flags` of a forwarded call, in either recorded shape: `{list, pattern_id}` or `{uninspected: n}` (or a plain string). `[]` asserts none; absent asserts nothing. |
+| `patterns` | `flag` (default) or `block`: the pattern file under which the result is inspected (`block` makes the `tool` role of the `injection` list blocking). |
+| `rbac` | `enabled` (default) or `disabled`: RBAC off with the built-in matrix, under which no role holds a skill. (Not `on`/`off`: YAML reads `off` as a boolean.) |
+| `fault` | `tool_error`, `upstream_error` or `image_result`: the upstream result is faked in-process at `mcp_upstream.call_tool` because the stub has no trigger for it. The stub counter is then not expected to move. |
+| `prior` | Correlation only: the `/v1` alias row seeded before the call, `{user: same\|other, name, arguments, age_seconds, audit, decision?}`. `audit: true` also inserts an `audit_logs` row; `decision` overrides the stored decision (a stored deny). |
+| `window_seconds`, `linked` | Correlation only: the window (default 300) and whether the gateway row must carry the prior row's `linked_decision_id` and `audit_id`. `linked` is required for a correlation call; `prior` may be absent. |
+| `e2e` | `false` for a call a real client cannot replay: faults, timeouts, aliases, correlation. Default `true`. |
+
+The reply is derived, never declared. A rule of `tool.not_in_skill` is JSON-RPC
+`-32602` with the one "Unknown tool" text; any other deny is an `isError` result
+with the denial note; `timeout`, `upstream_error`, `result_too_large` and
+`result_blocked` are the harness texts of `app/services/mcp_gateway.py`; anything
+else is the upstream result as it came.
+
+Every forwarded call asserts that its decision row existed when the upstream call
+began (the recorders in the non-DB runner; the real `action_decisions` row in the
+`db` twin), and every call asserts the stub's counter: +1 if forwarded, otherwise
+unchanged.

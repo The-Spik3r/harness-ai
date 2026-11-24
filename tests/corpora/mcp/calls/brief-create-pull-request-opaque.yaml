@@ -1,0 +1,12 @@
+# Brief criterion: an opaque tool set to flag is forwarded and flagged.
+tool_call:
+  name: stub__create_pull_request
+  arguments: '{"title":"t","head":"h","base":"b"}'
+server: stub
+category: brief
+client: MCP
+expect: {dev: flag, dba: flag}
+outcome: {dev: ok, dba: ok}
+rule: tool.opaque
+flags: []
+note: 'PRD Section 11: mcp_opaque_tools create_pull_request: flag is forwarded, row flag / tool.opaque.'

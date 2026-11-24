@@ -1,0 +1,13 @@
+# A /v1 row exactly window_seconds old still links (the window is inclusive).
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: correlation
+expect: {dev: allow}
+outcome: {dev: ok}
+rule: sql.read
+prior: {user: same, name: harness_stub__query, arguments: '{"sql":"SELECT 1"}', age_seconds: 300, audit: false}
+linked: true
+e2e: false
+note: 'The boundary: age 300 with a 300 s window links.'
