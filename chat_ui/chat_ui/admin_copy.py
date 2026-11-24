@@ -68,6 +68,8 @@ VIEW_USAGE_LABEL = "Usage"
 VIEW_STORAGE_LABEL = "Storage"
 # PRD-022 STORY-016 (F9): the sixth peer.
 VIEW_PROVIDERS_LABEL = "Providers"
+# PRD-023 STORY-018 (F11): the seventh peer, present only with MCP_ENABLED=true.
+VIEW_SKILLS_LABEL = "Skills"
 
 SIGN_OUT_LABEL = "Sign out"
 
@@ -214,6 +216,8 @@ READ_LABEL_USAGE = "the usage for today"
 READ_LABEL_STORAGE = "the storage status"
 # PRD-022 STORY-016: the Providers view's read, its own fault like the storage one.
 READ_LABEL_PROVIDERS = "the providers status"
+# PRD-023 STORY-018: the Skills view's read, its own fault like the providers one.
+READ_LABEL_SKILLS = "the skills"
 
 # --- The three empty states ----------------------------------------------
 # PRD-006 Section 4 names three register states — no rows recorded, rows recorded
@@ -344,6 +348,58 @@ DECISION_ALLOW_LABEL = "allowed"
 # "500 most recent of 1,204 denied". "All" reads "of 1,204 recorded".
 ACTIONS_SCOPE_TEMPLATE = "{shown} most recent of {total} {decision}"
 ACTIONS_SCOPE_ALL = "recorded"
+
+# --- PRD-023 STORY-018 (D21): the gateway's share of the Actions view ----------
+# Present only with MCP_ENABLED=true; with it off none of these reaches the page.
+# The second chip strip: which surface the rows came through.
+ACTIONS_SURFACE_LABEL = "Surface"
+ACTIONS_SURFACE_ALL_LABEL = "All surfaces"
+ACTIONS_SURFACE_V1_LABEL = "/v1"
+ACTIONS_SURFACE_MCP_LABEL = "Gateway"
+# A toggle, not a chip: PRD 6.8 makes the unlinked gateway call a filter of its
+# own (a gateway call that claimed no `/v1` alias decision).
+ACTIONS_UNLINKED_LABEL = "Unlinked gateway calls"
+ACTIONS_UNLINKED_TITLE = (
+    "Gateway calls that claimed no /v1 alias decision. Shows every decision, "
+    "not only the denied ones."
+)
+COLUMN_SERVER = "Server"
+COLUMN_SKILLS = "Skills"
+COLUMN_OUTCOME = "Outcome"
+COLUMN_LINKED = "Linked"
+COLUMN_SERVER_TITLE = "The upstream MCP server the call was addressed to"
+COLUMN_SKILLS_TITLE = "The skills that exposed this tool to the caller"
+COLUMN_OUTCOME_TITLE = "What happened to a forwarded call (empty when it was not forwarded)"
+COLUMN_LINKED_TITLE = (
+    "The /v1 alias decision this gateway call claimed. Unlinked: no alias "
+    "decision was claimed for this call."
+)
+# The cell's own title when it is a link: the row it names is only on the page
+# when it is inside the current window.
+ACTIONS_LINKED_LINK_TITLE = (
+    "Jumps to that /v1 decision when it is in the rows shown; choose All "
+    "surfaces or /v1 to bring it in."
+)
+ACTIONS_LINKED_NONE = "unlinked"
+# Under a surface or unlinked narrowing the table-wide totals would misstate the
+# window, so the line states the window and the narrowing and no total.
+ACTIONS_SCOPE_NARROWED_TEMPLATE = "{shown} most recent {decision}, {narrow}"
+ACTIONS_NARROW_V1 = "/v1 calls"
+ACTIONS_NARROW_MCP = "gateway calls"
+ACTIONS_NARROW_UNLINKED = "unlinked gateway calls"
+
+# --- PRD-023 STORY-018: the Skills view -----------------------------------
+SKILLS_CAPTION_TEMPLATE = "Configuration digest {digest}"
+SKILLS_LABEL_TOOLS = "Tools"
+SKILLS_LABEL_REQUIRES = "Requires"
+SKILLS_LABEL_ROLES = "Roles holding it"
+EMPTY_SKILLS_TITLE = "No skills configured."
+EMPTY_SKILLS_BODY = (
+    "This view lists the skills the MCP gateway offers: named sets of tools, "
+    "each held by the roles whose permissions include skill:<id>. Skills come "
+    "from the skills section of the file MCP_CONFIG_FILE names; none is defined "
+    "there. Refresh to read again."
+)
 
 # The empty view says what it will contain, why it is empty, and the action.
 EMPTY_ACTIONS_TITLE_TEMPLATE = "No {decision} actions recorded."

@@ -1869,3 +1869,120 @@ def test_provider_chains_file_with_providers_file_constructs(tmp_path):
         PROVIDER_CHAINS_FILE=path,
     )
     assert result.PROVIDER_CHAINS_FILE == path
+
+
+# --- PRD-023 STORY-004: MCP gateway settings (Section 9.3) ---
+#
+# Nothing reads these yet; mcp_config.load() (STORY-007) owns the file.
+
+_MCP_VARS_IN_ORDER = (
+    "MCP_ENABLED",
+    "MCP_CONFIG_FILE",
+    "MCP_CALL_TIMEOUT_SECONDS",
+    "MCP_MAX_REQUEST_BYTES",
+    "MCP_MAX_RESULT_BYTES",
+    "MCP_TOOLS_CACHE_SECONDS",
+    "MCP_UPSTREAM_SESSION_IDLE_SECONDS",
+    "MCP_LINK_WINDOW_SECONDS",
+    "MCP_ALLOWED_ORIGINS",
+)
+
+
+def test_mcp_settings_available_with_documented_defaults(monkeypatch):
+    for var in _MCP_VARS_IN_ORDER:
+        monkeypatch.delenv(var, raising=False)
+
+    result = _settings(DATABASE_URL=_LOCAL_URL)
+
+    assert result.MCP_ENABLED is False
+    assert result.MCP_CONFIG_FILE == ""
+    assert result.MCP_CALL_TIMEOUT_SECONDS == 60
+    assert result.MCP_MAX_REQUEST_BYTES == 1048576
+    assert result.MCP_MAX_RESULT_BYTES == 1048576
+    assert result.MCP_TOOLS_CACHE_SECONDS == 60
+    assert result.MCP_UPSTREAM_SESSION_IDLE_SECONDS == 300
+    assert result.MCP_LINK_WINDOW_SECONDS == 300
+    assert result.MCP_ALLOWED_ORIGINS == ""
+    assert result.mcp_allowed_origins == ()
+
+
+def test_mcp_enabled_parses_the_string_true():
+    assert _settings(DATABASE_URL=_LOCAL_URL, MCP_ENABLED="true").MCP_ENABLED is True
+
+
+_MCP_BOUNDS = [
+    ("MCP_CALL_TIMEOUT_SECONDS", [0, 601], [1, 600]),
+    ("MCP_MAX_REQUEST_BYTES", [1023, 0], [1024]),
+    ("MCP_MAX_RESULT_BYTES", [1023, 0], [1024]),
+    ("MCP_TOOLS_CACHE_SECONDS", [-1, 86401], [0, 86400]),
+    ("MCP_UPSTREAM_SESSION_IDLE_SECONDS", [9, 0], [10]),
+    ("MCP_LINK_WINDOW_SECONDS", [-1, 86401], [0, 86400]),
+]
+
+
+@pytest.mark.parametrize("var, value", [(var, v) for var, bad, _ in _MCP_BOUNDS for v in bad])
+def test_mcp_int_setting_out_of_range_is_a_startup_error(var, value):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, **{var: value})
+
+    message = str(exc_info.value)
+    assert var in message
+    assert f"got {value}" in message
+    assert "Example" in message
+
+
+@pytest.mark.parametrize("var, value", [(var, v) for var, _, ok in _MCP_BOUNDS for v in ok])
+def test_mcp_int_setting_accepts_the_range_bounds(var, value):
+    assert getattr(_settings(DATABASE_URL=_LOCAL_URL, **{var: value}), var) == value
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("", ()),
+        ("  ,  ", ()),
+        ("HTTPS://Example.COM/", ("https://example.com",)),
+        ("http://localhost:3000", ("http://localhost:3000",)),
+        ("https://a.com:443", ("https://a.com",)),
+        ("http://a.com:80/", ("http://a.com",)),
+        ("https://a.com:8443", ("https://a.com:8443",)),
+        ("http://[::1]:3000", ("http://[::1]:3000",)),
+        ("https://a.com, https://A.com/ ,http://b.com", ("https://a.com", "http://b.com")),
+    ],
+)
+def test_mcp_allowed_origins_are_normalized(raw, expected):
+    assert _settings(DATABASE_URL=_LOCAL_URL, MCP_ALLOWED_ORIGINS=raw).mcp_allowed_origins == expected
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "https://a.com/path",
+        "*",
+        "https://*.a.com",
+        "a.com",
+        "//a.com",
+        "ftp://a.com",
+        "https://a.com?x=1",
+        "https://a.com#f",
+        "https://u@a.com",
+        "https://a.com:notaport",
+        "https://",
+    ],
+)
+def test_mcp_allowed_origins_refuses_a_non_origin_entry(entry):
+    with pytest.raises(ValidationError) as exc_info:
+        _settings(DATABASE_URL=_LOCAL_URL, MCP_ALLOWED_ORIGINS=f"https://ok.com,{entry}")
+
+    message = str(exc_info.value)
+    assert "MCP_ALLOWED_ORIGINS" in message
+    assert repr(entry) in message
+
+
+def test_env_example_documents_the_nine_mcp_vars_in_order_each_with_a_comment():
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for var in _MCP_VARS_IN_ORDER:
+        assert re.search(rf"(?m)^#.+\n{var}=", text), f"{var} missing from .env.example or its comment line"
+    positions = [text.index(f"{var}=") for var in _MCP_VARS_IN_ORDER]
+    assert positions == sorted(positions)

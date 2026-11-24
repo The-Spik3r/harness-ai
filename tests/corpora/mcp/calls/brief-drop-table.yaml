@@ -1,0 +1,13 @@
+# Brief criterion: DROP TABLE users is denied through the gateway; allowed with the grant.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"DROP TABLE users"}'
+server: stub
+category: brief
+client: MCP
+expect: {user: deny, dev: deny, dba: allow}
+outcome: {user: null, dev: null, dba: ok}
+rule: {user: tool.not_in_skill, dev: sql.ddl, dba: sql.ddl}
+granted_by: {dba: action:sql:ddl}
+flags: []
+note: 'PRD Section 11: dev is denied sql.ddl with outcome NULL; dba holds action:sql:ddl, so the call is allowed, granted_by action:sql:ddl, outcome ok. user holds no skill.'

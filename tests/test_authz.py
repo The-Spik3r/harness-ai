@@ -13,6 +13,7 @@ from app.config import settings
 from app.services.authz import (
     ACTION_PERMISSIONS,
     AuthzConfigError,
+    MCP_PERMISSIONS,
     MODEL_ALLOWLIST_WILDCARD_ROLES,
     PERMISSION_ACTION_FS_WRITE,
     PERMISSION_ACTION_NET_EGRESS,
@@ -22,6 +23,7 @@ from app.services.authz import (
     PERMISSION_ACTION_SQL_WRITE,
     PERMISSION_AUDIT_READ_ALL,
     PERMISSION_AUDIT_READ_OWN,
+    PERMISSION_MCP_CONNECT,
     PERMISSION_QUERY_BYOK,
     PERMISSION_QUERY_SUBMIT,
     PERMISSION_REASONING_VIEW,
@@ -33,6 +35,7 @@ from app.services.authz import (
     authorize,
     authorize_model,
     holds,
+    is_skill_permission,
     load,
 )
 from app.services.identity import Identity
@@ -68,7 +71,8 @@ def test_matrix_cell_matches_prd_section_7(role, permission, expected_allowed):
 
 
 def test_admin_matrix_matches_prd_exactly():
-    assert ROLE_PERMISSIONS["admin"] == set(ALL_PERMISSIONS)
+    # PRD-023 O1: admin also holds mcp:connect (ALL_PERMISSIONS stays the original five).
+    assert ROLE_PERMISSIONS["admin"] == set(ALL_PERMISSIONS) | {PERMISSION_MCP_CONNECT}
 
 
 def test_auditor_matrix_matches_prd_exactly():
@@ -83,6 +87,7 @@ def test_user_matrix_matches_prd_exactly():
     assert ROLE_PERMISSIONS["user"] == {
         PERMISSION_QUERY_SUBMIT,
         PERMISSION_AUDIT_READ_OWN,
+        PERMISSION_MCP_CONNECT,  # PRD-023 O1
     }
 
 
@@ -289,8 +294,11 @@ def test_known_permissions_are_the_original_five_plus_the_six():
     """PRD-016 F9: the six join the known set, so RBAC_ROLES_FILE can grant
     them through load()'s existing unknown-permission check."""
     # PRD-021 D1: the two stream permissions also join the known set (13 in all).
-    assert authz._KNOWN_PERMISSIONS == set(ALL_PERMISSIONS) | ACTION_PERMISSIONS | STREAM_PERMISSIONS
-    assert len(authz._KNOWN_PERMISSIONS) == 13
+    # PRD-023 O1: mcp:connect joins the known set too (14 in all).
+    assert authz._KNOWN_PERMISSIONS == (
+        set(ALL_PERMISSIONS) | ACTION_PERMISSIONS | STREAM_PERMISSIONS | MCP_PERMISSIONS
+    )
+    assert len(authz._KNOWN_PERMISSIONS) == 14
 
 
 @pytest.mark.parametrize("role", ["admin", "auditor", "user"])
@@ -442,3 +450,105 @@ def test_authorize_with_rbac_off_would_pass_where_holds_refuses(monkeypatch):
 
     assert authorize(identity, PERMISSION_STREAM_REALTIME) is None
     assert holds(identity, PERMISSION_STREAM_REALTIME) is False
+
+
+# --- PRD-023 STORY-004: mcp:connect and the dynamic skill:<id> family (O1, D6) ---
+
+_LONG_ID = "a" + "b" * 47  # 48 characters, the longest id
+
+
+def _grant(tmp_path, monkeypatch, permissions):
+    roles_file = tmp_path / "roles.json"
+    roles_file.write_text(json.dumps({"agent": ["query:submit", *permissions]}))
+    monkeypatch.setattr(settings, "RBAC_ROLES_FILE", str(roles_file))
+    return roles_file
+
+
+def test_mcp_connect_is_a_known_permission_held_by_admin_and_user_not_auditor():
+    assert PERMISSION_MCP_CONNECT == "mcp:connect"
+    assert MCP_PERMISSIONS == frozenset({PERMISSION_MCP_CONNECT})
+    assert PERMISSION_MCP_CONNECT in authz._KNOWN_PERMISSIONS
+    assert PERMISSION_MCP_CONNECT in ROLE_PERMISSIONS["admin"]
+    assert PERMISSION_MCP_CONNECT in ROLE_PERMISSIONS["user"]
+    assert PERMISSION_MCP_CONNECT not in ROLE_PERMISSIONS["auditor"]
+
+
+@pytest.mark.parametrize("role", ["admin", "auditor", "user"])
+def test_no_built_in_role_holds_a_skill_permission(role):
+    assert not any(is_skill_permission(p) for p in ROLE_PERMISSIONS[role])
+    assert not any(p.startswith("skill:") for p in ROLE_PERMISSIONS[role])
+
+
+def test_known_permissions_hold_no_skill_literal():
+    assert not any(p.startswith("skill:") for p in authz._KNOWN_PERMISSIONS)
+
+
+@pytest.mark.parametrize("skill_id", ["open-pull-request", "a", _LONG_ID, "0-x"])
+def test_load_accepts_a_well_formed_skill_permission(tmp_path, monkeypatch, _reset_role_permissions, skill_id):
+    _grant(tmp_path, monkeypatch, [f"skill:{skill_id}"])
+
+    load()
+
+    assert authz.ROLE_PERMISSIONS == {"agent": {PERMISSION_QUERY_SUBMIT, f"skill:{skill_id}"}}
+    assert holds(Identity(user_id="a", role="agent"), f"skill:{skill_id}") is True
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["skill:Bad_Id", "skill:" + "a" * 49, "skill:", "skill:-x", "skill:a b", "skill:ok\n", "skill:x:y"],
+)
+def test_load_refuses_a_malformed_skill_permission(tmp_path, monkeypatch, _reset_role_permissions, bad):
+    roles_file = _grant(tmp_path, monkeypatch, [bad])
+    before = dict(authz.ROLE_PERMISSIONS)
+
+    with pytest.raises(AuthzConfigError) as exc_info:
+        load()
+
+    message = str(exc_info.value)
+    assert str(roles_file) in message
+    assert "role 'agent'" in message  # names the role, not the generic unknown-permission text
+    assert "skill:[a-z0-9][a-z0-9-]{0,47}" in message
+    assert authz.ROLE_PERMISSIONS == before
+
+
+def test_load_still_refuses_a_non_skill_unknown_permission_with_the_old_message(
+    tmp_path, monkeypatch, _reset_role_permissions
+):
+    _grant(tmp_path, monkeypatch, ["skills:open"])
+
+    with pytest.raises(AuthzConfigError, match="grants unrecognized permission"):
+        load()
+
+
+@pytest.mark.parametrize("rbac_enabled", [False, True])
+@pytest.mark.parametrize("role", ["admin", "auditor", "user"])
+def test_holds_is_false_for_a_skill_with_the_built_in_matrix(monkeypatch, rbac_enabled, role):
+    monkeypatch.setattr(settings, "RBAC_ENABLED", rbac_enabled)
+
+    assert holds(Identity(user_id="u", role=role), "skill:x") is False
+
+
+def test_authorize_passes_a_skill_with_rbac_off_which_is_why_it_is_never_used_for_skills(monkeypatch):
+    monkeypatch.setattr(settings, "RBAC_ENABLED", False)
+
+    assert authorize(Identity(user_id="u", role="user"), "skill:x") is None
+    assert holds(Identity(user_id="u", role="user"), "skill:x") is False
+
+
+def test_is_skill_permission_rejects_non_strings():
+    assert is_skill_permission(None) is False
+    assert is_skill_permission(5) is False
+
+
+def test_no_app_module_calls_authorize_with_a_skill_permission():
+    import re
+
+    app_dir = Path(__file__).resolve().parent.parent / "app"
+    call = re.compile(r"\bauthorize\([^)]*(skill:|PERMISSION_SKILL)")
+    offenders = [
+        str(path)
+        for path in app_dir.rglob("*.py")
+        if call.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert offenders == []

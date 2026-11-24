@@ -21,6 +21,10 @@ table's read (PRD-013 STORY-016) is imported the same way, by name:
 from this module. So are the Actions view's two reads (PRD-016 STORY-019),
 `list_action_decisions` and `count_action_decisions`; `insert_action_decisions`
 is not imported.
+The Skills view and the Actions view's gateway columns (PRD-023 STORY-018, F11)
+read the in-memory `mcp_config.get_config().skills` and `authz.roles_holding`
+(what `GET /skills` returns) and pass more keyword filters to the same
+`list_action_decisions`; both exist only with `MCP_ENABLED=true` (D20).
 The Storage view's read (PRD-018 STORY-012) is `storage_status`, imported the
 same way: it reads the breaker, the journal and the counters from memory, with
 no driver call, and no journal, drainer or counters module is reachable here.
@@ -46,7 +50,7 @@ from datetime import datetime, timezone
 import reflex as rx
 
 from app.config import settings
-from app.services import provider_registry
+from app.services import authz, mcp_config, provider_registry
 from app.services.upstream import health
 from app.db.database import (
     # PRD-016 STORY-019: the Actions view's two reads, the same functions
@@ -92,7 +96,11 @@ from .admin_copy import (
     FIGURE_TOP_USERS_LABEL,
     FIGURE_TOTAL_LABEL,
     FIGURE_UNIQUE_USERS_LABEL,
+    ACTIONS_NARROW_MCP,
+    ACTIONS_NARROW_UNLINKED,
+    ACTIONS_NARROW_V1,
     ACTIONS_SCOPE_ALL,
+    ACTIONS_SCOPE_NARROWED_TEMPLATE,
     ACTIONS_SCOPE_TEMPLATE,
     DECISION_ALLOW_LABEL,
     DECISION_DENY_LABEL,
@@ -130,6 +138,7 @@ from .admin_copy import (
     READ_LABEL_TOTAL,
     READ_LABEL_UNIQUE_USERS,
     READ_LABEL_PROVIDERS,
+    READ_LABEL_SKILLS,
     READ_LABEL_STORAGE,
     READ_LABEL_USAGE,
     READ_LABEL_USAGE_LIMITS,
@@ -154,6 +163,7 @@ from .admin_formatting import (
     to_action_rows,
     to_audit_row,
     to_providers_view,
+    to_skills_view,
     to_storage_view,
     to_usage_rows,
 )
@@ -163,6 +173,7 @@ from .admin_models import (
     ProviderCard,
     ProviderCounterRow,
     ProviderFact,
+    SkillRow,
     StorageCounterRow,
     StorageFact,
     SummaryFigure,
@@ -289,6 +300,18 @@ ACTIONS_STATES = (
     ACTIONS_STATE_EMPTY,
     ACTIONS_STATE_ROWS,
 )
+# The Skills view's three render states (PRD-023 STORY-018), the Actions rule.
+SKILLS_STATE_FAULT = "read_failed"
+SKILLS_STATE_EMPTY = "no_skills"
+SKILLS_STATE_ROWS = "skills"
+SKILLS_STATES = (SKILLS_STATE_FAULT, SKILLS_STATE_EMPTY, SKILLS_STATE_ROWS)
+
+# PRD-023 STORY-018: the second chip strip's surface keys. "" is the unset
+# default (all surfaces), so `sign_out()`'s `reset()` clears it.
+ACTIONS_SURFACE_ALL = ""
+ACTIONS_SURFACE_V1 = "v1"
+ACTIONS_SURFACE_MCP = "mcp"
+ACTIONS_SURFACES = (ACTIONS_SURFACE_ALL, ACTIONS_SURFACE_V1, ACTIONS_SURFACE_MCP)
 
 # The sentence word for each filter key (the scope line and the empty title).
 _ACTIONS_WORDS = {
@@ -303,7 +326,9 @@ def resolve_actions_filter(key: str) -> str:
     return key if key in ACTIONS_FILTERS else ACTIONS_FILTER_DENY
 
 
-def read_actions(key: str) -> tuple[list[ActionRow], dict[str, int]]:
+def read_actions(
+    key: str, surface: str = "", unlinked: bool = False
+) -> tuple[list[ActionRow], dict[str, int]]:
     """One Actions read: the newest rows of the chosen kind, and the totals.
 
     Synchronous and blocking, so callers run it in `asyncio.to_thread`; the
@@ -311,14 +336,22 @@ def read_actions(key: str) -> tuple[list[ActionRow], dict[str, int]]:
     The totals are the whole table's (`/stats`' `actions_*`), which is what lets
     the scope line say "500 most recent of 1,204 denied" (PRD-006 Risk 4).
     "all" reads with no decision filter.
+
+    PRD-023 STORY-018: `surface` ("v1" or "mcp") and `unlinked` (gateway calls
+    that claimed no alias decision) are passed to the reader only when set, so
+    with MCP off the call is exactly the old one (D20). `unlinked` sends
+    `linked=False` alone: the reader already restricts that to gateway rows.
     """
     key = resolve_actions_filter(key)
     decision = None if key == ACTIONS_FILTER_ALL else key
+    kwargs: dict = {"limit": ACTIONS_ROW_LIMIT, "decision": decision}
+    if unlinked:
+        kwargs["linked"] = False
+    elif surface in (ACTIONS_SURFACE_V1, ACTIONS_SURFACE_MCP):
+        kwargs["surface"] = surface
     # `to_action_rows` takes its own clock, so a window of rows shares one read
     # and this read does not draw on `load()`'s batch clock.
-    rows = to_action_rows(
-        list_action_decisions(limit=ACTIONS_ROW_LIMIT, decision=decision)
-    )
+    rows = to_action_rows(list_action_decisions(**kwargs))
     return rows, count_action_decisions()
 
 
@@ -700,6 +733,17 @@ class AdminState(rx.State):
     actions_denied: int = 0
     actions_flagged: int = 0
     actions_allowed: int = 0
+    # PRD-023 STORY-018 (D21): the gateway filters, both falsy by default. Only
+    # the events below write them, and only with MCP_ENABLED.
+    actions_surface: str = ""
+    actions_unlinked: bool = False
+
+    # --- Skills (PRD-023 STORY-018) ----------------------------------------
+    # The configured skills, read in memory like Providers and failing under
+    # their own label: `skills_error`. Strings and lists only, falsy by default.
+    skills_caption: str = ""
+    skills_rows: list[SkillRow] = []
+    skills_error: str = ""
 
     # --- Filter and sort --------------------------------------------------
     # Plain state vars, all four. PRD-006 Section 6: "the visible rows are an
@@ -1200,10 +1244,56 @@ class AdminState(rx.State):
         return resolve_actions_filter(self.actions_filter)
 
     @rx.var
+    def actions_surface_selected(self) -> str:
+        """The surface chip in force; anything unknown reads as all surfaces.
+
+        "unlinked" (no chip's key) while "Unlinked gateway calls" is on: that toggle is the filter in
+        force (gateway calls only), so no surface chip is marked beside it
+        (PRD-023 STORY-018; found in the STORY-021 manual run, where "All
+        surfaces" stayed underlined next to the pressed toggle).
+        """
+        if self.actions_unlinked:
+            return "unlinked"
+        if self.actions_surface in ACTIONS_SURFACES:
+            return self.actions_surface
+        return ACTIONS_SURFACE_ALL
+
+    @rx.var
+    def skills_state(self) -> str:
+        """Which of the three states the Skills view is showing."""
+        if self.skills_error:
+            return SKILLS_STATE_FAULT
+        if not self.skills_rows:
+            return SKILLS_STATE_EMPTY
+        return SKILLS_STATE_ROWS
+
+    @rx.var
     def actions_scope(self) -> str:
         """The window, stated against the true total: "500 most recent of 1,204
-        denied". Formatted here because a component cannot format a count."""
+        denied". Formatted here because a component cannot format a count.
+
+        With a gateway narrowing in force (PRD-023 STORY-018) the totals, which
+        are whole-table counts, would misstate the window, so the line names
+        the narrowing instead of a total.
+        """
         key = resolve_actions_filter(self.actions_filter)
+        narrow = ""
+        if self.actions_unlinked:
+            narrow = ACTIONS_NARROW_UNLINKED
+        elif self.actions_surface == ACTIONS_SURFACE_MCP:
+            narrow = ACTIONS_NARROW_MCP
+        elif self.actions_surface == ACTIONS_SURFACE_V1:
+            narrow = ACTIONS_NARROW_V1
+        if narrow:
+            return ACTIONS_SCOPE_NARROWED_TEMPLATE.format(
+                shown=format_count(len(self.action_rows)),
+                decision=(
+                    ACTIONS_SCOPE_ALL
+                    if key == ACTIONS_FILTER_ALL
+                    else _ACTIONS_WORDS[key]
+                ),
+                narrow=narrow,
+            )
         if key == ACTIONS_FILTER_ALL:
             total = self.actions_denied + self.actions_flagged + self.actions_allowed
             word = ACTIONS_SCOPE_ALL
@@ -1305,6 +1395,35 @@ class AdminState(rx.State):
         return AdminState.load_actions
 
     @rx.event
+    def choose_actions_surface(self, key: str):
+        """Chooses which surface the Actions view lists (PRD-023 STORY-018).
+
+        Unknown keys change nothing, and with MCP off the event is a no-op, so
+        the read keeps today's kwargs (D20). Choosing a surface drops the
+        unlinked toggle, which is itself a narrowing of the gateway surface.
+        """
+        if not settings.MCP_ENABLED or key not in ACTIONS_SURFACES:
+            return
+        self.actions_surface = key
+        self.actions_unlinked = False
+        return AdminState.load_actions
+
+    @rx.event
+    def toggle_actions_unlinked(self):
+        """Toggles "Unlinked gateway calls" (PRD-023 STORY-018), then reads.
+
+        Switching it on also widens the decision filter to "all": the default
+        Denied chip would hide the typical unlinked row, an allowed gateway call.
+        """
+        if not settings.MCP_ENABLED:
+            return
+        self.actions_unlinked = not self.actions_unlinked
+        if self.actions_unlinked:
+            self.actions_surface = ACTIONS_SURFACE_ALL
+            self.actions_filter = ACTIONS_FILTER_ALL
+        return AdminState.load_actions
+
+    @rx.event
     def clear_filters(self):
         """Restores the full window. Clears the filters only — not the sort, and
         never the rows: STORY-014's no-matches state offers this action, and an
@@ -1377,6 +1496,11 @@ class AdminState(rx.State):
         """
         self.reset()
 
+    def _actions_key(self) -> tuple[str, str, bool]:
+        """The filters an Actions read is for, compared before it is committed
+        (PRD-023 STORY-018: the decision chip, the surface and the toggle)."""
+        return (self.actions_filter, self.actions_surface, self.actions_unlinked)
+
     def _commit_actions(self, rows: list[ActionRow], counts: dict[str, int]):
         """Writes one Actions read's result. The caller holds the state lock."""
         self.action_rows = rows
@@ -1393,7 +1517,8 @@ class AdminState(rx.State):
         It does not touch `loading`, so a chip click never locks Refresh, nor
         the register, the summary or Usage. It writes only `action_rows`, the
         counts and `actions_error`; the result is committed only if the filter
-        is still the one it read, so of two quick clicks the later wins.
+        (decision chip, surface and unlinked toggle) is still the one it read, so
+        of two quick clicks the later wins.
         """
         if not self.authenticated:
             return
@@ -1401,20 +1526,20 @@ class AdminState(rx.State):
         async with self:
             if not self.authenticated:
                 return
-            key = self.actions_filter
+            key = self._actions_key()
 
         try:
-            rows, counts = await asyncio.to_thread(read_actions, key)
+            rows, counts = await asyncio.to_thread(read_actions, *key)
         except Exception as exc:
             async with self:
-                if self.authenticated and self.actions_filter == key:
+                if self.authenticated and self._actions_key() == key:
                     self.actions_error = LOAD_FAILED_MESSAGE.format(
                         read=READ_LABEL_ACTIONS, detail=exc
                     )
             return
 
         async with self:
-            if self.authenticated and self.actions_filter == key:
+            if self.authenticated and self._actions_key() == key:
                 self._commit_actions(rows, counts)
 
     @rx.event(background=True)
@@ -1502,7 +1627,8 @@ class AdminState(rx.State):
             self.storage_error = ""
             self.providers_error = ""
             self.actions_error = ""
-            actions_key = self.actions_filter
+            self.skills_error = ""
+            actions_key = self._actions_key()
 
         try:
             # One clock read for the whole batch, so the rows' relative times and
@@ -1556,6 +1682,27 @@ class AdminState(rx.State):
                     self.providers_skipped = providers.skipped
                     self.providers_error = ""
 
+            # The Skills view (PRD-023 STORY-018), the Providers read's sibling:
+            # in memory, only with MCP on, under its own label. With MCP off
+            # nothing is read and `skills_*` stay at their defaults (D20).
+            if settings.MCP_ENABLED:
+                try:
+                    skills = to_skills_view(
+                        mcp_config.get_config().skills,
+                        authz.roles_holding,
+                        mcp_config.mcp_config_digest(),
+                    )
+                except Exception as exc:
+                    async with self:
+                        self.skills_error = LOAD_FAILED_MESSAGE.format(
+                            read=READ_LABEL_SKILLS, detail=exc
+                        )
+                else:
+                    async with self:
+                        self.skills_caption = skills.caption
+                        self.skills_rows = skills.skills
+                        self.skills_error = ""
+
             # Today's usage, first and on its own (see the docstring). The
             # formatting is inside the `try` too: `to_usage_rows` resolves
             # limits from settings, and a failure there is still this read's.
@@ -1577,7 +1724,7 @@ class AdminState(rx.State):
             # summary read for the reason the usage read does.
             try:
                 action_rows, action_counts = await asyncio.to_thread(
-                    read_actions, actions_key
+                    read_actions, *actions_key
                 )
             except Exception as exc:
                 async with self:
@@ -1588,7 +1735,7 @@ class AdminState(rx.State):
                 async with self:
                     # Committed only if the admin has not chosen another filter
                     # while this read was in flight: `load_actions` serves that.
-                    if self.actions_filter == actions_key:
+                    if self._actions_key() == actions_key:
                         self._commit_actions(action_rows, action_counts)
 
             # One hop, one statement, all ten figures (STORY-010). The limits are

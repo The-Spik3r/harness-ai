@@ -1,0 +1,52 @@
+{
+  "default": {
+    "tool_calls": [
+      {
+        "id": "call_submit_default",
+        "name": "submit_and_exit",
+        "arguments": "{\"summary\":\"E2E-MCP-NOT-ADVERTISED: cline_mcp.json matched no rule, stopping.\",\"verified\":false}"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "role": "tool",
+      "after_call": "harness__stub__query",
+      "regex": "",
+      "advertises": "submit_and_exit",
+      "tool_calls": [
+        {
+          "id": "call_submit_mcp",
+          "name": "submit_and_exit",
+          "arguments": "{\"summary\":\"E2E-MCP-DONE: the stub query call was answered.\",\"verified\":true}"
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "contains": "e2e023-020-cline-drop",
+      "last_role": "user",
+      "advertises": "harness__stub__query",
+      "tool_calls": [
+        {
+          "id": "call_mcp_drop",
+          "name": "harness__stub__query",
+          "arguments": "@ARGS_DENY@"
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "contains": "e2e023-020-cline-allow",
+      "last_role": "user",
+      "advertises": "harness__stub__query",
+      "tool_calls": [
+        {
+          "id": "call_mcp_allow",
+          "name": "harness__stub__query",
+          "arguments": "@ARGS_ALLOW@"
+        }
+      ]
+    }
+  ]
+}

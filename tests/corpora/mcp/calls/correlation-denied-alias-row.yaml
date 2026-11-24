@@ -1,0 +1,13 @@
+# A denied /v1 row is never linked.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: correlation
+expect: {dev: allow}
+outcome: {dev: ok}
+rule: sql.read
+prior: {user: same, name: harness_stub__query, arguments: '{"sql":"SELECT 1"}', age_seconds: 10, audit: false, decision: deny}
+linked: false
+e2e: false
+note: 'Only decision allow or flag rows are linkable. The prior row is seeded as denied (decision override).'

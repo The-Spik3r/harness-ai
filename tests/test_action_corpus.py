@@ -120,7 +120,7 @@ from app.services.action_adapters import ToolCall
 from app.services.action_audit import record
 from app.services.action_classifiers import DECISIONS, RULE_IDS
 from app.services.action_config import BUILT_IN_POLICY, ActionPolicy
-from app.services.action_policy import ActionDecision, evaluate
+from app.services.action_policy import ActionDecision, McpSurface, evaluate
 from app.services.identity import Identity
 from tests.test_action_adapters import _sources_rows
 
@@ -447,7 +447,15 @@ def test_every_rule_id_is_reported_by_some_file(record_property):
     record_property("decision_counts", dict(sorted(decisions.items())))
 
     # The declared rule is checked against the engine below, so this is engine coverage.
-    missing = set(RULE_IDS) - set(reported)
+    # PRD-023 D7: `tool.not_in_skill` is only produced by the gateway path, which a
+    # corpus file (default surface) cannot express; the MCP corpus is STORY-019.
+    # One in-test `McpSurface` case stands in for it (STORY-006), checked first.
+    gateway = evaluate(
+        ToolCall("g1", "unlisted_tool", "{}"), Identity("u", "user"), BUILT_IN_POLICY,
+        surface=McpSurface("s", frozenset()),
+    )
+    assert gateway.rule == "tool.not_in_skill"
+    missing = set(RULE_IDS) - set(reported) - {gateway.rule}
     assert not missing, f"no file reports {sorted(missing)}"
 
 

@@ -8,9 +8,10 @@ from app.config import settings
 from app.db import database, journal_drainer
 from app.db.database import init_db
 from app.routers import admin as admin_router
+from app.routers import mcp as mcp_router
 from app.routers import query as query_router
 from app.routers import v1 as v1_router
-from app.services import action_config, authz, pattern_config, pii_policy, pii_redactor, pipeline_executor, provider_registry
+from app.services import action_config, authz, mcp_config, pattern_config, pii_policy, pii_redactor, pipeline_executor, provider_registry
 from app.services.upstream import chain_config
 
 
@@ -22,6 +23,8 @@ async def lifespan(app: FastAPI):
     pattern_config.load()
     pii_policy.load()
     action_config.load()
+    # PRD-023 STORY-007: after action_config and authz, which it cross-validates against.
+    mcp_config.load()
     provider_registry.load()
     # PRD-022 STORY-009: after the registry, whose catalogue the chains resolve against.
     chain_config.load()
@@ -49,6 +52,11 @@ app.include_router(admin_router.router)
 if settings.V1_ENABLED:
     app.include_router(v1_router.router)
     v1_router.install_error_handlers(app)
+
+# PRD-023 F1, D20: off means /mcp is not mounted and is 404, with nothing under
+# /.well-known either. Read once, at import, like every other route decision.
+if settings.MCP_ENABLED:
+    app.include_router(mcp_router.router)
 
 
 @app.get("/health")

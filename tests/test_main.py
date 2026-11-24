@@ -526,6 +526,30 @@ def test_lifespan_runs_action_config_load_after_authz_load(_pattern_startup, mon
     assert calls == ["authz", "action_config"]
 
 
+def test_lifespan_runs_mcp_config_load_after_action_config_load(_pattern_startup, monkeypatch):
+    """PRD-023 STORY-007 AC 5, FastAPI path: mcp_config.load() runs after
+    authz.load() and action_config.load(), which it cross-validates against."""
+    from app.services import mcp_config
+
+    calls = []
+
+    def _recording(name, original):
+        def _load():
+            calls.append(name)
+            return original()
+
+        return _load
+
+    monkeypatch.setattr(authz, "load", _recording("authz", authz.load))
+    monkeypatch.setattr(action_config, "load", _recording("action_config", action_config.load))
+    monkeypatch.setattr(mcp_config, "load", _recording("mcp_config", mcp_config.load))
+
+    with TestClient(app):
+        pass
+
+    assert calls == ["authz", "action_config", "mcp_config"]
+
+
 def test_lifespan_keeps_the_built_in_action_policy_when_unset(_pattern_startup, monkeypatch):
     """AC 1, FastAPI path: no ACTION_POLICY_FILE, the built-in policy in force."""
     monkeypatch.setattr(settings, "ACTION_POLICY_FILE", "")

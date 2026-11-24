@@ -1,0 +1,13 @@
+# Different arguments do not link.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: correlation
+expect: {dev: allow}
+outcome: {dev: ok}
+rule: sql.read
+prior: {user: same, name: harness_stub__query, arguments: '{"sql":"SELECT 2"}', age_seconds: 10, audit: false}
+linked: false
+e2e: false
+note: 'The canonical arguments hash must match.'

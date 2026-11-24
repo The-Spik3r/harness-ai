@@ -1,0 +1,13 @@
+# A Cline name that was hashed or sanitised does not resolve (stated limitation).
+tool_call:
+  name: harness__stub__query_a1b2c3d4
+  arguments: '{"sql":"SELECT 1"}'
+server: null
+category: alias
+via: v1
+client: 'Cline 4.x'
+expect: {dev: deny}
+outcome: {dev: null}
+rule: tool.unknown
+e2e: false
+note: 'PRD 6.8: there is no reverse map for a hashed name; it stays tool.unknown.'

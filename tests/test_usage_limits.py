@@ -32,6 +32,7 @@ from app.services.usage_limits import (
     admit,
     charge,
     limits_for,
+    retry_after_seconds,
 )
 
 _LOGGER = "app.services.usage_limits"
@@ -403,6 +404,36 @@ def test_resets_at_never_reads_the_instance_clock():
     source = inspect.getsource(usage_limits)
     assert "datetime.now" not in source
     assert "utcnow" not in source
+
+
+# --- PRD-023 STORY-013: Retry-After for the gateway's 429 -------------------
+
+
+def _refusal_at(resets_at):
+    return UsageRefusal(limit="requests", maximum=1, actual=2, resets_at=resets_at)
+
+
+def test_retry_after_is_the_whole_seconds_to_the_reset_rounded_up():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 11, 23, 12, 0, 0, 400_000, tzinfo=timezone.utc)
+    assert retry_after_seconds(_refusal_at("2026-11-23T12:01:00Z"), now) == 60
+    assert retry_after_seconds(_refusal_at("2026-11-23T12:00:30Z"), now) == 30
+
+
+def test_retry_after_is_at_least_one_second_even_when_the_reset_has_passed():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 11, 23, 12, 0, 5, tzinfo=timezone.utc)
+    assert retry_after_seconds(_refusal_at("2026-11-23T12:00:05Z"), now) == 1
+    assert retry_after_seconds(_refusal_at("2026-11-23T11:00:00Z"), now) == 1
+
+
+def test_retry_after_takes_the_clock_from_the_caller():
+    """PRD-023 STORY-013: `now` is required, so usage_limits never reads the clock."""
+    import inspect as _inspect
+
+    assert _inspect.signature(retry_after_seconds).parameters["now"].default is _inspect.Parameter.empty
 
 
 # --- real storage ---------------------------------------------------------

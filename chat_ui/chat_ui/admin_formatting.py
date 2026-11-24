@@ -23,6 +23,7 @@ names every `ActionDecisionRow` field it copies and reads none of the
 arguments preview, the arguments hash, the session or the classifications.
 """
 
+import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
@@ -39,6 +40,7 @@ from app.services.identity import BREAK_GLASS_ROLE, BREAK_GLASS_USER_ID, Identit
 from app.services.usage_limits import limits_for
 
 from .admin_copy import (
+    ACTIONS_LINKED_NONE,
     DETAIL_FLAG_NO_LABEL,
     DETAIL_FLAG_YES_LABEL,
     PROVIDERS_CAPTION_TEMPLATE,
@@ -53,6 +55,7 @@ from .admin_copy import (
     PROVIDERS_VERDICT_ALL_CLOSED,
     PROVIDERS_VERDICT_NONE,
     PROVIDERS_VERDICT_NOT_CLOSED_TEMPLATE,
+    SKILLS_CAPTION_TEMPLATE,
     STORAGE_CAPTION_TEMPLATE,
     STORAGE_HELD_BACK_TEMPLATE,
     STORAGE_LABEL_ADOPTED,
@@ -86,6 +89,8 @@ from .admin_models import (
     ProviderCounterRow,
     ProviderFact,
     ProvidersView,
+    SkillRow,
+    SkillsView,
     StorageCounterRow,
     StorageFact,
     StorageView,
@@ -469,9 +474,61 @@ def to_action_rows(
                 reason=_text(decision.reason),
                 decision=decision.decision,
                 allowed_by=_text(decision.granted_by),
+                # PRD-023 STORY-018: the gateway columns. Filled for every row;
+                # the component shows them only with MCP on (D20).
+                row_id="" if decision.id is None else str(decision.id),
+                mcp_server=_text(decision.mcp_server),
+                skills=_text(
+                    ", ".join(json.loads(decision.skills)) if decision.skills else None
+                ),
+                outcome=_text(decision.outcome),
+                linked=_linked_text(decision),
+                linked_id=(
+                    ""
+                    if decision.linked_decision_id is None
+                    else str(decision.linked_decision_id)
+                ),
             )
         )
     return rows
+
+
+def _linked_text(decision: ActionDecisionRow) -> str:
+    """The Linked cell: the `/v1` decision a gateway call claimed as `#<id>`,
+    the word "unlinked" for a gateway row that claimed none (PRD-023 6.8: a
+    first-class filter), the absent mark for a `/v1` row (it links to nothing)."""
+    if decision.linked_decision_id is not None:
+        return f"#{decision.linked_decision_id}"
+    if decision.surface == "mcp":
+        return ACTIONS_LINKED_NONE
+    return VALUE_ABSENT
+
+
+# --- The Skills view (PRD-023 STORY-018) ------------------------------------
+
+
+def to_skills_view(skills, roles_of, digest: Optional[str]) -> SkillsView:
+    """The configured skills as the Skills view's rows, in config order.
+
+    `skills` is `mcp_config.get_config().skills`; `roles_of(permission)` is
+    `authz.roles_holding`, passed in so this module imports no service and a
+    test needs no loaded matrix. Reads the same fields `GET /skills` returns:
+    no server URL, credential or `instructions`.
+    """
+    return SkillsView(
+        caption=SKILLS_CAPTION_TEMPLATE.format(digest=_text(digest)),
+        skills=[
+            SkillRow(
+                id=s.id,
+                version=_text(s.version),
+                description=_text(s.description),
+                tools=_text(", ".join(s.tools)),
+                requires=_text(", ".join(s.requires)),
+                roles=_text(", ".join(roles_of(f"skill:{s.id}"))),
+            )
+            for s in skills
+        ],
+    )
 
 
 # --- The Storage view (PRD-018 STORY-012) -----------------------------------

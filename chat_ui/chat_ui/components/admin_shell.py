@@ -41,6 +41,7 @@ sign out, the hairline under the masthead, and the gate panel's border.
 
 import reflex as rx
 
+from app.config import settings
 from chat_ui import admin_copy, theme
 from chat_ui.admin_state import AdminState
 from chat_ui.components.ground_switch import ground_switch
@@ -74,6 +75,10 @@ ROUTE_STORAGE = "/admin/storage"
 # PRD-022 STORY-016 (F9): the Providers view (breakers and fallback counters). Not
 # a backend path (`GET /providers/status` is the router's), so it is static.
 ROUTE_PROVIDERS = "/admin/providers"
+# PRD-023 STORY-018 (F11): the Skills view, registered and linked only with
+# MCP_ENABLED=true. Not a backend path (`GET /skills` is the router's; the
+# Caddyfile matcher has it exact), so this static route needs no Caddy change.
+ROUTE_SKILLS = "/admin/skills"
 
 # Which of the two views a page is. Passed down from the page rather than read
 # off the router: the masthead's correctness would otherwise depend on a string
@@ -85,6 +90,7 @@ VIEW_USAGE = "usage"
 VIEW_ACTIONS = "actions"
 VIEW_STORAGE = "storage"
 VIEW_PROVIDERS = "providers"
+VIEW_SKILLS = "skills"
 
 
 def admin_gate() -> rx.Component:
@@ -540,6 +546,25 @@ def admin_masthead(active: str) -> rx.Component:
                     padding_left="0.75rem",
                     margin_left="0.75rem",
                     border_left=f"1px solid {theme.RULE}",
+                ),
+                # PRD-023 STORY-018: the seventh peer, only with MCP on (D20);
+                # with it off the switch is the six it was.
+                *(
+                    [
+                        rx.box(
+                            _view_link(
+                                VIEW_SKILLS,
+                                admin_copy.VIEW_SKILLS_LABEL,
+                                ROUTE_SKILLS,
+                                active,
+                            ),
+                            padding_left="0.75rem",
+                            margin_left="0.75rem",
+                            border_left=f"1px solid {theme.RULE}",
+                        )
+                    ]
+                    if settings.MCP_ENABLED
+                    else []
                 ),
                 align="center",
                 spacing="0",

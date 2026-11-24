@@ -52,6 +52,23 @@ itself (`policy=None` defaults to the loaded policy, grants go through
 `holds()`), so the test asserts what is true rather than a subprocess "no
 settings loaded" check.
 
+The MCP gateway (PRD-023 D4, D7, Section 6.4): `evaluate(..., surface=McpSurface)`
+decides a `tools/call` through this same engine. With a surface, visibility is
+checked first, inside the boundary: a name outside `surface.visible` is one
+`tool.not_in_skill` classification (deny, not grantable) and `map_tool_call` is
+never called. A visible name is mapped through the server's own
+`mcp_tools` / `mcp_opaque_tools` tables, never the `/v1` ones. Decide, fold, the
+reason template and the fail-closed boundary are unchanged. `surface` is the
+caller's (computed from the caller's skills), so this module still reads no
+settings and does no I/O.
+
+The `/v1` alias (PRD-023 D15, Section 6.8): `evaluate_all(..., aliases=AliasInput)`
+resolves a raw `/v1` name such as `harness_postgres-staging__query` to a
+`(server, bare tool)` pair against the caller's visible set, then decides it
+through this same engine under that server's tables. The inputs are the
+caller's (prefixes and visible set from config), so this module still reads no
+settings and does no I/O.
+
 Not this module's work: what PRD-017 does with `flag` and `deny` (D4: since
 STORY-010, `query_pipeline` step 7c calls `evaluate_all`, and `tool_release`
 releases `allow`/`flag` and turns a `deny` into a note), and recording
@@ -60,10 +77,11 @@ carries `operations`, the reported `operation` and the raw `arguments` beyond
 Section 6.2's eight fields so that `record()` keeps its Section 10 signature.
 """
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Final, Mapping, Optional, Sequence
 
 from app.services import action_adapters, action_config, authz
 from app.services.action_classifiers import DECISIONS, Classification, Decision, Operation, RuleId
@@ -110,6 +128,9 @@ class ActionDecision:
     #: The raw arguments as emitted (`""` when not a string), for the audit's
     #: hash and preview. Kept out of `repr`: it may hold a secret (T10).
     arguments: str = field(repr=False)
+    #: PRD-023 D15: the server a `/v1` alias call resolved to; None for every
+    #: other decision. `tool_name` keeps the raw name the model emitted.
+    mcp_server: Optional[str] = None
 
 
 #: D9: `deny > flag > allow`.
@@ -154,6 +175,7 @@ _SUBJECTS: Mapping[str, str] = MappingProxyType(
         "tool.unknown": "an unknown tool",
         "tool.opaque": "an opaque tool",
         "tool.malformed": "a tool call that cannot be read",
+        "tool.not_in_skill": "a tool outside the caller's skills",
     }
 )
 
@@ -166,8 +188,93 @@ _NAME_DETAIL_CAP = 64
 _FAILED_DETAIL = "classification failed"
 
 
+@dataclass(frozen=True)
+class McpSurface:
+    """Where a call comes from when it is an MCP `tools/call` (PRD-023 D4, D7, Section 6.4).
+
+    The caller computes `visible` (the bare upstream tool names the caller's
+    skills expose on `server`); the engine only checks membership.
+    """
+
+    #: The upstream server id; selects `mcp_tools[server]` / `mcp_opaque_tools[server]`.
+    server: str
+    #: Bare upstream tool names the caller may see. Anything else is `tool.not_in_skill`.
+    visible: frozenset[str]
+
+
+#: The `/v1` surface (step 7c): `evaluate(..., surface=V1)` is `evaluate(...)`.
+V1: Final = None
+
+#: A server with no table: every tool of it is `tool.unknown`.
+_EMPTY: Mapping = MappingProxyType({})
+
+
+@dataclass(frozen=True)
+class AliasInput:
+    """What `evaluate_all` needs to resolve `/v1` aliases (PRD-023 D15, Section 6.8).
+
+    The caller computes both from config and the caller's skills; the engine
+    only matches names.
+    """
+
+    #: The configured `MCP_V1_ALIAS_PREFIXES`; never empty when this is passed.
+    prefixes: tuple[str, ...]
+    #: Server id -> bare tool names the caller may see (`mcp_config.visible_tools`).
+    visible: Mapping[str, frozenset[str]]
+
+
+#: `resolve_v1_alias` result when two or more prefixes each resolve the name.
+AMBIGUOUS: Final = "ambiguous"
+
+#: The detail of the ambiguity's `tool.malformed`: fixed (T11).
+_AMBIGUOUS_DETAIL = "ambiguous alias prefix"
+
+
+def resolve_v1_alias(
+    name: str, prefixes: Sequence[str], visible: Mapping[str, frozenset[str]]
+):
+    """`(server, tool)` for a raw `/v1` name, `AMBIGUOUS`, or None (PRD-023 D15, O7).
+
+    A prefix resolves the name when the rest, split at the FIRST `__`, names a
+    server in `visible` and one of its visible tools. Two prefixes that both
+    resolve are `AMBIGUOUS` (never guess). Pure: no I/O, no settings.
+    """
+    found: set[tuple[str, str]] = set()
+    matched = 0
+    for prefix in prefixes:
+        if not prefix or not name.startswith(prefix):
+            continue
+        server, sep, tool = name[len(prefix):].partition("__")
+        if sep and server and tool and tool in visible.get(server, ()):
+            matched += 1
+            found.add((server, tool))
+    if matched > 1:
+        return AMBIGUOUS
+    return next(iter(found)) if found else None
+
+
 class _EngineError(Exception):
     """Internal: an engine invariant broke. Raised below, caught only at the `evaluate` boundary."""
+
+
+def _is_visible(surface: Optional[McpSurface], name: str) -> bool:
+    """Whether `name` may be mapped at all: always on `/v1`, membership in `visible` on the gateway.
+
+    Called through the module so a test's monkeypatch reaches it, as `_classify` is.
+    """
+    return surface is V1 or name in surface.visible
+
+
+def _select_tables(
+    policy: action_config.ActionPolicy, surface: Optional[McpSurface]
+) -> tuple[Mapping, Mapping]:
+    """`(tools, opaque_tools)` for the surface; the gateway never falls back to the `/v1` tables (D4)."""
+    if surface is V1:
+        return policy.tools, policy.opaque_tools
+    return (
+        policy.mcp_tools.get(surface.server, _EMPTY),
+        policy.mcp_opaque_tools.get(surface.server, _EMPTY),
+    )
 
 
 def _classify(op: Operation, policy: action_config.ActionPolicy, dialect: Optional[str]) -> tuple[Classification, ...]:
@@ -263,10 +370,15 @@ def evaluate(
     call: action_adapters.ToolCall,
     identity: "Identity",
     policy: Optional[action_config.ActionPolicy] = None,
+    *,
+    surface: Optional[McpSurface] = V1,
 ) -> ActionDecision:
     """Decide one tool call for one identity (PRD-016 Sections 4, 10). Never raises for model input.
 
     `policy=None` is the policy in force (`action_config.get_policy()`).
+    `surface` is `V1` (None) for the `/v1` path, or an `McpSurface` for the
+    gateway (PRD-023 D4, D7); its visibility check and table selection are
+    inside the boundary below.
     The policy, its digest, the SQL dialect and the argument cap are resolved
     before the fail-closed boundary: they are configuration, not model input,
     and a failure there is a deployment bug that should surface. Everything
@@ -287,9 +399,19 @@ def evaluate(
 
     operations: tuple[Operation, ...] = ()
     try:
-        result = action_adapters.map_tool_call(call, policy.tools, policy.opaque_tools, cap)
         opaque = None
-        if isinstance(result, action_adapters.Operations):
+        if not _is_visible(surface, tool_name):
+            # PRD-023 D7: checked before any mapping, so a hidden tool's mapping is never consulted.
+            hidden = True
+            result = None
+            classifications = (Classification("tool.not_in_skill", None, tool_name[:_NAME_DETAIL_CAP]),)
+        else:
+            hidden = False
+            tools, opaque_tools = _select_tables(policy, surface)
+            result = action_adapters.map_tool_call(call, tools, opaque_tools, cap)
+        if hidden:
+            pass
+        elif isinstance(result, action_adapters.Operations):
             operations = result.operations
             classifications = tuple(c for op in operations for c in _classify(op, policy, dialect))
         elif isinstance(result, action_adapters.Opaque):
@@ -345,10 +467,68 @@ def evaluate(
         )
 
 
+def _malformed(call: action_adapters.ToolCall, policy: action_config.ActionPolicy, detail: str) -> ActionDecision:
+    """A hard `tool.malformed` deny with a fixed detail (the boundary's shape)."""
+    raw_id = getattr(call, "id", None)
+    raw_name = getattr(call, "name", None)
+    raw_arguments = getattr(call, "arguments", None)
+    failed = Classification("tool.malformed", None, detail)
+    return ActionDecision(
+        tool_call_id=raw_id if isinstance(raw_id, str) else "",
+        tool_name=raw_name if isinstance(raw_name, str) else "",
+        decision="deny",
+        rule="tool.malformed",
+        reason=_reason("tool.malformed", "deny", detail),
+        granted_by=None,
+        classifications=(failed,),
+        policy_digest=action_config.policy_digest(policy),
+        operations=(),
+        operation=None,
+        arguments=raw_arguments if isinstance(raw_arguments, str) else "",
+    )
+
+
+def _evaluate_aliased(
+    call: action_adapters.ToolCall,
+    identity: "Identity",
+    policy: action_config.ActionPolicy,
+    aliases: AliasInput,
+) -> ActionDecision:
+    """One call under the `/v1` alias mapping (PRD-023 D15).
+
+    A name that resolves is decided as `evaluate(bare tool, surface=McpSurface)`
+    and the decision keeps the raw name and carries the server; two resolving
+    prefixes are `tool.malformed`; anything else is today's `/v1` decision.
+    Never raises for model input: the resolver is inside the same fail-closed
+    boundary as `evaluate`.
+    """
+    name = getattr(call, "name", None)
+    try:
+        resolved = resolve_v1_alias(name, aliases.prefixes, aliases.visible) if isinstance(name, str) else None
+    except Exception as exc:
+        logger.error(
+            "action policy: resolving alias %r failed (%s); denied under tool.malformed",
+            name, type(exc).__name__,
+        )
+        return _malformed(call, policy, _FAILED_DETAIL)
+    if resolved is None:
+        return evaluate(call, identity, policy)
+    if resolved == AMBIGUOUS:
+        return _malformed(call, policy, _AMBIGUOUS_DETAIL)
+    server, tool = resolved
+    bare = action_adapters.ToolCall(
+        getattr(call, "id", None), tool, getattr(call, "arguments", None)
+    )
+    decision = evaluate(bare, identity, policy, surface=McpSurface(server, aliases.visible[server]))
+    return dataclasses.replace(decision, tool_name=name, mcp_server=server)
+
+
 def evaluate_all(
     calls: Sequence[action_adapters.ToolCall],
     identity: "Identity",
     policy: Optional[action_config.ActionPolicy] = None,
+    *,
+    aliases: Optional[AliasInput] = None,
 ) -> tuple[ActionDecision, ...]:
     """Decide every call of one response, in input order (PRD-016 Sections 4, 10).
 
@@ -356,7 +536,12 @@ def evaluate_all(
     policy is resolved once, so every decision of one response carries one
     policy and one digest. `policy` is an additive optional parameter beyond
     Section 10's `evaluate_all(calls, identity)`, which still works unchanged.
+
+    `aliases` (PRD-023 D15) is the `/v1` MCP alias mapping: None (the default,
+    and what step 7c passes while MCP is off) is today's loop, byte for byte.
     """
     if policy is None:
         policy = action_config.get_policy()
-    return tuple(evaluate(call, identity, policy) for call in calls)
+    if aliases is None:
+        return tuple(evaluate(call, identity, policy) for call in calls)
+    return tuple(_evaluate_aliased(call, identity, policy, aliases) for call in calls)

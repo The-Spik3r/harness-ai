@@ -1,6 +1,6 @@
 # API reference
 
-Every request and response shape for `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, `GET /storage/status`, and the OpenAI-compatible `POST /v1/chat/completions` and `GET /v1/models`.
+Every request and response shape for `POST /query`, `GET /audit`, `GET /audit/actions`, `GET /stats`, `GET /storage/status`, `POST /mcp`, `GET /skills`, and the OpenAI-compatible `POST /v1/chat/completions` and `GET /v1/models`.
 
 ← Back to the [README](../README.md).
 
@@ -291,6 +291,7 @@ curl "http://localhost:8000/audit/actions?decision=deny&limit=1"   -H "Authoriza
 - `?limit=` is `1` to `500` (default `100`); `?decision=` is `allow`, `flag` or `deny`, and any other value is a `422`. `?audit_id=` (a positive integer, the request's `audit_logs.id`) lists one request's decisions; it combines with `?decision=` and with the scoping, so under `audit:read:own` another user's request is `[]`, and a non-integer, zero or negative value is a `422`.
 - `classifications` lists everything the classifiers saw, not only the rule that decided; `kind` is `null` for `tool.unknown` and `tool.malformed`. `audit_id` is the request's `audit_logs` row; `null` only for a decision recorded outside a request.
 - `arguments_preview`, `arguments_hash` and `session_id` are on the stored row but deliberately **not** on this entry: the target is what the rule judged. There is no `total`.
+- **MCP gateway rows** (PRD-023, when `MCP_ENABLED=true`): the same list carries `/mcp` decisions. Each entry has eight more fields: `surface` (`v1` or `mcp`), `mcp_server`, `skills`, `linked_decision_id` (the `/v1` decision this call was matched to, by correlation, not proof), `outcome` (`ok`, `tool_error`, `upstream_error`, `timeout`, `result_too_large`, `result_blocked`; `null` when the call was denied and not forwarded), `duration_ms`, `result_bytes` and `result_flags`. The result itself is never stored. Four more filters, all combined with the others: `?surface=v1|mcp`, `?server=<id>` (exact), `?outcome=` (one of the values above) and `?linked=true|false`; `?linked=false` is the gateway rows no `/v1` decision was matched to. See [MCP gateway and skills](features.md#mcp-gateway-and-skills).
 - The Docker Caddyfile routes `/audit/actions` to the API (`tests/test_caddyfile_routes.py`).
 
 ### `GET /stats` (requires `stats:read`)
@@ -420,6 +421,30 @@ What this process's storage layer is doing, answered from memory with **no datab
 - `instance` is `<hostname>:<pid>`. `breaker.state` is `closed`, `open` or `half_open`; `since` is the last transition (UTC); `retry_after_seconds` is set while it is open.
 - `journal.open` is `false` when this process opened no journal. `entries` and `bytes` are what is waiting to drain; both are `0` in steady state. `headroom_bytes` is the admission reserve (pipeline workers × 64 KiB), **not** free bytes. `held_back_files` and `held_back_entries` are what stays on disk and is never retried by this process: see [What a database outage does](deployment.md#what-a-database-outage-does).
 - `counters` are per process and reset on restart. `retries` and `exhausted` are keyed `"<operation>:<failure class>"`.
+
+### `POST /mcp` (requires `mcp:connect`; only when `MCP_ENABLED=true`)
+
+A JSON-RPC 2.0 endpoint for MCP clients, one request per call with `Content-Type: application/json` and the harness bearer token. Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `prompts/list` and `prompts/get`. Break-glass credentials are `403`, a caller without `mcp:connect` is `403`, a disallowed `Origin` or an oversized body is refused, and a request with another media type is `415`. A JSON-RPC error is an HTTP `200` with an `error` object; the `2026-07-28` handshake is a `400`. With MCP off the route does not exist (`404`). Tool names are `<server>__<tool>` and a caller sees only the tools of the skills it holds. Setup, decisions, outcomes and limits are in [MCP gateway and skills](features.md#mcp-gateway-and-skills).
+
+### `GET /skills` (requires `stats:read`)
+
+```json
+{
+  "skills": [
+    {
+      "id": "open-pull-request",
+      "version": "1.2.0",
+      "description": "Create a branch, push files and open a pull request.",
+      "tools": ["github__create_branch", "github__push_files", "github__create_pull_request"],
+      "requires": [],
+      "roles": ["dev"]
+    }
+  ],
+  "mcp_config_digest": "sha256:9c1e…"
+}
+```
+
+The configured skills and the roles whose matrix holds `skill:<id>` (empty for every built-in role). Never the skill's `instructions`, a server URL or a credential name. With `MCP_ENABLED=false` the answer is `200` with `{"skills": [], "mcp_config_digest": null}`.
 
 ### `POST /v1/chat/completions` — success
 

@@ -112,6 +112,9 @@ ADMIN_MODULE_PATTERNS = (
     "chat_ui/chat_ui/components/storage.py",
     # PRD-022 (STORY-016): and the Providers view.
     "chat_ui/chat_ui/components/providers.py",
+    # PRD-023 (STORY-018): and the Skills view and the Actions gateway strip.
+    "chat_ui/chat_ui/components/skills.py",
+    "chat_ui/chat_ui/components/actions_mcp.py",
 )
 
 # PRD-006 Section 4, out of scope, verbatim: "Auto-refresh, polling, or push

@@ -1,0 +1,13 @@
+# The same alias with a SELECT is released.
+tool_call:
+  name: harness_stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: alias
+via: v1
+client: 'OpenCode 2.x'
+expect: {dev: allow, dba: allow}
+outcome: {dev: null, dba: null}
+rule: sql.read
+e2e: false
+note: 'PRD Section 11: with SELECT the call is released at step 7c (the row is surface v1, mcp_server stub).'

@@ -1,0 +1,10 @@
+# dba holds the skill and sees push_files; user does not.
+tool_call:
+  name: stub__push_files
+  arguments: '{"branch":"b","files":[{"path":"README.md","content":"x"}],"message":"m"}'
+server: stub
+category: visibility
+expect: {user: deny, dba: allow}
+outcome: {user: null, dba: ok}
+rule: {user: tool.not_in_skill, dba: fs.write_in_workspace}
+note: 'A grant-free write inside the workspace is allowed for a skill holder.'

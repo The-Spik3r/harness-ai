@@ -12,7 +12,8 @@ from app.db.database import (
     storage_status,
     summary_snapshot,
 )
-from app.db.models import ActionDecisionRow
+from app.config import settings
+from app.db.models import ActionDecisionRow, McpOutcome
 from app.middleware.auth import require_identity, require_permission
 from app.models.schemas import (
     ActionClassificationEntry,
@@ -21,6 +22,8 @@ from app.models.schemas import (
     AuditQueryEntry,
     AuditResponse,
     ProvidersStatusResponse,
+    SkillEntry,
+    SkillsResponse,
     StatsResponse,
     StorageStatusResponse,
 )
@@ -32,7 +35,7 @@ from app.services.authz import (
     authorize,
 )
 from app.services.identity import Identity
-from app.services import provider_registry
+from app.services import authz, mcp_config, provider_registry
 from app.services.upstream import health
 
 router = APIRouter()
@@ -145,6 +148,10 @@ ACTIONS_LIMIT_MAX = 500
 # FastAPI rejects any other value with 422 before the handler runs.
 ActionDecisionFilter = Literal["allow", "flag", "deny"]
 
+# PRD-023 D21: `?surface=v1|mcp`. Restated like `ActionDecisionFilter` (no
+# surface vocabulary constant exists); tests/test_admin_mcp.py pins it.
+ActionSurfaceFilter = Literal["v1", "mcp"]
+
 # PRD-017 Section 10: `?audit_id=` lists one request's decisions. `ge=1` as
 # `limit`'s: an `audit_logs.id` is an AUTOINCREMENT id, so FastAPI rejects a
 # non-integer, zero or negative value with 422 before the handler runs.
@@ -156,6 +163,10 @@ def get_audit_actions(
     limit: int = Query(ACTIONS_LIMIT_DEFAULT, ge=1, le=ACTIONS_LIMIT_MAX),
     decision: Optional[ActionDecisionFilter] = Query(None),
     audit_id: Optional[int] = Query(None, ge=1),
+    surface: Optional[ActionSurfaceFilter] = Query(None),
+    server: Optional[str] = Query(None, min_length=1, max_length=64),
+    outcome: Optional[McpOutcome] = Query(None),
+    linked: Optional[bool] = Query(None),
 ) -> ActionsResponse:
     """The most recent action decisions, newest first (PRD-016 F11, 9.1).
 
@@ -165,6 +176,11 @@ def get_audit_actions(
     masking, as on `GET /audit`. `?audit_id=` and `?decision=` filter after the
     scoping and combine with it (AND), so under `audit:read:own` another user's
     request reads as empty, not as a 403 (PRD-017 Section 10).
+
+    PRD-023 D21 adds `?surface=v1|mcp`, `?server=<id>` (exact; unknown = empty),
+    `?outcome=` (the closed `McpOutcome` vocabulary) and `?linked=true|false`,
+    all ANDed with the above. `linked=false` is gateway rows with no linked
+    `/v1` decision, so it excludes `/v1` rows by design (PRD 6.8).
     """
     try:
         authorize(identity, PERMISSION_AUDIT_READ_ALL)
@@ -185,6 +201,10 @@ def get_audit_actions(
             user_id=scope_user_id,
             decision=decision,
             audit_id=audit_id,
+            surface=surface,
+            mcp_server=server,
+            outcome=outcome,
+            linked=linked,
         )
     ]
     return ActionsResponse(entries=entries)
@@ -214,6 +234,47 @@ def _action_entry(row: ActionDecisionRow) -> ActionDecisionEntry:
             ActionClassificationEntry(**c) for c in json.loads(row.classifications)
         ],
         policy_digest=row.policy_digest,
+        surface=row.surface,
+        mcp_server=row.mcp_server,
+        # Same corrupt-row rule as `classifications`: written only by
+        # `action_audit`, so a decode failure is a 500, no catch.
+        skills=None if row.skills is None else json.loads(row.skills),
+        linked_decision_id=row.linked_decision_id,
+        outcome=row.outcome,
+        duration_ms=row.duration_ms,
+        result_bytes=row.result_bytes,
+        result_flags=None if row.result_flags is None else json.loads(row.result_flags),
+    )
+
+
+@router.get(
+    "/skills",
+    response_model=SkillsResponse,
+    dependencies=[Depends(require_permission(PERMISSION_STATS_READ))],
+)
+def get_skills() -> SkillsResponse:
+    """The configured skills and the roles holding each (PRD-023 D21, PRD 10).
+
+    `stats:read`, read-only. `roles` is the sorted roles whose matrix holds
+    `skill:<id>` (empty for every built-in role, O1). With `MCP_ENABLED=false`
+    the route answers 200 with no skills and a null digest (PRD-017 D20), after
+    the permission check. Reads no server URL, credential or `instructions`.
+    """
+    if not settings.MCP_ENABLED:
+        return SkillsResponse(skills=[], mcp_config_digest=None)
+    return SkillsResponse(
+        skills=[
+            SkillEntry(
+                id=s.id,
+                version=s.version,
+                description=s.description,
+                tools=list(s.tools),
+                requires=list(s.requires),
+                roles=list(authz.roles_holding(f"skill:{s.id}")),
+            )
+            for s in mcp_config.get_config().skills
+        ],
+        mcp_config_digest=mcp_config.mcp_config_digest(),
     )
 
 

@@ -383,6 +383,37 @@ class ActionDecisionEntry(BaseModel):
     granted_by: Optional[str] = None
     classifications: List[ActionClassificationEntry]
     policy_digest: str
+    # PRD-023 D21 / STORY-017: the gateway fields of PRD 10, defaulted so a
+    # `/v1` row (and every existing construction) keeps working. `result_hash`,
+    # `arguments_canonical_hash` and `mcp_config_digest` stay off the wire, as
+    # `arguments_hash` does: storage aids, not something an audit reader needs.
+    # `skills` is the decoded JSON column; `result_flags` elements are strings
+    # or `{"list","pattern_id"}` / `{"uninspected"}` objects (STORY-014).
+    surface: str = "v1"
+    mcp_server: Optional[str] = None
+    skills: Optional[List[str]] = None
+    linked_decision_id: Optional[int] = None
+    outcome: Optional[str] = None
+    duration_ms: Optional[int] = None
+    result_bytes: Optional[int] = None
+    result_flags: Optional[List[Any]] = None
+
+
+class SkillEntry(BaseModel):
+    # PRD-023 D21 / PRD 10: a fixed whitelist. Never `instructions`, never a
+    # server URL or credential name; the `Skill` dataclass holds none of them.
+    id: str
+    version: str
+    description: str
+    tools: List[str]
+    requires: List[str]
+    roles: List[str]
+
+
+class SkillsResponse(BaseModel):
+    # `mcp_config_digest` is null while MCP is off (PRD-017 D20).
+    skills: List[SkillEntry]
+    mcp_config_digest: Optional[str] = None
 
 
 class ActionsResponse(BaseModel):

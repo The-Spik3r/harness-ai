@@ -1,0 +1,13 @@
+# Another user's /v1 row is never linked.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: correlation
+expect: {dev: allow}
+outcome: {dev: ok}
+rule: sql.read
+prior: {user: other, name: harness_stub__query, arguments: '{"sql":"SELECT 1"}', age_seconds: 10, audit: false}
+linked: false
+e2e: false
+note: 'The claim is per user_id.'

@@ -1,0 +1,20 @@
+# examples/mcp_action_policy.yaml
+#
+# The MCP sections of an action policy (PRD-023 Section 6.6), for use with
+#   ACTION_POLICY_FILE=examples/mcp_action_policy.yaml
+# beside examples/mcp.yaml. Sections left out keep the built-in ones, so this
+# file adds the per-server tables and changes nothing else. Merge these two
+# sections into your own policy (e.g. a copy of examples/action_policy.yaml).
+#
+# `mcp_tools` and `mcp_opaque_tools` map a server id to the same shapes as
+# `tools` and `opaque_tools`. A tool is in one table or the other, never both,
+# and a server id here must be a server in MCP_CONFIG_FILE.
+mcp_tools:
+  postgres-staging:
+    query:        { kind: sql,      target: sql }
+  github:
+    push_files:   { kind: fs_write, target: "files[].path" }
+mcp_opaque_tools:
+  github:
+    create_branch: allow
+    create_pull_request: flag          # recorded for review, not blocked

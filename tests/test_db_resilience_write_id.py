@@ -248,6 +248,18 @@ def test_init_db_migrates_a_pre_prd018_database(uninitialized_db, monkeypatch):
         "ALTER TABLE audit_logs ADD COLUMN cache_read_tokens INTEGER",
         "ALTER TABLE audit_logs ADD COLUMN cache_write_tokens INTEGER",
         "ALTER TABLE action_decisions ADD COLUMN write_id TEXT",
+        # PRD-023 STORY-008 (D21): the eleven gateway columns follow write_id.
+        "ALTER TABLE action_decisions ADD COLUMN surface TEXT NOT NULL DEFAULT 'v1'",
+        "ALTER TABLE action_decisions ADD COLUMN mcp_server TEXT",
+        "ALTER TABLE action_decisions ADD COLUMN skills TEXT",
+        "ALTER TABLE action_decisions ADD COLUMN arguments_canonical_hash TEXT",
+        "ALTER TABLE action_decisions ADD COLUMN linked_decision_id INTEGER",
+        "ALTER TABLE action_decisions ADD COLUMN outcome TEXT",
+        "ALTER TABLE action_decisions ADD COLUMN duration_ms INTEGER",
+        "ALTER TABLE action_decisions ADD COLUMN result_bytes INTEGER",
+        "ALTER TABLE action_decisions ADD COLUMN result_hash TEXT",
+        "ALTER TABLE action_decisions ADD COLUMN result_flags TEXT",
+        "ALTER TABLE action_decisions ADD COLUMN mcp_config_digest TEXT",
     ]
     assert not any(
         s.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for s in statements
@@ -333,8 +345,13 @@ def test_existing_constructions_still_work_and_default_write_id_to_none():
         "request_id", "attempt", "route_model", "fallback_reason",
         "skipped_providers", "cache_read_tokens", "cache_write_tokens", "id",
     ]
-    assert [f.name for f in dataclasses.fields(ActionDecisionRow)][-2:] == [
+    # PRD-023 STORY-008 (D21): the eleven gateway fields follow write_id; `id`
+    # is still trailing.
+    assert [f.name for f in dataclasses.fields(ActionDecisionRow)][-13:] == [
         "write_id",
+        "surface", "mcp_server", "skills", "arguments_canonical_hash",
+        "linked_decision_id", "outcome", "duration_ms", "result_bytes",
+        "result_hash", "result_flags", "mcp_config_digest",
         "id",
     ]
 

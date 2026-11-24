@@ -262,17 +262,22 @@ class Harness:
 
 
 @contextlib.contextmanager
-def start_harness(cwd: Path, env: dict):
+def start_harness(cwd: Path, env: dict, launcher: Optional[Path] = None):
     """`uvicorn app.main:app` on a free port, with `env` plus a fresh ADMIN_TOKEN.
 
     Start it after the users exist: startup refuses an empty users table.
+
+    `launcher` (PRD-023 STORY-020) is a script that stands in for `python -m`'s entry
+    (`tests/e2e/_embedded_db.py`): argv becomes `[python, launcher, "-m", "uvicorn", ...]`.
+    None keeps the argv every existing caller gets.
     """
     port = free_port()
     admin_token = secrets.token_urlsafe(16)
     log_path = cwd / "uvicorn.log"
     with open(log_path, "w", encoding="utf-8") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "app.main:app", "--app-dir", str(REPO_ROOT),
+            [sys.executable, *([str(launcher)] if launcher is not None else []),
+             "-m", "uvicorn", "app.main:app", "--app-dir", str(REPO_ROOT),
              "--host", "127.0.0.1", "--port", str(port)],
             cwd=str(cwd),
             env={**env, "ADMIN_TOKEN": admin_token},

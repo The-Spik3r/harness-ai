@@ -693,9 +693,9 @@ Not built: a native Gemini or Bedrock adapter, hot reload of either file, active
 
 **Status: built and tested, and called by [`/v1`](#openai-compatible-endpoint) for every tool call when `V1_TOOLS_ENABLED=true`** (see [Tool calling](#tool-calling)). With the flag off, `/v1` refuses a request that carries `tools` with `tools_not_supported` (*tool calling is not supported (PRD-017)*), nothing in the request path calls the engine, and live traffic writes no decision row; the admin console's Actions view says so when it is empty.
 
-**What it is.** A pure function, `action_policy.evaluate(tool_call, identity)`, that answers *allow*, *flag* or *deny* for one tool call a model proposed. An adapter maps the client's tool name onto operations (`shell`, `sql`, `fs_write`, `fs_read`, `http`), classifiers turn each operation into one or more rules, and the call's decision is the most severe of them, `deny > flag > allow`, with the first rule at that severity reported. **The harness never executes tools.** It classifies a call the model proposed and the client, if the answer allows it, runs it. A `reason` is a fixed string per rule, never text from the configuration or the call. An exception inside the engine is not an allow: it is a hard `deny` as `tool.malformed`, logged with the tool name and the exception type only.
+**What it is.** A pure function, `action_policy.evaluate(tool_call, identity)`, that answers *allow*, *flag* or *deny* for one tool call a model proposed. An adapter maps the client's tool name onto operations (`shell`, `sql`, `fs_write`, `fs_read`, `http`), classifiers turn each operation into one or more rules, and the call's decision is the most severe of them, `deny > flag > allow`, with the first rule at that severity reported. **The harness runs no tool code.** It classifies a call the model proposed; for a `/v1` call the client, if the answer allows it, runs it, and for an MCP tool behind [`/mcp`](#mcp-gateway-and-skills) the harness forwards an allowed call to the configured server. A `reason` is a fixed string per rule, never text from the configuration or the call. An exception inside the engine is not an allow: it is a hard `deny` as `tool.malformed`, logged with the tool name and the exception type only.
 
-**The rules.** 25 of them, each with a built-in default and, for some, the permission that lifts it:
+**The rules.** 26 of them, each with a built-in default and, for some, the permission that lifts it:
 
 | Rule | Class | Built-in default | Grant |
 |---|---|---|---|
@@ -724,8 +724,9 @@ Not built: a native Gemini or Bedrock adapter, hot reload of either file, active
 | `tool.unknown` | Tool | deny | none |
 | `tool.opaque` | Tool | per entry in `opaque_tools` | none |
 | `tool.malformed` | Tool | deny | none |
+| `tool.not_in_skill` | Tool | deny | none |
 
-A rule with no grant cannot be lifted by any role. Ten of them (`NON_GRANTABLE_RULES`: `sql.unscoped_write`, `sql.dcl`, `sql.unparsed`, `shell.destructive`, `shell.pipe_to_interpreter`, `shell.unclassifiable`, `fs.write_protected`, `net.unparsed`, `tool.unknown`, `tool.malformed`) refuse a `grant` even from a policy file. A deployment that disagrees changes the rule's `default` in its own file, in writing, where an auditor will see it. What each rule matches is the *Produced when* column of PRD-016 Section 6.3.
+A rule with no grant cannot be lifted by any role. Eleven of them (`NON_GRANTABLE_RULES`: `sql.unscoped_write`, `sql.dcl`, `sql.unparsed`, `shell.destructive`, `shell.pipe_to_interpreter`, `shell.unclassifiable`, `fs.write_protected`, `net.unparsed`, `tool.unknown`, `tool.malformed`, `tool.not_in_skill`) refuse a `grant` even from a policy file. A deployment that disagrees changes the rule's `default` in its own file, in writing, where an auditor will see it. What each rule matches is the *Produced when* column of PRD-016 Section 6.3.
 
 **Six permissions, granted in `RBAC_ROLES_FILE`.** `action:sql:write`, `action:sql:ddl`, `action:shell:exec`, `action:fs:write`, `action:net:egress` and `action:secret:read`. **No built-in role holds any of them, `admin` included.** Whether a role holds one is decided regardless of `RBAC_ENABLED`, so turning RBAC off never grants an action. A grant lifts only the rule it names: `cat ~/.aws/credentials` through `bash` is `secret.read` **and** `shell.unlisted`, so it needs `action:secret:read` and `action:shell:exec`, while the `read` tool on the same path needs only the first. `RBAC_ROLES_FILE` **replaces the whole matrix**, so the file below restates the three built-in roles and adds a `dba` role that may run scoped writes; a role or permission left out of your file is denied:
 
@@ -774,7 +775,7 @@ The full design is in [PRD-016](../.agents/PRDs/PRD-016-action-policy-rules/PRD.
 
 ### Tool calling
 
-**Status: built and tested, behind `V1_TOOLS_ENABLED` (default `false`).** With the flag off, `/v1` is PRD-015 byte for byte: `tools`, `tool_choice` and tool turns are refused with `400 tools_not_supported` (*tool calling is not supported (PRD-017)*). With it on, [`/v1`](#openai-compatible-endpoint) accepts `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns, which is what OpenCode and Cline send in agent mode. **Every tool call the model returns is decided by the [action policy](#action-policy-rules) after the model answered and before any byte leaves the harness.** The harness never executes a tool: it forwards what the policy allows, and the client runs it.
+**Status: built and tested, behind `V1_TOOLS_ENABLED` (default `false`).** With the flag off, `/v1` is PRD-015 byte for byte: `tools`, `tool_choice` and tool turns are refused with `400 tools_not_supported` (*tool calling is not supported (PRD-017)*). With it on, [`/v1`](#openai-compatible-endpoint) accepts `tools`, `tool_choice`, `parallel_tool_calls`, assistant `tool_calls` and `tool` turns, which is what OpenCode and Cline send in agent mode. **Every tool call the model returns is decided by the [action policy](#action-policy-rules) after the model answered and before any byte leaves the harness.** The harness runs no tool code: it forwards what the policy allows, and the client runs it (the MCP gateway below is the one place the harness forwards a call to a tool server).
 
 **Turning it on, in this order.**
 
@@ -933,5 +934,111 @@ The template also maps `apply_patch` (Cline's spelling reads `input` only) and `
 **Evidence.** Both clients ran the scripted multi-file task to completion through the harness, and in both a scripted `sqlite3 app.db "DROP TABLE users"` was denied as `sql.ddl`: the client executed nothing, printed the harness note, and every decision was joined to its request by `audit_id`. The runs used the stub upstream, not a live model.
 
 The full design is in [PRD-017](../.agents/PRDs/PRD-017-tool-calling/PRD.md).
+
+### MCP gateway and skills
+
+**Status: built and tested, off by default (`MCP_ENABLED=false`).** With it off, `/mcp` is not mounted (a `404`), `MCP_CONFIG_FILE` is never opened, and nothing else in the harness changes. With it on, the harness fronts the MCP servers you list in one file and exposes them to a coding agent as a single endpoint, `POST /mcp`, with named *skills* a role can hold. **The harness runs no tool code, but it does cause execution:** a call the policy allows is forwarded to the configured server, which runs it. Every decision is made before that forward and recorded before it.
+
+**Topology.** The agent speaks MCP to the harness; the harness speaks MCP to each upstream server.
+
+```
+agent (OpenCode, Cline) --POST /mcp, harness token--> harness --Streamable HTTP, credential from config--> upstream server
+```
+
+- One aggregated endpoint. Tool names are `<server id>__<tool name>` (`github__create_branch`).
+- The northbound side is stateless: `POST /mcp` only, JSON replies, no server-to-client channel. Methods are `initialize`, `ping`, `tools/list`, `tools/call`, `prompts/list` and `prompts/get`. Protocol versions `2025-03-26`, `2025-06-18` and `2025-11-25` are spoken; the `2026-07-28` handshake is refused with a `400` that names the versions supported.
+- The southbound side is Streamable HTTP only. The harness starts no process and loads no tool code; `stdio` servers are not supported.
+- Upstream credentials come only from environment variables named in the config file. The file holds the *name*, never the value, and no header of the inbound request is forwarded to a server.
+- The gate on `/mcp`, in order: a break-glass credential is `403`; a caller without `mcp:connect` is `403` (held by `admin` and `user`, not `auditor`); an `Origin` header not in `MCP_ALLOWED_ORIGINS` is refused (CLI agents send none); a body over `MCP_MAX_REQUEST_BYTES` is refused; anything other than `application/json` is `415`.
+- The Docker Caddyfile routes `/mcp` and `/skills` to the API.
+
+**Configuration.** Write the servers and skills in a YAML file and point `MCP_CONFIG_FILE` at it. [`examples/mcp.yaml`](../examples/mcp.yaml) is a working sample and [`examples/mcp_action_policy.yaml`](../examples/mcp_action_policy.yaml) is the matching action policy. An invalid file is a startup error naming the file, the node and the rule; it never falls back. The file has three sections: `servers` (a `url`, an `auth` block that names an environment variable, an optional `timeout_seconds`, and `allow_insecure: true` for plain `http` on a private network, which the config digest records), `skills`, and `v1_aliases.prefixes`.
+
+Nine settings, read once at startup (a restart applies a change):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `MCP_ENABLED` | `false` | Mount `/mcp`. `true` needs `MCP_CONFIG_FILE`, or startup fails. |
+| `MCP_CONFIG_FILE` | empty | Path to the servers and skills YAML. Empty reads no file. |
+| `MCP_CALL_TIMEOUT_SECONDS` | `60` | How long the gateway waits for one upstream call; 1 to 600. |
+| `MCP_MAX_REQUEST_BYTES` | `1048576` | Largest `/mcp` request body; at least 1024. |
+| `MCP_MAX_RESULT_BYTES` | `1048576` | Largest upstream result returned; at least 1024. A larger one is not returned. |
+| `MCP_TOOLS_CACHE_SECONDS` | `60` | How long an upstream tool list is cached; 0 to 86400, `0` disables the cache. |
+| `MCP_UPSTREAM_SESSION_IDLE_SECONDS` | `300` | Idle time after which an upstream session is closed; at least 10. |
+| `MCP_LINK_WINDOW_SECONDS` | `300` | The window for linking a call (see *Linking /v1 proposals to gateway calls* below) to a `/v1` proposal; 0 to 86400, `0` disables linking. |
+| `MCP_ALLOWED_ORIGINS` | empty | Comma list of browser origins (`scheme://host[:port]`) allowed to call `/mcp`. Empty refuses every request that carries an `Origin`. |
+
+The gateway decides an MCP call with the same [action policy](#action-policy-rules) as a `/v1` tool call, and a tool the policy does not know is `tool.unknown`, denied. So every tool a skill lists needs an entry per server under `mcp_tools` (mapped to an operation kind and a target) or `mcp_opaque_tools` (a flat decision) in `ACTION_POLICY_FILE`. The policy trusts the mapping you write, not the server.
+
+**Skills.** A skill is a named bundle in the config: `version`, `description`, `instructions` (text handed to the agent), `tools` (the `<server>__<tool>` names it may use) and `requires` (the `action:*` permissions a role holding it must also hold; a role that does not is a startup error, not a silent gap). A role is given a skill by holding the permission `skill:<id>` in `RBAC_ROLES_FILE` (the id is lowercase letters, digits and `-`, up to 48 characters). **No built-in role holds any skill.** What a caller sees is what its held skills list: `tools/list` returns those tools and nothing else, and `prompts/list` returns one prompt `skill-<id>` per held skill, whose text is the skill's instructions. A call to a tool outside the held skills is denied as `tool.not_in_skill`, a rule no grant lifts.
+
+**How a call is decided.** For each `tools/call`, in order: the `mcp:connect` permission; the usage limits; whether the tool is in a held skill; `action_policy.evaluate()`, with the same rules, grants and fail-closed boundary as for `/v1`; then the decision row is written, and **the call is forwarded only after that row has committed**. If the row cannot be written, nothing is forwarded. A denied call is answered with a harness note naming the tool and the server, never a URL, a header or an environment variable name. After the forward, the result is inspected and its outcome recorded on the same row: `ok`, `tool_error`, `upstream_error`, `timeout`, `result_too_large` or `result_blocked`.
+
+- **Results are never stored.** The row keeps a hash, a size and the inspection flags. A result that matches a blocking pattern is withheld (`result_blocked`); one that matches an injection pattern is flagged.
+- **A call is never retried.** A `timeout` or an `upstream_error` reaches the agent as an error that says the call *may have run*, because the harness cannot know.
+- Two users of one server get two upstream sessions, one per `(server, user)`.
+
+**Linking `/v1` proposals to gateway calls.** A coding agent that talks to both `/v1` and `/mcp` makes two requests for one tool use: the model proposes a call on `/v1`, and the client then executes it on `/mcp`. The harness matches the two: a gateway call is linked to a recent `/v1` decision of the same user whose tool and arguments hash are the same, within `MCP_LINK_WINDOW_SECONDS`, and each proposal links at most one call. **This is correlation, not proof.** It shows that a model response through the harness proposed a call like this one, not that the agent ran what the model said, and a client that rewrites arguments does not link. A call with no match is not necessarily wrong, but it is the one to look at: `GET /audit/actions?surface=mcp&linked=false` lists the calls that no model response through the harness proposed, which is what an agent acting on a model the harness does not see looks like. The client's own tool names reach the policy through `v1_aliases.prefixes` (below).
+
+**Per-client setup.** Both clients were run against the gateway and a stub upstream server by the opt-in end-to-end test ([`tests/e2e/test_mcp_clients.py`](../tests/e2e/test_mcp_clients.py), `--run-e2e`): **OpenCode 2.3.2** and **Cline CLI 3.0.74**. The model there was a scripted fake, not a live model. The configurations below are the ones the test wrote, in [`tests/e2e/_mcp.py`](../tests/e2e/_mcp.py) (`opencode_config`, `cline_settings`); check them against your client version. Name the server `harness` in the client, or set `v1_aliases.prefixes` to the prefix the client puts in front of the tool name, so a `/v1` proposal and the `/mcp` call it leads to are recognised as one tool.
+
+#### OpenCode
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "harness": {
+        "type": "remote",
+        "url": "<harness>/mcp",
+        "headers": { "Authorization": "Bearer <harness token>" },
+        "codemode": false
+      }
+    }
+  }
+}
+```
+
+`"codemode": false` is the important line. With CodeMode on, OpenCode calls MCP tools from inside its own `execute` tool as code: the policy sees one `execute` call, which is `tool.unknown` and denied, and the individual tool is never decided. Turn it off and each MCP tool is a call of its own. OpenCode puts `harness_` in front of the name, so `v1_aliases.prefixes` carries `harness_`.
+
+#### Cline
+
+```json
+{
+  "mcpServers": {
+    "harness": {
+      "type": "streamableHttp",
+      "url": "<harness>/mcp",
+      "headers": { "Authorization": "Bearer <harness token>" }
+    }
+  }
+}
+```
+
+This goes in `<data-dir>/settings/cline_mcp_settings.json`. `"type": "streamableHttp"` is required: without it Cline falls back to SSE, finds no server and lists no tools. Cline puts `harness__` in front of the name, so `v1_aliases.prefixes` carries `harness__`. **A long id is hashed:** Cline shortens a tool id over 55 characters, and the alias then does not resolve, so the `/v1` proposal is not matched to the call. The harness logs a startup warning for each skill tool that would exceed the limit; the tool still works through `/mcp`, only the linking is lost.
+
+**Operating it.**
+
+- **Audit.** Every `/mcp` decision is a row in `action_decisions`, with its `surface` (`mcp`), the server id, the outcome, the result hash and size, and the link to a `/v1` decision if there is one. `GET /audit/actions` filters on `surface`, `server`, `outcome` and `linked`; see the [API reference](api.md#get-auditactions-requires-auditreadall-or-auditreadown).
+- **`GET /skills`** (needs `stats:read`) lists each skill (id, version, description, tools, requires) and the roles that hold it, never its instructions, with the digest of the loaded config. With MCP off it answers `200` with an empty list and a `null` digest.
+- **The admin console.** The Actions view gains MCP chips and an unlinked toggle, and four extra columns. The Skills page exists only when the console started with MCP on.
+- **Least privilege upstream.** The gateway uses one credential per server, not one per user, so every allowed call acts as whoever the credential belongs to. Give it the narrowest scope the skills need.
+- **No hot reload.** A change to the file or the settings needs a restart.
+
+**What it does not cover.**
+
+- **Servers an agent reaches directly.** An agent configured with an MCP server of its own, bypassing `/mcp`, is not seen. Remove it from the client or block it at the network; the harness cannot.
+- **The integrity of an upstream server.** A server can lie in a tool description or a result. Result inspection is a pattern match, and a description that changes is re-inspected but not pinned.
+- **Tool `annotations`** (such as `readOnlyHint`) are the upstream's claim and unverified. The harness passes them through and never decides by them.
+- **OAuth on `/mcp`.** The caller authenticates with a harness bearer token; OAuth 2.1 on `/mcp` is not built.
+- **Per-user upstream identity.** Every user shares a server's one credential, and a stateful upstream running on several instances may see one user under two sessions.
+- **Sandboxing.** The harness starts no server and no process; `stdio` servers and any isolation of a tool are the operator's.
+- **Streaming and progress.** A call is answered once, when it ends.
+- **`resources`.** An upstream server's resources are not served; only tools and the skill prompts are.
+- **Sampling and elicitation.** The server-to-client channels are refused, so an upstream cannot ask the client's model for anything through the harness.
+- **The `2026-07-28` handshake** is refused, not translated.
+- **A model the harness does not see.** Linking is correlation, so an agent on another model endpoint produces `linked=false` rows, not a block.
+
+The full design is in [PRD-023](../.agents/PRDs/PRD-023-mcp-and-skills/PRD.md).
 
 ---

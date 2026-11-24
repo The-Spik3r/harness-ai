@@ -1,0 +1,13 @@
+# Cline CLI advertises the tool as harness__stub__query.
+tool_call:
+  name: harness__stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: alias
+via: v1
+client: 'Cline 4.x'
+expect: {dev: allow}
+outcome: {dev: null}
+rule: sql.read
+e2e: false
+note: 'The second configured prefix (harness__) resolves the same tool.'

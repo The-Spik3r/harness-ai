@@ -1,0 +1,11 @@
+# slow beyond the server timeout (2 s): timeout, never retried.
+tool_call:
+  name: stub__slow
+  arguments: '{"seconds":20}'
+server: stub
+category: outcome
+expect: {dev: allow}
+outcome: {dev: timeout}
+rule: tool.opaque
+e2e: false
+note: 'PRD Section 11: isError ''may have run'', outcome timeout, stub counter 1 (no retry, T10).'

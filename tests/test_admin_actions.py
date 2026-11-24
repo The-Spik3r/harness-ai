@@ -64,6 +64,15 @@ _SECTION_10_FIELDS = {
     "granted_by",
     "classifications",
     "policy_digest",
+    # PRD-023 D21 / STORY-017: the eight gateway fields of PRD 10.
+    "surface",
+    "mcp_server",
+    "skills",
+    "linked_decision_id",
+    "outcome",
+    "duration_ms",
+    "result_bytes",
+    "result_flags",
 }
 
 
@@ -245,9 +254,11 @@ def test_default_limit_is_100(temp_db, monkeypatch):
 
     assert _entries(client.get("/audit/actions", headers=_ADMIN_HEADERS)) == []
     # PRD-017 STORY-013 (Section 10): the router now always passes audit_id;
-    # None is no filter.
+    # None is no filter. PRD-023 D21 (STORY-017): the router also always passes
+    # the four gateway filters; None is no filter for each.
     assert calls == [
-        {"limit": 100, "user_id": None, "decision": None, "audit_id": None}
+        {"limit": 100, "user_id": None, "decision": None, "audit_id": None,
+         "surface": None, "mcp_server": None, "outcome": None, "linked": None}
     ]
 
 
@@ -334,7 +345,9 @@ def test_audit_id_is_passed_to_the_repository(temp_db, monkeypatch):
 
     assert _entries(client.get("/audit/actions?audit_id=41", headers=_ADMIN_HEADERS)) == []
     assert calls == [
-        {"limit": 100, "user_id": None, "decision": None, "audit_id": 41}
+        # PRD-023 STORY-017: the four MCP filters are passed, None when absent.
+        {"limit": 100, "user_id": None, "decision": None, "audit_id": 41,
+         "surface": None, "mcp_server": None, "outcome": None, "linked": None}
     ]
 
 
@@ -349,6 +362,9 @@ def test_entry_has_exactly_the_section_10_fields(temp_db):
     assert set(entry) == _SECTION_10_FIELDS
     assert "arguments_preview" not in entry
     assert "arguments_hash" not in entry
+    # PRD-023 D21: storage aids stay off the wire.
+    for hidden in ("result_hash", "arguments_canonical_hash", "mcp_config_digest"):
+        assert hidden not in entry
     # Section 10's example omits it (orchestrator decision, STORY-016 plan Q1).
     assert "session_id" not in entry
     assert entry["audit_id"] == 7

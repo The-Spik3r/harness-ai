@@ -39,7 +39,7 @@ from app.services import action_adapters, action_config, action_policy, authz
 from app.services.action_adapters import ToolCall
 from app.services.action_classifiers import DECISIONS, RULE_IDS, Classification, network, paths, shell, sql
 from app.services.action_config import BUILT_IN_POLICY, Rule
-from app.services.action_policy import ActionDecision, evaluate, evaluate_all
+from app.services.action_policy import V1, ActionDecision, McpSurface, evaluate, evaluate_all
 from app.services.identity import Identity
 
 USER = Identity("u", "user")
@@ -494,6 +494,14 @@ def test_every_reason_is_the_fixed_template_plus_the_calls_fragment(monkeypatch)
                 for sentinel in _SENTINELS:
                     assert sentinel not in d.reason, (tool, arguments, d.reason)
 
+        # PRD-023 D7: `tool.not_in_skill` comes only from a gateway call outside the
+        # caller's skills (STORY-006), so no `_SWEEP` entry produces it; one hidden
+        # `McpSurface` call per identity does.
+        hidden = evaluate(_call("hidden_tool", {}), identity, _SENTINEL_POLICY, surface=McpSurface("s", frozenset()))
+        assert hidden.rule == "tool.not_in_skill"
+        assert hidden.reason == "a tool outside the caller's skills is not permitted: hidden_tool"
+        produced.update(c.rule for c in hidden.classifications)
+
     assert produced == set(RULE_IDS)
 
 
@@ -558,6 +566,8 @@ def test_action_decision_shape():
         "operations",
         "operation",
         "arguments",
+        # PRD-023 STORY-016, D15: the server a `/v1` alias call resolved to (None otherwise).
+        "mcp_server",
     ]
     d = evaluate(_call("query", {"sql": "SELECT 1"}), USER)
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -713,3 +723,147 @@ def test_evaluate_does_no_io(monkeypatch):
 
     assert calls == []
     assert all(c.detail != "classification failed" for d in decisions for c in d.classifications)
+
+
+# --- PRD-023 STORY-006: evaluate(..., surface=McpSurface) -------------------------
+
+_QUERY = BUILT_IN_POLICY.tools["query"]
+_SERVER = "postgres-staging"
+_GATEWAY = _with(
+    mcp_tools=MappingProxyType({_SERVER: MappingProxyType({"query": _QUERY})}),
+    mcp_opaque_tools=MappingProxyType(
+        {_SERVER: MappingProxyType({"create_pull_request": "flag"}), "other": MappingProxyType({})}
+    ),
+)
+_SURFACE = McpSurface(_SERVER, frozenset({"query", "create_pull_request"}))
+
+
+def test_surface_is_keyword_only_and_v1_is_none_and_default_changes_nothing():
+    param = inspect.signature(evaluate).parameters["surface"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is None
+    assert V1 is None
+    assert "surface" not in inspect.signature(evaluate_all).parameters
+    for identity in (USER, ADMIN):
+        for i, (tool, arguments) in enumerate(_SWEEP):
+            call = _call(tool, arguments, id=f"c{i}")
+            assert evaluate(call, identity, _SENTINEL_POLICY) == evaluate(
+                call, identity, _SENTINEL_POLICY, surface=V1
+            )
+
+
+def test_the_surface_is_a_frozen_dataclass():
+    s = McpSurface("s", frozenset({"a"}))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        s.server = "t"
+    assert s.visible == frozenset({"a"})
+
+
+def test_gateway_drop_table_denied_and_granted(monkeypatch):
+    call = _call("query", {"sql": "DROP TABLE users"})
+    v1 = evaluate(call, USER, _GATEWAY)
+
+    d = evaluate(call, USER, _GATEWAY, surface=_SURFACE)
+    assert (d.decision, d.rule, d.granted_by) == ("deny", "sql.ddl", None)
+    assert d.reason == v1.reason == "destructive SQL is not permitted: DROP"
+
+    _grant(monkeypatch, "dba", "action:sql:ddl")
+    g = evaluate(call, DBA, _GATEWAY, surface=_SURFACE)
+    assert (g.decision, g.rule, g.granted_by) == ("allow", "sql.ddl", "action:sql:ddl")
+
+
+def test_a_hidden_tool_is_not_in_skill_even_for_every_action_grant(monkeypatch):
+    _grant(monkeypatch, "dba", *authz.ACTION_PERMISSIONS)
+    surface = McpSurface(_SERVER, frozenset({"query"}))
+
+    for identity in (USER, DBA, ADMIN):
+        d = evaluate(_call("drop_everything", {}), identity, _GATEWAY, surface=surface)
+        assert (d.decision, d.rule, d.granted_by) == ("deny", "tool.not_in_skill", None)
+        assert d.reason == "a tool outside the caller's skills is not permitted: drop_everything"
+        assert d.classifications == (Classification("tool.not_in_skill", None, "drop_everything"),)
+        assert d.operations == ()
+        assert d.operation is None
+
+    long = evaluate(_call("x" * 100, {}), DBA, _GATEWAY, surface=surface)
+    assert long.classifications[0].detail == "x" * 64
+
+
+def test_a_hidden_tool_does_not_call_map_tool_call(monkeypatch):
+    seen = []
+    monkeypatch.setattr(action_adapters, "map_tool_call", lambda *a, **k: seen.append(a))
+
+    # Mapped in `mcp_tools` but outside `visible`: the mapping is not consulted.
+    d = evaluate(_call("query", {"sql": "SELECT 1"}), USER, _GATEWAY, surface=McpSurface(_SERVER, frozenset()))
+
+    assert (d.decision, d.rule) == ("deny", "tool.not_in_skill")
+    assert seen == []
+
+
+def test_the_gateway_uses_only_the_servers_own_tables():
+    def rule(policy, name, surface):
+        return evaluate(_call(name, {"sql": "SELECT 1"}), USER, policy, surface=surface)
+
+    # `query` mapped only in the top-level `tools:`: the gateway never falls back.
+    bare = _with(mcp_tools=MappingProxyType({}))
+    assert rule(bare, "query", McpSurface(_SERVER, frozenset({"query"}))).rule == "tool.unknown"
+    # Unknown server, and a visible-but-unmapped tool.
+    assert rule(_GATEWAY, "query", McpSurface("nope", frozenset({"query"}))).rule == "tool.unknown"
+    assert rule(_GATEWAY, "ghost", McpSurface(_SERVER, frozenset({"ghost"}))).rule == "tool.unknown"
+    # An `mcp_tools`-only name on /v1.
+    assert _GATEWAY.tools.get("create_pull_request") is None
+    assert evaluate(_call("create_pull_request", {}), USER, _GATEWAY).rule == "tool.unknown"
+    # `mcp_opaque_tools` per server; `/v1` opaque_tools are never used on the gateway.
+    d = rule(_GATEWAY, "create_pull_request", _SURFACE)
+    assert (d.decision, d.rule) == ("flag", "tool.opaque")
+    other = McpSurface("other", frozenset({"create_pull_request"}))
+    assert rule(_GATEWAY, "create_pull_request", other).rule == "tool.unknown"
+    v1_opaque = next(iter(BUILT_IN_POLICY.opaque_tools), None)
+    if v1_opaque is not None:
+        s = McpSurface(_SERVER, frozenset({v1_opaque}))
+        assert rule(_GATEWAY, v1_opaque, s).rule == "tool.unknown"
+
+
+class _NoVisible:
+    """A surface with no `visible`: broken inside the boundary, not before it."""
+
+    server = _SERVER
+
+
+@pytest.mark.parametrize("seam", ["_is_visible", "_select_tables"])
+def test_a_failure_in_visibility_or_table_selection_fails_closed(monkeypatch, caplog, seam):
+    monkeypatch.setattr(action_policy, seam, _boom)
+    caplog.set_level(logging.DEBUG, logger=_LOGGER)
+
+    d = evaluate(_call("query", {"sql": f"SELECT '{MARK}'"}), USER, _GATEWAY, surface=_SURFACE)
+
+    assert (d.decision, d.rule, d.granted_by) == ("deny", "tool.malformed", None)
+    assert d.classifications == (Classification("tool.malformed", None, "classification failed"),)
+    assert MARK not in d.reason
+    [record] = [r for r in caplog.records if r.name == _LOGGER]
+    assert record.levelno == logging.ERROR
+    assert "'query'" in record.getMessage()
+    assert "RuntimeError" in record.getMessage()
+    assert MARK not in caplog.text
+
+
+def test_a_surface_object_without_visible_fails_closed():
+    d = evaluate(_call("query", {}), USER, _GATEWAY, surface=_NoVisible())
+
+    assert (d.decision, d.rule) == ("deny", "tool.malformed")
+
+
+def test_the_gateway_digest_is_the_whole_policys(monkeypatch):
+    digest = action_config.policy_digest(_GATEWAY)
+    sql_call = _call("query", {"sql": "SELECT 1"})
+
+    results = [
+        evaluate(sql_call, USER, _GATEWAY),
+        evaluate(sql_call, USER, _GATEWAY, surface=_SURFACE),
+        evaluate(sql_call, USER, _GATEWAY, surface=McpSurface(_SERVER, frozenset())),
+    ]
+    monkeypatch.setattr(action_policy, "_is_visible", _boom)
+    results.append(evaluate(sql_call, USER, _GATEWAY, surface=_SURFACE))
+
+    assert [d.policy_digest for d in results] == [digest] * 4
+    other = _with(mcp_tools=MappingProxyType({_SERVER: MappingProxyType({})}))
+    assert action_config.policy_digest(other) != digest

@@ -85,6 +85,8 @@ _PRD_6_3_RULES = {
     "tool.unknown": ("deny", None),
     "tool.opaque": (None, None),
     "tool.malformed": ("deny", None),
+    # PRD-023 D7: not in PRD-016 Section 6.3; appended last.
+    "tool.not_in_skill": ("deny", None),
 }
 
 _PRD_PROTECTED_PATHS = (
@@ -168,7 +170,7 @@ def test_load_with_a_policy_file_set_fails_closed(tmp_path, monkeypatch):
 
 
 def test_built_in_rules_are_prd_section_6_3():
-    assert len(BUILT_IN_POLICY.rules) == 25
+    assert len(BUILT_IN_POLICY.rules) == 26  # PRD-023 D7: 25 -> 26
     assert tuple(BUILT_IN_POLICY.rules) == RULE_IDS
     assert {
         rule_id: (rule.default, rule.grant) for rule_id, rule in BUILT_IN_POLICY.rules.items()
@@ -176,7 +178,7 @@ def test_built_in_rules_are_prd_section_6_3():
 
 
 def test_the_non_grantable_set_has_ten_rules():
-    assert len(NON_GRANTABLE_RULES) == 10
+    assert len(NON_GRANTABLE_RULES) == 11  # PRD-023 D7: 10 -> 11
 
 
 @pytest.mark.parametrize("rule_id", sorted(NON_GRANTABLE_RULES))
@@ -1235,3 +1237,214 @@ def test_the_sql_dialect_is_not_in_the_digest(monkeypatch):
 
     monkeypatch.setattr(settings, "ACTION_SQL_DIALECT", "postgres")
     assert policy_digest() == generic
+
+
+# --- PRD-023 STORY-005: mcp_tools / mcp_opaque_tools and tool.not_in_skill ---
+
+_MCP_POLICY_TEXT = """
+    mcp_tools:
+      postgres-staging:
+        query: {kind: sql, target: sql}
+      github:
+        push_files: {kind: fs_write, target: path}
+    mcp_opaque_tools:
+      github:
+        create_pull_request: flag
+"""
+
+
+def _old_shape_digest(policy):
+    """The digest as it was before PRD-023: the eight old keys, no `mcp_*` keys."""
+    import hashlib
+    import json
+
+    canonical = action_config._canonical(policy)
+    assert "mcp_tools" not in canonical and "mcp_opaque_tools" not in canonical
+    text = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_mcp_sections_load_and_are_exposed(tmp_path, monkeypatch):
+    _load_text(tmp_path, monkeypatch, _MCP_POLICY_TEXT)
+    policy = get_policy()
+    assert policy.mcp_tools["postgres-staging"]["query"] == ToolMapping("sql", "sql")
+    assert policy.mcp_tools["github"]["push_files"] == ToolMapping("fs_write", "path")
+    assert policy.mcp_opaque_tools["github"]["create_pull_request"] == "flag"
+    with pytest.raises(TypeError):
+        policy.mcp_tools["x"] = {}
+    with pytest.raises(TypeError):
+        policy.mcp_tools["github"]["x"] = ToolMapping("sql", "sql")
+    with pytest.raises(TypeError):
+        policy.mcp_opaque_tools["github"]["x"] = "allow"
+
+
+def test_each_mcp_section_alone_changes_the_digest():
+    base = _validate("test", _spec())
+    tools_only = _validate("test", _spec(mcp_tools={"a": {"t": ToolMapping("sql", "q")}}))
+    opaque_only = _validate("test", _spec(mcp_opaque_tools={"a": {"t": "flag"}}))
+    assert len({policy_digest(p) for p in (base, tools_only, opaque_only)}) == 3
+
+
+def test_digest_has_no_mcp_keys_when_the_sections_are_empty():
+    # PRD-023 D4: a policy with no MCP servers canonicalises as before PRD-023.
+    # (The new rule changed every digest once; the digest still equals the
+    # sha256 of the eight-key dict.)
+    assert policy_digest(BUILT_IN_POLICY) == _old_shape_digest(BUILT_IN_POLICY)
+    empty = _validate("t", _spec(mcp_tools={}, mcp_opaque_tools={}))
+    assert policy_digest(empty) == policy_digest(BUILT_IN_POLICY)
+
+
+def test_mcp_digest_ignores_server_and_tool_order():
+    q, r, c = ToolMapping("sql", "q"), ToolMapping("sql", "r"), ToolMapping("shell", "c")
+    forward = {"a": {"x": q, "y": r}, "b": {"z": c}}
+    backward = {"b": {"z": c}, "a": {"y": r, "x": q}}
+    one = _validate("t", _spec(mcp_tools=forward))
+    two = _validate("t", _spec(mcp_tools=backward))
+    assert policy_digest(one) == policy_digest(two)
+    assert "mcp_tools" in action_config._canonical(one)
+
+
+def test_mcp_tables_are_copies():
+    inner = {"t": ToolMapping("sql", "q")}
+    outer = {"a": inner}
+    policy = _validate("t", _spec(mcp_tools=outer))
+    inner["u"] = ToolMapping("sql", "q")
+    outer["b"] = {}
+    assert set(policy.mcp_tools) == {"a"} and set(policy.mcp_tools["a"]) == {"t"}
+
+
+def test_mcp_accepted_shapes(tmp_path, monkeypatch):
+    # The same tool under two servers, the same name in `tools:` and a server's
+    # table (D4: independent tables), and an opaque server with no mapped tools.
+    _load_text(
+        tmp_path,
+        monkeypatch,
+        """
+        mcp_tools:
+          a: {query: {kind: sql, target: sql}}
+          b: {query: {kind: sql, target: sql}, read_file: {kind: fs_read, target: path}}
+        mcp_opaque_tools:
+          c: {ping: allow}
+        """,
+    )
+    policy = get_policy()
+    assert "read_file" in policy.tools and "read_file" in policy.mcp_tools["b"]
+    assert set(policy.mcp_opaque_tools) == {"c"}
+    _load_text(tmp_path, monkeypatch, "mcp_tools: {}\nmcp_opaque_tools: {}\n")
+    assert dict(get_policy().mcp_tools) == {} and dict(get_policy().mcp_opaque_tools) == {}
+
+
+def test_file_refuses_mcp_sections_that_are_not_mappings(tmp_path, monkeypatch):
+    _expect_file(tmp_path, monkeypatch, "mcp_tools: [a]\n", "mcp_tools", "must be a mapping")
+    _expect_file(
+        tmp_path, monkeypatch, "mcp_opaque_tools: [a]\n", "mcp_opaque_tools", "must be a mapping"
+    )
+
+
+@pytest.mark.parametrize("server", ["GitHub", "-a", "a" * 33, "a_b"])
+def test_file_refuses_a_bad_mcp_server_id(tmp_path, monkeypatch, server):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"mcp_tools:\n  {server}:\n    t: {{kind: sql, target: q}}\n",
+        "mcp_tools",
+        repr(server),
+        "server id",
+    )
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        f"mcp_opaque_tools:\n  {server}:\n    t: flag\n",
+        "mcp_opaque_tools",
+        repr(server),
+        "server id",
+    )
+
+
+def test_file_refuses_an_empty_mcp_server_table(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path, monkeypatch, "mcp_tools:\n  github: {}\n", "mcp_tools.github", "must not be empty"
+    )
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "mcp_opaque_tools:\n  github: {}\n",
+        "mcp_opaque_tools.github",
+        "must not be empty",
+    )
+
+
+def test_file_refuses_a_tool_both_mapped_and_opaque_for_one_server(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        """
+        mcp_tools:
+          github: {x: {kind: sql, target: q}}
+        mcp_opaque_tools:
+          github: {x: flag}
+        """,
+        "mcp_opaque_tools.github",
+        "'x'",
+        "also mapped under mcp_tools.github",
+    )
+
+
+def test_file_refuses_an_invalid_mcp_mapping_naming_the_node(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "mcp_tools:\n  github:\n    push_files: {kind: telepathy, target: q}\n",
+        "mcp_tools.github: 'push_files'",
+        "kind",
+    )
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "mcp_opaque_tools:\n  github:\n    x: maybe\n",
+        "mcp_opaque_tools.github: 'x'",
+        "not a decision",
+    )
+
+
+def test_spec_refuses_a_non_string_mcp_tool_name():
+    _expect(_spec(mcp_tools={"a": {3: ToolMapping("sql", "q")}}), "mcp_tools.a", "non-empty string")
+    _expect(_spec(mcp_opaque_tools={"a": {"": "flag"}}), "mcp_opaque_tools.a", "non-empty string")
+
+
+def test_spec_still_refuses_unknown_and_missing_keys():
+    # PRD-023 D4 made the two MCP keys optional, nothing else.
+    _expect(_spec(bogus=1), "unknown keys ['bogus']")
+    spec = _spec()
+    del spec["tools"]
+    _expect(spec, "missing keys ['tools']")
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_mcp_sections_validate_with_mcp_disabled_or_enabled(tmp_path, monkeypatch, enabled):
+    # PRD-023 AC4: the policy never reads MCP_ENABLED.
+    monkeypatch.setattr(settings, "MCP_ENABLED", enabled)
+    _load_text(tmp_path, monkeypatch, _MCP_POLICY_TEXT)
+    assert "github" in get_policy().mcp_tools
+
+
+def test_tool_not_in_skill_is_a_non_grantable_deny_rule():
+    from app.services.action_policy import _SUBJECTS
+
+    assert "tool.not_in_skill" in RULE_IDS
+    assert RULE_IDS[-1] == "tool.not_in_skill"
+    assert BUILT_IN_POLICY.rules["tool.not_in_skill"] == Rule("deny", None)
+    assert "tool.not_in_skill" in NON_GRANTABLE_RULES
+    assert _SUBJECTS["tool.not_in_skill"] == "a tool outside the caller's skills"
+
+
+def test_file_refuses_a_grant_on_tool_not_in_skill_but_allows_its_default(tmp_path, monkeypatch):
+    _expect_file(
+        tmp_path,
+        monkeypatch,
+        "rules:\n  tool.not_in_skill: {grant: 'action:sql:write'}\n",
+        "tool.not_in_skill",
+        "non-grantable",
+    )
+    _load_text(tmp_path, monkeypatch, "rules:\n  tool.not_in_skill: {default: flag}\n")
+    assert get_policy().rules["tool.not_in_skill"] == Rule("flag", None)

@@ -1,0 +1,13 @@
+# A gateway call within the window continues the /v1 row and copies its audit_id.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: correlation
+expect: {dev: allow}
+outcome: {dev: ok}
+rule: sql.read
+prior: {user: same, name: harness_stub__query, arguments: '{"sql":"SELECT 1"}', age_seconds: 10, audit: true}
+linked: true
+e2e: false
+note: 'PRD Section 11: the following gateway call within the window carries the /v1 row''s audit_id and linked_decision_id.'

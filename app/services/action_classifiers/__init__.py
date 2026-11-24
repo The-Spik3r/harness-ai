@@ -75,6 +75,8 @@ RuleId = Literal[
     "tool.unknown",
     "tool.opaque",
     "tool.malformed",
+    # PRD-023 D7: appended, so every earlier position and the RULE_IDS order hold.
+    "tool.not_in_skill",
 ]
 
 # The tuple forms, for validators that enumerate the closed vocabularies in
@@ -84,8 +86,8 @@ RULE_IDS: tuple[str, ...] = get_args(RuleId)
 OPERATION_KINDS: tuple[str, ...] = get_args(OperationKind)
 DECISIONS: tuple[str, ...] = get_args(Decision)
 
-#: The ten deny rules no role can lift (PRD-016 T5, Section 6.3's closing
-#: paragraph): a policy file that adds a `grant` to any of them is refused at
+#: The eleven deny rules no role can lift (PRD-016 T5, Section 6.3's closing
+#: paragraph; the eleventh, `tool.not_in_skill`, is PRD-023 D7): a policy file that adds a `grant` to any of them is refused at
 #: startup (STORY-007). Their `default` can still be changed in the file,
 #: visibly, where an auditor will see it. In Section 6.3 order.
 NON_GRANTABLE_RULES: frozenset[RuleId] = frozenset(
@@ -100,6 +102,7 @@ NON_GRANTABLE_RULES: frozenset[RuleId] = frozenset(
         "net.unparsed",
         "tool.unknown",
         "tool.malformed",
+        "tool.not_in_skill",
     }
 )
 

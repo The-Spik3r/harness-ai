@@ -1,0 +1,10 @@
+# A skill tool the upstream does not list is not callable.
+tool_call:
+  name: stub__nope
+  arguments: '{}'
+server: stub
+category: visibility
+expect: {dev: deny, dba: deny}
+outcome: {dev: null, dba: null}
+rule: tool.not_in_skill
+note: 'The skill names stub__nope; the stub has no such tool, so it is not in the catalogue.'

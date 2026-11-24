@@ -11,7 +11,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import (
     Any,
@@ -42,6 +42,7 @@ from app.db.models import (
     AUDIT_LOGS_ADDED_COLUMNS,
     CHAT_MESSAGES_ADDED_COLUMNS,
     CREATE_ACTION_DECISIONS_AUDIT_INDEX,
+    CREATE_ACTION_DECISIONS_LINK_INDEX,
     CREATE_ACTION_DECISIONS_TABLE,
     CREATE_ACTION_DECISIONS_USER_TS_INDEX,
     CREATE_ACTION_DECISIONS_WRITE_ID_INDEX,
@@ -1503,6 +1504,8 @@ def init_db() -> None:
         conn.execute(CREATE_ACTION_DECISIONS_USER_TS_INDEX)
         conn.execute(CREATE_ACTION_DECISIONS_AUDIT_INDEX)
         conn.execute(CREATE_ACTION_DECISIONS_WRITE_ID_INDEX)
+        # PRD-023 STORY-008: after the added-columns pass (it indexes a new column).
+        conn.execute(CREATE_ACTION_DECISIONS_LINK_INDEX)
 
 
 def _add_missing_columns(
@@ -3424,8 +3427,12 @@ def _insert_action_decision_rows(
                 timestamp, audit_id, session_id, user_id, role,
                 tool_call_id, tool_name, operation_kind, target_preview,
                 arguments_hash, arguments_preview, decision, rule, reason,
-                granted_by, classifications, policy_digest, write_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                granted_by, classifications, policy_digest, write_id,
+                surface, mcp_server, skills, arguments_canonical_hash,
+                linked_decision_id, outcome, duration_ms, result_bytes,
+                result_hash, result_flags, mcp_config_digest
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             + (_ON_WRITE_ID_CONFLICT if keyed else ""),
             (
@@ -3447,6 +3454,17 @@ def _insert_action_decision_rows(
                 row.classifications,
                 row.policy_digest,
                 row.write_id,
+                row.surface,
+                row.mcp_server,
+                row.skills,
+                row.arguments_canonical_hash,
+                row.linked_decision_id,
+                row.outcome,
+                row.duration_ms,
+                row.result_bytes,
+                row.result_hash,
+                row.result_flags,
+                row.mcp_config_digest,
             ),
         )
         if keyed:
@@ -3559,6 +3577,17 @@ def _row_to_action_decision_row(row: Mapping[str, Any]) -> ActionDecisionRow:
         classifications=row["classifications"],
         policy_digest=row["policy_digest"],
         write_id=row["write_id"],
+        surface=row["surface"],
+        mcp_server=row["mcp_server"],
+        skills=row["skills"],
+        arguments_canonical_hash=row["arguments_canonical_hash"],
+        linked_decision_id=row["linked_decision_id"],
+        outcome=row["outcome"],
+        duration_ms=row["duration_ms"],
+        result_bytes=row["result_bytes"],
+        result_hash=row["result_hash"],
+        result_flags=row["result_flags"],
+        mcp_config_digest=row["mcp_config_digest"],
     )
 
 
@@ -3567,6 +3596,10 @@ def list_action_decisions(
     user_id: Optional[str] = None,
     decision: Optional[str] = None,
     audit_id: Optional[int] = None,
+    surface: Optional[str] = None,
+    mcp_server: Optional[str] = None,
+    outcome: Optional[str] = None,
+    linked: Optional[bool] = None,
 ) -> list[ActionDecisionRow]:
     """The most recent action decisions, newest first (PRD-016 F10).
 
@@ -3582,6 +3615,13 @@ def list_action_decisions(
     row. `audit_id` (PRD-017 Section 10) is one request's decisions, by its
     `audit_logs.id`; `idx_action_decisions_audit` serves it, and the router
     rejects a non-integer, zero or negative value with 422.
+
+    PRD-023 D21 / STORY-017 add `surface`, `mcp_server` and `outcome` (each an
+    equality, unknown value = no row) and `linked`, all ANDed with the rest:
+    `linked=True` is rows carrying a `linked_decision_id`; `linked=False` is
+    gateway rows with none (PRD 6.8: an unlinked gateway call is a first-class
+    filter), so `/v1` rows are excluded from it by design. `None` means no
+    filter, tested with `is`, never by truthiness.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -3594,6 +3634,19 @@ def list_action_decisions(
     if audit_id is not None:
         clauses.append("audit_id = ?")
         params.append(audit_id)
+    if surface is not None:
+        clauses.append("surface = ?")
+        params.append(surface)
+    if mcp_server is not None:
+        clauses.append("mcp_server = ?")
+        params.append(mcp_server)
+    if outcome is not None:
+        clauses.append("outcome = ?")
+        params.append(outcome)
+    if linked is True:
+        clauses.append("linked_decision_id IS NOT NULL")
+    elif linked is False:
+        clauses.append("(surface = 'mcp' AND linked_decision_id IS NULL)")
     where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     params.append(limit)
 
@@ -3605,6 +3658,195 @@ def list_action_decisions(
         return [_row_to_action_decision_row(row) for row in rows]
 
     return _unit_of_work("list_action_decisions", StatementKind.READ, _op)
+
+
+def update_action_outcome(
+    row_id: int,
+    outcome: str,
+    duration_ms: Optional[int],
+    result_bytes: Optional[int],
+    result_hash: Optional[str],
+    result_flags_json: Optional[str],
+) -> None:
+    """Record what a forwarded gateway call came to, on its decision row (PRD-023 D21).
+
+    One UPDATE of the five outcome columns, `WHERE id = ?`. IDEMPOTENT: the same
+    values written twice are the same row, so an infra retry is safe. An unknown
+    `row_id` updates nothing and is not an error. The caller
+    (`action_audit.record_outcome`) validates `outcome` and never lets a failure
+    reach the response path; this layer stays a plain write.
+    """
+
+    def _op(conn: _Connection) -> None:
+        conn.execute(
+            "UPDATE action_decisions SET outcome = ?, duration_ms = ?, "
+            "result_bytes = ?, result_hash = ?, result_flags = ? WHERE id = ?",
+            (outcome, duration_ms, result_bytes, result_hash, result_flags_json, row_id),
+        )
+
+    _unit_of_work("update_action_outcome", StatementKind.IDEMPOTENT, _op)
+
+
+#: The link rule of PRD-023 M7, shared by the read (`find_linkable_v1_decision`)
+#: and the claim (`insert_mcp_decision_linked`) so the two cannot drift. Rows
+#: are aliased `v`; `{placeholders}` is the candidate-name list. Parameters, in
+#: order: user_id, server, names..., arguments_canonical_hash, since.
+_LINKABLE_V1_CONDITION = """v.user_id = ? AND v.surface = 'v1' AND v.mcp_server = ?
+              AND v.tool_name IN ({placeholders})
+              AND v.arguments_canonical_hash = ?
+              AND v.decision IN ('allow', 'flag')
+              AND v.timestamp >= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM action_decisions l
+                  WHERE l.linked_decision_id = v.id
+              )"""
+
+
+def _link_since(window_seconds: int, now: Optional[datetime]) -> str:
+    """The oldest `timestamp` a `/v1` row may carry and still be linked, as TEXT."""
+    current = now if now is not None else datetime.now(timezone.utc)
+    return (current - timedelta(seconds=window_seconds)).strftime(_TIMESTAMP_FORMAT)
+
+
+def insert_mcp_decision_linked(
+    row: ActionDecisionRow,
+    candidate_names: Sequence[str],
+    window_seconds: int,
+    *,
+    now: Optional[datetime] = None,
+) -> int:
+    """Insert one gateway row, claiming the `/v1` alias row it continues (PRD-023 M7, D21).
+
+    One statement, so the lookup and the claim are atomic: `INSERT ... SELECT`
+    reads the newest row meeting `_LINKABLE_V1_CONDITION` (the caller's, for
+    `row.mcp_server`, a name in `candidate_names`, `row.arguments_canonical_hash`,
+    within `window_seconds`, not already some row's `linked_decision_id`) and
+    writes `linked_decision_id = its id` and `audit_id = its audit_id` on the
+    new row. The new row commits only if the claim holds: write transactions
+    are serialised, so a second call sees the first's row as claimed and one
+    alias row is linked at most once. The `LEFT JOIN` keeps the insert when
+    nothing matches (both fields stay as `row` carries them); `WHERE true`
+    ends the select before `ON CONFLICT` (SQLite's parsing ambiguity). A
+    replay of a landed `write_id` meets the conflict and reads its original
+    id back (`_keyed_row_id`). `row.write_id` is required; the unit is
+    `IDEMPOTENT`. No candidate names (an unconfigured server) is a plain
+    keyed insert: no claim is attempted.
+    """
+    if row.write_id is None:
+        raise ValueError("insert_mcp_decision_linked requires a keyed row (write_id)")
+    names = list(candidate_names)
+    if not names or row.mcp_server is None or row.arguments_canonical_hash is None:
+        return insert_action_decisions([row])[0]
+    since = _link_since(window_seconds, now)
+    placeholders = ", ".join("?" for _ in names)
+
+    def _op(conn: _Connection) -> int:
+        cursor = conn.execute(
+            f"""
+            INSERT INTO action_decisions (
+                timestamp, audit_id, session_id, user_id, role,
+                tool_call_id, tool_name, operation_kind, target_preview,
+                arguments_hash, arguments_preview, decision, rule, reason,
+                granted_by, classifications, policy_digest, write_id,
+                surface, mcp_server, skills, arguments_canonical_hash,
+                linked_decision_id, outcome, duration_ms, result_bytes,
+                result_hash, result_flags, mcp_config_digest
+            )
+            SELECT ?, COALESCE(c.audit_id, ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?, ?, ?, ?, c.id, ?, ?, ?, ?, ?, ?
+            FROM (SELECT 1) one
+            LEFT JOIN (
+                SELECT v.id, v.audit_id FROM action_decisions v
+                WHERE {_LINKABLE_V1_CONDITION.format(placeholders=placeholders)}
+                ORDER BY v.id DESC
+                LIMIT 1
+            ) c ON 1
+            WHERE true
+            """
+            + _ON_WRITE_ID_CONFLICT,
+            (
+                row.timestamp,
+                row.audit_id,
+                row.session_id,
+                row.user_id,
+                row.role,
+                row.tool_call_id,
+                row.tool_name,
+                row.operation_kind,
+                row.target_preview,
+                row.arguments_hash,
+                row.arguments_preview,
+                row.decision,
+                row.rule,
+                row.reason,
+                row.granted_by,
+                row.classifications,
+                row.policy_digest,
+                row.write_id,
+                row.surface,
+                row.mcp_server,
+                row.skills,
+                row.arguments_canonical_hash,
+                row.outcome,
+                row.duration_ms,
+                row.result_bytes,
+                row.result_hash,
+                row.result_flags,
+                row.mcp_config_digest,
+                row.user_id,
+                row.mcp_server,
+                *names,
+                row.arguments_canonical_hash,
+                since,
+            ),
+        )
+        return _keyed_row_id(conn, "action_decisions", cursor, row.write_id)
+
+    return _unit_of_work("insert_mcp_decision_linked", StatementKind.IDEMPOTENT, _op)
+
+
+def find_linkable_v1_decision(
+    user_id: str,
+    server: str,
+    tool_names: Sequence[str],
+    arguments_canonical_hash: str,
+    window_seconds: int,
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[ActionDecisionRow]:
+    """The newest unclaimed `/v1` alias decision a gateway call may link to (PRD-023 M7).
+
+    A row qualifies when it is the caller's, `surface = 'v1'`, for `server`,
+    with a `tool_name` in `tool_names` (the exact candidate names, alias prefix
+    included: alias rows keep the raw `/v1` name the model emitted) and the same
+    `arguments_canonical_hash`, was allowed or flagged (a deny never ran), is no
+    older than `window_seconds`, and is not already some row's
+    `linked_decision_id`. Newest first by `id`, never by the second-resolution
+    timestamp. An empty `tool_names` returns None without a query.
+
+    The window is computed here and compared as TEXT, as `find_duplicate_timestamp`
+    does; `now` is injectable so tests need no sleeps. Read-only: claiming the
+    row (two calls matching one) is the caller's to close (STORY-016).
+    """
+    names = list(tool_names)
+    if not names:
+        return None
+    since = _link_since(window_seconds, now)
+    placeholders = ", ".join("?" for _ in names)
+
+    def _op(conn: _Connection) -> Optional[ActionDecisionRow]:
+        row = conn.execute(
+            f"""
+            SELECT * FROM action_decisions v
+            WHERE {_LINKABLE_V1_CONDITION.format(placeholders=placeholders)}
+            ORDER BY v.id DESC
+            LIMIT 1
+            """,
+            (user_id, server, *names, arguments_canonical_hash, since),
+        ).fetchone()
+        return _row_to_action_decision_row(row) if row is not None else None
+
+    return _unit_of_work("find_linkable_v1_decision", StatementKind.READ, _op)
 
 
 def count_action_decisions() -> dict[str, int]:

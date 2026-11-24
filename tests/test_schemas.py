@@ -250,6 +250,15 @@ def test_actions_response_shape():
                     {"rule": "sql.ddl", "kind": "sql", "detail": "DROP"}
                 ],
                 "policy_digest": "sha256:3f1c",
+                # PRD-023 D21 / STORY-017: the gateway fields, at their /v1 defaults.
+                "surface": "v1",
+                "mcp_server": None,
+                "skills": None,
+                "linked_decision_id": None,
+                "outcome": None,
+                "duration_ms": None,
+                "result_bytes": None,
+                "result_flags": None,
             }
         ]
     }

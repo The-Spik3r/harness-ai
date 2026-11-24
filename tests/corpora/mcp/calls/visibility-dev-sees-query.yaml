@@ -1,0 +1,10 @@
+# dev holds the skill and sees query; user does not.
+tool_call:
+  name: stub__query
+  arguments: '{"sql":"SELECT 1"}'
+server: stub
+category: visibility
+expect: {user: deny, dev: allow}
+outcome: {user: null, dev: ok}
+rule: {user: tool.not_in_skill, dev: sql.read}
+note: 'The same call is unknown for user and allowed for dev.'
